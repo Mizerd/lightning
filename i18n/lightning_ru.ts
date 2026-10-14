@@ -734,7 +734,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5921"/>
+        <location filename="../src/app/AppController.cpp" line="+5955"/>
         <source>Room invitation</source>
         <translation>Приглашение в комнату</translation>
     </message>
@@ -749,7 +749,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Вас пригласили в %1</translation>
     </message>
     <message>
-        <location line="-4667"/>
+        <location line="-4699"/>
         <source>Incoming voice call</source>
         <translation>Входящий голосовой вызов</translation>
     </message>
@@ -790,7 +790,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Вы пропустили голосовой вызов в %1</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+559"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Комната создана, но добавить её в пространство не удалось.</translation>
     </message>
@@ -822,13 +822,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+3328"/>
+        <location line="+3359"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-4095"/>
+        <location line="-4126"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -889,40 +889,55 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2116"/>
+        <location line="+2147"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning не смог прочитать выбранный файл.</translation>
     </message>
     <message>
-        <location line="-2122"/>
+        <location line="-2153"/>
         <source>A room-key import is already in progress.</source>
         <translation>Импорт ключей комнат уже выполняется.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3027"/>
+        <location line="+3058"/>
         <source>Not signed in.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-3025"/>
+        <location line="-3056"/>
         <source>Room-key import failed.</source>
         <translation>Не удалось импортировать ключи комнат.</translation>
     </message>
     <message>
-        <location line="-2250"/>
-        <location line="+2366"/>
+        <location line="+1546"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>Введите ограничение размера от 1 до 2000 МБ.</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>Введите число сообщений от 1 до 100 000.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>Используйте реальные даты в формате YYYY-MM-DD; дата «С» не должна быть позже даты «По».</translation>
+    </message>
+    <message>
+        <location line="-3820"/>
+        <location line="+2367"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2365"/>
+        <location line="-2366"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Это тестовое уведомление. Если вы его видите, уведомления на рабочем столе работают.</translation>
     </message>
     <message>
-        <location line="+2366"/>
+        <location line="+2367"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Это уведомление относилось к другой учётной записи, поэтому ничего не отправлено. Переключитесь обратно на эту учётную запись и повторите попытку.</translation>
     </message>
@@ -983,14 +998,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1204"/>
+        <location line="+1235"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>В этой сборке нет бэкенда Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1224"/>
+        <location line="-1255"/>
         <source>Choose a local image file.</source>
         <translation>Выберите локальный файл изображения.</translation>
     </message>
@@ -1034,27 +1049,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Не удалось сохранить значок.</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+312"/>
+        <location line="+50"/>
         <source>No room is open.</source>
         <translation>Комната не открыта.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-48"/>
         <source>Choose a file on this computer.</source>
         <translation>Выберите файл на этом компьютере.</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Could not write that file.</source>
-        <translation>Не удалось записать этот файл.</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Could not finish writing that file.</source>
-        <translation>Не удалось завершить запись этого файла.</translation>
-    </message>
-    <message>
-        <location line="+166"/>
+        <location line="+207"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Не удалось загрузить изображение (%1).</translation>
     </message>
@@ -6535,18 +6541,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
-        <location line="+20"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+137"/>
+        <location line="+26"/>
         <source>Export room</source>
         <translation>Экспорт комнаты</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-24"/>
         <source>JSON (*.json)</source>
         <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+2"/>
         <location line="+1"/>
         <source>All files (*)</source>
         <translation>Все файлы (*)</translation>
@@ -6557,52 +6564,218 @@ Signing out and signing in again is the only fix.</source>
         <translation>Текст (*.txt)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+132"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation>Будет экспортировано 1 сообщение, которое Lightning загрузил для %1. Сначала прокрутите дальше назад, чтобы включить больше. Вложения не включаются.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
         <translation>Будет экспортировано сообщений: %1, которые Lightning загрузил для %2. Сначала прокрутите дальше назад, чтобы включить больше. Вложения не включаются.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-95"/>
         <source>Text</source>
         <translation>Текст</translation>
     </message>
     <message>
+        <location line="-125"/>
+        <location line="+2"/>
+        <source>Loaded messages</source>
+        <translation>Загруженные сообщения</translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Latest messages</source>
+        <translation>Последние сообщения</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>From the beginning</source>
+        <translation>С самого начала</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Between dates</source>
+        <translation>Между датами</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>Введите число сообщений от 1 до 100 000.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>Используйте реальные даты в формате YYYY-MM-DD; дата «С» не должна быть позже даты «По».</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>Введите ограничение размера от 1 до 2000 МБ.</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Web page (*.html)</source>
+        <translation>Веб-страница (*.html)</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Format</source>
+        <translation>Формат</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+8"/>
+        <source>Messages</source>
+        <translation>Сообщения</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Messages to export</source>
+        <translation>Какие сообщения экспортировать</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Number of messages</source>
+        <translation>Число сообщений</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Number of latest messages to export</source>
+        <translation>Сколько последних сообщений экспортировать</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From YYYY-MM-DD</source>
+        <translation>С YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages from this date</source>
+        <translation>Экспортировать сообщения начиная с этой даты</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>To YYYY-MM-DD</source>
+        <translation>По YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages up to and including this date</source>
+        <translation>Экспортировать сообщения до этой даты включительно</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Reads the latest messages of %1 from the server. A large number can take a while.</source>
+        <translation>Читает с сервера последние сообщения в «%1». Большое число может занять некоторое время.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reads every message of %1 from the start of the history this account can see. In a large room this can take a long time.</source>
+        <translation>Читает все сообщения в «%1» с начала истории, доступной этой учётной записи. В большой комнате это может занять много времени.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Reads the messages of %1 between two dates. Either date may be left empty.</source>
+        <translation>Читает сообщения в «%1» между двумя датами. Любую из дат можно оставить пустой.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more.</source>
+        <translation>Экспортирует 1 сообщение, загруженное Lightning для «%1». Чтобы включить больше, сначала прокрутите историю дальше назад.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more.</source>
+        <translation>Экспортирует сообщения, загруженные Lightning для «%2»: %1. Чтобы включить больше, сначала прокрутите историю дальше назад.</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Include attachments</source>
+        <translation>Включить вложения</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Size limit</source>
+        <translation>Ограничение размера</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Size limit for attachments, in megabytes</source>
+        <translation>Ограничение размера вложений в мегабайтах</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MB</source>
+        <translation>МБ</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Attachments are embedded in the file until the size limit is reached; the rest are listed by name. SVG images are never embedded.</source>
+        <translation>Вложения встраиваются в файл, пока не достигнуто ограничение размера; остальные перечисляются по имени. SVG-изображения никогда не встраиваются.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Attachments are listed by name, without their contents.</source>
+        <translation>Вложения перечисляются по имени, без их содержимого.</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
         <translation>Эта комната зашифрована. Lightning хранит её сообщения в памяти и никогда не записывает их на диск.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
+        <source>Write the message text and attachments (photos, files) into this file in the clear</source>
+        <translation>Записать текст сообщений и вложения (фото, файлы) в этот файл в открытом виде</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Write the message text into this file in the clear</source>
         <translation>Записать текст сообщений в этот файл открытым текстом</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Anyone who can read the file can read the conversation and open its photos and files. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
+        <translation>Любой, кто может прочитать файл, сможет прочитать переписку и открыть её фото и файлы. Файл не зашифрован, а резервные копии, синхронизируемые папки и общие диски копируют его как любой другой файл.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
         <translation>Любой, кто может прочитать файл, сможет прочитать переписку. Он не зашифрован, и резервные копии, папки синхронизации и общие диски копируют его как любой другой файл.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Without this, the export lists who sent what and when, with each message&apos;s text and attachments withheld.</source>
+        <translation>Без этого в экспорте указано, кто что и когда отправил, а текст и вложения каждого сообщения скрыты.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
         <translation>Без этого в экспорте будет указано, кто что и когда отправил, а текст каждого сообщения будет скрыт.</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+48"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+0"/>
+        <source>Cancel export</source>
+        <translation>Отменить экспорт</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Choose file…</source>
         <translation>Выбрать файл…</translation>
     </message>
@@ -10197,12 +10370,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1134"/>
+        <location line="+1160"/>
         <source>Reply</source>
         <translation>Ответить</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>(original message not loaded)</source>
         <translation>(исходное сообщение не загружено)</translation>
     </message>
@@ -10298,29 +10471,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2370"/>
+        <location line="+2396"/>
         <source>Retry</source>
         <translation>Повторить</translation>
     </message>
     <message>
-        <location line="-2340"/>
-        <location line="+1189"/>
+        <location line="-2366"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-1184"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>Отменить отправку этого сообщения</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1386"/>
+        <location line="+1412"/>
         <source>Hide image</source>
         <translation>Скрыть изображение</translation>
     </message>
     <message>
-        <location line="-1382"/>
+        <location line="-1408"/>
         <source>Hide</source>
         <translation>Скрыть</translation>
     </message>
@@ -10431,14 +10604,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Прочитано %1, %2 и ещё %3</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+479"/>
         <source>Message · %1 · %2</source>
         <translation>Сообщение · %1 · %2</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1013"/>
         <location line="+4"/>
-        <location line="+1113"/>
+        <location line="+1139"/>
         <source>Reply in thread</source>
         <translation>Ответить в обсуждении</translation>
     </message>
@@ -10550,13 +10723,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>Повторить</translation>
     </message>
     <message>
-        <location line="-3683"/>
-        <location line="+1364"/>
+        <location line="-3709"/>
+        <location line="+1390"/>
         <source>Edit</source>
         <translation>Изменить</translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3876"/>
         <source>%1 B</source>
         <translation>%1 Б</translation>
     </message>
@@ -10597,12 +10770,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4219"/>
+        <location line="+4245"/>
         <source>Image</source>
         <translation>Изображение</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4794"/>
         <source>Attachment</source>
         <translation>Вложение</translation>
     </message>
@@ -10635,7 +10808,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>(изменено)</translation>
     </message>
     <message>
-        <location line="+1572"/>
+        <location line="+1598"/>
         <source>Add :%1: to my emoji</source>
         <translation>Добавить :%1: в мои смайлики</translation>
     </message>
@@ -10759,12 +10932,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Цель ответа</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2012"/>
         <source>Show preview</source>
         <translation>Показать предпросмотр</translation>
     </message>
     <message>
-        <location line="+1802"/>
+        <location line="+1828"/>
         <source>Remove edits?</source>
         <translation>Удалить правки?</translation>
     </message>
@@ -10885,10 +11058,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>Не удалось загрузить стикер — нажмите, чтобы повторить</translation>
     </message>
     <message>
-        <location line="-5603"/>
+        <location line="-5629"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4217"/>
+        <location line="+4243"/>
         <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
@@ -10900,9 +11073,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>видео</translation>
     </message>
     <message>
-        <location line="-5886"/>
+        <location line="-5912"/>
         <location line="+554"/>
-        <location line="+4327"/>
+        <location line="+4353"/>
         <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
@@ -13948,6 +14121,97 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomExportController</name>
+    <message>
+        <location filename="../src/models/RoomExportController.cpp" line="+181"/>
+        <source>An export is already running.</source>
+        <translation>Экспорт уже выполняется.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No room is open.</source>
+        <translation>Ни одна комната не открыта.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Choose a file on this computer.</source>
+        <translation>Выберите файл на этом компьютере.</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>This account cannot read room history for an export.</source>
+        <translation>Эта учётная запись не может прочитать историю комнаты для экспорта.</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Could not start reading the room&apos;s history.</source>
+        <translation>Не удалось начать чтение истории комнаты.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reading the room&apos;s history…</source>
+        <translation>Чтение истории комнаты…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Fetched %1 of %2 messages…</source>
+        <translation>Получено сообщений: %1 из %2…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fetched %1 messages…</source>
+        <translation>Получено сообщений: %1…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Could not read the room&apos;s history. Try again later.</source>
+        <translation>Не удалось прочитать историю комнаты. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <location line="+33"/>
+        <location line="+91"/>
+        <location line="+50"/>
+        <location line="+27"/>
+        <location line="+10"/>
+        <source>Could not write that file.</source>
+        <translation>Не удалось записать этот файл.</translation>
+    </message>
+    <message>
+        <location line="-190"/>
+        <location line="+7"/>
+        <source>Writing the file…</source>
+        <translation>Запись файла…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+5"/>
+        <location line="+173"/>
+        <source>Could not finish writing that file.</source>
+        <translation>Не удалось завершить запись этого файла.</translation>
+    </message>
+    <message>
+        <location line="-112"/>
+        <source>Downloading attachments %1 of %2…</source>
+        <translation>Загрузка вложений: %1 из %2…</translation>
+    </message>
+    <message>
+        <location line="+149"/>
+        <source>Exported 1 message.</source>
+        <translation>Экспортировано 1 сообщение.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Exported %1 messages.</source>
+        <translation>Экспортировано сообщений: %1.</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Export cancelled. No file was written.</source>
+        <translation>Экспорт отменён. Файл не записан.</translation>
+    </message>
+</context>
+<context>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
@@ -14731,7 +14995,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomKeyExportController</name>
     <message>
-        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+262"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
         <translation>Экспорт завершён, но у этого сеанса пока нет ключей комнат, поэтому файл их не содержит.</translation>
     </message>

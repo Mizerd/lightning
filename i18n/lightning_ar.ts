@@ -750,7 +750,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5921"/>
+        <location filename="../src/app/AppController.cpp" line="+5955"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -765,7 +765,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>تمت دعوتك إلى %1</translation>
     </message>
     <message>
-        <location line="-4667"/>
+        <location line="-4699"/>
         <source>Incoming voice call</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
@@ -806,7 +806,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>فاتتك مكالمة صوتية في %1</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+559"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>أُنشئت الغرفة، لكن تعذّرت إضافتها إلى الفضاء.</translation>
     </message>
@@ -838,13 +838,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+3328"/>
+        <location line="+3359"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-4095"/>
+        <location line="-4126"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -905,40 +905,55 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2116"/>
+        <location line="+2147"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-2122"/>
+        <location line="-2153"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3027"/>
+        <location line="+3058"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3025"/>
+        <location line="-3056"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
     <message>
-        <location line="-2250"/>
-        <location line="+2366"/>
+        <location line="+1546"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>أدخل حدًّا للحجم من 1 إلى 2000 ميغابايت.</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>أدخل عددًا من الرسائل من 1 إلى 100,000.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
+    </message>
+    <message>
+        <location line="-3820"/>
+        <location line="+2367"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2365"/>
+        <location line="-2366"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
     <message>
-        <location line="+2366"/>
+        <location line="+2367"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>كان ذلك الإشعار لحساب آخر، فلم يُرسَل شيء. عُد إلى ذلك الحساب وحاول مجددًا.</translation>
     </message>
@@ -999,14 +1014,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1204"/>
+        <location line="+1235"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>هذه النسخة لا تتضمن خلفية Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1224"/>
+        <location line="-1255"/>
         <source>Choose a local image file.</source>
         <translation>اختر ملف صورة محلي.</translation>
     </message>
@@ -1050,27 +1065,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>تعذّر حفظ الأيقونة.</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+312"/>
+        <location line="+50"/>
         <source>No room is open.</source>
         <translation>لا توجد غرفة مفتوحة.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-48"/>
         <source>Choose a file on this computer.</source>
         <translation>اختر ملفًا على هذا الحاسوب.</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Could not write that file.</source>
-        <translation>تعذّرت كتابة ذلك الملف.</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Could not finish writing that file.</source>
-        <translation>تعذّر إنهاء كتابة ذلك الملف.</translation>
-    </message>
-    <message>
-        <location line="+166"/>
+        <location line="+207"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>تعذّر تحميل الصورة (%1).</translation>
     </message>
@@ -6571,18 +6577,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
-        <location line="+20"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+137"/>
+        <location line="+26"/>
         <source>Export room</source>
         <translation>تصدير الغرفة</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-24"/>
         <source>JSON (*.json)</source>
         <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+2"/>
         <location line="+1"/>
         <source>All files (*)</source>
         <translation>كل الملفات (*)</translation>
@@ -6593,52 +6600,218 @@ Signing out and signing in again is the only fix.</source>
         <translation>نص (*.txt)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+132"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation>يصدّر الرسالة الواحدة التي حمّلها Lightning لـ %1. مرّر إلى الخلف أكثر أولًا لتشمل المزيد. المرفقات غير مشمولة.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
         <translation>يصدّر %1 من الرسائل التي حمّلها Lightning لـ %2. مرّر إلى الخلف أكثر أولًا لتشمل المزيد. المرفقات غير مشمولة.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-95"/>
         <source>Text</source>
         <translation>نص</translation>
     </message>
     <message>
+        <location line="-125"/>
+        <location line="+2"/>
+        <source>Loaded messages</source>
+        <translation>الرسائل المحمّلة</translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Latest messages</source>
+        <translation>أحدث الرسائل</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>From the beginning</source>
+        <translation>من البداية</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Between dates</source>
+        <translation>بين تاريخين</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>أدخل عددًا من الرسائل من 1 إلى 100,000.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>أدخل حدًّا للحجم من 1 إلى 2000 ميغابايت.</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Web page (*.html)</source>
+        <translation>صفحة ويب (*.html)</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Format</source>
+        <translation>الصيغة</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+8"/>
+        <source>Messages</source>
+        <translation>الرسائل</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Messages to export</source>
+        <translation>الرسائل المراد تصديرها</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Number of messages</source>
+        <translation>عدد الرسائل</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Number of latest messages to export</source>
+        <translation>عدد أحدث الرسائل المراد تصديرها</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From YYYY-MM-DD</source>
+        <translation>من YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages from this date</source>
+        <translation>تصدير الرسائل من هذا التاريخ</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>To YYYY-MM-DD</source>
+        <translation>إلى YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages up to and including this date</source>
+        <translation>تصدير الرسائل حتى هذا التاريخ ضمنًا</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Reads the latest messages of %1 from the server. A large number can take a while.</source>
+        <translation>يقرأ أحدث رسائل %1 من الخادم. قد يستغرق العدد الكبير بعض الوقت.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reads every message of %1 from the start of the history this account can see. In a large room this can take a long time.</source>
+        <translation>يقرأ كل رسائل %1 منذ بداية السجل الذي يستطيع هذا الحساب رؤيته. في الغرف الكبيرة قد يستغرق ذلك وقتًا طويلًا.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Reads the messages of %1 between two dates. Either date may be left empty.</source>
+        <translation>يقرأ رسائل %1 بين تاريخين. يمكن ترك أي من التاريخين فارغًا.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more.</source>
+        <translation>يصدّر الرسالة الواحدة التي حمّلها Lightning للغرفة %1. مرّر إلى الخلف أكثر أولًا لتضمين المزيد.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more.</source>
+        <translation>يصدّر %1 من الرسائل التي حمّلها Lightning للغرفة %2. مرّر إلى الخلف أكثر أولًا لتضمين المزيد.</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Include attachments</source>
+        <translation>تضمين المرفقات</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Size limit</source>
+        <translation>حد الحجم</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Size limit for attachments, in megabytes</source>
+        <translation>حد حجم المرفقات بالميغابايت</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MB</source>
+        <translation>م.ب</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Attachments are embedded in the file until the size limit is reached; the rest are listed by name. SVG images are never embedded.</source>
+        <translation>تُضمَّن المرفقات في الملف حتى بلوغ حد الحجم، ويُكتفى بذكر أسماء الباقي. لا تُضمَّن صور SVG أبدًا.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Attachments are listed by name, without their contents.</source>
+        <translation>تُذكر المرفقات بأسمائها فقط، دون محتوياتها.</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
         <translation>هذه الغرفة معمّاة. يحتفظ Lightning برسائلها في الذاكرة ولا يكتبها على القرص أبدًا.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
+        <source>Write the message text and attachments (photos, files) into this file in the clear</source>
+        <translation>اكتب نص الرسائل والمرفقات (الصور والملفات) في هذا الملف دون تشفير</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Write the message text into this file in the clear</source>
         <translation>كتابة نص الرسائل في هذا الملف دون تعمية</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Anyone who can read the file can read the conversation and open its photos and files. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
+        <translation>يمكن لأي شخص يستطيع قراءة الملف قراءة المحادثة وفتح صورها وملفاتها. الملف غير مشفّر، وتنسخه النسخ الاحتياطية ومجلدات المزامنة والأقراص المشتركة كأي ملف آخر.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
         <translation>كل من يستطيع قراءة الملف يستطيع قراءة المحادثة. إنه غير معمّى، وتنسخه النسخ الاحتياطية ومجلدات المزامنة والأقراص المشتركة كأي ملف آخر.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Without this, the export lists who sent what and when, with each message&apos;s text and attachments withheld.</source>
+        <translation>بدون ذلك، يبيّن التصدير من أرسل ماذا ومتى، مع حجب نص كل رسالة ومرفقاتها.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
         <translation>بدون هذا، يسرد التصدير من أرسل ماذا ومتى، مع حجب نص كل رسالة.</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+48"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+0"/>
+        <source>Cancel export</source>
+        <translation>إلغاء التصدير</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Choose file…</source>
         <translation>اختيار ملف…</translation>
     </message>
@@ -10269,12 +10442,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1134"/>
+        <location line="+1160"/>
         <source>Reply</source>
         <translation>رد</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>(original message not loaded)</source>
         <translation>(الرسالة الأصلية غير محمّلة)</translation>
     </message>
@@ -10373,29 +10546,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2370"/>
+        <location line="+2396"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-2340"/>
-        <location line="+1189"/>
+        <location line="-2366"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1184"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>إلغاء إرسال هذه الرسالة</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1386"/>
+        <location line="+1412"/>
         <source>Hide image</source>
         <translation>إخفاء الصورة</translation>
     </message>
     <message>
-        <location line="-1382"/>
+        <location line="-1408"/>
         <source>Hide</source>
         <translation>إخفاء</translation>
     </message>
@@ -10506,14 +10679,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>قرأها %1 و%2 و%3 آخرون</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+479"/>
         <source>Message · %1 · %2</source>
         <translation>رسالة · %1 · %2</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1013"/>
         <location line="+4"/>
-        <location line="+1113"/>
+        <location line="+1139"/>
         <source>Reply in thread</source>
         <translation>الرد في خيط</translation>
     </message>
@@ -10625,13 +10798,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>حاول مجددًا</translation>
     </message>
     <message>
-        <location line="-3683"/>
-        <location line="+1364"/>
+        <location line="-3709"/>
+        <location line="+1390"/>
         <source>Edit</source>
         <translation>تحرير</translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3876"/>
         <source>%1 B</source>
         <translation>%1 ب</translation>
     </message>
@@ -10672,12 +10845,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4219"/>
+        <location line="+4245"/>
         <source>Image</source>
         <translation>صورة</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4794"/>
         <source>Attachment</source>
         <translation>مرفق</translation>
     </message>
@@ -10716,7 +10889,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>(معدّلة)</translation>
     </message>
     <message>
-        <location line="+1572"/>
+        <location line="+1598"/>
         <source>Add :%1: to my emoji</source>
         <translation>إضافة :%1: إلى رموزي التعبيرية</translation>
     </message>
@@ -10843,12 +11016,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>هدف الرد</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2012"/>
         <source>Show preview</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+1802"/>
+        <location line="+1828"/>
         <source>Remove edits?</source>
         <translation>إزالة التعديلات؟</translation>
     </message>
@@ -10969,10 +11142,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل تحميل الملصق — انقر لإعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-5603"/>
+        <location line="-5629"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4217"/>
+        <location line="+4243"/>
         <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
@@ -10984,9 +11157,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>فيديو</translation>
     </message>
     <message>
-        <location line="-5886"/>
+        <location line="-5912"/>
         <location line="+554"/>
-        <location line="+4327"/>
+        <location line="+4353"/>
         <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
@@ -14053,6 +14226,97 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomExportController</name>
+    <message>
+        <location filename="../src/models/RoomExportController.cpp" line="+181"/>
+        <source>An export is already running.</source>
+        <translation>هناك تصدير قيد التنفيذ بالفعل.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No room is open.</source>
+        <translation>لا توجد غرفة مفتوحة.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Choose a file on this computer.</source>
+        <translation>اختر ملفًا على هذا الحاسوب.</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>This account cannot read room history for an export.</source>
+        <translation>لا يستطيع هذا الحساب قراءة سجل الغرفة من أجل التصدير.</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Could not start reading the room&apos;s history.</source>
+        <translation>تعذّر بدء قراءة سجل الغرفة.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reading the room&apos;s history…</source>
+        <translation>جارٍ قراءة سجل الغرفة…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Fetched %1 of %2 messages…</source>
+        <translation>تم جلب %1 من %2 رسالة…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fetched %1 messages…</source>
+        <translation>تم جلب %1 من الرسائل…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Could not read the room&apos;s history. Try again later.</source>
+        <translation>تعذّرت قراءة سجل الغرفة. حاول مرة أخرى لاحقًا.</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <location line="+33"/>
+        <location line="+91"/>
+        <location line="+50"/>
+        <location line="+27"/>
+        <location line="+10"/>
+        <source>Could not write that file.</source>
+        <translation>تعذّرت كتابة هذا الملف.</translation>
+    </message>
+    <message>
+        <location line="-190"/>
+        <location line="+7"/>
+        <source>Writing the file…</source>
+        <translation>جارٍ كتابة الملف…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+5"/>
+        <location line="+173"/>
+        <source>Could not finish writing that file.</source>
+        <translation>تعذّر إكمال كتابة هذا الملف.</translation>
+    </message>
+    <message>
+        <location line="-112"/>
+        <source>Downloading attachments %1 of %2…</source>
+        <translation>جارٍ تنزيل المرفقات %1 من %2…</translation>
+    </message>
+    <message>
+        <location line="+149"/>
+        <source>Exported 1 message.</source>
+        <translation>تم تصدير رسالة واحدة.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Exported %1 messages.</source>
+        <translation>تم تصدير %1 من الرسائل.</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Export cancelled. No file was written.</source>
+        <translation>أُلغي التصدير. لم يُكتب أي ملف.</translation>
+    </message>
+</context>
+<context>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
@@ -14839,7 +15103,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomKeyExportController</name>
     <message>
-        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+262"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
         <translation>انتهى التصدير، لكن هذه الجلسة لا تحمل مفاتيح غرف بعد، فلا يحتوي الملف على أي منها.</translation>
     </message>

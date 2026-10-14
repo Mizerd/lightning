@@ -722,7 +722,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5921"/>
+        <location filename="../src/app/AppController.cpp" line="+5955"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -737,7 +737,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>你被邀请加入 %1</translation>
     </message>
     <message>
-        <location line="-4667"/>
+        <location line="-4699"/>
         <source>Incoming voice call</source>
         <translation>语音来电</translation>
     </message>
@@ -778,7 +778,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>你错过了 %1 中的一通语音通话</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+559"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>房间已创建，但未能将其添加到空间。</translation>
     </message>
@@ -810,13 +810,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+3328"/>
+        <location line="+3359"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-4095"/>
+        <location line="-4126"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -877,40 +877,55 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2116"/>
+        <location line="+2147"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-2122"/>
+        <location line="-2153"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3027"/>
+        <location line="+3058"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-3025"/>
+        <location line="-3056"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
     <message>
-        <location line="-2250"/>
-        <location line="+2366"/>
+        <location line="+1546"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>请输入 1 到 2000 MB 之间的大小限制。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>请输入 1 到 100,000 之间的消息数量。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
+    </message>
+    <message>
+        <location line="-3820"/>
+        <location line="+2367"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2365"/>
+        <location line="-2366"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
     <message>
-        <location line="+2366"/>
+        <location line="+2367"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>该通知属于另一个账号，因此未发送。请切换回该账号后重试。</translation>
     </message>
@@ -971,14 +986,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1204"/>
+        <location line="+1235"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>此版本不包含 Rust SDK 后端。</translation>
     </message>
     <message>
-        <location line="-1224"/>
+        <location line="-1255"/>
         <source>Choose a local image file.</source>
         <translation>请选择一个本地图片文件。</translation>
     </message>
@@ -1022,27 +1037,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>无法保存该图标。</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+312"/>
+        <location line="+50"/>
         <source>No room is open.</source>
         <translation>没有打开的房间。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-48"/>
         <source>Choose a file on this computer.</source>
         <translation>请选择此电脑上的一个文件。</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Could not write that file.</source>
-        <translation>无法写入该文件。</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Could not finish writing that file.</source>
-        <translation>无法完成该文件的写入。</translation>
-    </message>
-    <message>
-        <location line="+166"/>
+        <location line="+207"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>无法加载图片（%1）。</translation>
     </message>
@@ -6505,18 +6511,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
-        <location line="+20"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+137"/>
+        <location line="+26"/>
         <source>Export room</source>
         <translation>导出房间</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-24"/>
         <source>JSON (*.json)</source>
         <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+2"/>
         <location line="+1"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
@@ -6527,52 +6534,218 @@ Signing out and signing in again is the only fix.</source>
         <translation>文本 (*.txt)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+132"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation>将导出 Lightning 为 %1 加载的 1 条消息。如需包含更多消息，请先向上滚动。不包含附件。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
         <translation>将导出 Lightning 为 %2 加载的 %1 条消息。如需包含更多消息，请先向上滚动。不包含附件。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-95"/>
         <source>Text</source>
         <translation>文本</translation>
     </message>
     <message>
+        <location line="-125"/>
+        <location line="+2"/>
+        <source>Loaded messages</source>
+        <translation>已加载的消息</translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Latest messages</source>
+        <translation>最新消息</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>From the beginning</source>
+        <translation>从最开始</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Between dates</source>
+        <translation>按日期范围</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>请输入 1 到 100,000 之间的消息数量。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>请输入 1 到 2000 MB 之间的大小限制。</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Web page (*.html)</source>
+        <translation>网页 (*.html)</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Format</source>
+        <translation>格式</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+8"/>
+        <source>Messages</source>
+        <translation>消息</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Messages to export</source>
+        <translation>要导出的消息</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Number of messages</source>
+        <translation>消息数量</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Number of latest messages to export</source>
+        <translation>要导出的最新消息数量</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From YYYY-MM-DD</source>
+        <translation>从 YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages from this date</source>
+        <translation>导出自此日期起的消息</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>To YYYY-MM-DD</source>
+        <translation>到 YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages up to and including this date</source>
+        <translation>导出截至此日期（含当日）的消息</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Reads the latest messages of %1 from the server. A large number can take a while.</source>
+        <translation>从服务器读取 %1 的最新消息。数量较大时可能需要一些时间。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reads every message of %1 from the start of the history this account can see. In a large room this can take a long time.</source>
+        <translation>从此账户可见的历史记录开头起，读取 %1 的全部消息。在大型房间中可能耗时很长。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Reads the messages of %1 between two dates. Either date may be left empty.</source>
+        <translation>读取 %1 在两个日期之间的消息。任一日期都可留空。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more.</source>
+        <translation>导出 Lightning 已为 %1 加载的 1 条消息。请先向前滚动更多历史以包含更多消息。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more.</source>
+        <translation>导出 Lightning 已为 %2 加载的 %1 条消息。请先向前滚动更多历史以包含更多消息。</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Include attachments</source>
+        <translation>包含附件</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Size limit</source>
+        <translation>大小限制</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Size limit for attachments, in megabytes</source>
+        <translation>附件大小限制（单位：MB）</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MB</source>
+        <translation>MB</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Attachments are embedded in the file until the size limit is reached; the rest are listed by name. SVG images are never embedded.</source>
+        <translation>附件会嵌入文件，直到达到大小限制；其余附件仅按名称列出。SVG 图片永远不会被嵌入。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Attachments are listed by name, without their contents.</source>
+        <translation>附件仅按名称列出，不含其内容。</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
         <translation>此房间已加密。Lightning 将消息保存在内存中，从不写入磁盘。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
+        <source>Write the message text and attachments (photos, files) into this file in the clear</source>
+        <translation>将消息文本和附件（照片、文件）以明文写入此文件</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Write the message text into this file in the clear</source>
         <translation>将消息正文以明文写入此文件</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Anyone who can read the file can read the conversation and open its photos and files. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
+        <translation>任何能读取此文件的人都可以阅读对话并打开其中的照片和文件。文件未加密，备份、同步文件夹和共享驱动器会像复制其他文件一样复制它。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
         <translation>任何能读取该文件的人都能读取这段对话。文件未加密，备份、同步文件夹和共享云盘会像复制其他文件一样复制它。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Without this, the export lists who sent what and when, with each message&apos;s text and attachments withheld.</source>
+        <translation>不勾选时，导出内容只列出谁在何时发送了什么，每条消息的文本和附件均不包含。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
         <translation>如不勾选，导出内容将列出每条消息的发送者和时间，但会隐去消息正文。</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+48"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+0"/>
+        <source>Cancel export</source>
+        <translation>取消导出</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Choose file…</source>
         <translation>选择文件…</translation>
     </message>
@@ -10143,12 +10316,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1134"/>
+        <location line="+1160"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -10242,29 +10415,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2370"/>
+        <location line="+2396"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-2340"/>
-        <location line="+1189"/>
+        <location line="-2366"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-1184"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>取消发送这条消息</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1386"/>
+        <location line="+1412"/>
         <source>Hide image</source>
         <translation>隐藏图像</translation>
     </message>
     <message>
-        <location line="-1382"/>
+        <location line="-1408"/>
         <source>Hide</source>
         <translation>隐藏</translation>
     </message>
@@ -10375,14 +10548,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1、%2 和另外 %3 人已读</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+479"/>
         <source>Message · %1 · %2</source>
         <translation>消息 · %1 · %2</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1013"/>
         <location line="+4"/>
-        <location line="+1113"/>
+        <location line="+1139"/>
         <source>Reply in thread</source>
         <translation>在消息列中回复</translation>
     </message>
@@ -10494,13 +10667,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-3683"/>
-        <location line="+1364"/>
+        <location line="-3709"/>
+        <location line="+1390"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3876"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -10541,12 +10714,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4219"/>
+        <location line="+4245"/>
         <source>Image</source>
         <translation>图片</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4794"/>
         <source>Attachment</source>
         <translation>附件</translation>
     </message>
@@ -10575,7 +10748,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>（已编辑）</translation>
     </message>
     <message>
-        <location line="+1572"/>
+        <location line="+1598"/>
         <source>Add :%1: to my emoji</source>
         <translation>将 :%1: 添加到我的表情</translation>
     </message>
@@ -10697,12 +10870,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2012"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+1802"/>
+        <location line="+1828"/>
         <source>Remove edits?</source>
         <translation>移除编辑？</translation>
     </message>
@@ -10823,10 +10996,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5603"/>
+        <location line="-5629"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4217"/>
+        <location line="+4243"/>
         <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
@@ -10838,9 +11011,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-5886"/>
+        <location line="-5912"/>
         <location line="+554"/>
-        <location line="+4327"/>
+        <location line="+4353"/>
         <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
@@ -13872,6 +14045,97 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomExportController</name>
+    <message>
+        <location filename="../src/models/RoomExportController.cpp" line="+181"/>
+        <source>An export is already running.</source>
+        <translation>已有导出正在进行。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No room is open.</source>
+        <translation>没有打开任何房间。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Choose a file on this computer.</source>
+        <translation>请在此电脑上选择一个文件。</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>This account cannot read room history for an export.</source>
+        <translation>此账户无法读取房间历史记录以进行导出。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Could not start reading the room&apos;s history.</source>
+        <translation>无法开始读取房间历史记录。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reading the room&apos;s history…</source>
+        <translation>正在读取房间历史记录…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Fetched %1 of %2 messages…</source>
+        <translation>已获取 %1/%2 条消息…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fetched %1 messages…</source>
+        <translation>已获取 %1 条消息…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Could not read the room&apos;s history. Try again later.</source>
+        <translation>无法读取房间历史记录。请稍后再试。</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <location line="+33"/>
+        <location line="+91"/>
+        <location line="+50"/>
+        <location line="+27"/>
+        <location line="+10"/>
+        <source>Could not write that file.</source>
+        <translation>无法写入该文件。</translation>
+    </message>
+    <message>
+        <location line="-190"/>
+        <location line="+7"/>
+        <source>Writing the file…</source>
+        <translation>正在写入文件…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+5"/>
+        <location line="+173"/>
+        <source>Could not finish writing that file.</source>
+        <translation>无法完成该文件的写入。</translation>
+    </message>
+    <message>
+        <location line="-112"/>
+        <source>Downloading attachments %1 of %2…</source>
+        <translation>正在下载附件 %1/%2…</translation>
+    </message>
+    <message>
+        <location line="+149"/>
+        <source>Exported 1 message.</source>
+        <translation>已导出 1 条消息。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Exported %1 messages.</source>
+        <translation>已导出 %1 条消息。</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Export cancelled. No file was written.</source>
+        <translation>导出已取消。未写入任何文件。</translation>
+    </message>
+</context>
+<context>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
@@ -14653,7 +14917,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomKeyExportController</name>
     <message>
-        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+262"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
         <translation>导出已完成，但此会话尚未持有任何房间密钥，因此文件中不包含密钥。</translation>
     </message>

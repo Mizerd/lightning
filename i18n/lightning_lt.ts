@@ -734,7 +734,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5921"/>
+        <location filename="../src/app/AppController.cpp" line="+5955"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -749,7 +749,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Buvote pakviesti į %1</translation>
     </message>
     <message>
-        <location line="-4667"/>
+        <location line="-4699"/>
         <source>Incoming voice call</source>
         <translation>Įeinantis balso skambutis</translation>
     </message>
@@ -790,7 +790,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+559"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -822,13 +822,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+3328"/>
+        <location line="+3359"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-4095"/>
+        <location line="-4126"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -889,40 +889,55 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2116"/>
+        <location line="+2147"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-2122"/>
+        <location line="-2153"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3027"/>
+        <location line="+3058"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3025"/>
+        <location line="-3056"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
-        <location line="-2250"/>
-        <location line="+2366"/>
+        <location line="+1546"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>Įveskite dydžio ribą nuo 1 iki 2000 MB.</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>Įveskite žinučių skaičių nuo 1 iki 100 000.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
+    </message>
+    <message>
+        <location line="-3820"/>
+        <location line="+2367"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2365"/>
+        <location line="-2366"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Tai bandomasis pranešimas. Jei jį matote, darbalaukio pranešimai veikia.</translation>
     </message>
     <message>
-        <location line="+2366"/>
+        <location line="+2367"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Tas pranešimas buvo skirtas kitai paskyrai, todėl nieko neišsiųsta. Grįžkite į tą paskyrą ir bandykite dar kartą.</translation>
     </message>
@@ -983,14 +998,14 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1204"/>
+        <location line="+1235"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1224"/>
+        <location line="-1255"/>
         <source>Choose a local image file.</source>
         <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
@@ -1034,27 +1049,18 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Nepavyko išsaugoti piktogramos.</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+312"/>
+        <location line="+50"/>
         <source>No room is open.</source>
         <translation>Nė vienas kambarys neatidarytas.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-48"/>
         <source>Choose a file on this computer.</source>
         <translation>Pasirinkite failą šiame kompiuteryje.</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Could not write that file.</source>
-        <translation>Nepavyko įrašyti to failo.</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Could not finish writing that file.</source>
-        <translation>Nepavyko baigti rašyti to failo.</translation>
-    </message>
-    <message>
-        <location line="+166"/>
+        <location line="+207"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Nepavyko įkelti vaizdo (%1).</translation>
     </message>
@@ -6535,18 +6541,19 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
-        <location line="+20"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+137"/>
+        <location line="+26"/>
         <source>Export room</source>
         <translation>Eksportuoti kambarį</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-24"/>
         <source>JSON (*.json)</source>
         <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+2"/>
         <location line="+1"/>
         <source>All files (*)</source>
         <translation>Visi failai (*)</translation>
@@ -6557,52 +6564,218 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Tekstas (*.txt)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+132"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation>Eksportuojama 1 „Lightning“ įkelta kambario %1 žinutė. Jei norite įtraukti daugiau, pirmiausia slinkite toliau atgal. Priedai neįtraukiami.</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
         <translation>Eksportuojamos „Lightning“ įkeltos kambario %2 žinutės (%1). Jei norite įtraukti daugiau, pirmiausia slinkite toliau atgal. Priedai neįtraukiami.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-95"/>
         <source>Text</source>
         <translation>Tekstas</translation>
     </message>
     <message>
+        <location line="-125"/>
+        <location line="+2"/>
+        <source>Loaded messages</source>
+        <translation>Įkeltos žinutės</translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Latest messages</source>
+        <translation>Naujausios žinutės</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>From the beginning</source>
+        <translation>Nuo pat pradžių</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Between dates</source>
+        <translation>Tarp datų</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>Įveskite žinučių skaičių nuo 1 iki 100 000.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>Įveskite dydžio ribą nuo 1 iki 2000 MB.</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Web page (*.html)</source>
+        <translation>Tinklalapis (*.html)</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Format</source>
+        <translation>Formatas</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+8"/>
+        <source>Messages</source>
+        <translation>Žinutės</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Messages to export</source>
+        <translation>Eksportuotinos žinutės</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Number of messages</source>
+        <translation>Žinučių skaičius</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Number of latest messages to export</source>
+        <translation>Naujausių eksportuotinų žinučių skaičius</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From YYYY-MM-DD</source>
+        <translation>Nuo YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages from this date</source>
+        <translation>Eksportuoti žinutes nuo šios dienos</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>To YYYY-MM-DD</source>
+        <translation>Iki YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages up to and including this date</source>
+        <translation>Eksportuoti žinutes iki šios dienos imtinai</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Reads the latest messages of %1 from the server. A large number can take a while.</source>
+        <translation>Nuskaito naujausias kambario %1 žinutes iš serverio. Didelis skaičius gali užtrukti.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reads every message of %1 from the start of the history this account can see. In a large room this can take a long time.</source>
+        <translation>Nuskaito visas kambario %1 žinutes nuo istorijos pradžios, kurią mato ši paskyra. Dideliame kambaryje tai gali užtrukti ilgai.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Reads the messages of %1 between two dates. Either date may be left empty.</source>
+        <translation>Nuskaito kambario %1 žinutes tarp dviejų datų. Bet kurią datą galima palikti tuščią.</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more.</source>
+        <translation>Eksportuoja 1 žinutę, kurią „Lightning“ įkėlė kambariui %1. Pirmiau slinkite toliau atgal, kad įtrauktumėte daugiau.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more.</source>
+        <translation>Eksportuoja žinutes (%1), kurias „Lightning“ įkėlė kambariui %2. Pirmiau slinkite toliau atgal, kad įtrauktumėte daugiau.</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Include attachments</source>
+        <translation>Įtraukti priedus</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Size limit</source>
+        <translation>Dydžio riba</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Size limit for attachments, in megabytes</source>
+        <translation>Priedų dydžio riba megabaitais</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MB</source>
+        <translation>MB</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Attachments are embedded in the file until the size limit is reached; the rest are listed by name. SVG images are never embedded.</source>
+        <translation>Priedai įterpiami į failą, kol pasiekiama dydžio riba; likusieji išvardijami pavadinimais. SVG vaizdai niekada neįterpiami.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Attachments are listed by name, without their contents.</source>
+        <translation>Priedai išvardijami pavadinimais, be jų turinio.</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
         <translation>Šis kambarys šifruotas. „Lightning“ laiko jo žinutes atmintyje ir niekada neįrašo jų į diską.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
+        <source>Write the message text and attachments (photos, files) into this file in the clear</source>
+        <translation>Įrašyti žinučių tekstą ir priedus (nuotraukas, failus) į šį failą atvirai</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Write the message text into this file in the clear</source>
         <translation>Įrašyti žinučių tekstą į šį failą atvirai</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Anyone who can read the file can read the conversation and open its photos and files. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
+        <translation>Kiekvienas, galintis perskaityti failą, gali perskaityti pokalbį ir atidaryti jo nuotraukas bei failus. Jis nėra šifruotas, o atsarginės kopijos, sinchronizuojami aplankai ir bendrinami diskai jį kopijuoja kaip bet kurį kitą failą.</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
         <translation>Kiekvienas, galintis perskaityti failą, gali perskaityti pokalbį. Jis nešifruotas, o atsarginės kopijos, sinchronizuojami aplankai ir bendri diskai jį kopijuoja kaip bet kurį kitą failą.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Without this, the export lists who sent what and when, with each message&apos;s text and attachments withheld.</source>
+        <translation>Be šios parinkties eksporte nurodoma, kas ir kada ką siuntė, o kiekvienos žinutės tekstas ir priedai nerodomi.</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
         <translation>Be šito eksporte nurodoma, kas, ką ir kada siuntė, bet žinučių tekstas nepateikiamas.</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+48"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+0"/>
+        <source>Cancel export</source>
+        <translation>Atšaukti eksportą</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Choose file…</source>
         <translation>Pasirinkti failą…</translation>
     </message>
@@ -10197,12 +10370,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1134"/>
+        <location line="+1160"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -10303,29 +10476,29 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2370"/>
+        <location line="+2396"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2340"/>
-        <location line="+1189"/>
+        <location line="-2366"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-1184"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>Atšaukti šios žinutės siuntimą</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1386"/>
+        <location line="+1412"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1382"/>
+        <location line="-1408"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -10431,14 +10604,14 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Skaitė %1, %2 ir %3 kiti</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+479"/>
         <source>Message · %1 · %2</source>
         <translation>Žinutė · %1 · %2</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1013"/>
         <location line="+4"/>
-        <location line="+1113"/>
+        <location line="+1139"/>
         <source>Reply in thread</source>
         <translation>Atsakyti gijoje</translation>
     </message>
@@ -10524,13 +10697,13 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Peržiūrėti šaltinį</translation>
     </message>
     <message>
-        <location line="-1357"/>
-        <location line="+1364"/>
+        <location line="-1383"/>
+        <location line="+1390"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3876"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -10571,12 +10744,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4219"/>
+        <location line="+4245"/>
         <source>Image</source>
         <translation>Paveikslėlis</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4794"/>
         <source>Attachment</source>
         <translation>Priedas</translation>
     </message>
@@ -10614,7 +10787,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Išsiųsta</translation>
     </message>
     <message>
-        <location line="+748"/>
+        <location line="+774"/>
         <source>Add :%1: to my emoji</source>
         <translation>Pridėti :%1: prie mano jaustukų</translation>
     </message>
@@ -10880,10 +11053,10 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Bandyti dar kartą</translation>
     </message>
     <message>
-        <location line="-6143"/>
+        <location line="-6169"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4217"/>
+        <location line="+4243"/>
         <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
@@ -10895,9 +11068,9 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>vaizdo įrašą</translation>
     </message>
     <message>
-        <location line="-5886"/>
+        <location line="-5912"/>
         <location line="+554"/>
-        <location line="+4327"/>
+        <location line="+4353"/>
         <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
@@ -13948,6 +14121,97 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
 </context>
 <context>
+    <name>RoomExportController</name>
+    <message>
+        <location filename="../src/models/RoomExportController.cpp" line="+181"/>
+        <source>An export is already running.</source>
+        <translation>Eksportas jau vyksta.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No room is open.</source>
+        <translation>Nėra atidaryto kambario.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Choose a file on this computer.</source>
+        <translation>Pasirinkite failą šiame kompiuteryje.</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>This account cannot read room history for an export.</source>
+        <translation>Ši paskyra negali nuskaityti kambario istorijos eksportui.</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Could not start reading the room&apos;s history.</source>
+        <translation>Nepavyko pradėti skaityti kambario istorijos.</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reading the room&apos;s history…</source>
+        <translation>Skaitoma kambario istorija…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Fetched %1 of %2 messages…</source>
+        <translation>Gauta %1 iš %2 žinučių…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fetched %1 messages…</source>
+        <translation>Gauta žinučių: %1…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Could not read the room&apos;s history. Try again later.</source>
+        <translation>Nepavyko nuskaityti kambario istorijos. Pabandykite vėliau.</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <location line="+33"/>
+        <location line="+91"/>
+        <location line="+50"/>
+        <location line="+27"/>
+        <location line="+10"/>
+        <source>Could not write that file.</source>
+        <translation>Nepavyko įrašyti to failo.</translation>
+    </message>
+    <message>
+        <location line="-190"/>
+        <location line="+7"/>
+        <source>Writing the file…</source>
+        <translation>Įrašomas failas…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+5"/>
+        <location line="+173"/>
+        <source>Could not finish writing that file.</source>
+        <translation>Nepavyko baigti rašyti to failo.</translation>
+    </message>
+    <message>
+        <location line="-112"/>
+        <source>Downloading attachments %1 of %2…</source>
+        <translation>Atsisiunčiami priedai: %1 iš %2…</translation>
+    </message>
+    <message>
+        <location line="+149"/>
+        <source>Exported 1 message.</source>
+        <translation>Eksportuota 1 žinutė.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Exported %1 messages.</source>
+        <translation>Eksportuota žinučių: %1.</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Export cancelled. No file was written.</source>
+        <translation>Eksportas atšauktas. Joks failas nebuvo įrašytas.</translation>
+    </message>
+</context>
+<context>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
@@ -14731,7 +14995,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomKeyExportController</name>
     <message>
-        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+262"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
         <translation>Eksportas baigtas, bet šis seansas dar neturi kambarių raktų, todėl faile jų nėra.</translation>
     </message>

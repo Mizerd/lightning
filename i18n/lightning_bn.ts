@@ -726,7 +726,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5921"/>
+        <location filename="../src/app/AppController.cpp" line="+5955"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -741,7 +741,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আপনাকে %1-এ আমন্ত্রণ জানানো হয়েছে</translation>
     </message>
     <message>
-        <location line="-4667"/>
+        <location line="-4699"/>
         <source>Incoming voice call</source>
         <translation>আগত ভয়েস কল</translation>
     </message>
@@ -782,7 +782,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আপনি %1-এ একটি ভয়েস কল মিস করেছেন</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+559"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>রুম তৈরি হয়েছে, তবে স্পেসে যোগ করা যায়নি।</translation>
     </message>
@@ -814,13 +814,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+3328"/>
+        <location line="+3359"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-4095"/>
+        <location line="-4126"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -881,40 +881,55 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2116"/>
+        <location line="+2147"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-2122"/>
+        <location line="-2153"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3027"/>
+        <location line="+3058"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-3025"/>
+        <location line="-3056"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="-2250"/>
-        <location line="+2366"/>
+        <location line="+1546"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>১ থেকে ২০০০ MB-এর মধ্যে আকারের সীমা দিন।</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>১ থেকে ১,০০,০০০-এর মধ্যে বার্তার সংখ্যা দিন।</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
+    </message>
+    <message>
+        <location line="-3820"/>
+        <location line="+2367"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-2365"/>
+        <location line="-2366"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>এটি একটি পরীক্ষামূলক বিজ্ঞপ্তি। এটি পড়তে পারলে ডেস্কটপ বিজ্ঞপ্তি কাজ করছে।</translation>
     </message>
     <message>
-        <location line="+2366"/>
+        <location line="+2367"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>ওই বিজ্ঞপ্তিটি অন্য একটি অ্যাকাউন্টের ছিল, তাই কিছু পাঠানো হয়নি। ওই অ্যাকাউন্টে ফিরে গিয়ে আবার চেষ্টা করুন।</translation>
     </message>
@@ -975,14 +990,14 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1204"/>
+        <location line="+1235"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>এই বিল্ডে কোনো Rust SDK ব্যাকএন্ড নেই।</translation>
     </message>
     <message>
-        <location line="-1224"/>
+        <location line="-1255"/>
         <source>Choose a local image file.</source>
         <translation>একটি স্থানীয় ছবির ফাইল বেছে নিন।</translation>
     </message>
@@ -1026,27 +1041,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আইকনটি সংরক্ষণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+312"/>
+        <location line="+50"/>
         <source>No room is open.</source>
         <translation>কোনো রুম খোলা নেই।</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-48"/>
         <source>Choose a file on this computer.</source>
         <translation>এই কম্পিউটারে একটি ফাইল বেছে নিন।</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Could not write that file.</source>
-        <translation>ফাইলটি লেখা যায়নি।</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Could not finish writing that file.</source>
-        <translation>ফাইলটি লেখা শেষ করা যায়নি।</translation>
-    </message>
-    <message>
-        <location line="+166"/>
+        <location line="+207"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>ছবিটি লোড করা যায়নি (%1)।</translation>
     </message>
@@ -6511,18 +6517,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
-        <location line="+20"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+137"/>
+        <location line="+26"/>
         <source>Export room</source>
         <translation>রুম এক্সপোর্ট করুন</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-24"/>
         <source>JSON (*.json)</source>
         <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location line="+2"/>
         <location line="+1"/>
         <source>All files (*)</source>
         <translation>সব ফাইল (*)</translation>
@@ -6533,52 +6540,218 @@ Signing out and signing in again is the only fix.</source>
         <translation>টেক্সট (*.txt)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+132"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation>%1-এর জন্য Lightning যে ১টি বার্তা লোড করেছে তা এক্সপোর্ট করে। আরও বার্তা যুক্ত করতে আগে আরও পেছনে স্ক্রল করুন। সংযুক্তি অন্তর্ভুক্ত নয়।</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
         <translation>%2-এর জন্য Lightning যে %1টি বার্তা লোড করেছে তা এক্সপোর্ট করে। আরও বার্তা যুক্ত করতে আগে আরও পেছনে স্ক্রল করুন। সংযুক্তি অন্তর্ভুক্ত নয়।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="-95"/>
         <source>Text</source>
         <translation>টেক্সট</translation>
     </message>
     <message>
+        <location line="-125"/>
+        <location line="+2"/>
+        <source>Loaded messages</source>
+        <translation>লোড করা বার্তা</translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Latest messages</source>
+        <translation>সাম্প্রতিক বার্তা</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>From the beginning</source>
+        <translation>শুরু থেকে</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Between dates</source>
+        <translation>তারিখের মধ্যে</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Enter a number of messages from 1 to 100,000.</source>
+        <translation>১ থেকে ১,০০,০০০-এর মধ্যে বার্তার সংখ্যা দিন।</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Use real dates in YYYY-MM-DD format, with From not after To.</source>
+        <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Enter a size limit from 1 to 2000 MB.</source>
+        <translation>১ থেকে ২০০০ MB-এর মধ্যে আকারের সীমা দিন।</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Web page (*.html)</source>
+        <translation>ওয়েব পেজ (*.html)</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Format</source>
+        <translation>ফরম্যাট</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>HTML</source>
+        <translation>HTML</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>JSON</source>
         <translation>JSON</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+8"/>
+        <source>Messages</source>
+        <translation>বার্তা</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Messages to export</source>
+        <translation>এক্সপোর্ট করার বার্তা</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Number of messages</source>
+        <translation>বার্তার সংখ্যা</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Number of latest messages to export</source>
+        <translation>এক্সপোর্ট করার সাম্প্রতিক বার্তার সংখ্যা</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From YYYY-MM-DD</source>
+        <translation>YYYY-MM-DD থেকে</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages from this date</source>
+        <translation>এই তারিখ থেকে বার্তা এক্সপোর্ট করুন</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>To YYYY-MM-DD</source>
+        <translation>YYYY-MM-DD পর্যন্ত</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Export messages up to and including this date</source>
+        <translation>এই তারিখ পর্যন্ত (এই তারিখসহ) বার্তা এক্সপোর্ট করুন</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Reads the latest messages of %1 from the server. A large number can take a while.</source>
+        <translation>সার্ভার থেকে %1-এর সাম্প্রতিক বার্তা পড়ে। বেশি সংখ্যায় কিছুটা সময় লাগতে পারে।</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reads every message of %1 from the start of the history this account can see. In a large room this can take a long time.</source>
+        <translation>এই অ্যাকাউন্ট যে ইতিহাস দেখতে পায় তার শুরু থেকে %1-এর সব বার্তা পড়ে। বড় রুমে এতে অনেক সময় লাগতে পারে।</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Reads the messages of %1 between two dates. Either date may be left empty.</source>
+        <translation>দুটি তারিখের মধ্যে %1-এর বার্তা পড়ে। যেকোনো একটি তারিখ ফাঁকা রাখা যায়।</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more.</source>
+        <translation>%1-এর জন্য Lightning যে ১টি বার্তা লোড করেছে তা এক্সপোর্ট করে। আরও অন্তর্ভুক্ত করতে আগে আরও পিছনে স্ক্রল করুন।</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more.</source>
+        <translation>%2-এর জন্য Lightning যে %1টি বার্তা লোড করেছে তা এক্সপোর্ট করে। আরও অন্তর্ভুক্ত করতে আগে আরও পিছনে স্ক্রল করুন।</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Include attachments</source>
+        <translation>সংযুক্তি অন্তর্ভুক্ত করুন</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Size limit</source>
+        <translation>আকারের সীমা</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Size limit for attachments, in megabytes</source>
+        <translation>সংযুক্তির আকারের সীমা, মেগাবাইটে</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MB</source>
+        <translation>MB</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Attachments are embedded in the file until the size limit is reached; the rest are listed by name. SVG images are never embedded.</source>
+        <translation>আকারের সীমা না পৌঁছানো পর্যন্ত সংযুক্তি ফাইলে এমবেড করা হয়; বাকিগুলোর নাম তালিকাভুক্ত থাকে। SVG ছবি কখনও এমবেড করা হয় না।</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Attachments are listed by name, without their contents.</source>
+        <translation>সংযুক্তির বিষয়বস্তু ছাড়া শুধু নাম তালিকাভুক্ত করা হয়।</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
         <translation>এই রুম এনক্রিপ্টেড। Lightning এর বার্তা মেমরিতে রাখে এবং কখনও ডিস্কে লেখে না।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+14"/>
+        <source>Write the message text and attachments (photos, files) into this file in the clear</source>
+        <translation>বার্তার লেখা ও সংযুক্তি (ছবি, ফাইল) এই ফাইলে এনক্রিপ্ট না করে লিখুন</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Write the message text into this file in the clear</source>
         <translation>বার্তার লেখা এই ফাইলে সাধারণ আকারে লিখুন</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Anyone who can read the file can read the conversation and open its photos and files. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
+        <translation>যে-কেউ ফাইলটি পড়তে পারলে কথোপকথন পড়তে এবং এর ছবি ও ফাইল খুলতে পারবে। এটি এনক্রিপ্ট করা নয়, আর ব্যাকআপ, সিঙ্ক ফোল্ডার ও শেয়ার্ড ড্রাইভ অন্য যেকোনো ফাইলের মতোই এটি কপি করে।</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
         <translation>যে কেউ ফাইলটি পড়তে পারলে কথোপকথন পড়তে পারবে। এটি এনক্রিপ্টেড নয়, এবং ব্যাকআপ, সিঙ্ক ফোল্ডার ও শেয়ার করা ড্রাইভ এটিকে অন্য ফাইলের মতোই কপি করে।</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
+        <source>Without this, the export lists who sent what and when, with each message&apos;s text and attachments withheld.</source>
+        <translation>এটি ছাড়া, এক্সপোর্টে কে কখন কী পাঠিয়েছে তা দেখা যায়, কিন্তু প্রতিটি বার্তার লেখা ও সংযুক্তি লুকানো থাকে।</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
         <translation>এটি ছাড়া এক্সপোর্টে কে কখন কী পাঠিয়েছে তা তালিকাভুক্ত হয়, কিন্তু প্রতিটি বার্তার লেখা বাদ থাকে।</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+48"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+0"/>
+        <source>Cancel export</source>
+        <translation>এক্সপোর্ট বাতিল করুন</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>Choose file…</source>
         <translation>ফাইল বেছে নিন…</translation>
     </message>
@@ -10161,12 +10334,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1134"/>
+        <location line="+1160"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
@@ -10261,29 +10434,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2370"/>
+        <location line="+2396"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="-2340"/>
-        <location line="+1189"/>
+        <location line="-2366"/>
+        <location line="+1215"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1184"/>
+        <location line="-1210"/>
         <source>Cancel sending this message</source>
         <translation>এই বার্তা পাঠানো বাতিল করুন</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1386"/>
+        <location line="+1412"/>
         <source>Hide image</source>
         <translation>ছবি লুকান</translation>
     </message>
     <message>
-        <location line="-1382"/>
+        <location line="-1408"/>
         <source>Hide</source>
         <translation>লুকান</translation>
     </message>
@@ -10394,14 +10567,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, %2 এবং আরও %3 জন পড়েছেন</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+479"/>
         <source>Message · %1 · %2</source>
         <translation>বার্তা · %1 · %2</translation>
     </message>
     <message>
-        <location line="-987"/>
+        <location line="-1013"/>
         <location line="+4"/>
-        <location line="+1113"/>
+        <location line="+1139"/>
         <source>Reply in thread</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
@@ -10513,13 +10686,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="-3683"/>
-        <location line="+1364"/>
+        <location line="-3709"/>
+        <location line="+1390"/>
         <source>Edit</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3876"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -10560,12 +10733,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4219"/>
+        <location line="+4245"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4794"/>
         <source>Attachment</source>
         <translation>সংযুক্তি</translation>
     </message>
@@ -10596,7 +10769,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>(সম্পাদিত)</translation>
     </message>
     <message>
-        <location line="+1572"/>
+        <location line="+1598"/>
         <source>Add :%1: to my emoji</source>
         <translation>আমার ইমোজিতে :%1: যোগ করুন</translation>
     </message>
@@ -10719,12 +10892,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>উত্তরের লক্ষ্য</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2012"/>
         <source>Show preview</source>
         <translation>প্রাকদর্শন দেখান</translation>
     </message>
     <message>
-        <location line="+1802"/>
+        <location line="+1828"/>
         <source>Remove edits?</source>
         <translation>সম্পাদনা সরাবেন?</translation>
     </message>
@@ -10845,10 +11018,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-5603"/>
+        <location line="-5629"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4217"/>
+        <location line="+4243"/>
         <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
@@ -10860,9 +11033,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-5886"/>
+        <location line="-5912"/>
         <location line="+554"/>
-        <location line="+4327"/>
+        <location line="+4353"/>
         <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
@@ -13901,6 +14074,97 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomExportController</name>
+    <message>
+        <location filename="../src/models/RoomExportController.cpp" line="+181"/>
+        <source>An export is already running.</source>
+        <translation>একটি এক্সপোর্ট ইতিমধ্যে চলছে।</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No room is open.</source>
+        <translation>কোনো রুম খোলা নেই।</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Choose a file on this computer.</source>
+        <translation>এই কম্পিউটারে একটি ফাইল বেছে নিন।</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>This account cannot read room history for an export.</source>
+        <translation>এই অ্যাকাউন্ট এক্সপোর্টের জন্য রুমের ইতিহাস পড়তে পারে না।</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Could not start reading the room&apos;s history.</source>
+        <translation>রুমের ইতিহাস পড়া শুরু করা যায়নি।</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reading the room&apos;s history…</source>
+        <translation>রুমের ইতিহাস পড়া হচ্ছে…</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Fetched %1 of %2 messages…</source>
+        <translation>%2টির মধ্যে %1টি বার্তা আনা হয়েছে…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fetched %1 messages…</source>
+        <translation>%1টি বার্তা আনা হয়েছে…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Could not read the room&apos;s history. Try again later.</source>
+        <translation>রুমের ইতিহাস পড়া যায়নি। পরে আবার চেষ্টা করুন।</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <location line="+33"/>
+        <location line="+91"/>
+        <location line="+50"/>
+        <location line="+27"/>
+        <location line="+10"/>
+        <source>Could not write that file.</source>
+        <translation>ফাইলটি লেখা যায়নি।</translation>
+    </message>
+    <message>
+        <location line="-190"/>
+        <location line="+7"/>
+        <source>Writing the file…</source>
+        <translation>ফাইল লেখা হচ্ছে…</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+5"/>
+        <location line="+173"/>
+        <source>Could not finish writing that file.</source>
+        <translation>ফাইলটি লেখা শেষ করা যায়নি।</translation>
+    </message>
+    <message>
+        <location line="-112"/>
+        <source>Downloading attachments %1 of %2…</source>
+        <translation>সংযুক্তি ডাউনলোড হচ্ছে %2টির মধ্যে %1টি…</translation>
+    </message>
+    <message>
+        <location line="+149"/>
+        <source>Exported 1 message.</source>
+        <translation>১টি বার্তা এক্সপোর্ট করা হয়েছে।</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Exported %1 messages.</source>
+        <translation>%1টি বার্তা এক্সপোর্ট করা হয়েছে।</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Export cancelled. No file was written.</source>
+        <translation>এক্সপোর্ট বাতিল করা হয়েছে। কোনো ফাইল লেখা হয়নি।</translation>
+    </message>
+</context>
+<context>
     <name>RoomInfoController</name>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
@@ -14683,7 +14947,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomKeyExportController</name>
     <message>
-        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+262"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
         <translation>এক্সপোর্ট শেষ হয়েছে, কিন্তু এই সেশনে এখনও কোনো রুম কী নেই, তাই ফাইলে কিছুই নেই।</translation>
     </message>
