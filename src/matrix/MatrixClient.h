@@ -1185,6 +1185,27 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(restart); return 0; }
     virtual bool supportsMediaHistory() const { return false; }
 
+    // ── Room export history walk ─────────────────────────────────────────
+    //
+    // Walks a room's history backwards, independently of the live timeline,
+    // for "Export room" (rust/src/roomexport.rs). `mode`: 0 the newest
+    // `limit` messages, 1 the whole room, 2 messages whose timestamp is in
+    // [fromMs, toMs] (toMs 0 = no upper bound). Pages arrive on
+    // roomExportPage until `done`, or roomExportFailed. Attachment rows carry
+    // an opaque `mediaKey` for fetchMedia, valid until cancelRoomExport.
+    // Returns the op id, 0 when unsupported.
+    virtual quint64 startRoomExport(const QString &roomId, int mode,
+                                    qint64 limit, qint64 fromMs, qint64 toMs)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(mode); Q_UNUSED(limit); Q_UNUSED(fromMs);
+        Q_UNUSED(toMs);
+        return 0;
+    }
+    // Abort the walk and release its attachment handles. Idempotent; called
+    // when an export finishes, fails or is cancelled.
+    virtual void cancelRoomExport(quint64 opId) { Q_UNUSED(opId); }
+    virtual bool supportsRoomExportWalk() const { return false; }
+
     // ── Per-room profile ─────────────────────────────────────────────────
     //
     // Display name and avatar this account shows in one room, overriding the
@@ -2187,6 +2208,18 @@ Q_SIGNALS:
                           bool complete, bool encryptedRoom);
     void mediaHistoryFailed(quint64 opId, const QString &roomId,
                             const QString &message);
+    /// One page of a room-export walk, newest-first. `rows` are maps with
+    /// eventId, sender, senderName, timestampMs, kind, body, formattedBody
+    /// (untrusted HTML), threadRoot, replyTo, edited, filename, mimetype,
+    /// size and mediaKey. `stopReason` is set once `done`: "start", "limit",
+    /// "date" or "cap".
+    void roomExportPage(quint64 opId, const QString &roomId,
+                        const QVariantList &rows, qint64 rowsTotal,
+                        qint64 scannedTotal, qint64 undecryptableTotal,
+                        bool done, const QString &stopReason,
+                        bool encryptedRoom);
+    void roomExportFailed(quint64 opId, const QString &roomId,
+                          const QString &message);
     /// A per-room profile write finished. `field` is "displayname" or
     /// "avatar_url"; they are separate requests and can fail independently.
     void roomProfileResult(quint64 opId, const QString &roomId,

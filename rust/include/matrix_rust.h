@@ -1520,6 +1520,36 @@ char *mx_rust_media_history_page(void *client,
                                  unsigned long long op_id);
 
 /* ---------------------------------------------------------------------------
+   ROOM EXPORT HISTORY WALK. See rust/src/roomexport.rs.
+
+   Walks a room's history backwards from the live edge, independently of the
+   live timeline, until the range is covered:
+     mode 0  the newest `limit` messages
+     mode 1  back to the start of accessible history
+     mode 2  messages with from_ms <= ts <= to_ms (to_ms 0 = no upper bound)
+   Capped at 100,000 rows whatever the range.
+
+   Answers on the command lane with `room_export_page` {op_id, room_id, rows,
+   rows_total, scanned_total, undecryptable_total, done, stop_reason
+   ("start"|"limit"|"date"|"cap" once done), encrypted_room} until `done`, or
+   once with `room_export_failed` {op_id, room_id, message}. Edits by the
+   original sender are folded in; redacted messages are "redacted" rows;
+   undecryptable events are "undecryptable" rows. A row carries no `mxc:`:
+   an attachment's `media_key` is an opaque `export:<op>:<event>` handle for
+   mx_rust_media_fetch, valid until mx_rust_room_export_cancel.
+*/
+char *mx_rust_room_export_start(void *client,
+                                const char *room_id,
+                                int mode,
+                                unsigned long long limit,
+                                unsigned long long from_ms,
+                                unsigned long long to_ms,
+                                unsigned long long op_id);
+/* Abort the walk if it is still running and release every attachment handle
+   the export registered. Idempotent; emits nothing. */
+void mx_rust_room_export_cancel(void *client, unsigned long long op_id);
+
+/* ---------------------------------------------------------------------------
    LOCAL MESSAGE SEARCH (SQLite FTS5). See rust/src/localsearch.rs.
 
    Server search can only search what the SERVER can read, so it returns

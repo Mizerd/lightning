@@ -1579,32 +1579,78 @@ list rather than applying optimistically.
 
 ### Export a room
 
-Writes the room's LOADED timeline to a file the user picks, as plain text or
-JSON. It does not paginate: walking a room's whole history to build a file is
-an unbounded job whose only honest progress report is "still going", and a
-partial export presented as a complete one is a lie about a conversation. The
-count is on screen before the user picks a file and repeated inside the file,
+Writes the open room to a file the user picks, as HTML (the default), plain
+text or JSON (`ExportRoomDialog`, `app.startRoomExport`, `app.roomExport` =
+`RoomExportController`). Modelled on Element's export dialog.
+
+**What it covers is chosen and stated.** "Loaded messages" writes what the
+timeline holds, with no network, and its count is on screen before a file is
+picked. "Latest N" (1..100,000), "From the beginning" and "Between dates"
+(local days, either end open) read the room's history with a walk of their own
+(`rust/src/roomexport.rs`, `mx_rust_room_export_start`) — NEVER by paging the
+live timeline, whose un-virtualised view that would hurt. The walk is the
+media-history scanner's shape: unfiltered backward `/messages` pages, one
+whole-room backup fetch first in an encrypted room, edits folded in (only the
+ORIGINAL sender's newest edit replaces content; a newer edit by someone else
+cannot even take its slot), redactions kept as "message deleted" rows,
+undecryptable events kept as rows AND counted. Thread replies stay in time
+order, marked "in thread". 100,000 rows is a hard cap for every range. The
+file says what range it carries, how many messages, how many could not be
+decrypted, and whether it reaches the start of the room's readable history,
 because the person who reads it later may not be the person who made it.
 
-NO MEDIA. An attachment exports as its filename and type with a sentence
-saying the bytes are absent, and never as an `mxc:` — a reader of the file
-cannot resolve one without the account's token, so printing it offers a
-live-looking dead link.
+**HTML is one self-contained page that can make no request and run no code**
+(`src/models/RoomExportHtml.*`). The first element of `<head>` is a CSP
+(`default-src 'none'; img-src data:; media-src data:; style-src
+'unsafe-inline'; base-uri 'none'; form-action 'none'`) and the writer emits no
+`<script>`. Formatted bodies go through `MessageHtml::sanitize` and are then
+reduced further: every `<img>` becomes its alt text and every non-http(s) link
+(mention:, spoiler:) is unwrapped. Plain bodies are escaped; their http(s) URLs
+become links.
+
+**Attachments (HTML only, opt-in, on by default)** are embedded as `data:`
+URIs within a size limit the user sets (1..2000 MB, total raw bytes, in file
+order); what does not fit, fails or is not available is a named placeholder
+saying so. They are fetched one at a time through `MatrixClient::fetchMedia`
+(the controlled path that decrypts inside the SDK), keyed by an opaque
+`export:<op>:<event>` handle the walk registers in an export-only map beside
+the timeline's media registry — never an `mxc:`, never a URL, never a token —
+released when the export ends and on shutdown. The BYTES decide how a file is
+shown: a recognised raster image as `<img>`, a recognised video/audio
+container as `<video>`/`<audio>`, anything else as an inert
+`application/octet-stream` download. **SVG is never embedded** — by declared
+type, by name, or by content that opens as markup or gzip (§6).
+
+Text and JSON carry no media: an attachment exports as its filename and type
+with a sentence saying the bytes are absent, never as an `mxc:`.
 
 **This is the one place in Lightning that writes encrypted-room plaintext to
 disk, and it is an explicit user-chosen exception to §6, not a hole.** The
-checkbox is off by default and worded as a consequence rather than an option
-("Write the message text into this file in the clear"); declining still
-produces a usable export with every body replaced by a withheld marker, so the
-shape of the conversation survives and none of its text does. An UNKNOWN
+checkbox is off by default, re-armed on every open, and worded as a
+consequence rather than an option ("Write the message text into this file in
+the clear"); declining still produces a usable export with every body AND
+every attachment withheld (decrypted media is private content too), so the
+shape of the conversation survives and none of its content does. An UNKNOWN
 encryption state counts as encrypted, the same way the draft store fails
 closed. Nothing else is relaxed: `CacheStore` still refuses encrypted rows and
-this path never writes to a cache.
+the export writes no message text to any cache. Attachment downloads are
+ordinary `fetchMedia` fetches and follow the normal media-store policy
+(`rooms::media_fetch`): media from an encrypted (or unknown) room is cached
+only in the store encrypted at rest with the account's key, never as a kept
+plaintext file, and a public room's large files may be kept as usual. The
+dialog's opt-in names attachments too when an HTML export includes them.
 
-The renderers are pure (events in, string out), so the whole shape of the file
-is unit-tested without a filesystem and the one place that touches disk is
-four lines. The suggested filename is a LEAF — a room name is chosen by
-somebody else and this string is handed to a file dialog.
+The writers are pure or stream into a `QIODevice`, so the file's shape is
+unit-tested without a filesystem. The controller writes through `QSaveFile`,
+a batch of rows or one base64 chunk per event-loop turn, so the dialog stays
+responsive; Cancel aborts the walk, cancels the download in flight and
+discards the uncommitted file. Closing the dialog cancels too. The suggested
+filename is a LEAF — a room name is chosen by somebody else and this string is
+handed to a file dialog. File content (header sentences, placeholders) is
+English, like the text and JSON exports.
+
+Live behaviour (a real room walk, decrypting real encrypted media, opening the
+page in browsers): NOT TESTED.
 
 ### The message box (composer) controls
 

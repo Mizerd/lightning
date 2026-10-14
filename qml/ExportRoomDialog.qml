@@ -3,17 +3,22 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Export a room's loaded messages to a file.
+// Export a room to a file: HTML (one self-contained page, optionally with its
+// attachments), plain text or JSON.
+//
+// What is exported: the messages Lightning has loaded (no network), the
+// latest N, everything from the start of the room, or a date range. The last
+// three read the room's history in the background (app.roomExport), never by
+// scrolling the timeline, and the dialog shows progress and can cancel.
 //
 // Encrypted rooms: CLAUDE.md §6 keeps encrypted plaintext memory-only, and
 // this is the one place that offers to break that. It is a decision, not a
 // format option: the checkbox is off by default, its words say what the file
 // will contain, and declining still exports the conversation's shape with
-// every body replaced by a withheld marker. An unknown encryption state counts
-// as encrypted (AppController::exportOptions).
+// every body AND every attachment withheld. An unknown encryption state
+// counts as encrypted (AppController::exportOptions).
 //
-// The file holds only the messages Lightning has loaded and no attachments.
-// Both limits are shown before a file is picked and repeated in the file,
+// Every limit is shown before a file is picked and repeated in the file,
 // since a partial export can be mistaken for the whole history.
 Dialog {
     id: root
@@ -24,22 +29,50 @@ Dialog {
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
     parent: Overlay.overlay
-    width: Math.min(520, parent ? parent.width - AppTheme.spacing24 * 2 : 520)
+    width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    property string format: "text"
+    property string format: "html"
+    // "loaded" | "latest" | "all" | "dates"
+    property string rangeMode: "loaded"
+    property bool includeAttachments: true
     property bool includeEncryptedText: false
     property int messageCount: 0
     property bool encrypted: false
     property string roomName: ""
     property string failure: ""
 
+    readonly property var exporter: app ? app.roomExport : null
+    readonly property bool busy: !!exporter && exporter.busy
+    readonly property bool historyAvailable: !!exporter
+                                             && exporter.historyAvailable
+    readonly property bool isHtml: format === "html"
+
+    // The range choices, in order. Reading history needs the Rust backend;
+    // without it only the loaded messages can be exported.
+    readonly property var rangeValues: historyAvailable
+                                       ? ["loaded", "latest", "all", "dates"]
+                                       : ["loaded"]
+    readonly property var rangeLabels: historyAvailable
+        ? [qsTr("Loaded messages"), qsTr("Latest messages"),
+           qsTr("From the beginning"), qsTr("Between dates")]
+        : [qsTr("Loaded messages")]
+
     function openDialog() {
-        format = "text"
+        format = "html"
+        rangeMode = "loaded"
+        includeAttachments = true
         // Re-armed on every open; never inherited from a previous export.
         includeEncryptedText = false
         failure = ""
+        countField.text = "100"
+        fromField.text = ""
+        toField.text = ""
+        sizeField.text = "100"
+        rangeBox.currentIndex = 0
+        if (exporter)
+            exporter.clearResult()
         messageCount = app.exportableMessageCount()
         var info = app.roomList.findRoom(app.currentRoomId)
         roomName = info && info.name ? info.name : app.currentRoomId
@@ -47,6 +80,52 @@ Dialog {
         encrypted = !!info
                     && (info.encryptionKnown === false || info.encrypted === true)
         open()
+    }
+
+    // A reason the inputs cannot be exported yet, or "". Checked before the
+    // file dialog opens; the C++ side checks again.
+    function inputProblem() {
+        if (rangeMode === "latest") {
+            var n = parseInt(countField.text, 10)
+            if (isNaN(n) || n < 1 || n > 100000)
+                return qsTr("Enter a number of messages from 1 to 100,000.")
+        }
+        if (rangeMode === "dates") {
+            var from = fromField.text.trim()
+            var to = toField.text.trim()
+            var pattern = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/
+            if ((from.length === 0 && to.length === 0)
+                    || (from.length > 0 && !pattern.test(from))
+                    || (to.length > 0 && !pattern.test(to))
+                    || (from.length > 0 && to.length > 0 && from > to))
+                return qsTr("Use real dates in YYYY-MM-DD format, with From "
+                            + "not after To.")
+        }
+        if (isHtml && includeAttachments) {
+            var mb = parseInt(sizeField.text, 10)
+            if (isNaN(mb) || mb < 1 || mb > 2000)
+                return qsTr("Enter a size limit from 1 to 2000 MB.")
+        }
+        return ""
+    }
+
+    // Closing the dialog stops an export in flight: nothing keeps running
+    // where the user can no longer see or cancel it.
+    onClosed: {
+        if (root.busy)
+            root.exporter.cancel()
+    }
+
+    Connections {
+        target: root.exporter
+        function onFinished(ok, message) {
+            if (ok) {
+                root.failure = ""
+                root.close()
+            } else {
+                root.failure = message
+            }
+        }
     }
 
     NativeFileDialog {
@@ -58,16 +137,22 @@ Dialog {
         title: qsTr("Export room")
         nameFilters: root.format === "json"
                      ? [ qsTr("JSON (*.json)"), qsTr("All files (*)") ]
-                     : [ qsTr("Text (*.txt)"), qsTr("All files (*)") ]
+                     : root.format === "html"
+                       ? [ qsTr("Web page (*.html)"), qsTr("All files (*)") ]
+                       : [ qsTr("Text (*.txt)"), qsTr("All files (*)") ]
         onAccepted: {
-            var problem = app.exportCurrentRoom(selectedFile, root.format,
-                                                root.includeEncryptedText)
-            if (problem.length > 0) {
-                root.failure = problem
-                return
-            }
+            // Cleared first: an export that fails at once reports through
+            // onFinished during this very call, and must not be overwritten.
             root.failure = ""
-            root.close()
+            var problem = app.startRoomExport(
+                selectedFile, root.format, root.rangeMode,
+                parseInt(countField.text, 10) || 0,
+                fromField.text, toField.text,
+                root.isHtml && root.includeAttachments,
+                parseInt(sizeField.text, 10) || 0,
+                root.includeEncryptedText)
+            if (problem.length > 0)
+                root.failure = problem
         }
     }
 
@@ -81,6 +166,84 @@ Dialog {
             font.pixelSize: AppTheme.textTitle
             font.weight: AppTheme.weightStrong
         }
+
+        // ── Format ──
+        Label {
+            text: qsTr("Format")
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+        }
+        SegmentedControl {
+            objectName: "exportRoomFormat"
+            storm: true
+            enabled: !root.busy
+            Layout.fillWidth: false
+            model: [
+                { value: "html", label: qsTr("HTML") },
+                { value: "text", label: qsTr("Text") },
+                { value: "json", label: qsTr("JSON") }
+            ]
+            current: root.format
+            onActivated: (value) => root.format = value
+        }
+
+        // ── Messages ──
+        Label {
+            text: qsTr("Messages")
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+        }
+        AppComboBox {
+            id: rangeBox
+            objectName: "exportRoomRange"
+            storm: true
+            enabled: !root.busy
+            Layout.fillWidth: true
+            model: root.rangeLabels
+            onActivated: (index) => root.rangeMode = root.rangeValues[index]
+            Accessible.name: qsTr("Messages to export")
+        }
+        AppTextField {
+            id: countField
+            objectName: "exportRoomCount"
+            storm: true
+            visible: root.rangeMode === "latest"
+            enabled: !root.busy
+            Layout.preferredWidth: 160
+            text: "100"
+            inputMethodHints: Qt.ImhDigitsOnly
+            validator: IntValidator { bottom: 1; top: 100000 }
+            placeholderText: qsTr("Number of messages")
+            Accessible.name: qsTr("Number of latest messages to export")
+        }
+        RowLayout {
+            objectName: "exportRoomDateRow"
+            visible: root.rangeMode === "dates"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            AppTextField {
+                id: fromField
+                objectName: "exportRoomFromDate"
+                storm: true
+                enabled: !root.busy
+                Layout.fillWidth: true
+                placeholderText: qsTr("From YYYY-MM-DD")
+                inputMethodHints: Qt.ImhDate
+                Accessible.name: qsTr("Export messages from this date")
+            }
+            AppTextField {
+                id: toField
+                objectName: "exportRoomToDate"
+                storm: true
+                enabled: !root.busy
+                Layout.fillWidth: true
+                placeholderText: qsTr("To YYYY-MM-DD")
+                inputMethodHints: Qt.ImhDate
+                Accessible.name: qsTr("Export messages up to and including "
+                                      + "this date")
+            }
+        }
+
         Label {
             objectName: "exportRoomScope"
             Layout.fillWidth: true
@@ -88,30 +251,100 @@ Dialog {
             // The room name is attacker-chosen: with AutoText, markup such as
             // `<img src=...>` would render and beacon.
             textFormat: Text.PlainText
-            // The count first: it answers "is this the whole conversation?",
-            // usually no. Branched rather than `%n message(s)`, which renders
-            // "(s)" literally without a loaded catalog.
-            text: root.messageCount === 1
-                  ? qsTr("Exports the 1 message Lightning has loaded for %1. "
-                         + "Scroll further back first to include more. "
-                         + "Attachments are not included.").arg(root.roomName)
-                  : qsTr("Exports the %1 messages Lightning has loaded for "
-                         + "%2. Scroll further back first to include more. "
-                         + "Attachments are not included.")
-                        .arg(root.messageCount).arg(root.roomName)
+            // The count first for the loaded range: it answers "is this the
+            // whole conversation?", usually no. Branched rather than
+            // `%n message(s)`, which renders "(s)" literally without a loaded
+            // catalog.
+            text: {
+                if (root.rangeMode === "latest")
+                    return qsTr("Reads the latest messages of %1 from the "
+                                + "server. A large number can take a while.")
+                           .arg(root.roomName)
+                if (root.rangeMode === "all")
+                    return qsTr("Reads every message of %1 from the start of "
+                                + "the history this account can see. In a "
+                                + "large room this can take a long time.")
+                           .arg(root.roomName)
+                if (root.rangeMode === "dates")
+                    return qsTr("Reads the messages of %1 between two dates. "
+                                + "Either date may be left empty.")
+                           .arg(root.roomName)
+                if (!root.isHtml)
+                    return root.messageCount === 1
+                           ? qsTr("Exports the 1 message Lightning has loaded "
+                                  + "for %1. Scroll further back first to "
+                                  + "include more. Attachments are not "
+                                  + "included.").arg(root.roomName)
+                           : qsTr("Exports the %1 messages Lightning has "
+                                  + "loaded for %2. Scroll further back first "
+                                  + "to include more. Attachments are not "
+                                  + "included.")
+                                 .arg(root.messageCount).arg(root.roomName)
+                return root.messageCount === 1
+                       ? qsTr("Exports the 1 message Lightning has loaded for "
+                              + "%1. Scroll further back first to include "
+                              + "more.").arg(root.roomName)
+                       : qsTr("Exports the %1 messages Lightning has loaded "
+                              + "for %2. Scroll further back first to include "
+                              + "more.").arg(root.messageCount)
+                                        .arg(root.roomName)
+            }
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta
         }
-        SegmentedControl {
-            objectName: "exportRoomFormat"
-            storm: true
-            Layout.fillWidth: false
-            model: [
-                { value: "text", label: qsTr("Text") },
-                { value: "json", label: qsTr("JSON") }
-            ]
-            current: root.format
-            onActivated: (value) => root.format = value
+
+        // ── Attachments (HTML only) ──
+        ColumnLayout {
+            objectName: "exportRoomAttachmentOptions"
+            visible: root.isHtml
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            CheckBox {
+                objectName: "exportRoomAttachments"
+                palette.windowText: AppTheme.stormText
+                enabled: !root.busy
+                text: qsTr("Include attachments")
+                checked: root.includeAttachments
+                onToggled: root.includeAttachments = checked
+            }
+            RowLayout {
+                visible: root.includeAttachments
+                spacing: AppTheme.spacing8
+                Label {
+                    text: qsTr("Size limit")
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textMeta
+                }
+                AppTextField {
+                    id: sizeField
+                    objectName: "exportRoomSizeLimit"
+                    storm: true
+                    enabled: !root.busy
+                    Layout.preferredWidth: 100
+                    text: "100"
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    validator: IntValidator { bottom: 1; top: 2000 }
+                    Accessible.name: qsTr("Size limit for attachments, in "
+                                          + "megabytes")
+                }
+                Label {
+                    text: qsTr("MB")
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textMeta
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: root.includeAttachments
+                      ? qsTr("Attachments are embedded in the file until the "
+                             + "size limit is reached; the rest are listed by "
+                             + "name. SVG images are never embedded.")
+                      : qsTr("Attachments are listed by name, without their "
+                             + "contents.")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+            }
         }
 
         // ── The encrypted-room exception ──
@@ -142,10 +375,15 @@ Dialog {
                 CheckBox {
                     objectName: "exportRoomIncludeEncrypted"
                     palette.windowText: AppTheme.stormText
+                    enabled: !root.busy
                     // Says what the file will contain, not what the option is
                     // called.
-                    text: qsTr("Write the message text into this file in the "
-                               + "clear")
+                    text: root.isHtml && root.includeAttachments
+                          ? qsTr("Write the message text and attachments "
+                                 + "(photos, files) into this file in the "
+                                 + "clear")
+                          : qsTr("Write the message text into this file in the "
+                                 + "clear")
                     checked: root.includeEncryptedText
                     onToggled: root.includeEncryptedText = checked
                 }
@@ -153,17 +391,48 @@ Dialog {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     text: root.includeEncryptedText
-                          ? qsTr("Anyone who can read the file can read the "
-                                 + "conversation. It is not encrypted, and "
-                                 + "backups, sync folders and shared drives "
-                                 + "copy it like any other file.")
-                          : qsTr("Without this, the export lists who sent "
-                                 + "what and when, with each message's text "
-                                 + "withheld.")
+                          ? (root.isHtml && root.includeAttachments
+                             ? qsTr("Anyone who can read the file can read the "
+                                    + "conversation and open its photos and "
+                                    + "files. It is not encrypted, and backups, "
+                                    + "sync folders and shared drives copy it "
+                                    + "like any other file.")
+                             : qsTr("Anyone who can read the file can read the "
+                                    + "conversation. It is not encrypted, and "
+                                    + "backups, sync folders and shared drives "
+                                    + "copy it like any other file."))
+                          : root.isHtml && root.includeAttachments
+                            ? qsTr("Without this, the export lists who sent "
+                                   + "what and when, with each message's text "
+                                   + "and attachments withheld.")
+                            : qsTr("Without this, the export lists who sent "
+                                   + "what and when, with each message's text "
+                                   + "withheld.")
                     color: root.includeEncryptedText ? AppTheme.stormDanger
                                                      : AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textMeta
                 }
+            }
+        }
+
+        // ── Progress ──
+        RowLayout {
+            objectName: "exportRoomProgressRow"
+            visible: root.busy
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            BusyIndicator {
+                running: root.busy
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
+            }
+            Label {
+                objectName: "exportRoomProgress"
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: root.exporter ? root.exporter.progressText : ""
+                color: AppTheme.stormText
+                font.pixelSize: AppTheme.textMeta
             }
         }
 
@@ -181,17 +450,29 @@ Dialog {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             AppButton {
-                text: qsTr("Cancel")
+                objectName: "exportRoomCancel"
+                // While an export runs this stops it; the partly written file
+                // is discarded.
+                text: root.busy ? qsTr("Cancel export") : qsTr("Cancel")
                 kind: "ghost"
-                onClicked: root.close()
+                onClicked: {
+                    if (root.busy)
+                        root.exporter.cancel()
+                    else
+                        root.close()
+                }
             }
             AppButton {
                 objectName: "exportRoomConfirm"
                 text: qsTr("Choose file…")
                 kind: "primary"
-                enabled: root.messageCount > 0
+                enabled: !root.busy
+                         && (root.rangeMode !== "loaded" || root.messageCount > 0)
                 onClicked: {
-                    root.failure = ""
+                    var problem = root.inputProblem()
+                    root.failure = problem
+                    if (problem.length > 0)
+                        return
                     saveDialog.currentName =
                         app.suggestedExportFileName(root.format)
                     saveDialog.open()

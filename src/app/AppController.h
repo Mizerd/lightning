@@ -12,6 +12,7 @@
 #include "app/RoomKeyExportController.h"
 #include "models/MessageSearchController.h"
 #include "models/RoomExport.h"
+#include "models/RoomExportController.h"
 #include "models/WidgetController.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
@@ -406,6 +407,8 @@ class AppController : public QObject
     Q_PROPERTY(PasswordChangeController* passwordChange READ passwordChange CONSTANT)
     // Settings → Privacy & security → Export room keys.
     Q_PROPERTY(RoomKeyExportController* roomKeyExport READ roomKeyExport CONSTANT)
+    // Room → Export: progress, cancel and outcome of a running export.
+    Q_PROPERTY(RoomExportController* roomExport READ roomExport CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
     // Settings -> Notifications: account push rules and the troubleshooter.
     Q_PROPERTY(PushRulesController* pushRules READ pushRules CONSTANT)
@@ -728,6 +731,7 @@ public:
     {
         return m_roomKeyExport.get();
     }
+    RoomExportController *roomExport() const { return m_roomExport.get(); }
     ModerationController *moderation() const { return m_moderation.get(); }
     PushRulesController *pushRules() const { return m_pushRules.get(); }
     NotificationTroubleshooter *notificationTroubleshooter() const
@@ -857,8 +861,9 @@ public Q_SLOTS:
     /// fallback.
     Q_INVOKABLE quint64 jumpToDate(qint64 timestampMs);
 
-    // Room export: writes the open room's loaded timeline to a user-chosen
-    // file (see models/RoomExport.h).
+    // Room export: writes the open room (its loaded timeline, or a range of
+    // its history) to a user-chosen file through `roomExport` (see
+    // models/RoomExport.h, RoomExportHtml.h, RoomExportController.h).
     //
     // Security: the only path that writes encrypted-room plaintext to disk.
     // `includeEncryptedText` must come from a surface that asked the user
@@ -867,14 +872,25 @@ public Q_SLOTS:
 
     /// How many messages an export of the open room would contain.
     Q_INVOKABLE int exportableMessageCount() const;
-    /// A safe leaf filename to suggest. `format` is "text" or "json".
+    /// A safe leaf filename to suggest. `format` is "html", "text" or "json".
     Q_INVOKABLE QString suggestedExportFileName(const QString &format) const;
-    /// Write the export. `fileUrl` is a local file URL from a save dialog.
-    /// Returns "" on success, or a short human-readable reason. Never logs
-    /// the path's contents and never logs a message body.
-    Q_INVOKABLE QString exportCurrentRoom(const QUrl &fileUrl,
-                                          const QString &format,
-                                          bool includeEncryptedText);
+    /// Start an export of the open room through `roomExport` (progress,
+    /// cancel and outcome live there). `format`: "html", "text" or "json".
+    /// `range`: "loaded" (what the timeline holds), "latest" (`count`
+    /// newest, 1..100000), "all" (from the start of the room) or "dates"
+    /// (`fromDate`..`toDate`, "YYYY-MM-DD" local days, either may be empty).
+    /// `includeAttachments` and `sizeLimitMb` (1..2000, the total embedded)
+    /// apply to HTML only. `includeEncryptedText` is the explicit plaintext
+    /// opt-in and gates attachments too. Returns "" when started, or a short
+    /// reason. Never logs the path or a body.
+    Q_INVOKABLE QString startRoomExport(const QUrl &fileUrl,
+                                        const QString &format,
+                                        const QString &range, int count,
+                                        const QString &fromDate,
+                                        const QString &toDate,
+                                        bool includeAttachments,
+                                        int sizeLimitMb,
+                                        bool includeEncryptedText);
 private:
     /// Shared by the count, the suggested name and the export itself.
     roomexport::Options exportOptions() const;
@@ -1509,6 +1525,7 @@ private:
     std::unique_ptr<UiaController> m_uia;
     std::unique_ptr<PasswordChangeController> m_passwordChange;
     std::unique_ptr<RoomKeyExportController> m_roomKeyExport;
+    std::unique_ptr<RoomExportController> m_roomExport;
     std::unique_ptr<ModerationController> m_moderation;
     std::unique_ptr<PushRulesController> m_pushRules;
     std::unique_ptr<NotificationTroubleshooter> m_notificationTroubleshooter;

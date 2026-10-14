@@ -174,6 +174,43 @@ private Q_SLOTS:
                  QStringLiteral("image/png"));
     }
 
+    // An attachment's filename and type are decrypted content: the JSON
+    // must withhold them with the body when the opt-in was not given.
+    void anEncryptedRoomsAttachmentNameIsWithheldInJson()
+    {
+        TimelineEvent image = message(QStringLiteral("$img"),
+                                      QStringLiteral("@a:example.org"),
+                                      QStringLiteral("Ann"),
+                                      QStringLiteral("secret-plan.pdf"), 1000);
+        image.type = TimelineEvent::File;
+        image.mediaFilename = QStringLiteral("secret-plan.pdf");
+        image.mediaMimetype = QStringLiteral("application/pdf");
+
+        roomexport::Options options = plainRoom();
+        options.encrypted = true;
+        options.allowEncryptedPlaintext = false;
+        const QString json = roomexport::renderJson({ image }, options);
+        QVERIFY2(!json.contains(QStringLiteral("secret-plan")),
+                 "an encrypted room's attachment name reached the file "
+                 "without the opt-in");
+        QVERIFY(!json.contains(QStringLiteral("application/pdf")));
+        const QJsonObject row = QJsonDocument::fromJson(json.toUtf8())
+            .object().value(QStringLiteral("messages")).toArray()
+            .at(0).toObject();
+        QVERIFY(!row.contains(QStringLiteral("filename")));
+        QVERIFY(!row.contains(QStringLiteral("mimetype")));
+        QVERIFY(!roomexport::renderPlainText({ image }, options)
+                     .contains(QStringLiteral("secret-plan")));
+
+        options.allowEncryptedPlaintext = true;
+        const QJsonObject allowed = QJsonDocument::fromJson(
+            roomexport::renderJson({ image }, options).toUtf8())
+            .object().value(QStringLiteral("messages")).toArray()
+            .at(0).toObject();
+        QCOMPARE(allowed.value(QStringLiteral("filename")).toString(),
+                 QStringLiteral("secret-plan.pdf"));
+    }
+
     // ── The file says what it is ─────────────────────────────────────────
     //
     // Both limits are stated in the file itself, so a partial export is not

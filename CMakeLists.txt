@@ -672,6 +672,10 @@ set(APP_SOURCES
     src/models/PaginationController.h
     src/models/PaginationController.cpp
     src/models/RoomExport.cpp
+    src/models/RoomExportHtml.h
+    src/models/RoomExportHtml.cpp
+    src/models/RoomExportController.h
+    src/models/RoomExportController.cpp
     src/models/WidgetController.cpp
     src/models/ReadReceiptCoordinator.h
     src/models/ReadReceiptCoordinator.cpp
@@ -3153,10 +3157,38 @@ if(BUILD_TESTING)
         tests/RoomExportTest.cpp
         src/models/RoomExport.h
         src/models/RoomExport.cpp
+        src/models/RoomExportHtml.h
+        src/models/RoomExportHtml.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
     )
     target_include_directories(room-export-test PRIVATE src)
     target_link_libraries(room-export-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-export COMMAND room-export-test)
+
+    # The HTML export: a self-contained page under a strict CSP, bodies through
+    # the timeline's sanitizer, attachments embedded only when the bytes are a
+    # recognised raster/AV format, SVG never, and the encrypted-room opt-in
+    # gating attachments as well as text. Plus the controller's walk-row
+    # conversion and a full export against a scripted client.
+    qt_add_executable(room-export-html-test
+        tests/RoomExportHtmlTest.cpp
+        src/models/RoomExport.h
+        src/models/RoomExport.cpp
+        src/models/RoomExportHtml.h
+        src/models/RoomExportHtml.cpp
+        src/models/RoomExportController.h
+        src/models/RoomExportController.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-export-html-test PRIVATE src)
+    target_link_libraries(room-export-html-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-export-html COMMAND room-export-html-test)
+    set_tests_properties(room-export-html PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Widgets open in the user's browser, so the boundary under test is that
     # no QML path hands the desktop a URL outside the model's validated list.
@@ -3930,6 +3962,21 @@ if(BUILD_TESTING)
     target_link_libraries(room-key-export-qml-test PRIVATE Qt6::Test)
     add_test(NAME room-key-export-qml COMMAND room-key-export-qml-test)
     set_tests_properties(room-key-export-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The Export room dialog on the real QML: HTML is a format and the
+    # default, the four ranges exist when history can be read, attachment
+    # controls only for HTML, bad input refused before a file is picked, the
+    # encrypted opt-in off on every open, and the chosen options reach
+    # startRoomExport.
+    qt_add_executable(export-room-dialog-qml-test
+        tests/ExportRoomDialogQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(export-room-dialog-qml-test)
+    target_link_libraries(export-room-dialog-qml-test PRIVATE Qt6::Test)
+    add_test(NAME export-room-dialog-qml COMMAND export-room-dialog-qml-test)
+    set_tests_properties(export-room-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Incoming-call card contracts plus a real offscreen instantiation against

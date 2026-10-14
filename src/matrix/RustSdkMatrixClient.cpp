@@ -8099,6 +8099,35 @@ quint64 RustSdkMatrixClient::requestMediaHistoryPage(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::startRoomExport(const QString &roomId, int mode,
+                                             qint64 limit, qint64 fromMs,
+                                             qint64 toMs)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString error = takeRustString(mx_rust_room_export_start(
+        m_rustHandle, room.constData(), mode,
+        static_cast<unsigned long long>(qMax<qint64>(0, limit)),
+        static_cast<unsigned long long>(qMax<qint64>(0, fromMs)),
+        static_cast<unsigned long long>(qMax<qint64>(0, toMs)),
+        static_cast<unsigned long long>(opId)));
+    // Refused synchronously (bad range, unknown room, no session): nothing
+    // will answer, so report no op at all.
+    if (!error.isEmpty())
+        return 0;
+    return opId;
+}
+
+void RustSdkMatrixClient::cancelRoomExport(quint64 opId)
+{
+    if (!m_rustHandle || opId == 0)
+        return;
+    mx_rust_room_export_cancel(m_rustHandle,
+                               static_cast<unsigned long long>(opId));
+}
+
 quint64 RustSdkMatrixClient::writeRoomWidget(const QString &roomId,
                                              const QString &widgetId,
                                              const QString &contentJson)
@@ -11064,6 +11093,63 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 event.value(QStringLiteral("undecryptable_total")).toDouble()),
             event.value(QStringLiteral("complete")).toBool(),
             event.value(QStringLiteral("encrypted_room")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("room_export_page")) {
+        QVariantList rows;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("rows")).toArray()) {
+            const QJsonObject row = v.toObject();
+            rows.append(QVariantMap{
+                { QStringLiteral("eventId"),
+                  row.value(QStringLiteral("event_id")).toString() },
+                { QStringLiteral("sender"),
+                  row.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("senderName"),
+                  row.value(QStringLiteral("sender_name")).toString() },
+                { QStringLiteral("timestampMs"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("ts_ms")).toDouble()) },
+                { QStringLiteral("kind"),
+                  row.value(QStringLiteral("kind")).toString() },
+                { QStringLiteral("body"),
+                  row.value(QStringLiteral("body")).toString() },
+                { QStringLiteral("formattedBody"),
+                  row.value(QStringLiteral("formatted_body")).toString() },
+                { QStringLiteral("threadRoot"),
+                  row.value(QStringLiteral("thread_root")).toString() },
+                { QStringLiteral("replyTo"),
+                  row.value(QStringLiteral("reply_to")).toString() },
+                { QStringLiteral("edited"),
+                  row.value(QStringLiteral("edited")).toBool() },
+                { QStringLiteral("filename"),
+                  row.value(QStringLiteral("filename")).toString() },
+                { QStringLiteral("mimetype"),
+                  row.value(QStringLiteral("mimetype")).toString() },
+                { QStringLiteral("size"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("size")).toDouble()) },
+                { QStringLiteral("mediaKey"),
+                  row.value(QStringLiteral("media_key")).toString() },
+            });
+        }
+        Q_EMIT roomExportPage(
+            opId(), event.value(QStringLiteral("room_id")).toString(), rows,
+            static_cast<qint64>(
+                event.value(QStringLiteral("rows_total")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("scanned_total")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("undecryptable_total")).toDouble()),
+            event.value(QStringLiteral("done")).toBool(),
+            event.value(QStringLiteral("stop_reason")).toString(),
+            event.value(QStringLiteral("encrypted_room")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("room_export_failed")) {
+        Q_EMIT roomExportFailed(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("message")).toString());
         return true;
     }
     if (type == QLatin1String("media_history_failed")) {

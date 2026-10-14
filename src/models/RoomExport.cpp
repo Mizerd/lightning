@@ -1,4 +1,5 @@
 #include "models/RoomExport.h"
+#include "models/RoomExportHtml.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -9,7 +10,6 @@
 #include <QStringList>
 
 namespace roomexport {
-namespace {
 
 // One withheld marker, used wherever a body is not written, so a reader can
 // tell "a message is omitted" from "nothing was said".
@@ -18,6 +18,20 @@ QString withheldBody()
     return QStringLiteral("[message withheld: this room is encrypted and the "
                           "export was made without including its text]");
 }
+
+QString placeholderBody(const TimelineEvent &event)
+{
+    // Said in words rather than left blank: an empty row reads as "nothing
+    // was said", which is not what happened.
+    if (event.redacted)
+        return QStringLiteral("[message deleted]");
+    if (event.undecryptable)
+        return QStringLiteral("[unable to decrypt this message: this device "
+                              "does not have its key]");
+    return QString();
+}
+
+namespace {
 
 QString typeName(TimelineEvent::Type type)
 {
@@ -50,6 +64,9 @@ QString bodyFor(const TimelineEvent &event, const Options &options)
 {
     if (options.encrypted && !options.allowEncryptedPlaintext)
         return withheldBody();
+    const QString placeholder = placeholderBody(event);
+    if (!placeholder.isEmpty())
+        return placeholder;
     if (isAttachment(event.type)) {
         const QString name = event.mediaFilename.isEmpty()
             ? event.body : event.mediaFilename;
@@ -71,6 +88,11 @@ QString senderFor(const TimelineEvent &event)
 }
 
 } // namespace
+
+bool isAttachment(const TimelineEvent &event)
+{
+    return isAttachment(event.type);
+}
 
 bool isExportable(const TimelineEvent &event)
 {
@@ -113,9 +135,23 @@ QString renderPlainText(const QList<TimelineEvent> &events,
     lines.append(QStringLiteral("Messages in this file: %1")
                      .arg(exportableCount(events)));
     // State the two limits at the top, before the reader draws conclusions.
-    lines.append(QStringLiteral(
-        "This export carries the messages Lightning had loaded, and no "
-        "attachments."));
+    if (options.rangeDescription.isEmpty()) {
+        lines.append(QStringLiteral(
+            "This export carries the messages Lightning had loaded, and no "
+            "attachments."));
+    } else {
+        lines.append(QStringLiteral("This export carries %1, and no "
+                                    "attachments.")
+                         .arg(options.rangeDescription));
+        if (options.reachesStartOfRoom)
+            lines.append(QStringLiteral(
+                "It reaches the start of the room's history this account can "
+                "read."));
+    }
+    if (options.undecryptableCount > 0) {
+        lines.append(QStringLiteral("Messages that could not be decrypted: %1")
+                         .arg(options.undecryptableCount));
+    }
     if (options.encrypted) {
         lines.append(options.allowEncryptedPlaintext
             ? QStringLiteral(
@@ -146,15 +182,19 @@ QString renderPlainText(const QList<TimelineEvent> &events,
             lines.append(QStringLiteral("[%1] * %2").arg(stamp, body));
             continue;
         }
+        // A thread reply sits in time order among the rest; the marker says
+        // it belongs to a thread rather than to the main conversation.
+        const QString thread = event.threadRootId.isEmpty()
+            ? QString() : QStringLiteral("[in thread] ");
         if (event.type == TimelineEvent::Emote) {
-            lines.append(QStringLiteral("[%1] * %2 %3")
-                             .arg(stamp, senderFor(event), body));
+            lines.append(QStringLiteral("[%1] %2* %3 %4")
+                             .arg(stamp, thread, senderFor(event), body));
             continue;
         }
         // Multi-line bodies keep their newlines, indented as continuations.
         const QStringList bodyLines = body.split(QLatin1Char('\n'));
-        lines.append(QStringLiteral("[%1] %2: %3")
-                         .arg(stamp, senderFor(event),
+        lines.append(QStringLiteral("[%1] %2%3: %4")
+                         .arg(stamp, thread, senderFor(event),
                               bodyLines.value(0)));
         for (int i = 1; i < bodyLines.size(); ++i)
             lines.append(QStringLiteral("        ") + bodyLines.at(i));
@@ -176,8 +216,16 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
                 !options.encrypted || options.allowEncryptedPlaintext);
     // Named in the file so a script cannot mistake a partial export for the
     // whole history.
-    root.insert(QStringLiteral("scope"),
-                QStringLiteral("loaded-timeline"));
+    root.insert(QStringLiteral("scope"), options.scope);
+    if (!options.rangeDescription.isEmpty()) {
+        root.insert(QStringLiteral("range"), options.rangeDescription);
+        root.insert(QStringLiteral("reaches_start_of_room"),
+                    options.reachesStartOfRoom);
+    }
+    if (options.undecryptableCount >= 0) {
+        root.insert(QStringLiteral("undecryptable_count"),
+                    options.undecryptableCount);
+    }
     root.insert(QStringLiteral("includes_attachments"), false);
 
     QJsonArray rows;
@@ -195,7 +243,18 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
         row.insert(QStringLiteral("timestamp"),
                    event.timestamp.toUTC().toString(Qt::ISODate));
         row.insert(QStringLiteral("body"), bodyFor(event, options));
-        if (isAttachment(event.type)) {
+        if (event.redacted)
+            row.insert(QStringLiteral("redacted"), true);
+        if (event.undecryptable)
+            row.insert(QStringLiteral("undecryptable"), true);
+        if (!event.threadRootId.isEmpty())
+            row.insert(QStringLiteral("thread_root"), event.threadRootId);
+        if (!event.replyToEventId.isEmpty())
+            row.insert(QStringLiteral("in_reply_to"), event.replyToEventId);
+        // An attachment's name and type are decrypted content too: withheld
+        // with the body when the encrypted-room opt-in was not given.
+        if (isAttachment(event.type)
+            && (!options.encrypted || options.allowEncryptedPlaintext)) {
             row.insert(QStringLiteral("filename"), event.mediaFilename);
             row.insert(QStringLiteral("mimetype"), event.mediaMimetype);
         }
@@ -208,8 +267,16 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
 QString render(const QList<TimelineEvent> &events, const Options &options,
                Format format)
 {
-    return format == Format::Json ? renderJson(events, options)
-                                  : renderPlainText(events, options);
+    switch (format) {
+    case Format::Json:
+        return renderJson(events, options);
+    case Format::Html:
+        // No attachments: those are fetched and streamed by the controller.
+        return QString::fromUtf8(renderHtml(events, options));
+    case Format::PlainText:
+        break;
+    }
+    return renderPlainText(events, options);
 }
 
 QString suggestedFileName(const Options &options, Format format)
@@ -241,6 +308,7 @@ QString suggestedFileName(const Options &options, Format format)
     const QString stamp =
         QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd"));
     const QString suffix = format == Format::Json ? QStringLiteral("json")
+        : format == Format::Html                  ? QStringLiteral("html")
                                                   : QStringLiteral("txt");
     return QStringLiteral("%1-%2.%3").arg(base, stamp, suffix);
 }

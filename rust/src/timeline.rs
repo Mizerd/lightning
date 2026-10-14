@@ -266,6 +266,10 @@ const REACTION_GUARD_TIMEOUT_SECS: u64 = 30;
 /// Bound for the per-room media source map; guards runaway growth only.
 const MEDIA_SOURCE_CAP: usize = 4096;
 
+/// Bound for the export media map across all exports of a session. An export
+/// with more attachments than this lists the rest without their bytes.
+const EXPORT_MEDIA_CAP: usize = 50_000;
+
 /// The media source map, bounded by evicting the least recently used key.
 ///
 /// Refusing new keys when full would break exactly the rows the reader is
@@ -432,6 +436,13 @@ pub struct TimelineRegistry {
     /// cache asks (rooms::media_fetch); everything else here belongs to the
     /// open room and is judged by it. Cleared with the sources.
     encrypted_room_media: Mutex<EncryptedRoomMedia>,
+    /// Attachments a room export registered (roomexport.rs), under
+    /// `export:<op>:<event id>` handles, with whether the room is encrypted
+    /// (or not known not to be). Separate from `media_sources` because a room
+    /// switch clears those and the LRU bound would evict the open room's rows
+    /// for a large export. Released per export, cleared on shutdown. Never
+    /// crosses the FFI.
+    export_media: Mutex<HashMap<String, (StoredMedia, bool)>>,
     /// One reaction toggle per (room, event, key) at a time. Concurrent toggles
     /// for one target raced into a storm of add/remove echoes, so a click
     /// arriving while its target is still resolving is dropped (a toggle is a
@@ -522,6 +533,7 @@ impl TimelineRegistry {
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(MediaRegistry::with_cap(MEDIA_SOURCE_CAP)),
             encrypted_room_media: Mutex::new(EncryptedRoomMedia::default()),
+            export_media: Mutex::new(HashMap::new()),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
         }
@@ -635,21 +647,62 @@ impl TimelineRegistry {
         key: &str,
         thumbnail: bool,
     ) -> Option<(MediaSource, String, Option<String>, Option<u64>, bool)> {
+        if key.starts_with(crate::roomexport::EXPORT_KEY_PREFIX) {
+            let guard = self.export_media.lock().ok()?;
+            let (media, _) = guard.get(key)?;
+            return Some(Self::source_tuple(media, thumbnail));
+        }
         let mut guard = self.media_sources.lock().ok()?;
         let media = guard.get(key)?;
+        Some(Self::source_tuple(media, thumbnail))
+    }
+
+    fn source_tuple(
+        media: &StoredMedia,
+        thumbnail: bool,
+    ) -> (MediaSource, String, Option<String>, Option<u64>, bool) {
         let has_embedded_thumbnail = thumbnail && media.thumbnail.is_some();
         let source = if thumbnail {
             media.thumbnail.clone().unwrap_or_else(|| media.source.clone())
         } else {
             media.source.clone()
         };
-        Some((
+        (
             source,
             media.filename.clone(),
             media.mimetype.clone(),
             media.declared_size,
             has_embedded_thumbnail,
-        ))
+        )
+    }
+
+    /// Register an attachment for a room export under its opaque handle.
+    /// False when the export map is full: that row then exports without its
+    /// bytes, which the file says.
+    pub(crate) fn remember_export_media(
+        &self,
+        key: String,
+        media: StoredMedia,
+        private_room: bool,
+    ) -> bool {
+        let Ok(mut guard) = self.export_media.lock() else {
+            return false;
+        };
+        if guard.len() >= EXPORT_MEDIA_CAP && !guard.contains_key(&key) {
+            return false;
+        }
+        guard.insert(key, (media, private_room));
+        true
+    }
+
+    /// Forget every handle under `prefix` (one export's), when it ends.
+    pub(crate) fn release_export_media(&self, prefix: &str) {
+        if prefix.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.export_media.lock() {
+            guard.retain(|key, _| !key.starts_with(prefix));
+        }
     }
 
     fn clear_media(&self) {
@@ -676,6 +729,12 @@ impl TimelineRegistry {
 
     /// Whether `key` was marked, or might have been. True when unsure.
     pub(crate) fn media_from_encrypted_room(&self, key: &str) -> bool {
+        if key.starts_with(crate::roomexport::EXPORT_KEY_PREFIX) {
+            return self
+                .export_media
+                .lock()
+                .map_or(true, |guard| guard.get(key).map_or(true, |(_, private)| *private));
+        }
         self.encrypted_room_media
             .lock()
             .map_or(true, |guard| guard.overflowed || guard.keys.contains(key))
@@ -1685,6 +1744,11 @@ impl TimelineRegistry {
         self.close_context();
         self.close_thread_list();
         self.clear_media();
+        // An export's handles belong to this session; the next one never sees
+        // them.
+        if let Ok(mut guard) = self.export_media.lock() {
+            guard.clear();
+        }
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
             guard.clear();
         }

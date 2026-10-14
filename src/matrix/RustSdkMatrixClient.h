@@ -561,6 +561,11 @@ public:
                                     bool restart) override;
     bool supportsMediaHistory() const override
     { return m_rustHandle != nullptr; }
+    quint64 startRoomExport(const QString &roomId, int mode, qint64 limit,
+                            qint64 fromMs, qint64 toMs) override;
+    void cancelRoomExport(quint64 opId) override;
+    bool supportsRoomExportWalk() const override
+    { return m_rustHandle != nullptr; }
     quint64 setRoomDisplayName(const QString &roomId,
                                const QString &name) override;
     quint64 setRoomMemberAvatar(const QString &roomId,

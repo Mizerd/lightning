@@ -121,6 +121,7 @@ mod profile;
 mod push_verdict;
 mod rooms;
 mod roomaction;
+mod roomexport;
 mod rtc;
 mod aboutinfo;
 mod serveradmin;
@@ -8079,6 +8080,159 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
         });
         Ok(String::new())
     })
+}
+
+/// Start a room export's history walk (roomexport.rs): backwards from the
+/// live edge, independent of the live timeline, until the range is covered.
+/// `mode`: 0 the newest `limit` rows, 1 the whole room, 2 rows with
+/// `from_ms <= ts <= to_ms` (`to_ms` 0 = no upper bound).
+///
+/// Answers on the command lane with `room_export_page` (rows, counters,
+/// `done`, `stop_reason`) until `done`, or `room_export_failed`. Attachments
+/// are registered under opaque `export:<op>:<event>` handles for
+/// `mx_rust_media_fetch`; a row never carries an `mxc:`. The walk is aborted
+/// by `mx_rust_room_export_cancel` and by shutdown.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_export_start(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    mode: c_int,
+    limit: u64,
+    from_ms: u64,
+    to_ms: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let range = roomexport::Range::from_ffi(mode, limit, from_ms, to_ms)?;
+        let client = require_client_for_search(bridge)?;
+        let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+        let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+        let terminal = Arc::clone(&bridge.command_events);
+        let parked = Arc::clone(&bridge.media_results);
+        let timelines = Arc::clone(&bridge.timelines);
+        let lifecycle = timelines.lifecycle();
+        let encrypted_room = room.encryption_state().is_encrypted();
+        // For the kept-file cache: an unknown state counts as encrypted.
+        let private_room = encrypted_room || room.encryption_state().is_unknown();
+        // Registered under the op id so cancel and shutdown can abort it.
+        bridge.spawn_media_fetch(op_id, async move {
+            let mut state = roomexport::WalkState::new(range);
+            // Display names from the store, once per sender.
+            let mut names: HashMap<String, String> = HashMap::new();
+            let mut token: Option<String> = None;
+            if encrypted_room {
+                // One whole-room backup fetch first, as the media walk does, so
+                // old history decrypts instead of exporting as holes.
+                timelines.prefetch_backup_keys_for_room(&client, &room_id).await;
+            }
+            loop {
+                let mut opts = MessagesOptions::backward();
+                opts.from = token.clone();
+                opts.limit = UInt::new(roomexport::PAGE_SIZE).unwrap_or(uint!(100));
+                let messages = match room.messages(opts).await {
+                    Ok(messages) => messages,
+                    Err(err) => {
+                        if timelines.lifecycle_current(lifecycle) {
+                            enqueue_terminal(&terminal, &parked, json!({
+                                "type": "room_export_failed",
+                                "op_id": op_id,
+                                "room_id": room_id,
+                                "message": format_matrix_error(
+                                    "could not read room history", err),
+                            }));
+                        }
+                        return;
+                    }
+                };
+                let mut rows: Vec<serde_json::Value> = Vec::new();
+                // Backward pages are newest-first; C++ reverses the whole export.
+                for event in messages.chunk.iter() {
+                    let Ok(value) = serde_json::from_str::<serde_json::Value>(
+                        event.raw().json().get())
+                    else {
+                        continue;
+                    };
+                    let Some(row) = state.consume(&value) else {
+                        continue;
+                    };
+                    if !names.contains_key(&row.sender) {
+                        let resolved = match UserId::parse(&row.sender) {
+                            Ok(user) => room
+                                .get_member_no_sync(&user)
+                                .await
+                                .ok()
+                                .flatten()
+                                .and_then(|m| m.display_name().map(|d| d.to_owned()))
+                                .unwrap_or_default(),
+                            Err(_) => String::new(),
+                        };
+                        names.insert(row.sender.clone(), resolved);
+                    }
+                    let mut media_key = String::new();
+                    if row.is_attachment() {
+                        if let Some(media) = mediahistory::stored_media_from_event(&value) {
+                            let handle = roomexport::media_handle(op_id, &row.event_id);
+                            if timelines.remember_export_media(handle.clone(), media, private_room) {
+                                media_key = handle;
+                            }
+                        }
+                    }
+                    let name = names.get(&row.sender).map(String::as_str).unwrap_or("");
+                    rows.push(row.to_json(name, &media_key));
+                }
+                // No `end`, or an empty chunk, means nothing older.
+                let exhausted = messages.end.is_none() || messages.chunk.is_empty();
+                state.end_of_page(exhausted);
+                token = messages.end.clone();
+                if !timelines.lifecycle_current(lifecycle) {
+                    return;
+                }
+                let done = state.stop.is_some();
+                enqueue_terminal(&terminal, &parked, json!({
+                    "type": "room_export_page",
+                    "op_id": op_id,
+                    "room_id": room_id,
+                    "rows": rows,
+                    "rows_total": state.rows,
+                    "scanned_total": state.scanned,
+                    "undecryptable_total": state.undecryptable,
+                    "done": done,
+                    "stop_reason": state.stop.map(|s| s.as_str()).unwrap_or(""),
+                    "encrypted_room": encrypted_room,
+                }));
+                if done {
+                    return;
+                }
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Stop a room export: abort its walk if still running and forget every
+/// attachment handle it registered. Idempotent; emits nothing. In-flight
+/// attachment downloads are cancelled by their own op ids
+/// (`mx_rust_media_cancel`).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_export_cancel(ptr: *mut c_void, op_id: u64) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(bridge) = (unsafe { bridge(ptr) }) else {
+            return;
+        };
+        if let Some(handle) = bridge
+            .media_fetch_aborts
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.remove(&op_id))
+        {
+            handle.abort();
+        }
+        bridge
+            .timelines
+            .release_export_media(&roomexport::handle_prefix(op_id));
+    }));
 }
 
 /// A room's widgets, resolved and validated. Lightning lists and opens

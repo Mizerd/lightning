@@ -72,6 +72,7 @@
 #include <QMimeData>
 
 #include <cstring>
+#include <QDate>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -404,6 +405,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_passwordChange->setOAuthAccountCheck(
         [this] { return activeAccountIsOAuth(); });
     m_roomKeyExport = std::make_unique<RoomKeyExportController>(this);
+    m_roomExport = std::make_unique<RoomExportController>(this);
     m_moderation = std::make_unique<ModerationController>(this);
     m_pushRules = std::make_unique<PushRulesController>(this);
     // An account-wide default alert level changed. Rooms that follow it now
@@ -1804,6 +1806,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_uia->setClient(m_client.get());
     m_passwordChange->setClient(m_client.get());
     m_roomKeyExport->setClient(m_client.get());
+    m_roomExport->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
     m_pushRules->setClient(m_client.get());
     m_forward->setClient(m_client.get());
@@ -4179,9 +4182,11 @@ int AppController::exportableMessageCount() const
 namespace {
 roomexport::Format exportFormatFor(const QString &format)
 {
-    return format.compare(QLatin1String("json"), Qt::CaseInsensitive) == 0
-        ? roomexport::Format::Json
-        : roomexport::Format::PlainText;
+    if (format.compare(QLatin1String("json"), Qt::CaseInsensitive) == 0)
+        return roomexport::Format::Json;
+    if (format.compare(QLatin1String("html"), Qt::CaseInsensitive) == 0)
+        return roomexport::Format::Html;
+    return roomexport::Format::PlainText;
 }
 } // namespace
 
@@ -4207,42 +4212,71 @@ QString AppController::suggestedExportFileName(const QString &format) const
                                          exportFormatFor(format));
 }
 
-QString AppController::exportCurrentRoom(const QUrl &fileUrl,
-                                         const QString &format,
-                                         bool includeEncryptedText)
+QString AppController::startRoomExport(const QUrl &fileUrl,
+                                       const QString &format,
+                                       const QString &range, int count,
+                                       const QString &fromDate,
+                                       const QString &toDate,
+                                       bool includeAttachments,
+                                       int sizeLimitMb,
+                                       bool includeEncryptedText)
 {
-    if (m_currentRoomId.isEmpty() || !m_timeline)
+    if (m_currentRoomId.isEmpty())
         return tr("No room is open.");
     if (!fileUrl.isValid() || !fileUrl.isLocalFile())
         return tr("Choose a file on this computer.");
 
-    roomexport::Options options = exportOptions();
-    options.allowEncryptedPlaintext = includeEncryptedText;
+    RoomExportController::Job job;
+    job.roomId = m_currentRoomId;
+    job.filePath = fileUrl.toLocalFile();
+    job.format = exportFormatFor(format);
+    job.options = exportOptions();
+    // The explicit opt-in, re-asked on every open of the dialog.
+    job.options.allowEncryptedPlaintext = includeEncryptedText;
 
-    const QString text = roomexport::render(
-        m_timeline->events(), options, exportFormatFor(format));
+    if (job.format == roomexport::Format::Html && includeAttachments) {
+        if (sizeLimitMb < 1 || sizeLimitMb > 2000)
+            return tr("Enter a size limit from 1 to 2000 MB.");
+        job.options.includeAttachments = true;
+        job.options.attachmentBudgetBytes =
+            qint64(sizeLimitMb) * 1024 * 1024;
+    }
 
-    QFile file(fileUrl.toLocalFile());
-    // Truncate, not NewOnly: the save dialog already asked about overwriting.
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return tr("Could not write that file.");
-    const QByteArray bytes = text.toUtf8();
-    const qint64 written = file.write(bytes);
-    // Close before judging: a buffered write can still fail at flush.
-    file.close();
-    if (written != bytes.size() || file.error() != QFileDevice::NoError)
-        return tr("Could not finish writing that file.");
-
-    // Counts and flags only: never the path, room name or a body.
-    qCInfo(lcApp) << "room exported messages="
-                  << roomexport::exportableCount(m_timeline->events())
-                  << "format="
-                  << (exportFormatFor(format) == roomexport::Format::Json
-                          ? "json" : "text")
-                  << "encrypted=" << options.encrypted
-                  << "text_included="
-                  << (!options.encrypted || includeEncryptedText);
-    return QString();
+    if (range == QLatin1String("latest")) {
+        if (count < 1 || count > 100000)
+            return tr("Enter a number of messages from 1 to 100,000.");
+        job.range = RoomExportController::Range::Latest;
+        job.limit = count;
+    } else if (range == QLatin1String("all")) {
+        job.range = RoomExportController::Range::All;
+    } else if (range == QLatin1String("dates")) {
+        const QString from = fromDate.trimmed();
+        const QString to = toDate.trimmed();
+        const QDate fromDay =
+            QDate::fromString(from, QStringLiteral("yyyy-MM-dd"));
+        const QDate toDay = QDate::fromString(to, QStringLiteral("yyyy-MM-dd"));
+        const bool fromOk = from.isEmpty() || fromDay.isValid();
+        const bool toOk = to.isEmpty() || toDay.isValid();
+        if ((from.isEmpty() && to.isEmpty()) || !fromOk || !toOk
+            || (fromDay.isValid() && toDay.isValid() && fromDay > toDay)) {
+            return tr("Use real dates in YYYY-MM-DD format, with From not "
+                      "after To.");
+        }
+        job.range = RoomExportController::Range::Between;
+        // Local days, whole: From is the start of its day, To the end of its.
+        job.fromMs = fromDay.isValid()
+            ? fromDay.startOfDay().toMSecsSinceEpoch() : 0;
+        job.toMs = toDay.isValid()
+            ? toDay.endOfDay().toMSecsSinceEpoch() : 0;
+        job.fromText = from;
+        job.toText = to;
+    } else {
+        if (!m_timeline)
+            return tr("No room is open.");
+        job.range = RoomExportController::Range::Loaded;
+        job.loadedEvents = m_timeline->events();
+    }
+    return m_roomExport->start(job);
 }
 
 void AppController::openLobby()
