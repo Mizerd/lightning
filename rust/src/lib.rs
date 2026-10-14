@@ -7992,6 +7992,11 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                 }));
                 return;
             }
+            if encrypted_room && cursor.token.is_none() {
+                // A fresh walk: one whole-room backup fetch before paging (see
+                // `prefetch_backup_keys_for_room`). Deduplicated per room per lifecycle.
+                timelines.prefetch_backup_keys_for_room(&client, &room_id).await;
+            }
             let mut opts = MessagesOptions::backward();
             opts.from = cursor.token.clone();
             opts.limit = UInt::new(want).unwrap_or(uint!(50));
@@ -8507,6 +8512,7 @@ fn index_all_event(
 /// Index one room of an index-all run with the per-room walk.
 async fn index_all_walk(
     client: &Client,
+    timelines: &Arc<timeline::TimelineRegistry>,
     index: &Arc<Mutex<Option<localsearch::SearchIndex>>>,
     room_id: &str,
     gate: &indexall::RunGate,
@@ -8522,6 +8528,12 @@ async fn index_all_walk(
         || !room.encryption_state().is_encrypted()
     {
         return indexall::RoomResult::Gone;
+    }
+    // One whole-room backup fetch before paging, so the walk does not make the
+    // SDK fetch (and request from our devices) each unknown key one by one.
+    // Deduplicated per room per lifecycle; a no-op without a usable backup.
+    if (gate.alive)() {
+        timelines.prefetch_backup_keys_for_room(client, room_id).await;
     }
     match localsearch::deep_index_room_gated(&room, index, gate, localsearch::DEEP_MAX_PAGES)
         .await
@@ -8626,8 +8638,11 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
         bridge.spawn_room_action(async move {
             let walk = move |room_id: String, gate: indexall::RunGate| {
                 let client = client.clone();
+                let timelines = Arc::clone(&timelines);
                 let index = Arc::clone(&index);
-                async move { index_all_walk(&client, &index, &room_id, &gate).await }
+                async move {
+                    index_all_walk(&client, &timelines, &index, &room_id, &gate).await
+                }
             };
             let _ = indexall::drive(gate, walk, tokio::time::sleep).await;
         });
@@ -17817,11 +17832,15 @@ mod warm_room_expiry_tests {
             seen[expired..].iter().any(|ids| rooms.iter().all(|r| ids.contains(r))),
             "both warm rooms must be subscribed again after the expiry: {seen:?}"
         );
+    }
+}
+
 /// What a decryption failure sets in motion with the settings every client is
 /// built with (decided 2026-10-13, CLAUDE.md §9): matrix-sdk fetches the key
 /// from the trusted backup, and asks our own VERIFIED devices for it. Against a
 /// loopback homeserver (`MatrixMockServer`); the backup key and the second
 /// device are throwaway values made here, and nothing is ever decrypted.
+#[cfg(test)]
 mod utd_recovery_tests {
     use super::encryption_settings;
     use matrix_sdk::encryption::BackupDownloadStrategy;
@@ -17839,9 +17858,11 @@ mod utd_recovery_tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant};
+
     /// The Megolm session the event below was sent with, as it appears in a
     /// request path (`/` percent-encoded).
     const SESSION_IN_PATH: &str = "64H7XKokIx0ASkYDHZKlT5zd%2FZccz%2FcQspPNdvnNULA";
+
     /// matrix-sdk's own UTD fixture (tests/integration/encryption/backups.rs):
     /// a Megolm event whose session this client has never seen.
     fn undecryptable_event() -> serde_json::Value {
@@ -17860,16 +17881,22 @@ mod utd_recovery_tests {
                 "device_id": "KIUVQQSDTM",
                 "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
                 "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+            }
         })
+    }
+
     /// A client built with Lightning's `encryption_settings()`, its E2EE
     /// setup finished (that is where the SDK installs its UTD handler).
     async fn client_as_built(server: &MatrixMockServer) -> Client {
         let client = server
             .client_builder()
             .on_builder(|builder| builder.with_encryption_settings(encryption_settings()))
+            .build()
             .await;
         client.encryption().wait_for_e2ee_initialization_tasks().await;
         client
+    }
+
     /// Deliver the undecryptable event through the sliding-sync path the app
     /// uses.
     async fn sync_undecryptable_event(client: &Client) {
@@ -17894,6 +17921,8 @@ mod utd_recovery_tests {
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
             .await
             .expect("sync processed");
+    }
+
     /// GETs of this session's key from the backup the server has seen so far.
     async fn backup_key_fetches(server: &MatrixMockServer) -> usize {
         server
@@ -17909,6 +17938,25 @@ mod utd_recovery_tests {
                     && path.ends_with(SESSION_IN_PATH)
             })
             .count()
+    }
+
+    /// Whole-room backup GETs (`/room_keys/keys/{room}`) for the test room.
+    async fn whole_room_fetches(server: &MatrixMockServer) -> usize {
+        server
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|request| {
+                let path = request.url.path();
+                request.method.as_str() == "GET"
+                    && path.contains("/room_keys/keys/")
+                    && path.ends_with("morpheus.localhost")
+            })
+            .count()
+    }
+
     /// Pending `m.room_key_request`s the crypto layer wants sent.
     async fn queued_key_requests(client: &Client) -> usize {
         let machine = client.olm_machine_for_testing().await;
@@ -17923,8 +17971,29 @@ mod utd_recovery_tests {
                     request.request(),
                     AnyOutgoingRequest::ToDeviceRequest(r)
                         if r.event_type == ToDeviceEventType::RoomKeyRequest
+                )
             })
             .count()
+    }
+
+    /// A usable backup: its decryption key and version are on this device, as
+    /// after verification or recovery-key entry.
+    async fn enable_backup(client: &Client) {
+        {
+            let machine = client.olm_machine_for_testing().await;
+            let backup = machine.as_ref().expect("olm machine").backup_machine();
+            let key = BackupDecryptionKey::new();
+            let public = key.megolm_v1_public_key();
+            public.set_version("1".to_owned());
+            backup
+                .save_decryption_key(Some(key), Some("1".to_owned()))
+                .await
+                .expect("backup key stored");
+            backup.enable_backup_v1(public).await.expect("backup enabled");
+        }
+        assert!(client.encryption().backups().are_enabled().await);
+    }
+
     /// Give the client a second device of its own, verified (`trusted`) or
     /// not, the way a `/keys/query` answer would.
     async fn add_own_device(client: &Client, trusted: bool) {
@@ -17945,6 +18014,7 @@ mod utd_recovery_tests {
                 other_id.to_owned(),
                 Raw::from_json(serde_json::value::to_raw_value(&keys).unwrap()),
             )]),
+        );
         let machine = client.olm_machine_for_testing().await;
         let machine = machine.as_ref().expect("olm machine");
         machine
@@ -17958,21 +18028,28 @@ mod utd_recovery_tests {
             .expect("the second device is known");
         if trusted {
             device.set_local_trust(LocalTrust::Verified).await.expect("trust stored");
+        }
         let device = machine
             .get_device(&user, other_id, None)
             .await
             .expect("store")
             .expect("the second device is known");
         assert_eq!(device.is_verified(), trusted, "fixture: trust as asked");
+    }
+
     // The policy itself, so a later edit cannot quietly drop back to OneShot
     // or Manual, or turn on an automatic creation.
+    #[test]
     fn clients_download_after_a_decryption_failure_and_create_nothing() {
         let settings = encryption_settings();
         assert_eq!(
             settings.backup_download_strategy,
             BackupDownloadStrategy::AfterDecryptionFailure
+        );
         assert!(!settings.auto_enable_cross_signing, "never bootstrap cross-signing unasked");
         assert!(!settings.auto_enable_backups, "never create a backup version unasked");
+    }
+
     // (a) An event that fails to decrypt makes the SDK fetch exactly that
     // session's key from the backup. With the previous `OneShot` the SDK
     // installed no UTD handler and no download task, so this request never
@@ -17981,30 +18058,25 @@ mod utd_recovery_tests {
     async fn an_undecryptable_event_fetches_its_key_from_the_backup() {
         let server = MatrixMockServer::new().await;
         let client = client_as_built(&server).await;
-        // A usable backup: its decryption key and version are on this device,
-        // as after verification or recovery-key entry.
-        {
-            let machine = client.olm_machine_for_testing().await;
-            let backup = machine.as_ref().expect("olm machine").backup_machine();
-            let key = BackupDecryptionKey::new();
-            let public = key.megolm_v1_public_key();
-            public.set_version("1".to_owned());
-            backup
-                .save_decryption_key(Some(key), Some("1".to_owned()))
-                .expect("backup key stored");
-            backup.enable_backup_v1(public).await.expect("backup enabled");
-        assert!(client.encryption().backups().are_enabled().await);
+
+        enable_backup(&client).await;
         assert_eq!(backup_key_fetches(&server).await, 0);
+
         sync_undecryptable_event(&client).await;
+
         let started = Instant::now();
         while backup_key_fetches(&server).await == 0 {
             assert!(
                 started.elapsed() < Duration::from_secs(10),
                 "no backup download for the undecryptable event's session"
+            );
             tokio::time::sleep(Duration::from_millis(25)).await;
+        }
         // Deduplicated per session: one failure, one request.
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(backup_key_fetches(&server).await, 1);
+    }
+
     // The same event with NO usable backup on this device asks the server for
     // nothing: the SDK's task checks `are_enabled()` first.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -18012,9 +18084,12 @@ mod utd_recovery_tests {
         let server = MatrixMockServer::new().await;
         let client = client_as_built(&server).await;
         assert!(!client.encryption().backups().are_enabled().await);
+
         sync_undecryptable_event(&client).await;
         tokio::time::sleep(Duration::from_millis(800)).await;
         assert_eq!(backup_key_fetches(&server).await, 0);
+    }
+
     // (b) `automatic-room-key-forwarding` is compiled in: the crypto layer
     // starts with both halves on, and a decryption failure queues an
     // `m.room_key_request` once one of our OTHER devices is verified. Without
@@ -18029,10 +18104,57 @@ mod utd_recovery_tests {
             let machine = machine.as_ref().expect("olm machine");
             assert!(machine.are_room_key_requests_enabled(), "feature not compiled in");
             assert!(machine.is_room_key_forwarding_enabled(), "feature not compiled in");
+        }
         add_own_device(&client, true).await;
         assert_eq!(queued_key_requests(&client).await, 0);
+
         sync_undecryptable_event(&client).await;
+
         assert_eq!(queued_key_requests(&client).await, 1, "one request per session");
+    }
+
+    // A background history walk (index-all, media history) fetches the room's
+    // keys in ONE request before paging, and says nothing on the recovery
+    // status channel: the `crypto_bootstrap` events describe the user's
+    // recovery, and a walk over hundreds of rooms must not move it. The
+    // reporting pass, by contrast, does speak.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_history_walk_prefetches_a_rooms_keys_without_reporting() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        let room = "!DovneieKSTkdHKpIXy:morpheus.localhost";
+        let events: crate::EventQueueRef =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let registry =
+            std::sync::Arc::new(crate::timeline::TimelineRegistry::new(events.clone()));
+        let bootstrap_events = || {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|raw| raw.contains("\"crypto_bootstrap\""))
+                .count()
+        };
+
+        // No usable backup: the reporting pass says why it skipped, the
+        // prefetch is silent, and neither asks the server.
+        registry.download_backup_keys_for_room(&client, room).await;
+        assert_eq!(bootstrap_events(), 1, "the reporting pass reports its skip");
+        registry.prefetch_backup_keys_for_room(&client, room).await;
+        assert_eq!(bootstrap_events(), 1, "the prefetch reports nothing");
+        assert_eq!(whole_room_fetches(&server).await, 0);
+
+        // With a backup: one whole-room request (the mock answers 404, so the
+        // pass makes its one bounded retry), and still no status event.
+        enable_backup(&client).await;
+        registry.prefetch_backup_keys_for_room(&client, room).await;
+        assert!(
+            (1..=2).contains(&whole_room_fetches(&server).await),
+            "one whole-room fetch plus at most its one retry"
+        );
+        assert_eq!(bootstrap_events(), 1, "the prefetch reports nothing");
+    }
+
     // The SDK's own gate, pinned: with no verified device of ours to answer,
     // no request is made (an unverified device would not be trusted to send a
     // key back, and would not be answered either).
@@ -18041,7 +18163,9 @@ mod utd_recovery_tests {
         let server = MatrixMockServer::new().await;
         let client = client_as_built(&server).await;
         add_own_device(&client, false).await;
+
         sync_undecryptable_event(&client).await;
+
         assert_eq!(queued_key_requests(&client).await, 0);
     }
 }

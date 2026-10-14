@@ -709,9 +709,13 @@ backend capability checks and honest live-test status.
     and never again. Consequence: history that failed BEFORE the backup key
     arrived is restored room by room by Lightning's
     `download_backup_keys_for_room` (backup-enabled edge for the open room,
-    then on every room open; once per room per lifecycle), not all at once. A
-    room never opened keeps old undecryptable previews until it is opened or
-    one of its events is decrypted again.
+    then on every room open; once per room per lifecycle), not all at once.
+    The background history walks run the same pass, silently
+    (`prefetch_backup_keys_for_room`), before paging a room: index-all
+    (`index_all_walk`) and a fresh media-history walk. So after verification
+    or recovery-key entry, a room that is neither opened nor indexed keeps its
+    old undecryptable previews until it is opened, indexed, or one of its
+    events is decrypted again.
   - **SDK room-key requests and forwarding** (`automatic-room-key-forwarding`
     cargo feature; it adds no crate and leaves `Cargo.lock` unchanged). On
     `MissingRoomKey` or `UnknownMessageIndex` the crypto layer queues one
@@ -730,13 +734,26 @@ backend capability checks and honest live-test status.
     after a 2 s grace for the two routes above, it fetches what is still
     undecryptable per session on its 30 s .. 32 min backoff and logs why a
     fetch failed. The manual Retry stays a bounded diagnostic control.
+- Request VOLUME of those routes. Every decryption attempt that fails for a
+  session not yet handled costs up to two requests: one backup GET for that
+  session (the SDK spawns these per event with no concurrency bound; it skips
+  a session downloaded in the last 24 h or in failure backoff) and, if one of
+  our other devices is verified, one `m.room_key_request` TO-DEVICE send to
+  ALL our devices (once per session; the request is persisted, so it is not
+  repeated on restart). Our other devices may each answer with an
+  Olm-encrypted `m.forwarded_room_key`, and this device likewise answers their
+  requests. Walking an old encrypted history (index-all, media history,
+  `Room::messages` reload) is where this multiplies, which is why the two
+  walks prefetch each room's keys in one request first: only the keys the
+  backup lacks then reach the per-session routes. The one-page reload does not
+  prefetch (bounded at 200 events, and normally an already-open room).
 - Security and privacy of those routes: an `m.room_key_request` is a PLAIN
   to-device message (the spec's design), so the homeserver sees which room and
   Megolm session this device lacks; it already knows our rooms. A forwarded
   key is stored as `imported` with unknown sender data (as a backup key is),
-  so any authenticity shield comes from SDK state. Nothing here lowers the MSC4153
-  receive mode, creates cross-signing or a backup, or touches the crypto store
-  outside the SDK. NOT LIVE-TESTED (Element interop, a second Lightning device
+  so any authenticity shield comes from SDK state. Nothing here lowers the
+  MSC4153 receive mode, creates cross-signing or a backup, or touches the
+  crypto store outside the SDK. NOT LIVE-TESTED (Element interop, a second Lightning device
   answering, and the bulk-history case after verification); the automated
   coverage is `utd_recovery_tests` in `rust/src/lib.rs` against a loopback
   homeserver.

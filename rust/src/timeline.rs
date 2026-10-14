@@ -1591,9 +1591,36 @@ impl TimelineRegistry {
         client: &Client,
         room_id: &str,
     ) {
+        self.backup_keys_pass(client, room_id, true).await;
+    }
+
+    /// The same deduplicated pass, silently, for a background walk over a
+    /// room's history (index-all, media history) BEFORE it pages. Without it
+    /// every unknown Megolm session met by `Room::messages` costs the SDK one
+    /// backup GET (spawned without a concurrency bound) and one
+    /// `m.room_key_request` to-device send; one whole-room GET first leaves
+    /// only the keys the backup lacks to those routes. Silent because the
+    /// `crypto_bootstrap` events describe the user's recovery: a background
+    /// walk over hundreds of rooms must not move that status, and one failed
+    /// room must not read as "recovery needed". A room already passed this
+    /// lifecycle costs nothing.
+    pub async fn prefetch_backup_keys_for_room(
+        self: &Arc<Self>,
+        client: &Client,
+        room_id: &str,
+    ) {
+        self.backup_keys_pass(client, room_id, false).await;
+    }
+
+    async fn backup_keys_pass(
+        self: &Arc<Self>,
+        client: &Client,
+        room_id: &str,
+        report: bool,
+    ) {
         let lifecycle = self.lifecycle();
         let emit = |state: &str| {
-            if self.lifecycle_current(lifecycle) {
+            if report && self.lifecycle_current(lifecycle) {
                 enqueue(
                     &self.events,
                     json!({
