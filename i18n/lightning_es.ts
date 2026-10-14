@@ -15697,7 +15697,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+75"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
-        <translation>No se pudo conectar con el servidor para enviarlo ahora. Sigue programado.</translation>
+        <translation>Lightning no pudo conectar con el servidor para enviarlo ahora. Sigue programado.</translation>
     </message>
     <message>
         <location line="+151"/>
