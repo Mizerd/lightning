@@ -91,6 +91,11 @@ timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
 call_sounds_status=$?
 set -e
 assert_call_sounds_status Flatpak dist/flatpak-call-sounds-status.txt "$call_sounds_status"
+# The Flatpak asks Qt for its PulseAudio backend (QT_AUDIO_BACKEND, set by the
+# app): the native PipeWire sink can spin the GUI thread after a device loss
+# and a daemon restart. Strict: Qt must name its backend, and name PulseAudio
+# (the Flatpak build requires the backend-name probe at configure); see lib.sh.
+assert_qt_audio_backend Flatpak dist/flatpak-call-sounds-status.txt PulseAudio strict
 
 # Image decoders come from org.kde.Platform; catch a runtime bump dropping one.
 set +e

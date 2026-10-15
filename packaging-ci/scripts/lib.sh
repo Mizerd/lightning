@@ -212,6 +212,54 @@ assert_call_sounds_status() {
     return 0
 }
 
+# --- the Qt audio backend ----------------------------------------------------
+#
+# Judges the backend lines of a `--call-sounds-status` transcript. The app
+# asks Qt which audio backend it chose ("qt audio backend: PulseAudio") where
+# it can (Qt's private API, matching running Qt); that line is a HARD check
+# against $3. Where Qt cannot be asked, only a labelled fallback is printed
+# (whether libpipewire is loaded), which proves nothing.
+#
+# Lenient (default): "not asked", fallback-only and no backend lines are
+# information or a warning. Strict ($4 = strict): each of those dies too, so a
+# package whose build must name its backend (the Flatpak: configure fails
+# without audioBackendName() when LIGHTNING_REQUIRE_QT_AUDIO_ROLE is ON) can
+# never pass without Qt's own answer.
+#
+# $1 format label, $2 captured output, $3 the backend name required,
+# $4 "strict" or empty
+assert_qt_audio_backend() {
+    local label="$1" log="$2" want="$3" mode="${4:-}"
+    local clean named fallback
+    clean="$(tr -d '\r' <"$log" 2>/dev/null || true)"
+    named="$(grep -m1 '^qt audio backend: ' <<<"$clean" | sed 's/^qt audio backend: //' || true)"
+    fallback="$(grep -m1 '^qt audio backend fallback ' <<<"$clean" || true)"
+    if [[ -n "$named" ]]; then
+        if [[ "$named" == "$want" ]]; then
+            echo "$label: Qt audio backend: $named"
+            return 0
+        fi
+        if [[ "$named" == "(not asked:"* ]]; then
+            [[ "$mode" == strict ]] \
+                && die "$label: Qt was not asked for its audio backend ($named); this package must show Qt naming '$want'"
+            echo "WARNING: $label: Qt was not asked for its audio backend: $named. Information only." >&2
+            [[ -n "$fallback" ]] && echo "$label: $fallback (information only)"
+            return 0
+        fi
+        die "$label: Qt Multimedia uses the '$named' audio backend; this package must use '$want'"
+    fi
+    if [[ -n "$fallback" ]]; then
+        [[ "$mode" == strict ]] \
+            && die "$label: only the inferred fallback was printed ($fallback); this package must show Qt naming its audio backend"
+        echo "$label: Qt could not be asked for its audio backend in this build; $fallback (information only, not a check)"
+        return 0
+    fi
+    [[ "$mode" == strict ]] \
+        && die "$label: --call-sounds-status named no Qt audio backend (crashed, or a build before the backend lines)"
+    echo "WARNING: $label: --call-sounds-status named no Qt audio backend (crashed, or a build before the backend lines). Not a check." >&2
+    return 0
+}
+
 # --- image format decoders ---------------------------------------------------
 #
 # Judges an `--image-format-status` transcript for every format. Qt image

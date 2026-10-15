@@ -303,6 +303,16 @@ int main()
     (void)role;
     return 0;
 }" LIGHTNING_QT_AUDIO_ROLE_BUILDS)
+        # Sibling probe: the name of the audio backend Qt chose, printed by
+        # --call-sounds-status (Qt 6.11 has it; 6.10 is not confirmed).
+        check_cxx_source_compiles("
+#include <QtMultimedia/private/qplatformmediaintegration_p.h>
+int main()
+{
+    auto name = &QPlatformMediaIntegration::audioBackendName;
+    (void)name;
+    return 0;
+}" LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS)
         unset(CMAKE_REQUIRED_FLAGS)
         unset(CMAKE_REQUIRED_LIBRARIES)
         unset(CMAKE_REQUIRED_QUIET)
@@ -322,6 +332,22 @@ if(LIGHTNING_REQUIRE_QT_AUDIO_ROLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         "notification volume would not apply to them). Install the Qt "
         "Multimedia private headers, or clear a cached "
         "LIGHTNING_QT_AUDIO_ROLE_BUILDS.")
+endif()
+# The same requirement covers the audio backend's name: a build that must set
+# the role (the Flatpak) is also the one whose validator requires Qt to NAME
+# its backend (validate-flatpak.sh, assert_qt_audio_backend strict).
+message(STATUS "Qt audio backend name in --call-sounds-status: "
+               "${LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS}")
+if(LIGHTNING_REQUIRE_QT_AUDIO_ROLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND Qt6_VERSION VERSION_GREATER_EQUAL 6.10
+        AND NOT LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS)
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_QT_AUDIO_ROLE=ON but "
+        "QPlatformMediaIntegration::audioBackendName() "
+        "(<QtMultimedia/private/qplatformmediaintegration_p.h>) is not usable, "
+        "so --call-sounds-status could not name the Qt audio backend the "
+        "package validator requires. Use a Qt that has it (6.11 does), or "
+        "clear a cached LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS.")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -1357,6 +1383,11 @@ function(_lightning_configure_qml_module target _scope)
         target_link_libraries(${target} ${_scope} Qt6::MultimediaPrivate)
         target_compile_definitions(${target} ${_scope}
             LIGHTNING_HAVE_QT_AUDIO_ROLE=1)
+        # The chosen audio backend's name (--call-sounds-status).
+        if(LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS)
+            target_compile_definitions(${target} ${_scope}
+                LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME=1)
+        endif()
     endif()
 
     # Update trust configuration: the only values the updater takes from the
@@ -4828,6 +4859,19 @@ if(BUILD_TESTING)
     target_include_directories(share-audio-sources-test PRIVATE src)
     target_link_libraries(share-audio-sources-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME share-audio-sources COMMAND share-audio-sources-test)
+
+    # The Qt audio backend the Flatpak asks for, and that main() asks before
+    # anything touches Qt Multimedia (docs/open-items.md, the PipeWire sink
+    # orphan loop).
+    qt_add_executable(qt-audio-backend-choice-test
+        tests/QtAudioBackendChoiceTest.cpp
+        src/calls/QtAudioBackendChoice.h
+    )
+    target_include_directories(qt-audio-backend-choice-test PRIVATE src)
+    target_link_libraries(qt-audio-backend-choice-test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(qt-audio-backend-choice-test PRIVATE
+        "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
+    add_test(NAME qt-audio-backend-choice COMMAND qt-audio-backend-choice-test)
 
     # Bridged-network recognition from ghost user ids and portal aliases; the
     # negatives matter most (a false badge is worse than none). Also covers

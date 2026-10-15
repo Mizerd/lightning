@@ -10,6 +10,11 @@
 #endif
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
+#include "app/SandboxEnvironment.h"
+#include "calls/QtAudioBackendChoice.h"
+#if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
+#include <QtMultimedia/private/qplatformmediaintegration_p.h>
+#endif
 #include "app/FontManager.h"
 #include "app/SingleInstanceGuard.h"
 #include "app/StartupChecks.h"
@@ -93,6 +98,12 @@
 #endif
 #include <windows.h>
 #endif
+
+namespace {
+/// Lightning itself set QT_AUDIO_BACKEND (the Flatpak default), as opposed
+/// to the user; reported by --call-sounds-status.
+bool g_qtAudioBackendSetHere = false;
+} // namespace
 
 namespace {
 
@@ -1855,6 +1866,22 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
 
+    // In the Flatpak, Qt Multimedia's audio goes through its PulseAudio
+    // backend (pipewire-pulse): the native PipeWire sink can orphan a stream
+    // whose device went away and, when the daemon then restarts, spin the GUI
+    // thread for ever (Qt bug; docs/open-items.md, 2026-10-07). Qt picks the
+    // backend on first use, so this is set before ANY of it, including the
+    // --call-sounds-status preflight below (the Flatpak validator runs it, and
+    // must see the backend a real launch uses). A user override wins.
+    // sandboxenv needs no QCoreApplication.
+    if (const QByteArray backend = lightning::calls::qtAudioBackendOverride(
+            sandboxenv::isFlatpak(),
+            qEnvironmentVariableIsSet("QT_AUDIO_BACKEND"));
+        !backend.isEmpty()) {
+        qputenv("QT_AUDIO_BACKEND", backend);
+        g_qtAudioBackendSetHere = true;
+    }
+
     // Bound any message repeated without end, on stderr and in --log-file
     // alike. Before the VAAPI gate, so it sits inside it (that gate counts
     // every export warning itself).
@@ -1945,7 +1972,41 @@ int main(int argc, char *argv[])
             << (output.isNull() ? QStringLiteral("none")
                                 : output.description())
             << "\n"
+            // What was asked for, and whether Lightning asked (the Flatpak
+            // default) or the user did. A request, not proof of the backend.
+            << "qt audio backend requested: "
+            << (qEnvironmentVariableIsSet("QT_AUDIO_BACKEND")
+                    ? QString::fromLocal8Bit(qgetenv("QT_AUDIO_BACKEND"))
+                    : QStringLiteral("(unset: Qt's default)"))
+            << " set-by-lightning="
+            << (g_qtAudioBackendSetHere ? "yes" : "no") << "\n"
             << "call sounds voiced by: " << CallSoundPlayer::cueBackend()
+            << "\n";
+        // The backend Qt actually chose, in its own words ("PipeWire",
+        // "PulseAudio", "ALSA"): Qt's private API, so only in builds that
+        // link it and only when the running Qt is the one built against, as
+        // CallSoundPlayer guards its own private call. validate-flatpak.sh
+        // requires "PulseAudio" from this line.
+#if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
+        if (qstrcmp(qVersion(), QT_VERSION_STR) == 0) {
+            out << "qt audio backend: "
+                << QString(QPlatformMediaIntegration::audioBackendName())
+                << "\n";
+        } else {
+            out << "qt audio backend: (not asked: running Qt "
+                << qVersion() << " is not the Qt " QT_VERSION_STR
+                   " this was built against)\n";
+        }
+#endif
+        // Fallback where Qt cannot be asked, and labelled as such: only that
+        // libpipewire is (or is not) mapped, which Qt's PipeWire backend
+        // loads and the others do not need. Not proof either way (libpulse
+        // is linked into Qt Multimedia whenever its PulseAudio feature is
+        // on, so it says nothing; something else could load libpipewire).
+        out << "qt audio backend fallback (inferred, not proof): libpipewire "
+               "loaded="
+            << (lightning::calls::sharedObjectLoaded("libpipewire") ? "yes"
+                                                                    : "no")
             << "\n";
         CallSoundPlayer player([] { return QString(); });
         const QStringList &sounds = CallSoundPlayer::knownSounds();

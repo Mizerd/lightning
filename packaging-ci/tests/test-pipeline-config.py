@@ -1379,6 +1379,79 @@ for _label, _text, _status, _want in _cases:
     check(_rc == 0 and "rc=0" in _out and _want in _out,
           f"call-sounds helper, {_label}: warns only and says '{_want}'")
 
+# --- the Qt audio backend the Flatpak runs on -------------------------------
+#
+# The Flatpak sets QT_AUDIO_BACKEND=pulseaudio (src/main.cpp); its validator
+# asks the shipped app which backend Qt chose. Hard only on Qt's own answer.
+_flatpak_validator = _strip_shell_comments(_read("scripts", "validate-flatpak.sh"))
+check("assert_qt_audio_backend Flatpak dist/flatpak-call-sounds-status.txt PulseAudio strict"
+      in _flatpak_validator,
+      "validate-flatpak requires Qt's PulseAudio backend from the transcript, strictly")
+# The build that must set the role must also be able to name the backend.
+check("AND NOT LIGHTNING_QT_AUDIO_BACKEND_NAME_BUILDS)" in _top_cmake,
+      "configure fails when the role is required and the backend name is not")
+check("assert_qt_audio_backend()" in lib_src,
+      "lib.sh defines the Qt audio backend assertion")
+check('"qt audio backend: "' in _main_cpp,
+      "--call-sounds-status still prints the backend line the helper keys on")
+check('"qt audio backend fallback (inferred, not proof): libpipewire "' in _main_cpp,
+      "--call-sounds-status labels its fallback as one")
+
+
+def _run_backend_helper(transcript, mode=""):
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        fh.write(transcript)
+        path = fh.name
+    try:
+        proc = subprocess.run(
+            ["bash", "-c",
+             'source "$1"; assert_qt_audio_backend TEST "$2" PulseAudio "$3"; echo "rc=$?"',
+             "_", os.path.join(HERE, "..", "scripts", "lib.sh"), path, mode],
+            capture_output=True, text=True, timeout=30)
+        return proc.returncode, proc.stdout + proc.stderr
+    finally:
+        os.unlink(path)
+
+
+_fb = "qt audio backend fallback (inferred, not proof): libpipewire loaded=no\n"
+_backend_cases = [
+    ("Qt names PulseAudio", f"qt audio backend: PulseAudio\n{_fb}", True,
+     "TEST: Qt audio backend: PulseAudio"),
+    ("Qt names PipeWire", f"qt audio backend: PipeWire\r\n{_fb}", False,
+     "uses the 'PipeWire' audio backend"),
+    ("Qt names ALSA", "qt audio backend: ALSA\n", False,
+     "uses the 'ALSA' audio backend"),
+    ("Qt not asked (other running Qt)",
+     f"qt audio backend: (not asked: running Qt 6.11.3 is not the Qt 6.11.2 this was built against)\n{_fb}",
+     True, "Information only"),
+    ("only the fallback", _fb, True, "information only, not a check"),
+    ("no backend lines", "Segmentation fault\n", True, "named no Qt audio backend"),
+]
+# Strict (the Flatpak): only Qt naming the required backend passes.
+_backend_cases += [
+    (f"strict: {label}", text, label == "Qt names PulseAudio", want_strict, "strict")
+    for (label, text, _p, _w), want_strict in zip(_backend_cases, [
+        "TEST: Qt audio backend: PulseAudio",
+        "uses the 'PipeWire' audio backend",
+        "uses the 'ALSA' audio backend",
+        "Qt was not asked for its audio backend",
+        "only the inferred fallback was printed",
+        "named no Qt audio backend",
+    ])
+]
+for _case in _backend_cases:
+    _label, _text, _passes, _want = _case[:4]
+    _mode = _case[4] if len(_case) > 4 else ""
+    _rc, _out = _run_backend_helper(_text, _mode)
+    if _passes:
+        check(_rc == 0 and "rc=0" in _out and _want in _out,
+              f"Qt audio backend helper, {_label}: passes and says '{_want}'")
+    else:
+        check(_rc != 0 and "rc=0" not in _out and _want in _out,
+              f"Qt audio backend helper, {_label}: fails and says '{_want}'")
+
 # --- the AppImage/snap bundle, which has nobody to depend on ----------------
 appimage_build = _read("scripts", "build-appimage.sh")
 # A missing plugin directory must fail, not silently skip staging.
