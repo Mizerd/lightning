@@ -442,7 +442,9 @@ void slow_stop_mic_class_init(SlowStopMicClass *klass)
 }
 
 /// A microphone whose start blocks for good, as far as one test is concerned
-/// (a sound server that never answers): 10 s in READY->PAUSED.
+/// (a sound server that never answers): up to 10 s in READY->PAUSED, or until
+/// the test releases it (StuckStartRelease), so no pool thread stays blocked
+/// into the tests that follow.
 struct StuckStartMic {
     GstBin parent;
 };
@@ -453,14 +455,79 @@ G_DEFINE_TYPE(StuckStartMic, stuck_start_mic, GST_TYPE_BIN)
 
 constexpr int kStuckStartMicMs = 10000;
 
+struct StuckStartGate {
+    GMutex mutex;
+    GCond cond;
+    bool released = false;
+    int inFlight = 0;
+    StuckStartGate()
+    {
+        g_mutex_init(&mutex);
+        g_cond_init(&cond);
+    }
+};
+
+StuckStartGate &stuckStartGate()
+{
+    static StuckStartGate *gate = new StuckStartGate; // never freed: pool
+                                                      // threads may outlive
+    return *gate;
+}
+
 GstStateChangeReturn stuckStartMicChangeState(GstElement *element,
                                               GstStateChange transition)
 {
-    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
-        g_usleep(gulong(kStuckStartMicMs) * 1000);
-    return GST_ELEMENT_CLASS(stuck_start_mic_parent_class)
-        ->change_state(element, transition);
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED) {
+        StuckStartGate &gate = stuckStartGate();
+        g_mutex_lock(&gate.mutex);
+        ++gate.inFlight;
+        const gint64 deadline = g_get_monotonic_time()
+            + gint64(kStuckStartMicMs) * G_TIME_SPAN_MILLISECOND;
+        while (!gate.released
+               && g_cond_wait_until(&gate.cond, &gate.mutex, deadline)) {
+        }
+        g_mutex_unlock(&gate.mutex);
+    }
+    const GstStateChangeReturn result =
+        GST_ELEMENT_CLASS(stuck_start_mic_parent_class)
+            ->change_state(element, transition);
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED) {
+        StuckStartGate &gate = stuckStartGate();
+        g_mutex_lock(&gate.mutex);
+        --gate.inFlight;
+        g_cond_broadcast(&gate.cond);
+        g_mutex_unlock(&gate.mutex);
+    }
+    return result;
 }
+
+/// Arms the stuck start for one test and, on every way out of it (a failed
+/// QVERIFY returns early), releases it and waits until no stuck start is
+/// still blocked, then gives the pool job that ran it a moment to finish.
+struct StuckStartRelease {
+    StuckStartRelease()
+    {
+        StuckStartGate &gate = stuckStartGate();
+        g_mutex_lock(&gate.mutex);
+        gate.released = false;
+        g_mutex_unlock(&gate.mutex);
+    }
+    ~StuckStartRelease()
+    {
+        StuckStartGate &gate = stuckStartGate();
+        g_mutex_lock(&gate.mutex);
+        gate.released = true;
+        g_cond_broadcast(&gate.cond);
+        const gint64 deadline = g_get_monotonic_time()
+            + gint64(kStuckStartMicMs) * G_TIME_SPAN_MILLISECOND;
+        while (gate.inFlight > 0
+               && g_cond_wait_until(&gate.cond, &gate.mutex, deadline)) {
+        }
+        g_mutex_unlock(&gate.mutex);
+        // The rest of that start (the bin to NULL and freed) does not wait.
+        QTest::qWait(300);
+    }
+};
 
 void stuck_start_mic_init(StuckStartMic *self)
 {
@@ -511,8 +578,20 @@ struct LiveDisposeCounter {
     static void handler(const gchar *domain, GLogLevelFlags level,
                         const gchar *message, gpointer previous)
     {
-        if (message && strstr(message, "Trying to dispose element"))
-            count().fetch_add(1);
+        // Only the microphone's own elements (micsrc, micfront<N> and what
+        // they hold, the test devices inside a test microphone): a dispose
+        // elsewhere (another test's leftover, e.g. "cid-doomed") is not what
+        // this counts.
+        static const char kPrefix[] = "Trying to dispose element ";
+        const char *at = message ? strstr(message, kPrefix) : nullptr;
+        if (at) {
+            const char *name = at + sizeof kPrefix - 1;
+            if (g_str_has_prefix(name, "mic")
+                || g_str_has_prefix(name, "slowmic")
+                || g_str_has_prefix(name, "slowstopmic")
+                || g_str_has_prefix(name, "stuckmic"))
+                count().fetch_add(1);
+        }
         g_log_default_handler(domain, level, message, previous);
     }
     guint id = 0;
@@ -7808,6 +7887,7 @@ private slots:
     void aDeviceSwitchReplacesAStuckMicrophoneStart()
     {
         QVERIFY(registerStuckStartMic());
+        const StuckStartRelease releaseAtEnd;
         SfuMediaEngine sender;
         SfuMediaEngine receiver;
         sender.setTestSourceMode(true);
@@ -7860,7 +7940,8 @@ private slots:
     // Over a negotiated loopback, so the chain keeps moving.
     void aLiveMicrophoneFailedDuringAnAbandonedSwitchIsRestarted()
     {
-        QVERIFY(registerSlowStartMic());
+        QVERIFY(registerStuckStartMic());
+        const StuckStartRelease releaseAtEnd;
         SfuMediaEngine sender;
         SfuMediaEngine receiver;
         sender.setTestSourceMode(true);
@@ -7889,7 +7970,7 @@ private slots:
         // A second switch, to a device whose start outlasts the swap timeout.
         sender.setMicrophoneSwapTimeoutForTest(400);
         sender.setMicrophoneSourceForTest(
-            QStringLiteral("lightningslowstartmic"));
+            QStringLiteral("lightningstuckstartmic"));
         sender.refreshMicrophoneCapture();
         // The live capture fails meanwhile: recorded for after the switch.
         const int restartsDone = sender.microphoneSourceRestartsDoneForTest();
@@ -7908,7 +7989,6 @@ private slots:
                  "the restarted microphone delivers nothing");
         sender.stop();
         receiver.stop();
-        QTest::qWait(kSlowStartCamMs + 500);
     }
 
     // Recheck M1: a capture restart after a takeover restarts the LIVE front
@@ -7920,6 +8000,7 @@ private slots:
     void aRestartAfterATakeoverKeepsTheNewMicrophoneLive()
     {
         QVERIFY(registerStuckStartMic());
+        const StuckStartRelease releaseAtEnd;
         SfuMediaEngine sender;
         SfuMediaEngine receiver;
         sender.setTestSourceMode(true);

@@ -13,7 +13,11 @@
 // again after, so two picks in a row never run concurrently (a double
 // gst_bin_remove, a failed link, an orphaned PLAYING sink) and the last pick
 // always wins. The unlink/relink itself happens under the slot's mutex; the
-// slow parts (opening the new output, stopping the old) never do.
+// slow parts (opening the new output, stopping the old) never do. Lock order:
+// the chain's state lock FIRST, then the slot's mutex, and nothing waits on a
+// state lock while holding that mutex: a teardown can hold the state lock for
+// as long as a sound server takes, and request() (the GUI thread) takes the
+// mutex, so it must never be held across that wait.
 //
 // Header-only: both lanes include it, and it needs no build entry of its own.
 #pragma once
@@ -154,12 +158,14 @@ inline void run(GstElement *bin, gpointer data)
         bool relinked = false;
         bool linked = false;
         {
-            std::lock_guard<std::mutex> lock(slot.mutex);
             // Under the chain's state lock too: a state change of the chain
             // running meanwhile (a teardown's NULL) iterates its children and
             // could set the old output back up after it is stopped below,
-            // then drop the last reference to it in that state.
+            // then drop the last reference to it in that state. Taken BEFORE
+            // the slot's mutex (the order above): waiting for a teardown here
+            // must not hold up a new pick on the GUI thread.
             GST_STATE_LOCK(bin);
+            std::unique_lock<std::mutex> lock(slot.mutex);
             if (next && serial == slot.serial && stillWanted(request, bin)) {
                 if (GstPad *peer = gst_pad_get_peer(job->pad)) {
                     old = gst_pad_get_parent_element(peer);
@@ -183,6 +189,7 @@ inline void run(GstElement *bin, gpointer data)
             } else if (next) {
                 ++slot.discarded;
             }
+            lock.unlock();
             GST_STATE_UNLOCK(bin);
         }
         if (relinked) {
