@@ -167,6 +167,10 @@ public:
                     RailLayoutStore *layout);
     /// Where the collapse state is kept. Local, never sent to the server.
     void setSettings(SettingsManager *settings);
+    /// Use `resolver` (owned by the caller, outliving this model) instead of the
+    /// model's own, so two owners share one cache and one set of fetches. Null
+    /// returns to the model's own.
+    void setDirectAvatarResolver(DirectAvatarResolver *resolver);
 
     int filterMode() const { return m_filterMode; }
     void setFilterMode(int mode);
@@ -336,7 +340,9 @@ private:
     MatrixClient *m_client = nullptr;
     /// A DM's face belongs to the other person; the resolver derives it, the
     /// same way the Classic list does.
-    DirectAvatarResolver m_directAvatars;
+    DirectAvatarResolver m_ownDirectAvatars;
+    DirectAvatarResolver *m_directAvatars = &m_ownDirectAvatars;
+    QMetaObject::Connection m_directAvatarsConn;
     SpaceManager *m_spaces = nullptr;
     RailLayoutStore *m_layout = nullptr;
     SettingsManager *m_settings = nullptr;

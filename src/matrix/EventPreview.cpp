@@ -62,12 +62,17 @@ QString normalizePreviewText(const QString &text, int maxChars)
     return s;
 }
 
+QString undecryptablePreview()
+{
+    return QStringLiteral("Unable to decrypt");
+}
+
 QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
 {
     if (event.redacted)
         return QStringLiteral("Message removed");
     if (event.undecryptable)
-        return QStringLiteral("Unable to decrypt");
+        return undecryptablePreview();
     // An MSC4274 gallery: the sender's caption, else what it holds. The row's
     // media fields name only the primary item.
     if (event.galleryItems.size() > 1) {

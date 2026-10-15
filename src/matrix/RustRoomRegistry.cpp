@@ -44,6 +44,9 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
             obj.value(QStringLiteral("last_message_preview")).toString());
         if (!incomingPreview.isEmpty())
             room.lastMessagePreview = incomingPreview;
+        else if (obj.value(QStringLiteral("last_message_undecryptable")).toBool(false)
+                 && room.lastMessagePreview.isEmpty())
+            room.lastMessagePreview = matrix::preview::undecryptablePreview();
     }
     // raiseActivity is monotonic and the only writer of the sort key.
     room.raiseActivity(timestampFromMs(static_cast<qint64>(

@@ -33,8 +33,7 @@ RoomListModel::RoomListModel(QObject *parent)
     connect(&m_reconcileCoalesce, &QTimer::timeout,
             this, &RoomListModel::reconcileRooms);
 
-    connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved,
-            this, &RoomListModel::onDirectAvatarResolved);
+    setDirectAvatarResolver(nullptr);
 
     // A held order is never allowed to go stale for ever.
     m_holdCap.setSingleShot(true);
@@ -58,6 +57,19 @@ RoomListModel::RoomListModel(QObject *parent)
     connect(this, &QAbstractItemModel::dataChanged, this, boundary);
 }
 
+void RoomListModel::setDirectAvatarResolver(DirectAvatarResolver *resolver)
+{
+    DirectAvatarResolver *next = resolver ? resolver : &m_ownDirectAvatars;
+    if (m_directAvatarsConn && m_directAvatars == next)
+        return;
+    disconnect(m_directAvatarsConn);
+    m_directAvatars = next;
+    if (m_client)
+        m_directAvatars->setClient(m_client);
+    m_directAvatarsConn = connect(m_directAvatars,
+        &DirectAvatarResolver::avatarResolved, this, &RoomListModel::onDirectAvatarResolved);
+}
+
 void RoomListModel::setClient(MatrixClient *client)
 {
     if (m_client == client)
@@ -67,7 +79,7 @@ void RoomListModel::setClient(MatrixClient *client)
     m_client = client;
     // Another client's rooms are not these rooms: nothing to hold.
     m_hold.release();
-    m_directAvatars.setClient(m_client);
+    m_directAvatars->setClient(m_client);
     clearAdvertisedBridges();
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
@@ -106,7 +118,7 @@ void RoomListModel::setClient(MatrixClient *client)
 
 void RoomListModel::clearProfileCaches()
 {
-    m_directAvatars.clear();
+    m_directAvatars->clear();
     // Bridge answers are keyed by room id and belong to the previous account.
     clearAdvertisedBridges();
     m_hold.release();
@@ -178,7 +190,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case AvatarUrlRole:          return effectiveAvatarUrl(r);
     case LastMessagePreviewRole: return r.lastMessagePreview;
     case LastActivityRole:       return r.lastActivity;
-    case UnreadCountRole:        return r.unreadCount;
+    case UnreadCountRole:        return shownUnread(r);
     case EncryptedRole:          return r.encrypted;
     case IsSpaceRole:            return r.isSpace;
     case MemberCountRole:        return static_cast<int>(r.members.size());
@@ -270,7 +282,7 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 // Whether `encrypted` is a synced fact; the find bar's History
                 // offer fails closed on false.
                 { QStringLiteral("encryptionKnown"), r.encryptionKnown },
-                { QStringLiteral("unreadCount"), r.unreadCount },
+                { QStringLiteral("unreadCount"), shownUnread(r) },
                 { QStringLiteral("isSpace"),   r.isSpace },
                 // The invite dialog's room header prefers the canonical alias.
                 { QStringLiteral("canonicalAlias"), r.canonicalAlias },
@@ -325,10 +337,12 @@ QVariantList RoomListModel::recentRooms(int max) const
             { QStringLiteral("avatarUrl"),   effectiveAvatarUrl(r) },
             { QStringLiteral("isDirect"),    r.isDirect },
             { QStringLiteral("hasUnread"),   r.hasUnreadMessages },
-            { QStringLiteral("unreadCount"), r.unreadCount },
+            { QStringLiteral("unreadCount"), shownUnread(r) },
             // Home: activity recency and the mention badge.
             { QStringLiteral("lastActivity"), r.lastActivity },
-            { QStringLiteral("highlightCount"), r.highlightCount },
+            { QStringLiteral("highlightCount"), r.membership == RoomInfo::Joined
+                  ? roomunread::mentionCount(r, notificationModeOf(r.id))
+                  : r.highlightCount },
             { QStringLiteral("identityColorKey"), identityColorKey(r) },
         });
     }
@@ -362,7 +376,7 @@ QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
 {
     // Derived by DirectAvatarResolver, shared with the Channels column so the
     // two agree.
-    return m_directAvatars.avatarFor(room);
+    return m_directAvatars->avatarFor(room);
 }
 
 // Scope filters only (space-room exclusion, search, Space membership),
@@ -697,7 +711,7 @@ void RoomListModel::onDirectAvatarResolved(const QString &userId)
 
 void RoomListModel::resolveMissingDirectAvatars()
 {
-    m_directAvatars.resolveMissing(m_rooms);
+    m_directAvatars->resolveMissing(m_rooms);
 }
 
 RoomListModel::BridgeBadge RoomListModel::badgeFor(const RoomInfo &r) const
@@ -963,6 +977,13 @@ void RoomListModel::setNotificationModeSource(
     notificationModeChanged();
 }
 
+int RoomListModel::shownUnread(const RoomInfo &r) const
+{
+    return r.membership == RoomInfo::Joined
+        ? roomunread::visibleUnreadCount(r, notificationModeOf(r.id))
+        : r.unreadCount;
+}
+
 int RoomListModel::notificationModeOf(const QString &roomId) const
 {
     return m_modeOf ? m_modeOf(roomId) : roomunread::kModeAllMessages;
@@ -971,6 +992,10 @@ int RoomListModel::notificationModeOf(const QString &roomId) const
 void RoomListModel::notificationModeChanged()
 {
     updateUnreadTotals();
+    // The count a row may show depends on the mode.
+    if (!m_rooms.isEmpty())
+        Q_EMIT dataChanged(index(0, 0), index(int(m_rooms.size()) - 1, 0),
+                           { UnreadCountRole, ThreadUnreadKindRole });
     // The Unreads filter reads the same rule.
     if (m_filterMode == 3)
         reconcileRooms();

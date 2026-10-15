@@ -1,5 +1,11 @@
 #include "models/DirectAvatarResolver.h"
 
+#include <QDateTime>
+#include <QRandomGenerator>
+
+#include <algorithm>
+#include <limits>
+
 DirectAvatarResolver::DirectAvatarResolver(QObject *parent)
     : QObject(parent)
 {
@@ -37,6 +43,7 @@ void DirectAvatarResolver::clear()
     m_ops.clear();
     m_pending.clear();
     m_noAvatar.clear();
+    m_refreshDueAt.clear();
     m_peerFaces.clear();
 }
 
@@ -95,21 +102,51 @@ QString DirectAvatarResolver::avatarFor(const RoomInfo &room) const
     return m_avatars.value(peer);
 }
 
+qint64 DirectAvatarResolver::nowMs() const
+{
+    return m_clock ? m_clock() : QDateTime::currentMSecsSinceEpoch();
+}
+
 void DirectAvatarResolver::resolveMissing(const QList<RoomInfo> &rooms)
 {
     if (!m_client)
         return;
+    const qint64 now = nowMs();
+    // Peers never asked go out at once; peers whose answer went stale are
+    // collected and only the oldest few are refreshed per pass.
+    QList<QPair<qint64, QString>> stale;
+    QSet<QString> seen;
     for (const RoomInfo &room : rooms) {
         const QString peer = directPeer(room);
         if (peer.isEmpty() || hasPeerFace(room.id, peer)
-            || !avatarFor(room).isEmpty()
-            || m_avatars.contains(peer) || m_pending.contains(peer)
+            || m_pending.contains(peer) || seen.contains(peer))
+            continue;
+        const auto due = m_refreshDueAt.constFind(peer);
+        if (due != m_refreshDueAt.cend()) {
+            if (now >= *due) {
+                seen.insert(peer);
+                stale.append({ *due, peer });
+            }
+            continue;
+        }
+        if (!avatarFor(room).isEmpty() || m_avatars.contains(peer)
             || m_noAvatar.contains(peer))
             continue;
-        const quint64 opId = m_client->fetchUserProfile(peer);
+        seen.insert(peer);
+        stale.append({ std::numeric_limits<qint64>::min(), peer });
+    }
+    std::sort(stale.begin(), stale.end());
+    int refreshes = 0;
+    for (const auto &entry : stale) {
+        const bool first = entry.first == std::numeric_limits<qint64>::min();
+        if (!first && refreshes >= kMaxRefreshesPerPass)
+            break;
+        const quint64 opId = m_client->fetchUserProfile(entry.second);
         if (opId != 0) {
-            m_pending.insert(peer);
-            m_ops.insert(opId, peer);
+            m_pending.insert(entry.second);
+            m_ops.insert(opId, entry.second);
+            if (!first)
+                ++refreshes;
         }
     }
 }
@@ -155,7 +192,22 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
     const QString subject = userId.isEmpty() ? requestedUser : userId;
     if (subject.isEmpty())
         return;
+    // Only an answer to a lookup this resolver issued starts the refresh clock.
+    if (!requestedUser.isEmpty()) {
+        // Interval plus up to two thirds of it, per peer (15-25 min by default).
+        const qint64 jitter = m_refreshMs > 0
+            ? qint64(QRandomGenerator::global()->bounded(
+                  quint32(std::max<qint64>(1, m_refreshMs * 2 / 3))))
+            : 0;
+        const qint64 due = nowMs() + m_refreshMs + jitter;
+        m_refreshDueAt.insert(requestedUser, due);
+        m_refreshDueAt.insert(subject, due);
+    }
     if (ok && !avatarUrl.isEmpty()) {
+        // A refresh that returns the face already held is silent.
+        const bool changed = m_avatars.value(subject) != avatarUrl
+            || (!requestedUser.isEmpty()
+                && m_avatars.value(requestedUser) != avatarUrl);
         // Filed under both ids: owners look up by the room's `directUserId`,
         // which is the id we asked with.
         m_avatars.insert(subject, avatarUrl);
@@ -163,11 +215,13 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
         if (!requestedUser.isEmpty() && requestedUser != subject) {
             m_avatars.insert(requestedUser, avatarUrl);
             m_noAvatar.remove(requestedUser);
-            Q_EMIT avatarResolved(requestedUser);
+            if (changed)
+                Q_EMIT avatarResolved(requestedUser);
         }
-        // Announce only a learned face. Announcing every answer let owners
-        // rebuild, re-enter resolveMissing() and ask again forever.
-        Q_EMIT avatarResolved(subject);
+        // Announce only a learned or CHANGED face. Announcing every answer let
+        // owners rebuild, re-enter resolveMissing() and ask again forever.
+        if (changed)
+            Q_EMIT avatarResolved(subject);
         return;
     }
 
@@ -178,9 +232,20 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
     // avatarFor() checks the member snapshot first, so a face from a member
     // event still wins.
     if (ok) {
+        // The peer removed their picture: forget the old one and say so.
+        const bool hadFace = m_avatars.contains(subject)
+            || (!requestedUser.isEmpty() && m_avatars.contains(requestedUser));
+        m_avatars.remove(subject);
         m_noAvatar.insert(subject);
-        if (!requestedUser.isEmpty())
+        if (!requestedUser.isEmpty()) {
+            m_avatars.remove(requestedUser);
             m_noAvatar.insert(requestedUser);
+        }
+        if (hadFace) {
+            if (!requestedUser.isEmpty() && requestedUser != subject)
+                Q_EMIT avatarResolved(requestedUser);
+            Q_EMIT avatarResolved(subject);
+        }
         return;
     }
     if (requestedUser.isEmpty())

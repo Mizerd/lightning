@@ -878,6 +878,13 @@ void NotificationManager::onFallbackMessageClicked()
 {
     const QVariantMap payload = m_lastFallbackPayload;
     m_lastFallbackPayload.clear();
+    // Windows toast click reported as doing nothing on the first of three
+    // clicks (2026-10-14, cause unknown). Booleans only, so a capture can tell
+    // "Qt never delivered the click" (no line) from "delivered with no payload
+    // stored" from "routed" without logging a room id.
+    qCInfo(lcNotify) << "tray balloon clicked payload="
+                     << (!payload.isEmpty()) << "room="
+                     << !payload.value(QStringLiteral("roomId")).toString().isEmpty();
     emitOpenFor(payload);
 }
 

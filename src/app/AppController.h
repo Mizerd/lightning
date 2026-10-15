@@ -73,6 +73,7 @@
 #include "models/PaginationController.h"
 #include "models/QuickSwitcherModel.h"
 #include "models/ReadReceiptCoordinator.h"
+#include "models/DirectAvatarResolver.h"
 #include "models/RoomListModel.h"
 #include "models/SpaceChannelModel.h"
 #include "models/TimelineModel.h"
@@ -1437,6 +1438,10 @@ private:
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;
+    // One DM-avatar resolver for every room-list owner, so its cache and its
+    // profile fetches (and the periodic refresh) are not multiplied. Declared
+    // BEFORE the models that use it: they are destroyed first.
+    std::unique_ptr<DirectAvatarResolver> m_directAvatars;
     std::unique_ptr<RoomListModel> m_roomList;
     // Same rows, no Space filter. See the allRooms property.
     std::unique_ptr<RoomListModel> m_allRooms;

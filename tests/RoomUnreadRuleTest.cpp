@@ -28,6 +28,40 @@ class RoomUnreadRuleTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // "Mentions & keywords": a keyword hit raises the plain count legitimately
+    // (Element shows it grey), so a trusted room keeps its number; where the
+    // number cannot be trusted (mode held only on this device, or encryption
+    // not yet known) it clamps to the dot and the tray reports the mentions.
+    void aMentionsOnlyRoomIsClampedOnlyWhereTheCountCannotBeTrusted()
+    {
+        RoomInfo r = room(QStringLiteral("!enc:x"), 7, true);
+        r.highlightCount = 2;
+        r.encryptionKnown = true;
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeAllMessages), 7);
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeMentions), 7);
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeMentionsUnverified), 0);
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeMute), 0);
+        r.encryptionKnown = false;
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeMentions), 0);
+        QVERIFY(roomunread::countsAsUnread(r, roomunread::kModeMentionsUnverified));
+        QCOMPARE(roomunread::mentionCount(r, roomunread::kModeMentionsUnverified), 2);
+
+        // Clamped: the tray total is the mentions, not zero and not the 7.
+        const roomunread::Summary clamped = roomunread::summarize(
+            QList<RoomInfo>{ r },
+            [](const QString &) { return roomunread::kModeMentionsUnverified; },
+            [](const RoomInfo &, bool) {});
+        QVERIFY(clamped.any);
+        QCOMPARE(clamped.total, 2);
+        // Trusted: the room's own number.
+        r.encryptionKnown = true;
+        const roomunread::Summary trusted = roomunread::summarize(
+            QList<RoomInfo>{ r },
+            [](const QString &) { return roomunread::kModeMentions; },
+            [](const RoomInfo &, bool) {});
+        QCOMPARE(trusted.total, 7);
+    }
+
     // A muted room has unreadCount 0 (mute suppresses notifications) but a
     // receipt-derived hasUnreadMessages: exactly the countless red dot.
     void aMutedRoomIsNeitherADotNorACount()

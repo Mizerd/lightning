@@ -804,7 +804,7 @@ void SpaceManager::rebuild()
         return m_modeOf ? m_modeOf(id) : roomunread::kModeAllMessages;
     };
     const auto unreadOf = [&](const RoomInfo &r) {
-        return modeOf(r.id) == roomunread::kModeMute ? 0 : r.unreadCount;
+        return roomunread::visibleUnreadCount(r, modeOf(r.id));
     };
     const auto highlightOf = [&](const RoomInfo &r) {
         return roomunread::mentionCount(r, modeOf(r.id));
@@ -1145,7 +1145,7 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
               roomMode(id) != roomunread::kModeMute
                   && (it->hasUnreadMessages || it->unreadCount > 0) },
             { QStringLiteral("unreadCount"),
-              roomMode(id) == roomunread::kModeMute ? 0 : it->unreadCount },
+              roomunread::visibleUnreadCount(*it, roomMode(id)) },
             { QStringLiteral("highlightCount"),
               roomunread::mentionCount(*it, roomMode(id)) },
             { QStringLiteral("membership"), QStringLiteral("joined") },

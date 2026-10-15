@@ -14,6 +14,9 @@
 //  * A collapsed folder still reports what it hides, and collapse is stored,
 //    so it survives a rebuild.
 //  * A search opens every folder and restores the collapse state afterwards.
+#include "matrix/RoomUnreadRule.h"
+#include "models/DirectAvatarResolver.h"
+#include "models/QuickSwitcherModel.h"
 #include "models/SpaceChannelModel.h"
 
 #include "app/SettingsManager.h"
@@ -1543,6 +1546,185 @@ private Q_SLOTS:
 
         // Our own failures are still remembered (see
         // anAvatarlessPeerIsAskedForExactlyOnce).
+    }
+
+    // The peer's member event does not reach a closed DM under lazy loading,
+    // so the profile is the only source of a changed face: once an answer has
+    // gone stale the next rebuild asks again, and a CHANGED face is announced
+    // while an identical one is silent. (Old code asked once per session.)
+    // The clock is injected: nothing here sleeps.
+    void aStaleProfileIsAskedAgainAndAChangedFaceIsAnnounced()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        const QString sam = QStringLiteral("@sam:example.org");
+
+        Fixture f;
+        qint64 now = 1000000;
+        DirectAvatarResolver resolver;
+        resolver.setClient(&f.client);
+        resolver.setRefreshIntervalMs(1000);   // due within 1000..1667 ms
+        resolver.setClockForTest([&now] { return now; });
+        QSignalSpy resolved(&resolver, &DirectAvatarResolver::avatarResolved);
+
+        resolver.resolveMissing({ peer });
+        QCOMPARE(f.client.profileFetches.count(sam), 1);
+        Q_EMIT f.client.userProfileFinished(f.client.nextOp, true, sam,
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/old"),
+            QString());
+        QCOMPARE(resolved.count(), 1);
+        QCOMPARE(resolver.avatarFor(peer), QStringLiteral("mxc://example.org/old"));
+
+        now += 500;   // fresh: no second request
+        resolver.resolveMissing({ peer });
+        QCOMPARE(f.client.profileFetches.count(sam), 1);
+
+        now += 2000;  // stale: asked again; the same face is silent
+        resolver.resolveMissing({ peer });
+        QCOMPARE(f.client.profileFetches.count(sam), 2);
+        Q_EMIT f.client.userProfileFinished(f.client.nextOp, true, sam,
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/old"),
+            QString());
+        QCOMPARE(resolved.count(), 1);
+
+        now += 2000;  // stale again: a NEW face is announced
+        resolver.resolveMissing({ peer });
+        QCOMPARE(f.client.profileFetches.count(sam), 3);
+        Q_EMIT f.client.userProfileFinished(f.client.nextOp, true, sam,
+            QStringLiteral("Sam"), QStringLiteral("mxc://example.org/new"),
+            QString());
+        QCOMPARE(resolved.count(), 2);
+        QCOMPARE(resolver.avatarFor(peer), QStringLiteral("mxc://example.org/new"));
+    }
+
+    // ONE unread rule: for the same room in each notification mode the
+    // channel list, the rail's Space badge, the quick switcher and the rule
+    // itself show the same number. (Old code: each surface had its own.)
+    void everySurfaceShowsTheSameCountForOneRoomInEachMode()
+    {
+        struct Case { int mode; bool encryptionKnown; };
+        const QList<Case> cases{ { 0, true }, { 1, true }, { 1, false }, { 2, true } };
+        for (const Case &c : cases) {
+            RoomInfo r = room(QStringLiteral("!r:x"), QStringLiteral("R"), 5, 2);
+            r.encryptionKnown = c.encryptionKnown;
+            r.encrypted = true;
+            r.parentSpaceIds = { QStringLiteral("!s:x") };
+            Fixture f;
+            f.settings.setRoomNotificationMode(r.id, c.mode);
+            f.spaces.setNotificationModeSource([&f](const QString &id) {
+                return f.settings.roomUnreadMode(id);
+            });
+            f.build({ space(QStringLiteral("!s:x"), QStringLiteral("S"), { r.id }), r });
+            f.selectSpace(QStringLiteral("!s:x"));
+
+            QuickSwitcherModel switcher;
+            switcher.setClient(&f.client);
+            switcher.setNotificationModeSource([&f](const QString &id) {
+                return f.settings.roomUnreadMode(id);
+            });
+            switcher.refresh();
+
+            const int expected = roomunread::visibleUnreadCount(
+                r, f.settings.roomUnreadMode(r.id));
+            const QByteArray label = QByteArray("mode ") + QByteArray::number(c.mode)
+                + (c.encryptionKnown ? " known" : " unknown");
+            const int row = f.model.rowForRoom(r.id);
+            QVERIFY2(row >= 0, label.constData());
+            QCOMPARE(f.model.data(f.model.index(row, 0),
+                                  SpaceChannelModel::UnreadCountRole).toInt(),
+                     expected);
+            int switcherCount = -1;
+            for (int i = 0; i < switcher.rowCount(); ++i) {
+                const QModelIndex idx = switcher.index(i, 0);
+                if (switcher.data(idx, QuickSwitcherModel::NameRole).toString()
+                    == QLatin1String("R"))
+                    switcherCount = switcher.data(
+                        idx, QuickSwitcherModel::UnreadRole).toInt();
+            }
+            QCOMPARE(switcherCount, expected);
+            // The rail's badge is the room count (+ nothing else here) in All
+            // and trusted Mentions; the clamped and muted rooms show only
+            // what the rule allows, never the raw 5.
+            if (expected == 0)
+                QVERIFY2(railUnreadTotal(f.spaces, QStringLiteral("!s:x")) != 5,
+                         label.constData());
+            else
+                QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!s:x")), expected);
+        }
+    }
+
+    // Two owners given ONE resolver ask for a DM peer's profile once between
+    // them, and both rows learn the face. (Own resolvers: two fetches.)
+    void twoOwnersSharingAResolverShareItsFetches()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        const QString sam = QStringLiteral("@sam:example.org");
+
+        for (const bool shared : { false, true }) {
+            DirectAvatarResolver resolver;
+            Fixture f;
+            SpaceChannelModel second;
+            if (shared) {
+                f.model.setDirectAvatarResolver(&resolver);
+                second.setDirectAvatarResolver(&resolver);
+            }
+            f.build({ peer });
+            second.setSettings(&f.settings);
+            second.setSources(&f.client, &f.spaces, &f.layout);
+            f.selectPeople();
+            second.setScopeSpaceId(SpaceManager::peopleId());
+            QTRY_VERIFY(f.client.profileFetches.count(sam) >= 1);
+            QTest::qWait(50);
+            QCOMPARE(f.client.profileFetches.count(sam), shared ? 1 : 2);
+
+            Q_EMIT f.client.userProfileFinished(f.client.nextOp, true, sam,
+                QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
+                QString());
+            if (shared) {
+                for (SpaceChannelModel *m : { &f.model, &second }) {
+                    QTRY_VERIFY(m->rowForRoom(QStringLiteral("!dm:x")) >= 0);
+                    const int row = m->rowForRoom(QStringLiteral("!dm:x"));
+                    QTRY_COMPARE(m->data(m->index(row, 0),
+                                         SpaceChannelModel::AvatarUrlRole).toString(),
+                                 QStringLiteral("mxc://example.org/sam"));
+                }
+            }
+        }
+    }
+
+    // Many DMs going stale together do not refresh in one burst: at most
+    // kMaxRefreshesPerPass go out per pass, the rest on later passes.
+    void staleRefreshesAreCappedPerPass()
+    {
+        Fixture f;
+        qint64 now = 1000000;
+        DirectAvatarResolver resolver;
+        resolver.setClient(&f.client);
+        resolver.setRefreshIntervalMs(1000);
+        resolver.setClockForTest([&now] { return now; });
+
+        QList<RoomInfo> rooms;
+        for (int i = 0; i < 10; ++i) {
+            const QString user = QStringLiteral("@u%1:example.org").arg(i);
+            RoomInfo r = dm(QStringLiteral("!dm%1:x").arg(i), QStringLiteral("U"));
+            r.directUserId = user;
+            r.directUserIds = { user };
+            rooms.append(r);
+        }
+        resolver.resolveMissing(rooms);
+        QCOMPARE(f.client.profileFetches.size(), 10);   // first asks are not capped
+        for (int i = 0; i < 10; ++i)
+            Q_EMIT f.client.userProfileFinished(
+                f.client.nextOp - 9 + i, true,
+                QStringLiteral("@u%1:example.org").arg(i), QString(),
+                QStringLiteral("mxc://example.org/a%1").arg(i), QString());
+
+        now += 5000;
+        resolver.resolveMissing(rooms);
+        QCOMPARE(f.client.profileFetches.size(), 10 + DirectAvatarResolver::kMaxRefreshesPerPass);
     }
 
     // A face returned under a normalised user id is cached under the id we

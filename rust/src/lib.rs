@@ -79,6 +79,7 @@ mod settingsync;
 mod banner;
 mod bio;
 mod bridges;
+mod previewbackfill;
 mod calls;
 // DeepFilterNet microphone noise suppression (#20); C ABI in
 // rust/include/matrix_denoise.h. Stubs when the `deepfilternet` feature is off.
@@ -11049,6 +11050,13 @@ pub(crate) fn typed_message_row_kind(msgtype: &str) -> Option<&'static str> {
     })
 }
 
+/// Whether an audio message is a voice message (MSC3245 `org.matrix.msc3245.voice`),
+/// so a notification for a room with no open timeline can say so instead of
+/// "an audio file". Pure and unit-tested.
+pub(crate) fn message_is_voice(msgtype: &MessageType) -> bool {
+    matches!(msgtype, MessageType::Audio(content) if content.voice.is_some())
+}
+
 /// The `media_filename` for a row of `kind`, matching the live-timeline
 /// producer (`rust/src/timeline.rs`) kind for kind:
 ///
@@ -11461,6 +11469,7 @@ fn install_event_handlers(
                     "body": body,
                     "media_filename": media_filename,
                     "msgtype": kind,
+                    "media_voice": message_is_voice(row_msgtype),
                     "timestamp_ms": u64::from(ev.origin_server_ts.get()),
                     "is_encrypted": is_encrypted,
                     "is_decrypted": is_encrypted,
@@ -11823,6 +11832,13 @@ async fn run_modern_sync(
 
     // Consecutive authentication errors; see MODERN_AUTH_RETRY_LIMIT.
     let mut auth_budget = AuthRetryBudget::default();
+    // Rooms that have had their one blank-preview look, for the whole run.
+    let mut preview_backfill = previewbackfill::Backfill::default();
+    // Owned by this run and keyed by its account: a run detached after overrunning
+    // its budget cannot clear or write into its successor's results.
+    let backfill_results = client
+        .user_id()
+        .map(|user| previewbackfill::RunGuard::new(user.to_owned()));
 
     loop {
         let service = match SyncService::builder(client.clone()).build().await {
@@ -11925,6 +11941,11 @@ async fn run_modern_sync(
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
         service.start().await;
         let mut first_sync = true;
+        // Dropped with this iteration, which aborts looks still in flight: a
+        // rebuilt sync session never receives a previous one's result.
+        let mut backfill_tasks: tokio::task::JoinSet<(OwnedRoomId, previewbackfill::Outcome)> =
+            tokio::task::JoinSet::new();
+        let mut last_backfill_scan: Option<std::time::Instant> = None;
         loop {
             tokio::select! {
                 _ = &mut cancel => {
@@ -11939,6 +11960,81 @@ async fn run_modern_sync(
                                             &mut watched_latest,
                                             &mut forwarded_order).await;
                     enqueue_spaces(&events, &space_service, &client).await;
+                    // A blank row (newest event filtered churn, nothing to
+                    // preview) gets one bounded back-page, never before the
+                    // first sync has settled and never more than a few rooms
+                    // per pass.
+                    let now_ms = preview_backfill.now_ms();
+                    while let Some(done) = backfill_tasks.try_join_next() {
+                        if let Ok((room_id, outcome)) = done {
+                            let remembered = match &outcome {
+                                previewbackfill::Outcome::Found(preview, ts) => {
+                                    Some(previewbackfill::Remembered::Message(preview.clone(), *ts))
+                                }
+                                previewbackfill::Outcome::Undecryptable(ts) => {
+                                    Some(previewbackfill::Remembered::Undecryptable(*ts))
+                                }
+                                _ => None,
+                            };
+                            if let (Some(what), Some(results)) = (remembered, &backfill_results) {
+                                // C++ fills a blank row at once; room_payload serves
+                                // the same result on every later payload. An
+                                // undecryptable result carries a flag, never text.
+                                let (preview, ts, utd) = match &what {
+                                    previewbackfill::Remembered::Message(p, t) => (p.clone(), *t, false),
+                                    previewbackfill::Remembered::Undecryptable(t) => (String::new(), *t, true),
+                                };
+                                results.remember(&room_id, what);
+                                enqueue(&events, json!({
+                                    "type": "room_preview_backfill",
+                                    "room_id": room_id.to_string(),
+                                    "preview": preview,
+                                    "undecryptable": utd,
+                                    "last_activity_ms": ts,
+                                }));
+                            }
+                            preview_backfill.finish(&room_id, &outcome, now_ms);
+                        }
+                    }
+                    if backfill_tasks.is_empty() {
+                        preview_backfill.clear_in_flight();
+                    }
+                    // Scanned at most every few seconds: nothing here needs to
+                    // walk every joined room on every batch.
+                    if !first_sync
+                        && last_backfill_scan
+                            .map_or(true, |at| at.elapsed() >= std::time::Duration::from_secs(3))
+                    {
+                        last_backfill_scan = Some(std::time::Instant::now());
+                        // Only a room with NO latest event qualifies: not one
+                        // with a local echo or a remote event.
+                        let candidates: Vec<OwnedRoomId> = client
+                            .joined_rooms()
+                            .into_iter()
+                            .filter(|room| {
+                                matches!(
+                                    room.latest_event(),
+                                    matrix_sdk_base::latest_event::LatestEventValue::None
+                                ) && !matches!(
+                                    previewbackfill::remembered(room.own_user_id(), room.room_id()),
+                                    Some(previewbackfill::Remembered::Message(..))
+                                )
+                            })
+                            .map(|room| room.room_id().to_owned())
+                            .filter(|id| preview_backfill.is_eligible(id, now_ms))
+                            .collect();
+                        let picked = preview_backfill.pick(candidates, backfill_tasks.len(), now_ms);
+                        for room_id in picked {
+                            let Some(room) = client.get_room(&room_id) else {
+                                preview_backfill.finish(&room_id, &previewbackfill::Outcome::Failed, now_ms);
+                                continue;
+                            };
+                            backfill_tasks.spawn(async move {
+                                let outcome = previewbackfill::look(&room).await;
+                                (room_id, outcome)
+                            });
+                        }
+                    }
                 }
                 updates = room_updates_sub.recv(), if room_updates_live => {
                     match updates {
@@ -12993,7 +13089,7 @@ async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u6
 ///  * `m.call.invite` / `m.rtc.notification` are excluded, because C++
 ///    already refuses to let call rows raise activity
 ///    (`TimelineEvent::CallEvent` in `handleTimelineEvent`).
-const CONVERSATION_EVENT_TYPES: &[&str] = &[
+pub(crate) const CONVERSATION_EVENT_TYPES: &[&str] = &[
     "m.room.message",
     "m.room.encrypted",
     "m.sticker",
@@ -13167,6 +13263,23 @@ fn unread_in_threads_only(
     (true, server_highlight_count > 0)
 }
 
+/// A Matrix id as the C++ logs print it (`matrix::e2ee::redactId`): the sigil
+/// kept, then the first 8 hex characters of SHA-256 of the rest. Stable for
+/// correlation, not reversible.
+pub(crate) fn redact_matrix_id(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    if id.is_empty() {
+        return "<none>".to_owned();
+    }
+    let (sigil, rest) = match id.chars().next() {
+        Some(c @ ('!' | '$' | '@' | '#')) => (c.to_string(), &id[1..]),
+        _ => (String::new(), id),
+    };
+    let digest = Sha256::digest(rest.as_bytes());
+    let hex: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    format!("{sigil}{hex}")
+}
+
 async fn room_payload(room: &Room) -> serde_json::Value {
     let membership = match room.state() {
         matrix_sdk::RoomState::Joined => "joined",
@@ -13187,6 +13300,24 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         notifications.notification_count,
         notifications.highlight_count,
     );
+    // Opt-in (LIGHTNING_UNREAD_TRACE=1): which counts produced this room's
+    // number and by which path. Counts only; the room is a short hash so lines
+    // correlate without naming it. See the 2026-10-15 rooms notes for the steps.
+    if std::env::var_os("LIGHTNING_UNREAD_TRACE").is_some() {
+        let state = room.encryption_state();
+        eprintln!(
+            "unread-trace room={} encryption={} path={} client_notif={} client_mentions={} server_notif={} server_highlight={} -> unread={} highlight={}",
+            redact_matrix_id(room.room_id().as_str()),
+            if state.is_encrypted() { "encrypted" } else if state.is_unknown() { "unknown" } else { "plain" },
+            if state.is_encrypted() { "client-only" } else { "max-of-both" },
+            room.num_unread_notifications(),
+            room.num_unread_mentions(),
+            notifications.notification_count,
+            notifications.highlight_count,
+            unread_count,
+            highlight_count,
+        );
+    }
     let (unread_threads_only, mention_in_threads) = unread_in_threads_only(
         room.encryption_state().is_encrypted(),
         room.num_unread_notifications(),
@@ -13217,6 +13348,13 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
         _ => None,
     };
+    // A room whose own latest event gives no preview (newest event filtered
+    // churn) shows what the blank-preview look found, if it has run.
+    let (own_preview, own_activity, own_undecryptable) = previewbackfill::merge_remembered(
+        latest_event_preview_text(&latest_event),
+        room_ordering_timestamp_ms(&latest_event, edited_ts),
+        previewbackfill::remembered(room.own_user_id(), room.room_id()),
+    );
 
     json!({
         "id": room.room_id().to_string(),
@@ -13225,8 +13363,11 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
-        "last_message_preview": latest_event_preview_text(&latest_event),
-        "last_activity_ms": room_ordering_timestamp_ms(&latest_event, edited_ts),
+        "last_message_preview": own_preview,
+        // True when the last message could not be decrypted: C++ renders the
+        // placeholder (no text crosses, so no real body can imitate it).
+        "last_message_undecryptable": own_undecryptable,
+        "last_activity_ms": own_activity,
         "unread_count": unread_count,
         "highlight_count": highlight_count,
         "marked_unread": room.is_marked_unread(),
@@ -13317,11 +13458,24 @@ async fn enqueue_rooms_stamped(
 pub(crate) fn latest_event_preview_text(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
 ) -> String {
+    use matrix_sdk_base::latest_event::LatestEventValue;
+
+    match value {
+        LatestEventValue::Remote(event) => raw_event_preview_text(event.raw()),
+        _ => String::new(),
+    }
+}
+
+/// The room-list preview line for one raw timeline event, empty when it has
+/// none. Shared by the latest-event preview and the blank-preview backfill
+/// (`previewbackfill`), so both read an event identically.
+pub(crate) fn raw_event_preview_text(
+    raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
+) -> String {
     use matrix_sdk::ruma::events::{
         room::message::Relation, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         SyncMessageLikeEvent,
     };
-    use matrix_sdk_base::latest_event::LatestEventValue;
 
     fn body_or(body: String, fallback: &str) -> String {
         if body.is_empty() { fallback.to_owned() } else { body }
@@ -13332,10 +13486,7 @@ pub(crate) fn latest_event_preview_text(
         text.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
-    let LatestEventValue::Remote(event) = value else {
-        return String::new();
-    };
-    let Ok(deserialized) = event.raw().deserialize() else {
+    let Ok(deserialized) = raw.deserialize() else {
         return String::new();
     };
     let AnySyncTimelineEvent::MessageLike(message_like) = deserialized else {
@@ -15201,6 +15352,38 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(room_ordering_timestamp_ms(&plain, Some(7)), 42);
+    }
+
+    #[test]
+    fn redact_matrix_id_matches_the_cpp_logs() {
+        // sha256("abc") starts ba7816bf; sigil kept, empty is <none>.
+        assert_eq!(super::redact_matrix_id("!abc"), "!ba7816bf");
+        assert_eq!(super::redact_matrix_id("abc"), "ba7816bf");
+        assert_eq!(super::redact_matrix_id(""), "<none>");
+    }
+
+    #[test]
+    fn a_voice_message_is_told_from_a_plain_audio_file() {
+        use super::message_is_voice;
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let parse = |content: serde_json::Value| -> MessageType {
+            let c: matrix_sdk::ruma::events::room::message::RoomMessageEventContent =
+                serde_json::from_value(content).unwrap();
+            c.msgtype
+        };
+        let voice = parse(json!({
+            "msgtype": "m.audio", "body": "Voice message",
+            "url": "mxc://example.org/v",
+            "org.matrix.msc1767.audio": { "duration": 3000 },
+            "org.matrix.msc3245.voice": {}
+        }));
+        let file = parse(json!({
+            "msgtype": "m.audio", "body": "song.mp3", "url": "mxc://example.org/s"
+        }));
+        let text = parse(json!({ "msgtype": "m.text", "body": "hi" }));
+        assert!(message_is_voice(&voice));
+        assert!(!message_is_voice(&file));
+        assert!(!message_is_voice(&text));
     }
 
     #[test]

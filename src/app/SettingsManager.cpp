@@ -1,4 +1,5 @@
 #include "media/ImageMetadata.h"
+#include "matrix/RoomUnreadRule.h"
 #include "app/SettingsManager.h"
 
 #include <QFile>
@@ -1545,9 +1546,15 @@ int SettingsManager::notificationPreview() const
 {
     // Default 0 (sender and message). Encrypted bodies only appear once the SDK
     // has decrypted them locally, and stricter modes remain available.
+    bool ok = false;
     const int mode =
-        m_store->value(QStringLiteral("notifications/preview"), 0).toInt();
-    return (mode < 0 || mode > 2) ? 0 : mode;
+        m_store->value(QStringLiteral("notifications/preview"), 0).toInt(&ok);
+    if (!ok)
+        return 1;   // not a number: least disclosure, like any unknown mode
+    // An unrecognised stored value most likely names a mode a newer build
+    // offered; we cannot honour it, so err toward LESS disclosure (1, sender
+    // only), matching the setter. The absent-key default above stays 0.
+    return (mode < 0 || mode > 2) ? 1 : mode;
 }
 
 void SettingsManager::setNotificationPreview(int mode)
@@ -2077,6 +2084,16 @@ int SettingsManager::roomNotificationMode(const QString &roomId) const
         : roomNotificationModeGlobalKey(roomId);
     const int mode = m_store->value(readKey, 0).toInt();
     return (mode < 0 || mode > 3) ? 0 : mode;
+}
+
+int SettingsManager::roomUnreadMode(const QString &roomId) const
+{
+    const int mode = roomNotificationMode(roomId);
+    if (mode == roomunread::kModeMentions
+        && (roomNotificationModeDeviceOnly(roomId)
+            || roomNotificationModeUnsynced(roomId)))
+        return roomunread::kModeMentionsUnverified;
+    return mode;
 }
 
 namespace {

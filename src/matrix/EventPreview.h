@@ -17,6 +17,11 @@ namespace matrix::preview {
 // "Message removed", media labels, else the normalized body. A room-state
 // row names its actor by `actorLabel` (else the event's senderDisplayName,
 // else the localpart), never by the raw user id; see actorSentence.
+/// The room list's words for a last message that cannot be decrypted. Rust
+/// sends a FLAG, never this text, so a real body that reads the same cannot
+/// look like the placeholder.
+QString undecryptablePreview();
+
 QString oneLineSummary(const TimelineEvent &event,
                        const QString &actorLabel = QString());
 

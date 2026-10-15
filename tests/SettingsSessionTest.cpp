@@ -135,6 +135,7 @@ private Q_SLOTS:
     void readReceiptModeDefaultsToPublicPersistsAndClamps();
     void typingNotificationsDefaultOnAndPersist();
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
+    void anUnrecognisedPreviewModeErrsTowardLessDisclosure();
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
     // Microphone noise suppression (#20): one of four keys, never clamped.
@@ -1830,6 +1831,31 @@ void SettingsSessionTest::typingNotificationsDefaultOnAndPersist()
     }
     SettingsManager reopened;
     QVERIFY(!reopened.sendTypingNotifications());
+}
+
+void SettingsSessionTest::anUnrecognisedPreviewModeErrsTowardLessDisclosure()
+{
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.notificationPreview(), 0);   // absent key: default
+    }
+    {
+        // A value a newer build wrote (a fourth mode) or hand editing.
+        QSettings seed;
+        seed.setValue(QStringLiteral("notifications/preview"), 7);
+        seed.sync();
+    }
+    SettingsManager settings;
+    QCOMPARE(settings.notificationPreview(), 1);       // sender only, not 0
+    settings.setNotificationPreview(7);
+    QCOMPARE(settings.notificationPreview(), 1);       // setter agrees
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("notifications/preview"),
+                      QStringLiteral("not-a-number"));
+        seed.sync();
+    }
+    QCOMPARE(SettingsManager().notificationPreview(), 1);
 }
 
 void SettingsSessionTest::theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne()

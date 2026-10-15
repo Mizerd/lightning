@@ -76,14 +76,27 @@ SpaceChannelModel::SpaceChannelModel(QObject *parent)
     // applyRows emits dataChanged, never a reset. The resolver caches negatives
     // and announces only faces it learned, so this cannot loop; the coalescing
     // is a second guard.
-    connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved, this,
-            &SpaceChannelModel::scheduleRebuild);
+    setDirectAvatarResolver(nullptr);
 
     // A held order is never allowed to go stale for ever.
     m_holdCap.setSingleShot(true);
     m_holdCap.setInterval(kHoldCapMs);
     connect(&m_holdCap, &QTimer::timeout, this,
             &SpaceChannelModel::releaseOrder);
+}
+
+void SpaceChannelModel::setDirectAvatarResolver(DirectAvatarResolver *resolver)
+{
+    DirectAvatarResolver *next = resolver ? resolver : &m_ownDirectAvatars;
+    if (m_directAvatarsConn && m_directAvatars == next)
+        return;
+    disconnect(m_directAvatarsConn);
+    m_directAvatars = next;
+    if (m_client)
+        m_directAvatars->setClient(m_client);
+    m_directAvatarsConn = connect(m_directAvatars,
+        &DirectAvatarResolver::avatarResolved, this,
+        &SpaceChannelModel::scheduleRebuild);
 }
 
 void SpaceChannelModel::setDeferReordering(bool defer)
@@ -230,7 +243,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     m_client = client;
     // Another client's rooms are not these rooms: nothing to hold.
     m_hold.release();
-    m_directAvatars.setClient(client);
+    m_directAvatars->setClient(client);
     m_spaces = spaces;
     m_layout = layout;
     // A destroyed source must leave a null, not a dangling pointer:
@@ -696,7 +709,7 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.id = info.id;
     row.name = info.name;
     row.kind = RoomKind;
-    row.avatarUrl = m_directAvatars.avatarFor(info);
+    row.avatarUrl = m_directAvatars->avatarFor(info);
     row.identityColorKey = identityColorKey(info);
     row.isDirect = info.isDirect;
     row.isInvite = info.membership == RoomInfo::Invited;
@@ -705,10 +718,10 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.encrypted = info.encrypted && info.encryptionKnown;
     // A muted room is silent (counts, mentions and the dot); an invite never is.
     const int mode = (m_settings && !row.isInvite)
-        ? m_settings->roomNotificationMode(info.id)
+        ? m_settings->roomUnreadMode(info.id)
         : roomunread::kModeAllMessages;
     const bool muted = mode == roomunread::kModeMute;
-    row.unread = muted ? 0 : info.unreadCount;
+    row.unread = roomunread::visibleUnreadCount(info, mode);
     row.highlight = roomunread::mentionCount(info, mode);
     // An invite always reads as unread: it is waiting on the user and has no
     // unread counters of its own.
@@ -996,7 +1009,7 @@ void SpaceChannelModel::rebuild()
     }
     // Ask once per unresolved DM peer. Cached and in-flight peers are skipped,
     // so this is free after the first pass.
-    m_directAvatars.resolveMissing(allRooms);
+    m_directAvatars->resolveMissing(allRooms);
 
     // Whether the account has anything at all is answered from the whole room
     // list, never from the current view: an empty Space is not an empty

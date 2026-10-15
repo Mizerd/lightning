@@ -2,6 +2,8 @@
 
 #include "matrix/RoomInfo.h"
 
+#include <functional>
+
 #include <QAbstractListModel>
 #include <QHash>
 #include <QList>
@@ -59,6 +61,9 @@ public:
 
     void setClient(MatrixClient *client);
     void setSpaceManager(SpaceManager *spaces);
+    /// The room's unread-rule mode (SettingsManager::roomUnreadMode); without
+    /// one every room reads as All messages.
+    void setNotificationModeSource(std::function<int(const QString &)> modeOf);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -91,6 +96,7 @@ private:
 
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
+    std::function<int(const QString &)> m_modeOf;
     QString m_query;
     QList<Result> m_results;
 

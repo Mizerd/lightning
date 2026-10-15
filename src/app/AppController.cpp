@@ -229,8 +229,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_client       = makeClient(backend, m_settings.get(), this);
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
+    m_directAvatars = std::make_unique<DirectAvatarResolver>(this);
     m_roomList     = std::make_unique<RoomListModel>(this);
     m_allRooms     = std::make_unique<RoomListModel>(this);
+    m_roomList->setDirectAvatarResolver(m_directAvatars.get());
+    m_allRooms->setDirectAvatarResolver(m_directAvatars.get());
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
@@ -1706,12 +1709,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Muted rooms are silent in the room list's badges too (one rule with the
     // rail and the tray).
     m_roomList->setNotificationModeSource([this](const QString &id) {
-        return m_settings->roomNotificationMode(id);
+        return m_settings->roomUnreadMode(id);
     });
     // Every rollup follows the same rule: the Space badges, Home and People
     // totals and the lobby's counts.
     m_spaces->setNotificationModeSource([this](const QString &id) {
-        return m_settings->roomNotificationMode(id);
+        return m_settings->roomUnreadMode(id);
+    });
+    m_quickSwitcher->setNotificationModeSource([this](const QString &id) {
+        return m_settings->roomUnreadMode(id);
     });
     connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
             m_spaces.get(),
@@ -1754,6 +1760,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_spaceChannels->setSources(m_client.get(), m_spaces.get(),
                                 m_railLayout.get());
     m_spaceChannels->setSettings(m_settings.get());
+    m_spaceChannels->setDirectAvatarResolver(m_directAvatars.get());
     // Hold the room order still while the list is in use (a setting, on by
     // default). Both layouts follow it, so switching layout keeps the rule.
     const auto applyRoomOrderHold = [this] {

@@ -2,6 +2,8 @@
 // the bound on the background timeline mirror. Invariant: only the producer
 // that owns the index space may define it.
 
+#include "matrix/EventPreview.h"
+#include "matrix/RoomRecencyRule.h"
 #include "matrix/RustRoomRegistry.h"
 #include "matrix/RustTimelineMirror.h"
 
@@ -110,6 +112,32 @@ class RustRoomRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // A call row (m.call.invite / m.rtc.notification, the only kinds that
+    // reach C++ as CallEvent; MatrixRTC membership churn is filtered out of
+    // every timeline) raises the room but never replaces its preview, whoever
+    // sent it. Virtual rows do neither.
+    void aCallRowRaisesTheRoomButNeverReplacesThePreview()
+    {
+        TimelineEvent call;
+        call.type = TimelineEvent::CallEvent;
+        call.sender = QStringLiteral("@other:example.org");
+        QVERIFY(roomrecency::raisesRecency(call));
+        QVERIFY(!roomrecency::replacesPreview(call));
+        call.sender = QStringLiteral("@me:example.org");
+        QVERIFY(roomrecency::raisesRecency(call));
+        QVERIFY(!roomrecency::replacesPreview(call));
+
+        TimelineEvent divider;
+        divider.type = TimelineEvent::DateDivider;
+        QVERIFY(!roomrecency::raisesRecency(divider));
+        QVERIFY(!roomrecency::replacesPreview(divider));
+
+        TimelineEvent text;
+        text.type = TimelineEvent::TextMessage;
+        QVERIFY(roomrecency::raisesRecency(text));
+        QVERIFY(roomrecency::replacesPreview(text));
+    }
+
     // Rebuilding the index base from a `client.rooms()` snapshot (whole store,
     // store order) renumbers every position the SDK is about to address, so
     // the next diff fails.
@@ -396,6 +424,33 @@ private Q_SLOTS:
         second.append(blank);
         applySnapshot(registry, second);
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("hello"));
+    }
+
+    // An undecryptable last message crosses as a FLAG (never text): the blank
+    // row shows the room list's placeholder, a known preview is never replaced
+    // by it, and a body that merely reads like the placeholder is just a body.
+    void anUndecryptableFlagFillsOnlyABlankRowWithThePlaceholder()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject flagged = roomJson(roomId(0));
+        flagged.insert(QStringLiteral("last_message_preview"), QString());
+        flagged.insert(QStringLiteral("last_message_undecryptable"), true);
+        QJsonArray first;
+        first.append(flagged);
+        applyIndexReset(registry, first);
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview,
+                 matrix::preview::undecryptablePreview());
+
+        QJsonObject known = roomJson(roomId(1));
+        known.insert(QStringLiteral("last_message_preview"), QStringLiteral("hello"));
+        known.insert(QStringLiteral("last_message_undecryptable"), true);
+        QJsonArray second;
+        second.append(known);
+        applyIndexReset(registry, second);
+        QCOMPARE(map.value(roomId(1)).lastMessagePreview, QStringLiteral("hello"));
     }
 
     // ── The background timeline mirror's bound ──────────────────────────

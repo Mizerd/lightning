@@ -1,6 +1,7 @@
 #include "models/QuickSwitcherModel.h"
 
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "spaces/SpaceManager.h"
 
 #include <QCoreApplication>
@@ -159,6 +160,12 @@ int QuickSwitcherModel::matchScore(const QString &query, const QString &name,
     return score;
 }
 
+void QuickSwitcherModel::setNotificationModeSource(
+    std::function<int(const QString &)> modeOf)
+{
+    m_modeOf = std::move(modeOf);
+}
+
 void QuickSwitcherModel::rebuild()
 {
     QList<Result> next;
@@ -187,10 +194,13 @@ void QuickSwitcherModel::rebuild()
             r.identityColorKey = identityColorKey(room);
             r.name = displayName;
             r.avatarUrl = room.avatarUrl;
-            r.unread = room.unreadCount;
-            r.highlight = room.highlightCount;
-            r.hasUnread = room.hasUnreadMessages || room.markedUnread
-                          || room.unreadCount > 0;
+            // The one unread rule (an invite has no counters of its own).
+            const int mode = (m_modeOf && !isInvite)
+                ? m_modeOf(room.id) : roomunread::kModeAllMessages;
+            r.unread = roomunread::visibleUnreadCount(room, mode);
+            r.highlight = roomunread::mentionCount(room, mode);
+            r.hasUnread = room.markedUnread
+                          || roomunread::countsAsUnread(room, mode);
             r.isSpace = room.isSpace;
             r.isInvite = isInvite;
             r.score = score;

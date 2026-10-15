@@ -10,6 +10,7 @@
 #pragma once
 
 #include <QHash>
+#include <functional>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -37,6 +38,17 @@ public:
     /// Starts at most one bounded profile fetch per unanswered peer. Safe on
     /// every rebuild: pending and cached peers are skipped.
     void resolveMissing(const QList<RoomInfo> &rooms);
+
+    /// How long an answered profile stays fresh before the next rebuild asks
+    /// again. The peer's member event does not reach a closed DM under lazy
+    /// loading, so without a refresh a changed face stayed stale for the whole
+    /// session. Default 15 minutes plus a per-peer jitter of up to two thirds
+    /// of that (15-25 min), so a long contact list does not refresh in one
+    /// burst; at most kMaxRefreshesPerPass (the oldest) go out per
+    /// resolveMissing() call. Tests shorten the interval and inject the clock.
+    static constexpr int kMaxRefreshesPerPass = 6;
+    void setRefreshIntervalMs(qint64 ms) { m_refreshMs = ms; }
+    void setClockForTest(std::function<qint64()> nowMs) { m_clock = std::move(nowMs); }
 
     /// The avatar `userId` wears in `roomId` per their latest member event
     /// there (sync room state), empty for none. For that room's peer it wins
@@ -66,6 +78,12 @@ private:
     QHash<QString, QString> m_avatars;
     QHash<quint64, QString> m_ops;
     QSet<QString> m_pending;
+    /// When each peer's profile is next due a refresh (ms since epoch): the
+    /// answer time plus the interval plus that peer's jitter.
+    QHash<QString, qint64> m_refreshDueAt;
+    qint64 m_refreshMs = 15 * 60 * 1000;
+    std::function<qint64()> m_clock;
+    qint64 nowMs() const;
     /// Peers we asked about and learned no picture for (no avatar set, or our
     /// own lookup failed). Distinguishes "asked, nothing there" from "never
     /// asked", so rebuilds do not re-fetch in a loop. Session-scoped and

@@ -3764,6 +3764,9 @@ if(BUILD_TESTING)
         src/models/SpaceChannelModel.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
+        # The quick switcher shows the same unread count as the other surfaces.
+        src/models/QuickSwitcherModel.h
+        src/models/QuickSwitcherModel.cpp
         # Rooms come from the client, not RoomListModel, which is scoped to the
         # active Space and filtered.
         src/spaces/SpaceManager.h

@@ -582,6 +582,13 @@ public:
     // mode (server wins for explicit rules). Stored per account with a
     // read-fallback to the legacy device-global key.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
+    // The mode the UNREAD RULE (roomunread::) reads: roomNotificationMode(), except
+    // that a "mentions & keywords" mode this device holds only locally (device
+    // only, or a write the server never took) reports
+    // roomunread::kModeMentionsUnverified, because the push rule behind the
+    // client's count may not be the one the user chose. Every unread surface
+    // reads this one function.
+    int roomUnreadMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
     // Rooms whose mode was chosen here and whose write failed, so the server
     // does not have it. Kept per account and across restarts: while a room is

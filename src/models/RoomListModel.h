@@ -101,6 +101,10 @@ public:
     explicit RoomListModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    /// Use `resolver` (owned by the caller, outliving this model) instead of the
+    /// model's own, so two owners share one cache and one set of fetches. Null
+    /// returns to the model's own.
+    void setDirectAvatarResolver(DirectAvatarResolver *resolver);
 
     // Optional Space filter: when bound, only rooms in
     // SpaceManager::activeSpaceId() are shown. Space rooms themselves are
@@ -240,6 +244,8 @@ private:
     int m_highlightRoomCount = 0;
     void updateUnreadTotals();
     int notificationModeOf(const QString &roomId) const;
+    /// The plain unread count this room may show (one rule, roomunread::).
+    int shownUnread(const RoomInfo &room) const;
     std::function<int(const QString &)> m_modeOf;
     MatrixClient *m_client = nullptr;
     /// Rooms with a mark-as-read in flight; see roomMarkedRead.
@@ -257,7 +263,9 @@ private:
     QTimer m_searchDebounce;
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
-    DirectAvatarResolver m_directAvatars;
+    DirectAvatarResolver m_ownDirectAvatars;
+    DirectAvatarResolver *m_directAvatars = &m_ownDirectAvatars;
+    QMetaObject::Connection m_directAvatarsConn;
     // The keys the list is ordered by; see conversation::RecencyHold.
     conversation::RecencyHold m_hold;
     bool m_orderHeld = false;

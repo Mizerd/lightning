@@ -18,6 +18,7 @@
 #include "matrix/EventPreview.h"
 #include "matrix/MediaStoreKey.h"
 #include "matrix/PushRulesSnapshot.h"
+#include "matrix/RoomRecencyRule.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix/RustRoomRegistry.h"
 #include "matrix/RustTimelineMirror.h"
@@ -5714,6 +5715,31 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_preview_backfill")) {
+        // One bounded back-page found the last conversation event of a room
+        // whose newest known event was filtered churn (open-items 1708/2014).
+        // Only fills a BLANK row: a preview the room already has came from a
+        // newer producer, and activity is monotonic anyway.
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        QString preview = event.value(QStringLiteral("preview")).toString();
+        if (preview.isEmpty()
+            && event.value(QStringLiteral("undecryptable")).toBool(false))
+            preview = matrix::preview::undecryptablePreview();
+        auto it = m_rooms.find(roomId);
+        // Blank, or still the placeholder from an earlier look at the same room
+        // (the key may have arrived since).
+        if (it != m_rooms.end()
+            && (it->lastMessagePreview.isEmpty()
+                || it->lastMessagePreview == matrix::preview::undecryptablePreview())
+            && !preview.isEmpty()) {
+            it->lastMessagePreview = preview;
+            it->raiseActivity(timestampFromMs(static_cast<qint64>(
+                event.value(QStringLiteral("last_activity_ms")).toDouble(0))));
+            Q_EMIT roomUpdated(roomId);
+        }
+        return;
+    }
+
     if (type == QLatin1String("room_background_changed")) {
         // org.lightning_matrix.room.background changed in sync (set or
         // cleared). Sliding sync never delivers this type as state, so this
@@ -6611,6 +6637,10 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     // media kind.
     timelineEvent.mediaFilename =
         obj.value(QStringLiteral("media_filename")).toString();
+    // MSC3245: lets a notification for a room with no open timeline say
+    // "voice message" rather than "audio file".
+    timelineEvent.mediaIsVoice =
+        obj.value(QStringLiteral("media_voice")).toBool(false);
     timelineEvent.status = TimelineEvent::Sent;
 
     // Encryption metadata from the bridge, falling back to the older
@@ -6684,14 +6714,13 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         //     room);
         //   * activity never moves backwards, so replayed history is harmless;
         //   * an edit is not a new message.
-        const bool countsAsActivity = !timelineEvent.isVirtual()
+        const bool countsAsActivity = roomrecency::raisesRecency(timelineEvent)
             && !isEdit
-            && timelineEvent.type != TimelineEvent::StateChange
-            // Call rows carry no body (TimelineModel builds the sentence), so
-            // they must not replace the room's preview with an empty string.
-            && timelineEvent.type != TimelineEvent::CallEvent;
+            && timelineEvent.type != TimelineEvent::StateChange;
         if (countsAsActivity) {
-            roomIt->lastMessagePreview = previewFor(timelineEvent);
+            // A call row raises the room but has no body to preview.
+            if (roomrecency::replacesPreview(timelineEvent))
+                roomIt->lastMessagePreview = previewFor(timelineEvent);
             roomIt->raiseActivity(timelineEvent.timestamp);
             Q_EMIT roomUpdated(roomId);
         }
@@ -6705,8 +6734,15 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
     if (roomIt == m_rooms.end())
         return;
     for (const auto &event : newestFirstCandidates) {
-        if (event.isVirtual())
+        if (!roomrecency::raisesRecency(event))
             continue;
+        if (!roomrecency::replacesPreview(event)) {
+            // A call row raises the room but has no body: keep the preview and
+            // look no further.
+            roomIt->raiseActivity(event.timestamp);
+            Q_EMIT roomUpdated(roomId);
+            return;
+        }
         // A state row names its actor; when the item carried no profile yet,
         // the member cache may know the name (displayNameFor answers the raw
         // id when it does not, which oneLineSummary never shows).

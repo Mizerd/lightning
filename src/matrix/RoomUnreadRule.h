@@ -11,7 +11,10 @@ namespace roomunread {
 
 // SettingsManager::roomNotificationMode(): 0 is All messages, 2 is mute.
 constexpr int kModeAllMessages = 0;
+constexpr int kModeMentions = 1;
 constexpr int kModeMute = 2;
+// roomUnreadMode() only: kModeMentions that this device cannot vouch for.
+constexpr int kModeMentionsUnverified = 4;
 
 // The room list's unread rule: notification_count is 0 for a room whose push
 // rules do not notify, so the read-receipt flag and a manual mark count too.
@@ -35,6 +38,24 @@ inline bool countsAsUnread(const RoomInfo &r, int mode)
 inline int mentionCount(const RoomInfo &r, int mode)
 {
     return mode == kModeMute ? 0 : r.highlightCount;
+}
+
+/// The plain-message count a badge may show. A muted room shows none. A
+/// "mentions & keywords" room keeps its count (a keyword hit raises it without
+/// a highlight, as Element's grey count) EXCEPT where the number cannot be
+/// trusted: the mode is held only on this device or was never accepted by the
+/// server (kModeMentionsUnverified), or encryption is not yet known (the
+/// backend then takes the higher of two counts, one of which may not have
+/// applied the room's push rule). Such a room is still unread (a dot) and its
+/// mentions still count; inventing a number is what CLAUDE.md section 8 forbids.
+/// ONE function for every surface that shows a room's count.
+inline int visibleUnreadCount(const RoomInfo &r, int mode)
+{
+    if (mode == kModeMute || mode == kModeMentionsUnverified)
+        return 0;
+    if (mode == kModeMentions && !r.encryptionKnown)
+        return 0;
+    return r.unreadCount > 0 ? r.unreadCount : 0;
 }
 
 /// Why a room is still unread when only a thread holds it: 0 = not that,
@@ -62,11 +83,17 @@ Summary summarize(const QList<RoomInfo> &rooms, ModeFn modeOf, RoomFn onRoom)
     for (const RoomInfo &room : rooms) {
         if (room.membership != RoomInfo::Joined)
             continue;
+        // Ask for the mode once, and only for a room with something unread:
+        // the lookup is a settings read per room.
         const bool raw = rawUnread(room);
-        const bool unread = raw && countsAsUnread(room, modeOf(room.id));
+        const int mode = raw ? modeOf(room.id) : 0;
+        const bool unread = raw && countsAsUnread(room, mode);
         if (unread) {
             out.any = true;
-            out.total += room.unreadCount > 0 ? room.unreadCount : 0;
+            // The count the mode allows; when it clamps the plain number to
+            // nothing the mentions are still what the tray reports.
+            const int shown = visibleUnreadCount(room, mode);
+            out.total += shown > 0 ? shown : mentionCount(room, mode);
         }
         onRoom(room, unread);
     }
