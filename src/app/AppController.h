@@ -796,6 +796,12 @@ public:
     {
         return m_voicePlayback.get();
     }
+    /// The media key of the one voice message prefetched for auto-play-next,
+    /// or empty. Exposed for tests.
+    QString voicePrefetchKey() const { return m_voicePrefetchKey; }
+    /// How many times the prefetch moved off a key that was not the clip now
+    /// playing. Exposed for tests.
+    int voicePrefetchDropsForTest() const { return m_voicePrefetchDrops; }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
@@ -1636,6 +1642,15 @@ private:
     int m_lastConnectionState = -1;
     std::unique_ptr<MediaPlaybackController> m_playback;
     std::unique_ptr<VoicePlaybackController> m_voicePlayback;
+    void updateVoicePrefetch();
+    void scheduleVoicePrefetchUpdate();
+    void resetVoicePrefetch();
+    QString m_voicePrefetchKey;
+    // Whether THIS controller started the prefetch (a row may have started it
+    // first, and that one is not ours to cancel).
+    bool m_voicePrefetchOwned = false;
+    bool m_voicePrefetchQueued = false;
+    int m_voicePrefetchDrops = 0;
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
     std::unique_ptr<LinkPreviewController> m_linkPreviews;

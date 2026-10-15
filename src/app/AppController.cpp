@@ -1888,6 +1888,38 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &roomId, const QString &eventId) {
         m_voicePlayback->handleRedaction(roomId, eventId);
     });
+    // Auto-play next: a voice message that ends on its own starts the next
+    // voice message of the same main timeline, if it directly follows (see
+    // TimelineModel::nextVoiceMessage). Voice only, never audio files, and
+    // never from a thread. A clip the reader stopped or paused never gets
+    // here; neither does one in a room that is not the open timeline.
+    connect(m_voicePlayback.get(), &VoicePlaybackController::clipFinished, this,
+            [this](const QString &eventId, const QString &roomId,
+                   const QString &threadRootId, bool isVoice) {
+        if (!isVoice || !threadRootId.isEmpty() || m_voicePlayback->active())
+            return;
+        const QVariantMap next = m_timeline->nextVoiceMessage(roomId, eventId);
+        if (next.isEmpty())
+            return;
+        m_voicePlayback->play(next.value(QStringLiteral("eventId")).toString(),
+                              roomId,
+                              next.value(QStringLiteral("mediaKey")).toString(),
+                              next);
+    });
+    // Prefetch the clip auto-play-next would start, so the chain has no
+    // download gap. One at a time: it follows whatever is playing, moves when
+    // the clip or the timeline changes, and is dropped on stop and when the
+    // open room is no longer the clip's.
+    // Deferred to the event loop: play() stops the previous clip (emitting
+    // currentChanged with nothing loaded) BEFORE it registers interest in the
+    // new clip's bytes, so deciding right there would cancel the very prefetch
+    // that clip is about to use.
+    connect(m_voicePlayback.get(), &VoicePlaybackController::currentChanged,
+            this, [this] { scheduleVoicePrefetchUpdate(); });
+    connect(m_timeline.get(), &QAbstractItemModel::rowsInserted, this,
+            [this] { scheduleVoicePrefetchUpdate(); });
+    connect(m_timeline.get(), &QAbstractItemModel::modelReset, this,
+            [this] { scheduleVoicePrefetchUpdate(); });
     const auto checkVoiceRedaction = [this] {
         if (!m_voicePlayback->active())
             return;
@@ -3037,6 +3069,63 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             setCurrentScreen(LoginScreen);
         Q_EMIT rustDeviceIdChanged();
     }
+}
+
+void AppController::scheduleVoicePrefetchUpdate()
+{
+    if (m_voicePrefetchQueued)
+        return;
+    m_voicePrefetchQueued = true;
+    QMetaObject::invokeMethod(this, [this] {
+        m_voicePrefetchQueued = false;
+        updateVoicePrefetch();
+    }, Qt::QueuedConnection);
+}
+
+void AppController::resetVoicePrefetch()
+{
+    // Sign-out / account switch: the bridge's own tables are wiped, so there
+    // is nothing to cancel, and a key wanted again afterwards must re-issue.
+    m_voicePrefetchKey.clear();
+    m_voicePrefetchOwned = false;
+}
+
+void AppController::updateVoicePrefetch()
+{
+    QString wanted;
+    QVariantMap next;
+    if (m_voicePlayback->active() && m_voicePlayback->isVoice()
+        && m_voicePlayback->threadRootId().isEmpty()) {
+        next = m_timeline->nextVoiceMessage(m_voicePlayback->roomId(),
+                                            m_voicePlayback->eventId());
+        wanted = next.value(QStringLiteral("mediaKey")).toString();
+    }
+    if (wanted == m_voicePrefetchKey)
+        return;
+    const QString old = m_voicePrefetchKey;
+    const bool ownedOld = m_voicePrefetchOwned;
+    m_voicePrefetchKey = wanted;
+    m_voicePrefetchOwned = false;
+    // The prefetched clip may be the one playing now: its Play owns the fetch
+    // from here, so it is never cancelled out from under it.
+    if (!old.isEmpty() && old != m_voicePlayback->mediaKey()) {
+        ++m_voicePrefetchDrops;
+        // Only interest this controller took: a row's own prefetch of the same
+        // key (AudioPlayerCard) is not ours to drop.
+        if (ownedOld && m_mediaBridge)
+            m_mediaBridge->cancelPrefetch(old);
+    }
+    // "Never" for passive media also means no speculative downloads.
+    if (wanted.isEmpty() || !m_mediaBridge || !m_mediaBridge->supported()
+        || m_settings->gifAutoplay() == 2)
+        return;
+    double size = next.value(QStringLiteral("fileSize")).toDouble();
+    if (size <= 0)
+        size = m_settings->knownMediaSizeBytes(wanted);
+    const bool alreadyPrefetching = m_mediaBridge->hasPrefetch(wanted);
+    m_mediaBridge->prefetchPlayable(wanted, size);
+    m_voicePrefetchOwned =
+        !alreadyPrefetching && m_mediaBridge->hasPrefetch(wanted);
 }
 
 AppController::~AppController()
@@ -6071,6 +6160,7 @@ void AppController::onLoggedOut()
     m_bridgeLabels.close();
     // No playback (or decrypted-media handle) survives sign-out.
     m_voicePlayback->stop();
+    resetVoicePrefetch();
     m_playback->stopAll();
     // Unsent clipboard images belong to the session. The composers release
     // them individually; this sweep catches anything left behind.
@@ -6257,6 +6347,7 @@ void AppController::clearCrossAccountCaches()
     // player holds an open handle into the previous account's cache.
     m_voicePlayback->stop();
     m_playback->stopAll();
+    resetVoicePrefetch();
     m_mediaBridge->clear();
     // MediaBridge::clear() drops in-flight requests without a terminal
     // emission, so the claim sets would otherwise strand their keys.

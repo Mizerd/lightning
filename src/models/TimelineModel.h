@@ -373,6 +373,16 @@ public:
     // redacted. False when the room is not this one or the event is not
     // loaded, so a caller cannot read "unknown" as "redacted".
     bool isEventRedacted(const QString &roomId, const QString &eventId) const;
+    /// The voice message (MSC3245) that follows `afterEventId` in time order,
+    /// for auto-play-next, as the `meta` map VoicePlaybackController::play()
+    /// takes plus eventId and mediaKey. Empty when `roomId` is not this main
+    /// timeline, when `afterEventId` is not loaded, or when the next visible
+    /// message is anything else. Rows that draw nothing a reader would take
+    /// for a message (date dividers, read marker, state changes, redacted and
+    /// thread-hidden rows) are skipped; a text, an image, a plain audio file
+    /// or an unsent local echo ends the run.
+    QVariantMap nextVoiceMessage(const QString &roomId,
+                                 const QString &afterEventId) const;
     /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
     /// when the loaded timeline does not carry one.
     ///

@@ -4709,19 +4709,37 @@ NoiseSuppressionSelector {
                  "the sweep found almost no sequenceFor() call sites, so it is "
                  "matching the wrong thing and would pass on anything");
 
+        QVERIFY2(all.contains(QStringLiteral("timelineActionForKey(")),
+                 "no view resolves timeline keys, so the TimelineContext "
+                 "rows below cannot be wired");
+
         QStringList unwired;
+        int timelineRows = 0;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
             // EditorContext rows are routed by the composer through
             // editorActionForKey(), not declared as `Shortcut`s.
-            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
-                == ShortcutRegistry::EditorContext)
+            const int context =
+                registry.data(idx, ShortcutRegistry::ContextRole).toInt();
+            if (context == ShortcutRegistry::EditorContext)
                 continue;
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // TimelineContext rows are resolved by timelineActionForKey() in
+            // a view's Keys handler, so the row is wired when that handler
+            // has a case for it.
+            if (context == ShortcutRegistry::TimelineContext) {
+                ++timelineRows;
+                if (!all.contains(QStringLiteral("case \"%1\":").arg(id)))
+                    unwired.append(id);
+                continue;
+            }
             if (!all.contains(QStringLiteral("sequenceFor(\"%1\")").arg(id)))
                 unwired.append(id);
         }
+        // Count control: the timeline branch must have seen the four
+        // paging rows, or it is checking nothing.
+        QVERIFY2(timelineRows >= 4, "no TimelineContext rows were checked");
         QVERIFY2(unwired.isEmpty(),
                  qPrintable(QStringLiteral(
                                 "these registry rows report a key and do "

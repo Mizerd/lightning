@@ -116,6 +116,33 @@ QVariantMap voiceMeta(const QString &sender)
              { QStringLiteral("isVoice"), true } };
 }
 
+TimelineEvent voiceEvent(const QString &room, const QString &id,
+                         const QString &mediaKey, bool voice = true)
+{
+    TimelineEvent e;
+    e.type = TimelineEvent::Audio;
+    e.roomId = room;
+    e.eventId = id;
+    e.sender = QStringLiteral("@alice:mock.local");
+    e.body = QStringLiteral("clip.ogg");
+    e.mediaKey = mediaKey;
+    e.mediaSourceAvailable = true;
+    e.mediaIsVoice = voice;
+    return e;
+}
+
+TimelineEvent plainEvent(const QString &room, const QString &id,
+                         TimelineEvent::Type type)
+{
+    TimelineEvent e;
+    e.type = type;
+    e.roomId = room;
+    e.eventId = id;
+    e.sender = QStringLiteral("@alice:mock.local");
+    e.body = QStringLiteral("x");
+    return e;
+}
+
 } // namespace
 
 class VoicePlaybackTest : public QObject
@@ -227,6 +254,183 @@ private Q_SLOTS:
         QVERIFY(vp->playing());
         QCOMPARE(app.playback()->audibleOwner(), vp->ownerKey());
         vp->stop();
+    }
+
+    // Auto-play next (GitHub #36). Voice messages only, in time order; rows
+    // that draw no message are skipped, any real message ends the run.
+    void aFinishedVoiceMessageStartsTheNextOne()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        const QString general = QStringLiteral("!general:mock.local");
+        app.setCurrentRoomId(general);
+        TimelineModel *tl = app.timeline();
+        QTRY_VERIFY(tl->rowCount() > 4);
+
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            plainEvent(general, QStringLiteral("$state"),
+                       TimelineEvent::StateChange));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
+        Q_EMIT client->eventAppended(general,
+            plainEvent(general, QStringLiteral("$text"),
+                       TimelineEvent::TextMessage));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v3"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$file"),
+                       QStringLiteral("mk-two"), /*voice=*/false));
+
+        // The lookup: skips the state row, stops at the text and at a plain
+        // audio file, and refuses another room.
+        QCOMPARE(tl->nextVoiceMessage(general, QStringLiteral("$v1"))
+                     .value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$v2"));
+        QVERIFY(tl->nextVoiceMessage(general, QStringLiteral("$v2")).isEmpty());
+        QVERIFY(tl->nextVoiceMessage(general, QStringLiteral("$v3")).isEmpty());
+        QVERIFY(tl->nextVoiceMessage(QStringLiteral("!devs:mock.local"),
+                                     QStringLiteral("$v1")).isEmpty());
+        QVERIFY(tl->nextVoiceMessage(general, QStringLiteral("$gone")).isEmpty());
+
+        // The wiring: the end of the clip starts the next one.
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QVERIFY(vp->player());
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
+        QVERIFY(vp->isVoice());
+
+        // ...and the run ends at the text message: nothing starts.
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_VERIFY(!vp->active());
+    }
+
+    // A clip the reader paused or stopped never reaches its end, so it never
+    // advances; a finished audio FILE and a thread clip do not advance either.
+    void onlyANaturalEndOfAVoiceMessageAdvances()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        const QString general = QStringLiteral("!general:mock.local");
+        app.setCurrentRoomId(general);
+        QTRY_VERIFY(app.timeline()->rowCount() > 4);
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
+
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        vp->pause();
+        QTest::qWait(50);
+        QCOMPARE(vp->eventId(), QStringLiteral("$v1"));
+        vp->stop();
+        QTest::qWait(50);
+        QVERIFY(!vp->active());
+
+        // An audio file (isVoice false) ending does not chain.
+        Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general, QString(), false);
+        // Nor does a clip played from a thread.
+        Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general,
+                                QStringLiteral("$root"), true);
+        QVERIFY(!vp->active());
+
+        // The positive control: the same signal for a main-timeline voice clip
+        // does start $v2, so the two refusals above are not vacuous.
+        Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general, QString(), true);
+        QCOMPARE(vp->eventId(), QStringLiteral("$v2"));
+    }
+
+    // The clip auto-play-next would start is prefetched: one at a time, it
+    // follows the playing clip, and goes when the clip stops or the room
+    // changes. (Whether MediaBridge actually fetches needs a homeserver; the
+    // mock bridge is unsupported, so this pins the decision, not the bytes.)
+    void theNextVoiceMessageIsPrefetchedAndDroppedWithTheClip()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        const QString general = QStringLiteral("!general:mock.local");
+        app.setCurrentRoomId(general);
+        QTRY_VERIFY(app.timeline()->rowCount() > 4);
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
+        Q_EMIT client->eventAppended(general,
+            plainEvent(general, QStringLiteral("$text"),
+                       TimelineEvent::TextMessage));
+
+        QVERIFY(app.voicePrefetchKey().isEmpty());
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
+        // The last of the run has nothing to prefetch.
+        vp->play(QStringLiteral("$v2"), general, QStringLiteral("mk-two"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
+        // Stop drops it.
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
+        vp->stop();
+        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
+        // A room switch drops it while the clip keeps playing.
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
+        app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
+        // A thread clip prefetches nothing.
+        app.setCurrentRoomId(general);
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 { { QStringLiteral("isVoice"), true },
+                   { QStringLiteral("threadRootId"), QStringLiteral("$root") } });
+        QTest::qWait(100);
+        QVERIFY(app.voicePrefetchKey().isEmpty());
+
+        // The chain advance must not drop the prefetch the next clip is about
+        // to use: play($v2) stops $v1 first (currentChanged with nothing
+        // loaded), and only then registers interest in $v2's bytes.
+        // (The room switches above reloaded the timeline: seed it again.)
+        vp->stop();
+        app.setCurrentRoomId(general);
+        QTRY_VERIFY(app.timeline()->rowCount() > 4);
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$w1"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$w2"), QStringLiteral("mk-two")));
+        Q_EMIT client->eventAppended(general,
+            plainEvent(general, QStringLiteral("$wtext"),
+                       TimelineEvent::TextMessage));
+        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
+        const int dropsBefore = app.voicePrefetchDropsForTest();
+        vp->play(QStringLiteral("$w1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$w2"));
+        // $w2 is the last of its run: nothing left to prefetch, and moving off
+        // "mk-two" was NOT a drop of anything the new clip needs.
+        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
+        QTest::qWait(100);
+        QCOMPARE(app.voicePrefetchDropsForTest(), dropsBefore);
     }
 
     // One clip at a time: a second one unloads the first, and the first one's

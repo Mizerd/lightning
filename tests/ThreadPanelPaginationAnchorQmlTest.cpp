@@ -201,6 +201,128 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // GitHub #38 for the thread panel: PgUp/PgDn and Ctrl+Up/Down from the
+    // thread composer drive the reply list (a plain, non-rotated ListView:
+    // contentY grows towards the newest reply), and the list takes the same
+    // keys when it has focus.
+    void threadComposerForwardsThePagingKeysToTheReplyList()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        const QString timelineId =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 40; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("reply %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(timelineId, events, /*paginationPages=*/0);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.thread()->model()->rowCount() >= 40, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(400, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        auto *replyList = root->findChild<QQuickItem *>(
+            QStringLiteral("threadReplyList"));
+        QVERIFY(replyList != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("count").toInt() >= 40,
+                                 kSignalTimeoutMs);
+
+        QVariant editorVar;
+        QVERIFY(QMetaObject::invokeMethod(root, "activeThreadEditor",
+                                          Q_RETURN_ARG(QVariant, editorVar)));
+        auto *editor = qobject_cast<QQuickItem *>(editorVar.value<QObject *>());
+        QVERIFY(editor != nullptr);
+        editor->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(editor->hasActiveFocus(), kSignalTimeoutMs);
+
+        auto bounds = [&](const char *fn) {
+            QVariant v;
+            QMetaObject::invokeMethod(replyList, fn, Q_RETURN_ARG(QVariant, v));
+            return v.toDouble();
+        };
+
+        // Ctrl+Up: the oldest loaded reply; Ctrl+Down: the newest.
+        const double minBefore = bounds("wheelMinY");
+        QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        // Against the bound as it was at the keypress: reaching the top asks
+        // for older replies, whose header then moves the origin.
+        QVERIFY(replyList->property("contentY").toDouble() <= minBefore + 1.0);
+        QCOMPARE(replyList->property("followLatest").toBool(), false);
+        // PgDn from an empty draft pages down (animated).
+        const double top = replyList->property("contentY").toDouble();
+        QTest::keyClick(&window, Qt::Key_PageDown);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            replyList->property("contentY").toDouble() > top + 100,
+            kSignalTimeoutMs);
+        const double maxBefore = bounds("wheelMaxY");
+        QTest::keyClick(&window, Qt::Key_Down, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QVERIFY(replyList->property("contentY").toDouble() >= maxBefore - 1.0);
+        QCOMPARE(replyList->property("followLatest").toBool(), true);
+        // PgUp pages back up.
+        const double bottom = replyList->property("contentY").toDouble();
+        QTest::keyClick(&window, Qt::Key_PageUp);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            replyList->property("contentY").toDouble() < bottom - 100,
+            kSignalTimeoutMs);
+
+        // A multi-line draft with the caret on its first line keeps PgDn (the
+        // caret can still move down), so the list stays at the top; on the
+        // last line the same key pages the list.
+        QVERIFY(QMetaObject::invokeMethod(replyList, "runKeyAction",
+                    Q_ARG(QVariant, QStringLiteral("timeline.jumpToStart"))));
+        QVERIFY(editor->setProperty("text", QStringLiteral("a\nb\nc\nd")));
+        QVERIFY(editor->setProperty("cursorPosition", 0));
+        QCoreApplication::processEvents();
+        const double atTop = replyList->property("contentY").toDouble();
+        QTest::keyClick(&window, Qt::Key_PageDown);
+        QTest::qWait(300);
+        QCOMPARE(replyList->property("contentY").toDouble(), atTop);
+        QVERIFY(editor->setProperty("cursorPosition",
+                                    editor->property("length").toInt()));
+        QCoreApplication::processEvents();
+        QTest::keyClick(&window, Qt::Key_PageDown);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            replyList->property("contentY").toDouble() > atTop + 100,
+            kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // ── The thread root card never draws wider than its column ───────────
     //
     // The body Label (a fillWidth child of a ColumnLayout anchored to the

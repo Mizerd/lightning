@@ -1512,6 +1512,73 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
+    // The look-ahead prefetch auto-play-next takes (AppController) is dropped
+    // with cancelPrefetch(), and ONLY when nobody else wants the bytes.
+    void cancelPrefetchDropsAPurePrefetch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString key = QStringLiteral("$ahead");
+        QVERIFY(!bridge.hasPrefetch(key));
+        bridge.prefetchPlayable(key, 1024 * 1024);
+        QVERIFY(bridge.hasPrefetch(key));
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.cancelPrefetch(key);
+        QVERIFY(!bridge.hasPrefetch(key));
+        QCOMPARE(client.cancels.size(), 1);
+        QCOMPARE(client.cancels.at(0), client.fetches.at(0).opId);
+        // A later Play starts over rather than waiting on a dead op.
+        QVERIFY(bridge.playableSource(key).isEmpty());
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    // A Play that registered interest owns the fetch: this is the order
+    // VoicePlaybackController::play() leaves behind once startOrFetch() ran.
+    void cancelPrefetchNeverDropsAFetchAPlayWants()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString key = QStringLiteral("$played");
+        bridge.prefetchPlayable(key, 1024 * 1024);
+        QVERIFY(bridge.playableSource(key).isEmpty()); // Play registers
+        QCOMPARE(client.fetches.size(), 1);            // same fetch
+        bridge.cancelPrefetch(key);
+        QCOMPARE(client.cancels.size(), 0);
+        // The Play's own cancel still works afterwards.
+        bridge.cancelPlayable(key);
+        QCOMPARE(client.cancels.size(), 1);
+    }
+
+    void cancelPrefetchNeverDropsAnAnimatedConsumersFetch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString key = QStringLiteral("$sharedgif");
+        bridge.prefetchPlayable(key, 1024 * 1024);
+        QVERIFY(bridge.animatedSource(key).isEmpty()); // joins the same fetch
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.cancelPrefetch(key);
+        QCOMPARE(client.cancels.size(), 0);
+    }
+
+    // Only a speculative fetch is cancelPrefetch's: an explicit Play with no
+    // prefetch behind it is left alone.
+    void cancelPrefetchIgnoresAnExplicitPlayAndAnUnknownKey()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QVERIFY(bridge.playableSource(QStringLiteral("$explicit")).isEmpty());
+        bridge.cancelPrefetch(QStringLiteral("$explicit"));
+        bridge.cancelPrefetch(QStringLiteral("$never-seen"));
+        bridge.cancelPrefetch(QString());
+        QCOMPARE(client.cancels.size(), 0);
+        QVERIFY(!bridge.hasPrefetch(QStringLiteral("$explicit")));
+    }
+
     // The size bound and container sniff fail closed before any byte reaches
     // the worker thread.
     void anOverBoundPayloadIsRefusedBeforeAnyWriteStarts()

@@ -11,6 +11,7 @@
 #include <QKeySequence>
 #include <QList>
 #include <QPair>
+#include <QSet>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStringList>
@@ -88,7 +89,14 @@ private Q_SLOTS:
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
             auto &seen = seenPerContext[ctx];
-            QVERIFY2(!seen.contains(seq),
+            // The one designed share: find-previous and the GIF picker hold
+            // Ctrl+Shift+G on mutually exclusive QML gates (m_exclusive).
+            const bool designedShare =
+                seen.contains(seq)
+                && QSet<QString>({ seen.value(seq), id })
+                       == QSet<QString>({ QStringLiteral("room.findPrevious"),
+                                          QStringLiteral("composer.gifPicker") });
+            QVERIFY2(!seen.contains(seq) || designedShare,
                      qPrintable(QStringLiteral(
                                     "%1 and %2 both default to %3 in context "
                                     "%4 — Qt would fire neither")
@@ -162,6 +170,15 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            // A Timeline action is a Keys handler, not a Shortcut, so the
+            // non-text keys (PgUp, PgDn) are legal bare.
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                    == ShortcutRegistry::TimelineContext
+                && (seq == QStringLiteral("PgUp")
+                    || seq == QStringLiteral("PgDown"))) {
+                ++checkedRows;
+                continue;
+            }
             ++checkedRows;
             const QKeySequence parsed =
                 QKeySequence::fromString(seq, QKeySequence::PortableText);
@@ -366,7 +383,124 @@ private Q_SLOTS:
         shared.sort();
         QCOMPARE(shared,
                  QStringList({ QStringLiteral("Ctrl+B"),
+                               QStringLiteral("Ctrl+Shift+G"),
                                QStringLiteral("Ctrl+U") }));
+    }
+
+    // GitHub #38: PgUp/PgDn, Ctrl+Up/Down and Ctrl+G / Ctrl+Shift+G are
+    // rebindable rows that ship on exactly these keys.
+    void theTimelineAndFindKeysShipOnExactlyTheseKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QHash<QString, QString> resolved = resolvedById(registry);
+        QCOMPARE(resolved.value(QStringLiteral("timeline.pageUp")),
+                 QStringLiteral("PgUp"));
+        QCOMPARE(resolved.value(QStringLiteral("timeline.pageDown")),
+                 QStringLiteral("PgDown"));
+        QCOMPARE(resolved.value(QStringLiteral("timeline.jumpToStart")),
+                 QStringLiteral("Ctrl+Up"));
+        QCOMPARE(resolved.value(QStringLiteral("timeline.jumpToEnd")),
+                 QStringLiteral("Ctrl+Down"));
+        QCOMPARE(resolved.value(QStringLiteral("room.findNext")),
+                 QStringLiteral("Ctrl+G"));
+        QCOMPARE(resolved.value(QStringLiteral("room.findPrevious")),
+                 QStringLiteral("Ctrl+Shift+G"));
+        // The designed share with the GIF picker is not reported as a conflict.
+        QCOMPARE(resolved.value(QStringLiteral("composer.gifPicker")),
+                 QStringLiteral("Ctrl+Shift+G"));
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(roleFor(registry, QStringLiteral("room.findPrevious"),
+                        ShortcutRegistry::ConflictsWithRole).isEmpty());
+        // And the two plain-Up/Down composer keys are untouched: nothing is
+        // bound to a bare arrow, which the message box uses for history/edit.
+        for (auto it = resolved.cbegin(); it != resolved.cend(); ++it) {
+            QVERIFY2(it.value() != QStringLiteral("Up")
+                         && it.value() != QStringLiteral("Down"),
+                     qPrintable(it.key()));
+        }
+    }
+
+    // A Timeline action may be bound bare only to a key that types nothing.
+    void aTimelineActionAcceptsBarePageKeysAndFKeysOnly()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString id = QStringLiteral("timeline.pageUp");
+        QVERIFY(registry.validationError(id, QStringLiteral("PgDown")).isEmpty()
+                == false); // taken by timeline.pageDown
+        QVERIFY(registry.validationError(id, QStringLiteral("F5")).isEmpty());
+        QVERIFY(registry.validationError(id, QStringLiteral("Ctrl+Left"))
+                    .isEmpty());
+        // A letter or an arrow bare is what the message box types or moves by.
+        QVERIFY(!registry.validationError(id, QStringLiteral("X")).isEmpty());
+        QVERIFY(!registry.validationError(id, QStringLiteral("Up")).isEmpty());
+        // A Global action still may not use PgUp bare.
+        QVERIFY(!registry.validationError(QStringLiteral("room.find"),
+                                          QStringLiteral("PgUp")).isEmpty());
+    }
+
+    // A Timeline sequence collides with Global and Editor ones too: a Global
+    // Shortcut would take the key first, an Editor format would claim it in
+    // the same box.
+    void aTimelineSequenceConflictsAcrossContexts()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        // Ctrl+B is Global (panel) AND Editor (bold).
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
+                                          QStringLiteral("Ctrl+B")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("room.find"),
+                                          QStringLiteral("Ctrl+Up")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("composer.bold"),
+                                          QStringLiteral("Ctrl+Down")).isEmpty());
+        // Shift+PgUp (first unread) is reserved.
+        QVERIFY(registry.isReserved(QStringLiteral("Shift+PgUp")));
+        QVERIFY(!registry.isReserved(QStringLiteral("PgUp")));
+    }
+
+    void timelineActionForKeyAnswersTimelineBindingsAndFollowsARebind()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
+                 QStringLiteral("timeline.pageUp"));
+        QCOMPARE(registry.timelineActionForKey(Qt::Key_Down, Qt::ControlModifier),
+                 QStringLiteral("timeline.jumpToEnd"));
+        // Plain arrows, Shift+PgUp, Global and Editor keys are not Timeline.
+        QVERIFY(registry.timelineActionForKey(Qt::Key_Up, Qt::NoModifier)
+                    .isEmpty());
+        QVERIFY(registry.timelineActionForKey(Qt::Key_PageUp, Qt::ShiftModifier)
+                    .isEmpty());
+        QVERIFY(registry.timelineActionForKey(Qt::Key_B, Qt::ControlModifier)
+                    .isEmpty());
+        QVERIFY(registry.timelineActionForKey(Qt::Key_G, Qt::ControlModifier)
+                    .isEmpty());
+        // And the Editor lookup does not claim a Timeline key on
+        // ShortcutOverride.
+        QVERIFY(registry.editorActionForKey(Qt::Key_Up, Qt::ControlModifier)
+                    .isEmpty());
+
+        QVERIFY(registry.setBinding(QStringLiteral("timeline.pageUp"),
+                                    QStringLiteral("F6")).isEmpty());
+        QCOMPARE(registry.timelineActionForKey(Qt::Key_F6, Qt::NoModifier),
+                 QStringLiteral("timeline.pageUp"));
+        QVERIFY(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier)
+                    .isEmpty());
+    }
+
+    // The exemption is for that one pair only: binding find-next onto the GIF
+    // picker's key is still refused.
+    void theGifFindShareIsNotAGeneralLoophole()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QVERIFY(!registry.validationError(QStringLiteral("room.findNext"),
+                                          QStringLiteral("Ctrl+Shift+G"))
+                     .isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("room.findPrevious"),
+                                          QStringLiteral("Ctrl+Shift+O"))
+                     .isEmpty());
     }
 
     // Rule (a): a Global action needs a real modifier. Qt dispatches

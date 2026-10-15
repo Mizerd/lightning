@@ -970,25 +970,8 @@ QString MediaBridge::videoPosterSource(const QString &mediaKey,
     return {};
 }
 
-void MediaBridge::cancelPlayable(const QString &mediaKey)
+void MediaBridge::abortFetch(const QString &cacheKey)
 {
-    if (mediaKey.isEmpty())
-        return;
-    const QString cacheKey = mediaCacheKey(mediaKey, 0);
-    const auto wanted = m_playableWanted.find(cacheKey);
-    if (wanted == m_playableWanted.end())
-        return; // no playable consumer was waiting on this key
-    // Another card still waits on the same bytes.
-    if (--wanted.value() > 0)
-        return;
-    m_playableWanted.erase(wanted);
-    // A GIF row wanting the same bytes keeps the fetch alive. A poster hook or
-    // prefetch does not veto a user cancel; the poster can be re-derived later.
-    if (m_animatedWanted.contains(cacheKey)) {
-        m_prefetchWanted.remove(cacheKey);
-        m_posterWanted.remove(cacheKey);
-        return;
-    }
     m_prefetchWanted.remove(cacheKey);
     m_posterWanted.remove(cacheKey);
     // Abandon a write already on the worker thread too. QSaveFile discards the
@@ -1016,6 +999,49 @@ void MediaBridge::cancelPlayable(const QString &mediaKey)
     }
     // No failure mark: a fresh Play must re-dispatch immediately.
     pump();
+}
+
+bool MediaBridge::hasPrefetch(const QString &mediaKey) const
+{
+    return !mediaKey.isEmpty()
+           && m_prefetchWanted.contains(mediaCacheKey(mediaKey, 0));
+}
+
+void MediaBridge::cancelPrefetch(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    // Somebody (a Play, a GIF row) wants these bytes now: not ours to drop.
+    if (m_playableWanted.value(cacheKey, 0) > 0
+        || m_animatedWanted.contains(cacheKey))
+        return;
+    // Only a speculative fetch; an explicit one is cancelPlayable's.
+    if (!m_prefetchWanted.contains(cacheKey))
+        return;
+    abortFetch(cacheKey);
+}
+
+void MediaBridge::cancelPlayable(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const auto wanted = m_playableWanted.find(cacheKey);
+    if (wanted == m_playableWanted.end())
+        return; // no playable consumer was waiting on this key
+    // Another card still waits on the same bytes.
+    if (--wanted.value() > 0)
+        return;
+    m_playableWanted.erase(wanted);
+    // A GIF row wanting the same bytes keeps the fetch alive. A poster hook or
+    // prefetch does not veto a user cancel; the poster can be re-derived later.
+    if (m_animatedWanted.contains(cacheKey)) {
+        m_prefetchWanted.remove(cacheKey);
+        m_posterWanted.remove(cacheKey);
+        return;
+    }
+    abortFetch(cacheKey);
 }
 
 VideoPosterExtractor *MediaBridge::ensurePosterExtractor()

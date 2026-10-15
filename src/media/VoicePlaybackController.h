@@ -133,6 +133,11 @@ public:
     void handleRedaction(const QString &roomId, const QString &eventId);
 
 Q_SIGNALS:
+    /// A clip played to its end on its own (not stopped, paused, replaced or
+    /// redacted). Emitted after the player was cleared, so a listener may
+    /// start the next clip. AppController uses it for auto-play-next.
+    void clipFinished(const QString &eventId, const QString &roomId,
+                      const QString &threadRootId, bool isVoice);
     void currentChanged();
     void loadedChanged();
     void playingChanged();

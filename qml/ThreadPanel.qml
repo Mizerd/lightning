@@ -889,6 +889,49 @@ Rectangle {
                 }
                 Component.onDestruction: app.threadScroll.cancel()
 
+                // The rebindable movement keys (registry TimelineContext), as
+                // in the room timeline. This list is NOT rotated: contentY
+                // grows towards the newest reply. The thread composer forwards
+                // the same ids, see ThreadPanel's forwardTimelineKey().
+                function keyboardPage(direction) {   // -1 up, +1 down
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    var target = contentY + direction * height * 0.9
+                    target = target < lo ? lo : (target > hi ? hi : target)
+                    app.threadScroll.animateTo(target, contentY, lo, hi, height)
+                    if (direction < 0)
+                        followLatest = false
+                }
+                function runKeyAction(actionId) {
+                    switch (actionId) {
+                    case "timeline.pageUp":      keyboardPage(-1); return true
+                    case "timeline.pageDown":    keyboardPage(1); return true
+                    case "timeline.jumpToStart":
+                        // The oldest LOADED reply; reaching the top asks for
+                        // older ones, as a wheel gesture does.
+                        app.threadScroll.cancel()
+                        followLatest = false
+                        contentY = wheelMinY()
+                        afterWheelSettled()
+                        return true
+                    case "timeline.jumpToEnd":
+                        app.threadScroll.cancel()
+                        contentY = wheelMaxY()
+                        afterWheelSettled()
+                        return true
+                    }
+                    return false
+                }
+                activeFocusOnTab: true
+                Keys.onPressed: (event) => {
+                    var keyAction = app.shortcuts.timelineActionForKey(
+                        event.key, event.modifiers)
+                    if (keyAction !== "" && runKeyAction(keyAction))
+                        event.accepted = true
+                    else
+                        event.accepted = false
+                }
+
                 // Scroll-anchor preservation across a backward prepend into
                 // this reply list (a plain ListView). The restore reads the
                 // live contentY and applies a relative shift, so a reader still
@@ -1437,6 +1480,14 @@ Rectangle {
                                         event.accepted = true
                                 }
                                 Keys.onPressed: (event) => {
+                                    var richTimelineAction =
+                                        app.shortcuts.timelineActionForKey(
+                                            event.key, event.modifiers)
+                                    if (richTimelineAction !== ""
+                                            && panel.forwardTimelineKey(
+                                                richTimelineAction)) {
+                                        event.accepted = true; return
+                                    }
                                     if (threadMentionPopup.visible) {
                                         if (event.key === Qt.Key_Down) {
                                             threadMentionPopup.moveDown()
@@ -1668,6 +1719,14 @@ Rectangle {
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {
+                                var threadTimelineAction =
+                                    app.shortcuts.timelineActionForKey(
+                                        event.key, event.modifiers)
+                                if (threadTimelineAction !== ""
+                                        && panel.forwardTimelineKey(
+                                            threadTimelineAction)) {
+                                    event.accepted = true; return
+                                }
                                 // The mention popup gets the navigation keys
                                 // first while open.
                                 if (threadMentionPopup.visible) {
@@ -2216,6 +2275,27 @@ Rectangle {
         panel.threadRichBlank =
             !app.richComposer
             || app.richComposer.documentIsBlank(threadRichInput.textDocument)
+    }
+
+    // The thread composer's share of the movement keys: PgUp/PgDn page the
+    // reply list unless the draft can still move its caret that way;
+    // Ctrl+Up/Down always forward. True when the key was forwarded.
+    function forwardTimelineKey(actionId) {
+        if (!replyList.visible || threadMentionPopup.visible)
+            return false
+        if (actionId === "timeline.pageUp" || actionId === "timeline.pageDown") {
+            var ed = panel.activeThreadEditor()
+            var r = ed.cursorRectangle
+            var first = ed.positionToRectangle(0)
+            var last = ed.positionToRectangle(ed.length)
+            var slack = r.height * 0.5
+            var canMove = actionId === "timeline.pageUp"
+                ? r.y > first.y + slack
+                : r.y < last.y - slack
+            if (canMove)
+                return false
+        }
+        return replyList.runKeyAction(actionId)
     }
 
     function activeThreadEditor() {

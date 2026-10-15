@@ -2087,6 +2087,44 @@ bool TimelineModel::isEventRedacted(const QString &roomId,
     return event && event->redacted;
 }
 
+QVariantMap TimelineModel::nextVoiceMessage(const QString &roomId,
+                                            const QString &afterEventId) const
+{
+    if (roomId.isEmpty() || roomId != m_realRoomId)
+        return {};
+    const int start = rowForEventId(afterEventId);
+    if (start < 0)
+        return {};
+    // m_events is oldest first, so "next" is the following row.
+    for (int row = start + 1; row < m_events.size(); ++row) {
+        const TimelineEvent &e = m_events.at(row);
+        if (e.isVirtual() || e.type == TimelineEvent::StateChange
+            || e.redacted || !e.threadRootId.isEmpty())
+            continue;
+        if (e.type != TimelineEvent::Audio || !e.mediaIsVoice
+            || e.eventId.isEmpty() || e.isLocalEcho || e.mediaKey.isEmpty()
+            || !e.mediaSourceAvailable)
+            return {};
+        const QModelIndex idx = index(row, 0);
+        return {
+            { QStringLiteral("eventId"), e.eventId },
+            { QStringLiteral("mediaKey"), e.mediaKey },
+            { QStringLiteral("senderName"),
+              data(idx, SenderDisplayNameRole).toString() },
+            { QStringLiteral("senderId"), e.sender },
+            { QStringLiteral("senderAvatarMxc"),
+              data(idx, SenderAvatarMxcRole).toString() },
+            { QStringLiteral("filename"),
+              e.mediaFilename.isEmpty() ? e.body : e.mediaFilename },
+            { QStringLiteral("isVoice"), true },
+            { QStringLiteral("durationMs"), e.mediaDurationMs },
+            { QStringLiteral("fileSize"), static_cast<qint64>(e.mediaSize) },
+            { QStringLiteral("threadRootId"), QString() },
+        };
+    }
+    return {};
+}
+
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)
 {
     if (roomId != m_roomId) return;

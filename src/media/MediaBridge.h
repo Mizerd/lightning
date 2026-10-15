@@ -243,6 +243,11 @@ public:
     // bytes keeps the fetch alive; a poster hook or prefetch does not veto a
     // user cancel.
     Q_INVOKABLE void cancelPlayable(const QString &mediaKey);
+    // Drops a speculative prefetch of `mediaKey` that nobody has asked to play
+    // (no Play, no animated consumer). A no-op otherwise.
+    Q_INVOKABLE void cancelPrefetch(const QString &mediaKey);
+    // True while a speculative prefetch of `mediaKey` is outstanding.
+    Q_INVOKABLE bool hasPrefetch(const QString &mediaKey) const;
     // File suffix ("mp4", "webm", "ogg", ...) when the payload's magic matches
     // a supported A/V container, "" otherwise. Public for tests.
     static QString playableExtensionFor(const QByteArray &bytes,
@@ -409,6 +414,8 @@ private Q_SLOTS:
     void onLoggedOut();
 
 private:
+    // Frees the queue slot, the writer and the backend download for a key.
+    void abortFetch(const QString &cacheKey);
     struct Pending {
         QString cacheKey;
         bool isMxc = false;

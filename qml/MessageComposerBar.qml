@@ -124,6 +124,37 @@ Item {
         return app.shortcuts.editorOverrideFor(
             key, modifiers, ed.selectionStart !== ed.selectionEnd)
     }
+    // The timeline's rebindable movement keys (PgUp, PgDn, Ctrl+Up/Down by
+    // default) work while this box has focus, as in Element. The timeline owns
+    // the motion; TimelinePane connects this signal to it.
+    signal timelineKeyRequested(string actionId)
+    // True when the key was forwarded. A page key stays with the editor while
+    // its caret can still move that way (a multi-line draft), and a popup
+    // that owns navigation keeps them too; everything else is not an editing
+    // key, so forwarding it costs the editor nothing.
+    function _forwardTimelineKey(actionId) {
+        // An open completion popup owns the navigation keys.
+        if (commandPopup.visible || mentionPopup.visible || emojiPopup.visible)
+            return false
+        var page = actionId === "timeline.pageUp"
+                   || actionId === "timeline.pageDown"
+        if (page) {
+            var ed = root.activeInput()
+            // Against the first and last line's own rectangles, not 0 and
+            // contentHeight: the editor's padding sits in both.
+            var r = ed.cursorRectangle
+            var first = ed.positionToRectangle(0)
+            var last = ed.positionToRectangle(ed.length)
+            var slack = r.height * 0.5
+            var canMove = actionId === "timeline.pageUp"
+                ? r.y > first.y + slack
+                : r.y < last.y - slack
+            if (canMove)
+                return false
+        }
+        root.timelineKeyRequested(actionId)
+        return true
+    }
     // Composer modes: "markdown" is the source editor (`input`); "rich" is the
     // WYSIWYG editor (`richInput`), whose document is the message and whose
     // wire bodies come from app.richComposer. Both editors exist and are
@@ -1250,7 +1281,10 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("composer.gifPicker")]
         }
+        // Not while a find is active: room.findPrevious holds the same default
+        // (Ctrl+Shift+G) on the opposite gate (TimelinePane).
         enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+                 && !app.timeline.searchActive
                  && (app.gif.available || app.stickers.available)
         onActivated: {
             // Opens on GIFs only when opening, so the key does not swap the
@@ -2302,6 +2336,14 @@ Item {
                                 }
                             }
                             Keys.onPressed: (event) => {
+                                var timelineAction =
+                                    app.shortcuts.timelineActionForKey(
+                                        event.key, event.modifiers)
+                                if (timelineAction !== ""
+                                        && root._forwardTimelineKey(timelineAction)) {
+                                    event.accepted = true
+                                    return
+                                }
                                 // Clipboard images and file URLs become
                                 // attachments; formatted text pastes into the
                                 // document (the serializer's whitelist decides
@@ -2628,6 +2670,14 @@ Item {
                             }
                         }
                         Keys.onPressed: (event) => {
+                            var timelineAction =
+                                app.shortcuts.timelineActionForKey(
+                                    event.key, event.modifiers)
+                            if (timelineAction !== ""
+                                    && root._forwardTimelineKey(timelineAction)) {
+                                event.accepted = true
+                                return
+                            }
                             // Clipboard images and file URLs become
                             // attachments; text pastes normally.
                             if (event.matches(StandardKey.Paste)

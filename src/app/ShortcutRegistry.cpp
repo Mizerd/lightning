@@ -33,7 +33,34 @@ bool isBareModifier(const QKeySequence &seq)
            || key == Qt::Key_NumLock || key == Qt::Key_ScrollLock;
 }
 
+/// Keys that insert no text, so a Keys handler may take them bare.
+bool isNonTextKey(const QKeySequence &seq)
+{
+    if (seq.count() <= 0)
+        return false;
+    const int key = seq[0].key();
+    return key == Qt::Key_PageUp || key == Qt::Key_PageDown
+           || (key >= Qt::Key_F1 && key <= Qt::Key_F35);
+}
+
 } // namespace
+
+bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
+{
+    // Global vs Editor is a designed shadow. A Timeline action has no such
+    // arrangement: a Global Shortcut would take its key first, and an Editor
+    // format would claim it in the same box.
+    return a == b || a == TimelineContext || b == TimelineContext;
+}
+
+bool ShortcutRegistry::exclusive(const QString &a, const QString &b) const
+{
+    for (const auto &p : m_exclusive) {
+        if ((p.first == a && p.second == b) || (p.first == b && p.second == a))
+            return true;
+    }
+    return false;
+}
 
 ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     : QAbstractListModel(parent)
@@ -130,6 +157,32 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("room.find"), roomCat,
           tr("Find in the loaded timeline"), QStringLiteral("Ctrl+F"),
           GlobalContext },
+        // Next/previous result of the find bar (Ctrl+F), like a browser. They
+        // act only while the bar is open (TimelinePane gates on it), which is
+        // also what lets find-previous share Ctrl+Shift+G with the GIF picker:
+        // that Shortcut is disabled while a find is active (m_exclusive).
+        { QStringLiteral("room.findNext"), roomCat,
+          tr("Go to the next find result"), QStringLiteral("Ctrl+G"),
+          GlobalContext },
+        { QStringLiteral("room.findPrevious"), roomCat,
+          tr("Go to the previous find result"), QStringLiteral("Ctrl+Shift+G"),
+          GlobalContext },
+        // Timeline movement. Keys handlers, not Shortcuts, so PgUp/PgDn can be
+        // bare; they work from the timeline and from the message box (which
+        // keeps them for itself while its caret can still move that way).
+        // Home/End stay reserved: in the message box they move the caret.
+        { QStringLiteral("timeline.pageUp"), roomCat,
+          tr("Scroll the conversation up by a page"), QStringLiteral("PgUp"),
+          TimelineContext },
+        { QStringLiteral("timeline.pageDown"), roomCat,
+          tr("Scroll the conversation down by a page"),
+          QStringLiteral("PgDown"), TimelineContext },
+        { QStringLiteral("timeline.jumpToStart"), roomCat,
+          tr("Jump to the beginning of the conversation"),
+          QStringLiteral("Ctrl+Up"), TimelineContext },
+        { QStringLiteral("timeline.jumpToEnd"), roomCat,
+          tr("Jump to the latest message"), QStringLiteral("Ctrl+Down"),
+          TimelineContext },
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
           QStringLiteral("Ctrl+Shift+M"), GlobalContext },
@@ -260,10 +313,15 @@ void ShortcutRegistry::buildTables()
         // Not Shortcuts: TimelinePane handles these in Keys.onPressed, which
         // a Shortcut would pre-empt.
         { QStringLiteral("Space"), tr("paging the timeline and the media grids") },
-        { QStringLiteral("PgUp"), tr("paging the timeline") },
-        { QStringLiteral("PgDown"), tr("paging the timeline") },
+        // Plain PgUp/PgDn are the timeline.pageUp/pageDown rows now.
+        { QStringLiteral("Shift+PgUp"),
+          tr("jumping to the oldest unread message") },
         { QStringLiteral("Home"), tr("jumping to the earliest loaded message") },
         { QStringLiteral("End"), tr("jumping to the latest message") },
+    };
+    m_exclusive = {
+        { QStringLiteral("room.findPrevious"),
+          QStringLiteral("composer.gifPicker") },
     };
     // Normalize once so "Esc" and "Escape" compare equal.
     for (Reserved &r : m_reserved) {
@@ -407,6 +465,19 @@ QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
     return {};
 }
 
+QString ShortcutRegistry::timelineActionForKey(int key, int modifiers) const
+{
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == TimelineContext
+            && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return {};
+}
+
 QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
                                             bool hasSelection) const
 {
@@ -468,7 +539,15 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     // A modifier-less sequence is refused for both contexts: globally it
     // takes the key from every text field, and in the editor typing it
     // inserts the character.
-    if (!hasCommandModifier(seq)) {
+    // A Timeline action is delivered by a Keys handler, so a key that types
+    // nothing (PgUp, PgDn, F-keys) may stay bare.
+    const bool bareOk = action->context == TimelineContext && isNonTextKey(seq);
+    if (!hasCommandModifier(seq) && !bareOk) {
+        if (action->context == TimelineContext) {
+            return tr("Use Ctrl, Alt or Super, or PgUp, PgDn or an F-key. "
+                      "Any other bare key is a character you type in the "
+                      "message box.");
+        }
         return action->context == GlobalContext
                    ? tr("Use Ctrl, Alt or Super. A shortcut without one of "
                         "those is taken before any text field sees the key, "
@@ -492,7 +571,9 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             continue;
         // Cross-context is a shadow, not a conflict; this is what lets
         // Ctrl+B be both Bold and the panel toggle.
-        if (other.context != action->context)
+        if (!contextsClash(other.context, action->context))
+            continue;
+        if (exclusive(other.id, actionId))
             continue;
         if (m_resolved.at(i) == portable) {
             return tr("%1 is already used for “%2”. Two shortcuts on "
@@ -567,7 +648,9 @@ QString ShortcutRegistry::conflictNote(int row) const
     for (int i = 0; i < m_actions.size(); ++i) {
         if (i == row)
             continue;
-        if (m_actions.at(i).context != a.context)
+        if (!contextsClash(m_actions.at(i).context, a.context))
+            continue;
+        if (exclusive(m_actions.at(i).id, a.id))
             continue;
         if (m_resolved.at(i) == mine) {
             return tr("Also used for “%1” — neither will work.")
@@ -589,7 +672,7 @@ QString ShortcutRegistry::shadowNote(int row) const
         if (i == row)
             continue;
         const Action &other = m_actions.at(i);
-        if (other.context == a.context)
+        if (contextsClash(other.context, a.context))
             continue;
         if (m_resolved.at(i) != mine)
             continue;

@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QPair>
 #include <QVector>
 
 class SettingsManager;
@@ -51,6 +52,12 @@ public:
         /// focus. Modifier-less is still refused (typing would insert it);
         /// these shadow Global entries rather than conflict with them.
         EditorContext = 1,
+        /// Delivered by Keys handlers on the timeline and on the message
+        /// box, never by a `Shortcut`, so a key that is not text (PgUp,
+        /// PgDn, F-keys) may be bound bare. Anything else still needs
+        /// Ctrl, Alt or Meta. It pre-empts neither context's binding, so a
+        /// sequence held here is a conflict with ANY other context.
+        TimelineContext = 2,
     };
     Q_ENUM(ActionContext)
 
@@ -116,6 +123,10 @@ public:
     /// window) and to apply the format on the key press that follows.
     Q_INVOKABLE QString editorActionForKey(int key, int modifiers) const;
 
+    /// The TimelineContext action id this key press resolves to, or empty.
+    /// The timeline and the message box both ask it from Keys.onPressed.
+    Q_INVOKABLE QString timelineActionForKey(int key, int modifiers) const;
+
     /// What a composer should CLAIM on ShortcutOverride. Same as
     /// editorActionForKey(), except that with nothing selected a key that a
     /// Global action also holds (Ctrl+B panel toggle, Ctrl+U people panel) is
@@ -180,6 +191,12 @@ private:
     SettingsManager *m_settings = nullptr; // not owned; lifetime = process
     QVector<Action> m_actions;
     QVector<Reserved> m_reserved;
+    /// Pairs of Global actions that deliberately share a default because
+    /// their QML `enabled` gates are mutually exclusive (find-previous holds
+    /// the GIF picker's key only while the find bar is open).
+    QVector<QPair<QString, QString>> m_exclusive;
+    bool exclusive(const QString &a, const QString &b) const;
+    static bool contextsClash(ActionContext a, ActionContext b);
     /// Resolved sequence per row. Cached because data() runs per role per row
     /// on every repaint and a miss would be a QSettings read.
     QVector<QString> m_resolved;

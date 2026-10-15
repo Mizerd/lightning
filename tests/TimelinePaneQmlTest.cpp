@@ -3490,8 +3490,9 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
     }
 
-    // A focused composer keeps its keys: the timeline must not act on them.
-    void composerFocusPreventsTimelineKeyHandling()
+    // A focused composer keeps its caret keys (Home/End, PgUp/PgDn while the
+    // caret can move); the paging keys of the timeline otherwise reach it.
+    void composerFocusKeepsItsCaretKeysAndForwardsThePagingKeys()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -3531,13 +3532,106 @@ private Q_SLOTS:
         composer->forceActiveFocus();
         QTRY_VERIFY_WITH_TIMEOUT(composer->hasActiveFocus(), kSignalTimeoutMs);
 
-        // With the composer focused, End must not resume follow-latest and no
-        // motion may start.
+        // With the composer focused, Home/End are the caret's keys: End must
+        // not resume follow-latest and no motion may start.
         QTest::keyClick(&window, Qt::Key_End);
-        QTest::keyClick(&window, Qt::Key_PageUp);
-        QCoreApplication::processEvents();
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+
+        // PgUp/PgDn (GitHub #38) page the timeline from the composer while its
+        // caret cannot move that way: an empty, single-line draft here.
+        QTest::keyClick(&window, Qt::Key_PageUp);
+        QCoreApplication::processEvents();
+        QVERIFY2(timeline->property("wheelAnimating").toBool(),
+                 "PgUp from an empty composer must page the timeline");
+        QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
+        QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+
+        // A multi-line draft with the caret on its first line keeps PgDn: the
+        // caret can still move down, so the key is the editor's.
+        QVERIFY(composer->setProperty("text", QStringLiteral("a\nb\nc\nd")));
+        QVERIFY(composer->setProperty("cursorPosition", 0));
+        QCoreApplication::processEvents();
+        QTest::keyClick(&window, Qt::Key_PageDown);
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+        // On the last line the same key falls through to the timeline.
+        QVERIFY(composer->setProperty("cursorPosition",
+                                      composer->property("length").toInt()));
+        QCoreApplication::processEvents();
+        QTest::keyClick(&window, Qt::Key_PageDown);
+        QCoreApplication::processEvents();
+        QVERIFY2(timeline->property("wheelAnimating").toBool(),
+                 "PgDn on the draft's last line must page the timeline");
+        QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
+
+        // Ctrl+Down (jump to latest) has no caret meaning and always forwards;
+        // Ctrl+Up goes to the earliest loaded row.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QVariant maxY;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                          Q_RETURN_ARG(QVariant, maxY)));
+        QCOMPARE(timeline->property("contentY").toDouble(), maxY.toDouble());
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
+    // Ctrl+G / Ctrl+Shift+G (GitHub #38) step the open find bar's results from
+    // anywhere in the window, through the registry's rows. Ctrl+Shift+G is also
+    // the GIF picker's key: while a find is active it must be find-previous.
+    void ctrlGStepsTheFindResultsAndCtrlShiftGGoesBack()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QCOMPARE(int(controller.currentScreen()), 1); // Shortcuts are gated on it
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(900, 700);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *model = controller.timeline();
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        QVERIFY(model->searchActive());
+        model->updateSearch(QStringLiteral("e"));
+        QTRY_VERIFY_WITH_TIMEOUT(model->searchResultCount() >= 2,
+                                 kSignalTimeoutMs);
+        const int first = model->searchCurrentPosition();
+
+        QTest::keyClick(&window, Qt::Key_G, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QVERIFY2(model->searchCurrentPosition() != first,
+                 "Ctrl+G did not step to the next find result");
+        QTest::keyClick(&window, Qt::Key_G,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        QCoreApplication::processEvents();
+        QCOMPARE(model->searchCurrentPosition(), first);
+
+        // Closed find: the keys do nothing here (Ctrl+Shift+G is the GIF
+        // picker's again).
+        QVERIFY(QMetaObject::invokeMethod(root, "closeFind"));
+        QVERIFY(!model->searchActive());
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 

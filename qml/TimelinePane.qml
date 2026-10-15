@@ -421,6 +421,30 @@ Rectangle {
         enabled: app.currentRoomId !== ""
         onActivated: root.openFind()
     }
+    // Next/previous find result, like Enter / Shift+Enter in the find field but
+    // from anywhere in the window. Enabled on searchActive, the exact condition
+    // the GIF picker's Shortcut is DISABLED on (MessageComposerBar): find-
+    // previous shares Ctrl+Shift+G with it and the two gates are exclusive
+    // (the registry's m_exclusive). History mode has no stepping, so the key is
+    // swallowed there rather than falling through to the GIF picker.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.findNext")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+                 && app.timeline.searchActive
+        onActivated: { if (!root.findHistoryMode) app.timeline.searchNext() }
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.findPrevious")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+                 && app.timeline.searchActive
+        onActivated: { if (!root.findHistoryMode) app.timeline.searchPrev() }
+    }
     // Room info panel sections. These call the same functions as the header
     // buttons.
     //
@@ -3996,21 +4020,38 @@ Rectangle {
                     settleAtLatest()
                 }
                 activeFocusOnTab: true
+                // Rebindable movement (the registry's TimelineContext rows).
+                // The message box forwards the same ids, see
+                // MessageComposerBar.timelineKeyRequested. Home jumps to the
+                // earliest LOADED row and the pagination pass that follows
+                // loads older history when the reader is at the top.
+                function runKeyAction(actionId) {
+                    switch (actionId) {
+                    case "timeline.pageUp":      keyboardPage(-1); return true
+                    case "timeline.pageDown":    keyboardPage(1); return true
+                    case "timeline.jumpToStart": goToEarliestLoaded(); return true
+                    case "timeline.jumpToEnd":   goToLatest(); return true
+                    }
+                    return false
+                }
                 Keys.onPressed: (event) => {
+                    // Shift+PgUp jumps to the oldest unread message (reserved
+                    // in the registry). A Keys handler rather than a Shortcut:
+                    // a window Shortcut would take the key before the focused
+                    // item.
+                    if (event.key === Qt.Key_PageUp
+                            && (event.modifiers & Qt.ShiftModifier)) {
+                        goToFirstUnread()
+                        event.accepted = true
+                        return
+                    }
+                    var keyAction = app.shortcuts.timelineActionForKey(
+                        event.key, event.modifiers)
+                    if (keyAction !== "" && runKeyAction(keyAction)) {
+                        event.accepted = true
+                        return
+                    }
                     switch (event.key) {
-                    case Qt.Key_PageUp:
-                        // Shift+PgUp jumps to the oldest unread message; plain
-                        // PgUp pages up. A Keys case rather than a Shortcut:
-                        // PgUp/PgDown/Home/End/Space are reserved in the
-                        // registry because a window Shortcut would take them
-                        // before the focused item.
-                        if (event.modifiers & Qt.ShiftModifier)
-                            goToFirstUnread()
-                        else
-                            keyboardPage(-1)
-                        event.accepted = true; break
-                    case Qt.Key_PageDown:
-                        keyboardPage(1); event.accepted = true; break
                     case Qt.Key_Home:
                         goToEarliestLoaded(); event.accepted = true; break
                     case Qt.Key_End:
@@ -5415,6 +5456,7 @@ Rectangle {
             // while the read-only context view is open: nothing is sent from
             // there.
             visible: app.currentRoomId !== "" && !app.eventContext.active
+            onTimelineKeyRequested: (actionId) => timeline.runKeyAction(actionId)
         }
         // The composer comes back when the view closes; give it the keyboard
         // again instead of leaving focus on nothing.

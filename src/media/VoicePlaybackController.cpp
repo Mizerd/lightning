@@ -468,9 +468,14 @@ void VoicePlaybackController::onMediaStatus(int status)
         // so the source is not reset from inside the player's own emission;
         // keyed, so a clip started meanwhile is not the one stopped.
         const QString finished = m_eventId;
-        QMetaObject::invokeMethod(this, [this, finished] {
-            if (m_eventId == finished)
-                stop();
+        const QString room = m_roomId;
+        const QString thread = m_threadRootId;
+        const bool voice = m_isVoice;
+        QMetaObject::invokeMethod(this, [this, finished, room, thread, voice] {
+            if (m_eventId != finished)
+                return;
+            stop();
+            Q_EMIT clipFinished(finished, room, thread, voice);
         }, Qt::QueuedConnection);
         return;
     }
