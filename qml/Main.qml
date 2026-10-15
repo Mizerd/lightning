@@ -1003,6 +1003,14 @@ ApplicationWindow {
         parent: Overlay.overlay
     }
 
+    // Lightning's own file chooser, for Linux without a portal FileChooser:
+    // FileChooser (app.files) asks it, and every NativeFileDialog's answer
+    // comes back through it there. Its z keeps it above the dialog it was
+    // opened from.
+    FileChooserDialog {
+        id: fileChooserDialog
+    }
+
     // Corner prompts share one bottom-right column so they never overlap;
     // hidden prompts reclaim their space. The verification nudge is a card, not
     // a modal: an unverified session still works.

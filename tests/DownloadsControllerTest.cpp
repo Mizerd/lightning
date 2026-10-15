@@ -948,6 +948,49 @@ private Q_SLOTS:
         QVERIFY(!QFileInfo::exists(dir.path() + QStringLiteral("/holiday")));
     }
 
+    // Reported 2026-10-15 with a screenshot: Save as on Linux without a
+    // portal showed a chooser in no theme of ours with the File name field
+    // EMPTY. Now Lightning's own chooser is asked, with the name to prefill,
+    // the part of it to pre-select and the type; and its answer is saved.
+    // On the previous code no in-app request existed: the request went to
+    // QFileDialog (here the runner), so `asked` stays empty and this fails.
+    void saveAsOnLinuxWithoutAPortalAsksTheInAppChooserPrefilled()
+    {
+        QTemporaryDir dir;
+        Fixture f(dir.path(), {}, true);
+        QList<QPair<int, QVariantMap>> asked;
+        QObject::connect(f.chooser.get(), &FileChooser::inAppRequested,
+                         f.chooser.get(),
+                         [&](int id, const QVariantMap &request) {
+                             asked.append({id, request});
+                         });
+        f.downloads->saveAs(QStringLiteral("$doc"),
+                            QStringLiteral("Quarterly report.pdf"),
+                            QStringLiteral("application/pdf"));
+        QTRY_COMPARE(asked.size(), 1);
+        QCOMPARE(f.runnerCalls, 0);
+        const QVariantMap request = asked.at(0).second;
+        QCOMPARE(request.value(QStringLiteral("mode")).toString(),
+                 QStringLiteral("save"));
+        QCOMPARE(request.value(QStringLiteral("currentName")).toString(),
+                 QStringLiteral("Quarterly report.pdf"));
+        QCOMPARE(request.value(QStringLiteral("selectionLength")).toInt(), 16);
+        const QVariantList filters =
+            request.value(QStringLiteral("filters")).toList();
+        QVERIFY(!filters.isEmpty());
+        QCOMPARE(filters.at(0).toMap().value(QStringLiteral("raw")).toString(),
+                 QStringLiteral("PDF file (*.pdf)"));
+        QCOMPARE(request.value(QStringLiteral("filterIndex")).toInt(), 0);
+
+        const QUrl chosen =
+            QUrl::fromLocalFile(dir.path() + QStringLiteral("/Q3.pdf"));
+        f.chooser->answerInApp(asked.at(0).first, true, {chosen},
+                               QStringLiteral("PDF file (*.pdf)"));
+        QTRY_COMPARE(f.client.fetches.size(), 1);
+        f.client.succeed(f.client.fetches.at(0).opId, "%PDF");
+        QTRY_VERIFY(QFileInfo::exists(dir.path() + QStringLiteral("/Q3.pdf")));
+    }
+
     void saveAsAlwaysAsksEvenWhenDownloadWouldNot()
     {
         QTemporaryDir dir;
@@ -967,14 +1010,20 @@ private:
     struct Fixture
     {
         explicit Fixture(const QString &folder,
-                         const DownloadsController::Sandbox &sandbox = {})
+                         const DownloadsController::Sandbox &sandbox = {},
+                         bool linuxWithoutPortal = false)
         {
             bridge = std::make_unique<MediaBridge>();
             bridge->setClient(&client);
             settings = std::make_unique<SettingsManager>();
             settings->setAlwaysAskWhereToSave(false);
             settings->setDownloadFolder(QString());
-            chooser = std::make_unique<FileChooser>(FileChooser::Environment{});
+            // Linux with no session bus: no portal to try, so the request
+            // goes to Lightning's own chooser (answered by the test through
+            // inAppRequested). Otherwise Qt's route, through the runner.
+            FileChooser::Environment env;
+            env.linuxDesktop = linuxWithoutPortal;
+            chooser = std::make_unique<FileChooser>(env);
             chooser->setQtRunner([this](const FileChooser::Request &request,
                                         bool, FileChooser::Completion done) {
                 ++runnerCalls;

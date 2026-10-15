@@ -121,6 +121,9 @@ constexpr const char *kComponents[] = {
     // wrapper (app.files); both bind app objects at load.
     "DownloadsCard",
     "NativeFileDialog",
+    // Lightning's own file chooser (Linux without a portal); binds app.files
+    // and a FileBrowserModel at load.
+    "FileChooserDialog",
     // The "..." menu beside the room-list search: Activity / A-Z. Reads and
     // writes app.settings.roomListSort.
     "RoomListSortMenu",

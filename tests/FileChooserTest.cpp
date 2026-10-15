@@ -7,12 +7,15 @@
 // theme offers no native dialog — the case for every build that does not load
 // the desktop's Qt plugin. Now every chooser goes through FileChooser: the
 // portal on Linux (KDE's, GNOME's, COSMIC's own dialog, and the only one a
-// Flatpak or Snap may use), QFileDialog otherwise.
+// Flatpak or Snap may use), Lightning's own chooser on Linux without one
+// (2026-10-15: QFileDialog's widget dialog there ignored the theme), and
+// QFileDialog on Windows and macOS.
 //
 // The portal here is a fake on a PRIVATE dbus-daemon whose configuration has
 // no service directories, so nothing on this machine can be activated on it:
 // a real portal, and with it a real dialog on the desktop, is unreachable
-// from this test. The Qt route is an injected runner; no dialog is shown.
+// from this test. The Qt route is an injected runner, and the in-app route
+// is answered by the test itself; no dialog is shown.
 
 #include "app/FileChooser.h"
 #include "calls/PortalRequest.h"
@@ -195,8 +198,12 @@ private Q_SLOTS:
     void thePortalOpensSeveralFilesFromTheRememberedFolder();
     void thePortalSaveDialogIsPrefilledWithNameAndType();
     void aCancelledPortalDialogIsARejection();
-    void aPortalThatRefusesTheCallFallsBackToQt();
-    void withoutAPortalQtsDialogIsUsed(); // last: unregisters the fake
+    void aPortalThatRefusesTheCallFallsBackToTheInAppChooser();
+    void linuxWithoutABusAsksTheInAppChooserPrefilled();
+    void theInAppChooserIsAnsweredOnlyForItsOwnRequests();
+    void withNoInAppHostTheRequestIsCancelledNotHung();
+    void theBaseNameIsWhatIsPreselected();
+    void withoutAPortalTheInAppChooserIsUsed(); // last: unregisters the fake
 
 private:
     QProcess m_daemon;
@@ -287,17 +294,24 @@ void FileChooserTest::theRouteFollowsThePlatformAndTheOverride()
     env.linuxDesktop = true;
     env.sessionBus = true;
     QCOMPARE(FileChooser::initialRoute(env), R::Portal);
-    env.sessionBus = false; // no bus, no portal
-    QCOMPARE(FileChooser::initialRoute(env), R::QtDialog);
+    env.sessionBus = false; // no bus, no portal: Lightning's own chooser
+    QCOMPARE(FileChooser::initialRoute(env), R::InApp);
+    QCOMPARE(FileChooser::fallbackRoute(env), R::InApp);
     env = {};
     env.sessionBus = true; // Windows / macOS: the system dialog via Qt
     QCOMPARE(FileChooser::initialRoute(env), R::QtDialog);
+    QCOMPARE(FileChooser::fallbackRoute(env), R::QtDialog);
     env = linuxWithBus();
+    env.override = QStringLiteral("app");
+    QCOMPARE(FileChooser::initialRoute(env), R::InApp);
     env.override = QStringLiteral("qt");
     QCOMPARE(FileChooser::initialRoute(env), R::QtDialog);
     env.override = QStringLiteral("widget");
     QCOMPARE(FileChooser::initialRoute(env), R::QtWidgetDialog);
     env.override = QStringLiteral("PORTAL");
+    env.sessionBus = false;
+    QCOMPARE(FileChooser::initialRoute(env), R::InApp);
+    env.sessionBus = true;
     env.linuxDesktop = false;
     QCOMPARE(FileChooser::initialRoute(env), R::Portal);
     env.sessionBus = false;
@@ -513,32 +527,185 @@ void FileChooserTest::aCancelledPortalDialogIsARejection()
     QCOMPARE(remembered, 0);
 }
 
-void FileChooserTest::aPortalThatRefusesTheCallFallsBackToQt()
+void FileChooserTest::aPortalThatRefusesTheCallFallsBackToTheInAppChooser()
 {
     if (!m_haveBus)
         QSKIP("needs QtDBus and dbus-daemon for a private bus");
     FileChooser chooser(linuxWithBus());
-    QList<FileChooser::Request> ran;
-    chooser.setQtRunner([&ran](const FileChooser::Request &r, bool,
-                               FileChooser::Completion done) {
-        ran.append(r);
-        done(true, {QUrl::fromLocalFile(QStringLiteral("/tmp/x.png"))}, {});
+    int qtRuns = 0;
+    chooser.setQtRunner([&qtRuns](const FileChooser::Request &, bool,
+                                  FileChooser::Completion done) {
+        ++qtRuns;
+        done(false, {}, {});
     });
+    QList<QVariantMap> asked;
+    connect(&chooser, &FileChooser::inAppRequested, &chooser,
+            [&](int id, const QVariantMap &request) {
+                asked.append(request);
+                chooser.answerInApp(
+                    id, true,
+                    {QUrl::fromLocalFile(QStringLiteral("/tmp/x.png"))}, {});
+            });
     m_fake->answer = FakeFileChooserPortal::Answer::RefuseCall;
     FileChooser::Request request;
     request.title = QStringLiteral("Choose a sticker");
     QSignalSpy finished(&chooser, &FileChooser::finished);
     chooser.open(request, {});
     QVERIFY(finished.wait(5000));
-    QCOMPARE(ran.size(), 1);
-    QCOMPARE(ran.at(0).title, QStringLiteral("Choose a sticker"));
+    QCOMPARE(qtRuns, 0);
+    QCOMPARE(asked.size(), 1);
+    QCOMPARE(asked.at(0).value(QStringLiteral("title")).toString(),
+             QStringLiteral("Choose a sticker"));
     QCOMPARE(finished.at(0).at(1).toBool(), true);
-    QCOMPARE(chooser.route(), FileChooser::Route::QtDialog);
-    QCOMPARE(chooser.lastUsedRoute(), FileChooser::Route::QtDialog);
+    QCOMPARE(chooser.route(), FileChooser::Route::InApp);
+    QCOMPARE(chooser.lastUsedRoute(), FileChooser::Route::InApp);
+    QCOMPARE(chooser.routeName(), QStringLiteral("app"));
     m_fake->answer = FakeFileChooserPortal::Answer::Choose;
 }
 
-void FileChooserTest::withoutAPortalQtsDialogIsUsed()
+// The 2026-10-15 report: Save as on Linux with no portal came up in a
+// dialog that ignored the theme and had an EMPTY name field. With no bus
+// there is no portal to try: the request goes straight to the in-app chooser
+// carrying everything it needs to prefill. On the previous code this route
+// did not exist (the request went to QFileDialog), so nothing was asked.
+void FileChooserTest::linuxWithoutABusAsksTheInAppChooserPrefilled()
+{
+    FileChooser::Environment env;
+    env.linuxDesktop = true;
+    FileChooser chooser(env);
+    int qtRuns = 0;
+    chooser.setQtRunner([&qtRuns](const FileChooser::Request &, bool,
+                                  FileChooser::Completion done) {
+        ++qtRuns;
+        done(false, {}, {});
+    });
+    QTemporaryDir folder;
+    QVERIFY(folder.isValid());
+    QList<QPair<int, QVariantMap>> asked;
+    connect(&chooser, &FileChooser::inAppRequested, &chooser,
+            [&](int id, const QVariantMap &request) {
+                asked.append({id, request});
+            });
+    QSignalSpy finished(&chooser, &FileChooser::finished);
+    const int id = chooser.open(QVariantMap{
+        {QStringLiteral("mode"), QStringLiteral("save")},
+        {QStringLiteral("title"), QStringLiteral("Save file")},
+        {QStringLiteral("currentName"), QStringLiteral("Quarterly report.pdf")},
+        {QStringLiteral("folder"), QUrl::fromLocalFile(folder.path())},
+        {QStringLiteral("nameFilters"),
+         QStringList{QStringLiteral("PDF file (*.pdf)"),
+                     QStringLiteral("All files (*)")}},
+        {QStringLiteral("selectedNameFilter"), QStringLiteral("All files (*)")},
+    });
+    QTRY_COMPARE(asked.size(), 1);
+    QCOMPARE(qtRuns, 0);
+    QCOMPARE(asked.at(0).first, id);
+    const QVariantMap request = asked.at(0).second;
+    QCOMPARE(request.value(QStringLiteral("mode")).toString(),
+             QStringLiteral("save"));
+    QCOMPARE(request.value(QStringLiteral("currentName")).toString(),
+             QStringLiteral("Quarterly report.pdf"));
+    QCOMPARE(request.value(QStringLiteral("selectionLength")).toInt(), 16);
+    QCOMPARE(request.value(QStringLiteral("folder")).toUrl(),
+             QUrl::fromLocalFile(folder.path()));
+    const QVariantList filters =
+        request.value(QStringLiteral("filters")).toList();
+    QCOMPARE(filters.size(), 2);
+    QCOMPARE(filters.at(0).toMap().value(QStringLiteral("patterns")).toStringList(),
+             QStringList{QStringLiteral("*.pdf")});
+    QCOMPARE(request.value(QStringLiteral("filterIndex")).toInt(), 1);
+    QCOMPARE(finished.count(), 0); // waiting for the user
+
+    const QUrl chosen =
+        QUrl::fromLocalFile(folder.path() + QStringLiteral("/Q3.pdf"));
+    chooser.answerInApp(id, true, {chosen}, QStringLiteral("PDF file (*.pdf)"));
+    QCOMPARE(finished.count(), 1);
+    QCOMPARE(finished.at(0).at(1).toBool(), true);
+    QCOMPARE(finished.at(0).at(2).value<QList<QUrl>>(), QList<QUrl>{chosen});
+    QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("PDF file (*.pdf)"));
+    QCOMPARE(chooser.lastUsedRoute(), FileChooser::Route::InApp);
+}
+
+void FileChooserTest::theInAppChooserIsAnsweredOnlyForItsOwnRequests()
+{
+    FileChooser::Environment env;
+    env.linuxDesktop = true;
+    FileChooser chooser(env);
+    QList<int> asked;
+    connect(&chooser, &FileChooser::inAppRequested, &chooser,
+            [&](int id, const QVariantMap &) { asked.append(id); });
+    QSignalSpy finished(&chooser, &FileChooser::finished);
+    const int id = chooser.open(QVariantMap{});
+    QTRY_COMPARE(asked.size(), 1);
+
+    // An id it never asked about, and a url that is not a local file.
+    chooser.answerInApp(id + 100, true, {QStringLiteral("file:///tmp/a")}, {});
+    QCOMPARE(finished.count(), 0);
+    chooser.answerInApp(id, true, {QStringLiteral("https://example.org/a")}, {});
+    QCOMPARE(finished.count(), 1);
+    // Accepted with nothing usable is a rejection, not an empty success.
+    QCOMPARE(finished.at(0).at(1).toBool(), false);
+    // Answered once only.
+    chooser.answerInApp(id, true, {QStringLiteral("file:///tmp/a")}, {});
+    QCOMPARE(finished.count(), 1);
+
+    // A cancel is a rejection; strings are taken as urls.
+    const int second = chooser.open(QVariantMap{
+        {QStringLiteral("mode"), QStringLiteral("openMany")}});
+    QTRY_COMPARE(asked.size(), 2);
+    chooser.answerInApp(second, false, {}, {});
+    QCOMPARE(finished.count(), 2);
+    QCOMPARE(finished.at(1).at(1).toBool(), false);
+    const int third = chooser.open(QVariantMap{
+        {QStringLiteral("mode"), QStringLiteral("openMany")}});
+    QTRY_COMPARE(asked.size(), 3);
+    chooser.answerInApp(third, true,
+                        {QStringLiteral("file:///tmp/a.txt"),
+                         QUrl::fromLocalFile(QStringLiteral("/tmp/b.txt"))},
+                        {});
+    QCOMPARE(finished.at(2).at(2).value<QList<QUrl>>().size(), 2);
+}
+
+void FileChooserTest::withNoInAppHostTheRequestIsCancelledNotHung()
+{
+    FileChooser::Environment env;
+    env.linuxDesktop = true;
+    FileChooser chooser(env);
+    int qtRuns = 0;
+    chooser.setQtRunner([&qtRuns](const FileChooser::Request &, bool,
+                                  FileChooser::Completion done) {
+        ++qtRuns;
+        done(false, {}, {});
+    });
+    QSignalSpy finished(&chooser, &FileChooser::finished);
+    chooser.open(QVariantMap{});
+    QVERIFY(finished.wait(2000));
+    QCOMPARE(finished.at(0).at(1).toBool(), false);
+    // Not Qt's widget dialog as a last resort.
+    QCOMPARE(qtRuns, 0);
+}
+
+void FileChooserTest::theBaseNameIsWhatIsPreselected()
+{
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("report.pdf")), 6);
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("logs.tar.gz")), 4);
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("IMG_0042.JPG")), 8);
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("README")), 6);
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral(".bashrc")), 7);
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("v1.2 notes.md")), 10);
+    // Not an extension: the whole name.
+    QCOMPARE(FileChooser::baseNameLength(QStringLiteral("Screenshot 2026.10.06")),
+             21);
+    QCOMPARE(FileChooser::baseNameLength(QString()), 0);
+    // Only a save request carries a name to select.
+    FileChooser::Request open;
+    open.currentName = QStringLiteral("x.pdf");
+    QCOMPARE(FileChooser::describeRequest(open)
+                 .value(QStringLiteral("currentName")).toString(),
+             QString());
+}
+
+void FileChooserTest::withoutAPortalTheInAppChooserIsUsed()
 {
     if (!m_haveBus)
         QSKIP("needs QtDBus and dbus-daemon for a private bus");
@@ -555,13 +722,20 @@ void FileChooserTest::withoutAPortalQtsDialogIsUsed()
         ++runnerCalls;
         done(false, {}, {});
     });
+    int inAppCalls = 0;
+    connect(&chooser, &FileChooser::inAppRequested, &chooser,
+            [&](int id, const QVariantMap &) {
+                ++inAppCalls;
+                chooser.answerInApp(id, false, {}, {});
+            });
     QCOMPARE(chooser.route(), FileChooser::Route::Portal); // not probed yet
     QSignalSpy finished(&chooser, &FileChooser::finished);
     chooser.open(FileChooser::Request{}, {});
     QVERIFY(finished.wait(8000));
-    QCOMPARE(runnerCalls, 1);
+    QCOMPARE(runnerCalls, 0);
+    QCOMPARE(inAppCalls, 1);
     QCOMPARE(m_fake->calls, portalCallsBefore);
-    QCOMPARE(chooser.route(), FileChooser::Route::QtDialog);
+    QCOMPARE(chooser.route(), FileChooser::Route::InApp);
     QCOMPARE(routeChanged.count(), 1);
 }
 

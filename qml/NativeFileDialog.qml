@@ -1,10 +1,12 @@
 import QtQuick
 
-// A file or folder chooser that is the desktop's own: the XDG portal's
-// (Dolphin's, GTK's, COSMIC's) on Linux, the system dialog on Windows and
-// macOS, Qt's widget dialog only where neither exists. Never QtQuick.Dialogs'
-// FileDialog, which draws a non-native imitation whenever the Qt platform
-// theme offers no native dialog (a fake path bar, no thumbnails).
+// A file or folder chooser: the XDG portal's (Dolphin's, GTK's, COSMIC's) on
+// Linux, Lightning's own themed chooser (FileChooserDialog.qml) on Linux
+// without a portal, and the system dialog on Windows and macOS. Never
+// QtQuick.Dialogs' FileDialog, which draws a non-native imitation whenever the
+// Qt platform theme offers no native dialog (a fake path bar, no thumbnails)
+// and fills its name field only from a file that already exists, so every
+// Save as came up with an empty name.
 //
 // The API mirrors the parts of FileDialog this app used, so a call site reads
 // the same: set title / nameFilters / fileMode, call open(), handle

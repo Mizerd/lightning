@@ -132,6 +132,17 @@ Text {
         "headset_off": "\ue33a",
         "grid_view": "\ue9b0",
         "flag": "\uf0c6",
+        // The in-app file chooser (FileChooserDialog.qml).
+        "folder": "\ue2c7",
+        "arrow_upward": "\ue5d8",
+        "create_new_folder": "\ue2cc",
+        "desktop_windows": "\ue30c",
+        "audio_file": "\ueb82",
+        "movie": "\ue404",
+        "picture_as_pdf": "\ue415",
+        "folder_zip": "\ueb2c",
+        "draft": "\ue66d",
+        "hard_drive": "\uf80e",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

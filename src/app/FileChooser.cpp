@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QMetaMethod>
 #include <QPointer>
 #include <QRandomGenerator>
 #include <QRegularExpression>
@@ -148,7 +149,7 @@ FileChooser::FileChooser(QObject *parent)
 }
 
 FileChooser::FileChooser(const Environment &env, QObject *parent)
-    : QObject(parent), m_route(initialRoute(env))
+    : QObject(parent), m_route(initialRoute(env)), m_fallback(fallbackRoute(env))
 {
     initialise();
 }
@@ -228,11 +229,22 @@ FileChooser::Route FileChooser::initialRoute(const Environment &env)
         return Route::QtDialog;
     if (forced == QLatin1String("widget"))
         return Route::QtWidgetDialog;
+    if (forced == QLatin1String("app") || forced == QLatin1String("inapp"))
+        return Route::InApp;
     if (forced == QLatin1String("portal"))
-        return env.sessionBus ? Route::Portal : Route::QtDialog;
+        return env.sessionBus ? Route::Portal : fallbackRoute(env);
     if (env.linuxDesktop && env.sessionBus)
         return Route::Portal;
-    return Route::QtDialog;
+    return fallbackRoute(env);
+}
+
+FileChooser::Route FileChooser::fallbackRoute(const Environment &env)
+{
+    // On Linux without a portal, QFileDialog is Qt's widget dialog unless a
+    // desktop's Qt plugin happens to be loaded (never in the AppImage, the
+    // Flatpak or the Nix shell): the app's theme reaches it only as a
+    // palette. Lightning's own chooser is drawn like the rest of the app.
+    return env.linuxDesktop ? Route::InApp : Route::QtDialog;
 }
 
 FileChooser::Environment FileChooser::hostEnvironment()
@@ -267,6 +279,7 @@ QString FileChooser::routeName() const
     case Route::Portal: return QStringLiteral("portal");
     case Route::QtDialog: return QStringLiteral("qt");
     case Route::QtWidgetDialog: return QStringLiteral("widget");
+    case Route::InApp: return QStringLiteral("app");
     }
     return {};
 }
@@ -291,6 +304,55 @@ QPair<QString, QStringList> FileChooser::parseNameFilter(const QString &filter)
     if (name.isEmpty())
         name = globs.join(QLatin1Char(' '));
     return {name, globs};
+}
+
+int FileChooser::baseNameLength(const QString &leaf)
+{
+    // A dotfile (".bashrc") is all name; so is a name with no extension.
+    const QString known = savenaming::extensionOf(leaf);
+    if (!known.isEmpty() && leaf.size() > known.size() + 1
+        && leaf.endsWith(QLatin1Char('.') + known, Qt::CaseInsensitive))
+        return int(leaf.size() - known.size() - 1);
+    const qsizetype dot = leaf.lastIndexOf(QLatin1Char('.'));
+    if (dot <= 0)
+        return int(leaf.size());
+    // An unknown suffix is still selected around when it looks like one
+    // ("notes.md5sum"), and not when it does not ("Screenshot 2026.10.06").
+    return savenaming::looksLikeExtension(leaf.mid(dot + 1)) ? int(dot)
+                                                             : int(leaf.size());
+}
+
+QVariantMap FileChooser::describeRequest(const Request &request)
+{
+    QVariantList filters;
+    int filterIndex = 0;
+    if (request.mode != Mode::Folder) {
+        for (const QString &raw : request.nameFilters) {
+            const auto parsed = parseNameFilter(raw);
+            if (parsed.second.isEmpty())
+                continue;
+            if (raw == request.selectedNameFilter)
+                filterIndex = int(filters.size());
+            filters.append(QVariantMap{
+                {QStringLiteral("label"), raw.trimmed()},
+                {QStringLiteral("patterns"), parsed.second},
+                {QStringLiteral("raw"), raw}});
+        }
+    }
+    return {
+        {QStringLiteral("id"), request.id},
+        {QStringLiteral("mode"), modeName(request.mode)},
+        {QStringLiteral("title"), request.title},
+        {QStringLiteral("folder"), request.folder},
+        {QStringLiteral("currentName"),
+         request.mode == Mode::SaveFile ? request.currentName : QString()},
+        {QStringLiteral("selectionLength"),
+         request.mode == Mode::SaveFile ? baseNameLength(request.currentName)
+                                        : 0},
+        {QStringLiteral("acceptLabel"), request.acceptLabel},
+        {QStringLiteral("filters"), filters},
+        {QStringLiteral("filterIndex"), filterIndex},
+    };
 }
 
 int FileChooser::open(const QVariantMap &options)
@@ -358,6 +420,10 @@ int FileChooser::open(const Request &in, Completion done)
 
 void FileChooser::dispatch(const Request &request)
 {
+    if (m_route == Route::InApp) {
+        runInApp(request);
+        return;
+    }
     if (m_route != Route::Portal) {
         runQt(request);
         return;
@@ -400,7 +466,7 @@ void FileChooser::probePortal()
                 } else {
                     // Error name only: a message can carry paths.
                     qCInfo(lcChooser)
-                        << "no file chooser portal; using Qt's dialog error="
+                        << "no file chooser portal; using the fallback error="
                         << reply.errorName();
                 }
                 onPortalProbed(ok);
@@ -413,10 +479,8 @@ void FileChooser::probePortal()
 void FileChooser::onPortalProbed(bool available)
 {
     m_probe = Probe::Done;
-    if (!available && m_route == Route::Portal) {
-        m_route = Route::QtDialog;
-        Q_EMIT routeChanged();
-    }
+    if (!available)
+        fallBack();
 #ifdef HAVE_QT_DBUS
     if (available && !m_serviceWatcher) {
         auto *watcher = new QDBusServiceWatcher(
@@ -441,6 +505,56 @@ void FileChooser::failPendingPortalRequests()
     m_portalInFlight.clear();
     for (int id : ids)
         complete(id, Route::Portal, false, {}, {});
+}
+
+void FileChooser::fallBack()
+{
+    if (m_route != Route::Portal)
+        return;
+    m_route = m_fallback;
+    Q_EMIT routeChanged();
+}
+
+void FileChooser::runFallback(const Request &request)
+{
+    if (m_fallback == Route::InApp)
+        runInApp(request);
+    else
+        runQt(request);
+}
+
+void FileChooser::runInApp(const Request &request)
+{
+    const int id = request.id;
+    // The host is FileChooserDialog in Main.qml. Without one nothing would
+    // ever answer, so the request is answered now, as cancelled; Qt's widget
+    // dialog is deliberately not a last resort on Linux.
+    if (!isSignalConnected(QMetaMethod::fromSignal(&FileChooser::inAppRequested))) {
+        qCWarning(lcChooser) << "no in-app file chooser host; request id=" << id
+                             << "answered as cancelled";
+        complete(id, Route::InApp, false, {}, {});
+        return;
+    }
+    m_inAppInFlight.insert(id);
+    Q_EMIT inAppRequested(id, describeRequest(request));
+}
+
+void FileChooser::answerInApp(int requestId, bool accepted,
+                              const QVariantList &urls,
+                              const QString &selectedNameFilter)
+{
+    if (!m_inAppInFlight.remove(requestId))
+        return; // not ours to answer, or answered already
+    QList<QUrl> list;
+    for (const QVariant &v : urls) {
+        const QUrl url = v.typeId() == QMetaType::QUrl
+            ? v.toUrl()
+            : QUrl(v.toString());
+        if (url.isValid() && url.isLocalFile())
+            list.append(url);
+    }
+    complete(requestId, Route::InApp, accepted && !list.isEmpty(), list,
+             accepted ? selectedNameFilter : QString());
 }
 
 void FileChooser::runQt(const Request &request)
@@ -586,22 +700,19 @@ void FileChooser::runPortal(const Request &request)
                     m_portalInFlight.remove(id);
                     // The portal answered the probe and refused the call
                     // (no backend for this desktop, a broken one): this
-                    // request and every later one take Qt's dialog.
+                    // request and every later one take the fallback.
                     qCWarning(lcChooser)
                         << "file chooser portal call failed error="
-                        << reply.error().name() << "; using Qt's dialog";
-                    if (m_route == Route::Portal) {
-                        m_route = Route::QtDialog;
-                        Q_EMIT routeChanged();
-                    }
-                    runQt(request);
+                        << reply.error().name() << "; using the fallback";
+                    fallBack();
+                    runFallback(request);
                     return;
                 }
                 portal::reconcileRequestPath(this, subscription,
                                              reply.value().path(), onAnswer);
             });
 #else
-    runQt(request);
+    runFallback(request);
 #endif
 }
 

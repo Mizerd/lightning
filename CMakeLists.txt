@@ -748,6 +748,8 @@ set(APP_SOURCES
     src/app/SaveNaming.cpp
     src/app/FileChooser.h
     src/app/FileChooser.cpp
+    src/models/FileBrowserModel.h
+    src/models/FileBrowserModel.cpp
     src/app/LogExport.h
     src/app/LogExport.cpp
     src/app/LogExportController.h
@@ -1063,6 +1065,7 @@ set(APP_QML_FILES
     qml/VoiceMiniPlayer.qml
     qml/DownloadsCard.qml
     qml/NativeFileDialog.qml
+    qml/FileChooserDialog.qml
     qml/MediaVolumeControl.qml
     qml/VideoControlBar.qml
     qml/VideoViewerOverlay.qml
@@ -5482,6 +5485,28 @@ if(BUILD_TESTING)
             PRIVATE lightning-app-testlib Qt6::DBus Qt6::Test)
         add_test(NAME file-chooser COMMAND file-chooser-test)
     endif()
+
+    # Lightning's own file chooser (Linux without a portal): the folder
+    # listing (filters, hidden files, sorting, type-to-select, paths typed by
+    # hand, new folders), and the dialog on the real QML offscreen: the save
+    # name prefilled with its base name selected, overwrite confirmation, and
+    # each mode's answer through FileChooser.
+    qt_add_executable(file-browser-model-test
+        tests/FileBrowserModelTest.cpp
+    )
+    target_include_directories(file-browser-model-test PRIVATE src)
+    target_link_libraries(file-browser-model-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME file-browser-model COMMAND file-browser-model-test)
+
+    qt_add_executable(file-chooser-dialog-qml-test
+        tests/FileChooserDialogQmlTest.cpp
+    )
+    target_include_directories(file-chooser-dialog-qml-test PRIVATE src)
+    lightning_configure_qml_test(file-chooser-dialog-qml-test)
+    add_test(NAME file-chooser-dialog-qml COMMAND file-chooser-dialog-qml-test)
+    set_tests_properties(file-chooser-dialog-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
     # Slash commands, composer half: which backend verb runs with which
     # arguments, and a refusal never destroys the draft.

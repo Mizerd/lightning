@@ -250,6 +250,21 @@ private Q_SLOTS:
               QRegularExpression(
                   QStringLiteral("return \"([a-z0-9_]+)\"")));
 
+        // The file chooser's per-kind and per-place glyphs, and the ternaries
+        // its path bar and hidden-files toggle choose between.
+        const QString chooser =
+            readAll(QStringLiteral(QML_DIR "/FileChooserDialog.qml"));
+        sweep(chooser, QStringLiteral("FileChooserDialog.qml"),
+              QStringLiteral("function iconFor"),
+              QRegularExpression(
+                  QStringLiteral("return \"([a-z0-9_]+)\"")));
+        for (const char *side : {"\\? \"([a-z0-9_]+)\" : \"[a-z0-9_]+\"",
+                                 "\\? \"[a-z0-9_]+\" : \"([a-z0-9_]+)\""}) {
+            sweep(chooser, QStringLiteral("FileChooserDialog.qml"),
+                  QStringLiteral("\"visibility_off\""),
+                  QRegularExpression(QString::fromLatin1(side)));
+        }
+
         // SpaceChannelModel's `kIcon…` constants: the names live only there so
         // this sweep finds all of them (matching call sites found none).
         const QString channels = readAll(
