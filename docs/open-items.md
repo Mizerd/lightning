@@ -1,5 +1,25 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-16 — Open decisions (notification round, 2026-10-16)
+
+From commit `7e3635ed` (the notification sweep). Each needs a product call from
+Rokas, not an implementation round picking one.
+
+- **(a) The third read-receipt mode.** "Do not send read receipts" now sends
+  `m.read.private`, so on the wire it is identical to Private. Keep it, merge
+  it into Private, or relabel it.
+- **(b) The ringer under Do Not Disturb (finding 104).** Lightning's own ringer
+  still rings while the desktop's Do Not Disturb is on.
+- **(c) Window deactivation and `m.fully_read`.** Whether deactivating the
+  window should move `m.fully_read`. Today it moves only when the user leaves a
+  read room.
+- **(d) Per-event "seen" persistence for the Activity Center.** Whether the
+  Activity Center should remember seen state per event across restarts.
+
+**Live: NOT TESTED** for the notification round's behaviour: ring and
+notification semantics, `m.fully_read` handling, MSC4306 auto-subscribe after a
+thread send, and the Activity Center changes.
+
 ## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
 
 **What it is.** Qt 6.11's native PipeWire sink keeps each stream alive through
@@ -96,15 +116,8 @@ microphone; the silence warning fired correctly), camera, and Wayland.
 Spell checking needs `myspell-<lang>` on openSUSE (the rpm only recommends
 enchant); with `myspell-en_US` it works.
 
-**FOUND, not openSUSE's and NOT FIXED: screen sharing on a KDE Plasma X11
-session cannot start.** `linuxShareRoute()` sends every share to the portal
-when one answers, and xdg-desktop-portal-kde answers on X11 only to refuse
-("screen sharing is not available in X11 sessions"). Lightning then stops;
-the ximagesrc route it has (`FallbackDisplays`) is never tried. Any distro's
-Plasma X11 session should be affected (inferred, seen only on openSUSE); on
-Wayland the portal is the right route. Fix candidates for the calls owner: on
-a session that is X11 by every signal, prefer `FallbackDisplays`, or fall back
-to it when the portal refuses.
+**The KDE Plasma X11 screen-share refusal is FIXED; see "Closed (kept for the
+record)" at the end of this file.**
 
 **Leap 16.0 cannot install the release `.rpm`** (Qt 6.9.1 against its Qt 6.11
 floor). It gets the COPR route: the COPR spec now has an openSUSE branch, and
@@ -168,26 +181,18 @@ before the next release; the full checklist is kept in the maintainer's notes.
   `docs/install.md` only after a green COPR build.
 
 **Found live, NOT fixed.**
-- A SOFT logout (the device still exists) still loops through "Open it"; the
-  fix is a password sign-in that reuses the saved device id.
+- (Eight entries that stood here, the soft-logout loop, the `m.space.parent`
+  row, Arabic alignment, the edit preview, the "Empty Room" invite, the banned
+  member, the tray search entries and the teardown warning, are FIXED; see
+  "Closed (kept for the record)" at the end of this file.)
 - The DM row avatar stays stale for the whole session after the peer changes
   it (`DirectAvatarResolver` fetches once per session).
-- An "[unsupported event]" row for an empty `m.space.parent`.
-- A paragraph written entirely in Arabic is left-aligned.
-- The room-list preview of an edit shows the raw fallback ("* ...markdown").
-- One invite raised two notifications, the first titled "Empty Room".
 - A Mentions-only encrypted room shows a numbered badge.
-- "People in this Space" lists a banned member.
-- Tray options are missing from the settings search; `trayAvailable` is
-  CONSTANT.
 - `ScreenSharePicker.qml:462` fails to load its thumbnail (cosmetic); the Qt
   Quick file dialog sometimes opens at `/` on a fresh profile.
 - Once each, not reproduced: a 14 s quit after using the tray, and a 6.7 s GUI
   stall inside the sign-out handlers of a local session end (the same step as
   an account switch; the open account-switch freeze?).
-- A teardown warning per session end: `TimelinePane.qml:4317
-  recomputePresentationReady is not a function` (a `Qt.callLater` after the
-  timeline is destroyed).
 - Nits: "Add another account" heading on the repair page; "1 members"; the
   status bar still says "Error" after a removal; Ctrl+, does not focus the
   settings search; an ended video shows a black card; a redirected sign-in
@@ -467,26 +472,11 @@ What remains open:
   `QQuickImage_QML_<n>` subclass). One such blind spot let a link-media mutant
   survive; match with `inherits()`.
 
-## 2026-09-25 — OPEN: one undecryptable stream silences every participant
+## 2026-09-25 — FIXED: one undecryptable stream silences every participant
 
-Measured twice on 2026-09-25 (0.9.9 and pre-fix `main`): when one remote
-participant's key was missing, the listener heard NO ONE — its playback stream
-was corked, and a peer whose frames decrypted produced one frame and stopped.
-It recovered the moment the key arrived. The key loss itself is fixed (see
-`docs/round-history.md`, 2026-09-25), but any other cause of a key-less stream
-(a peer that never sends one, a refused index) still takes the whole call's
-audio down with it. Probable mechanism, NOT confirmed: every remote track ends
-in its own `autoaudiosink` in one pipeline, and a sink that never gets a buffer
-holds the pipeline's state change. Settle it with the tone rig by withholding
-one participant's key, before changing the receive bins.
-
-Also from that round's review, older and unchanged:
-
-- `SfuCallController::join()` refused while another call is active
-  (`setState(Failed)` before the `if (active()) teardown`) leaves the first
-  call's engine running and its membership in place, with the UI showing Failed.
-- `m_deliveredKeyIndex` is never reset between calls, so "the very first key is
-  always adopted" stops being true in a later call (fails closed).
+Moved to "Closed (kept for the record)" at the end of this file, with the two
+older follow-ups from that round's review (a refused `join()` during a call,
+and `m_deliveredKeyIndex` never reset), which the same fix closed.
 
 ## 2026-09-24 — accepted follow-ups from the Space moderation, SVG and Flatpak review
 
@@ -2413,11 +2403,8 @@ of them driven against the thing that reported them. Full account in
   permissions), a real PulseAudio-only desktop, Windows process loopback
   (per-application and window preselection), and Element receiving the
   per-application track.
-- **Share options are unreachable from a cramped call bar.** The share
-  chevron (sound, resolution, frame rate) is hidden whenever the call bar is
-  `compact` (a narrow window, or the in-room collapsed bar). On X11, Windows
-  and macOS the picker carries the sound choice; on Wayland (portal) there is
-  no other route. Found 2026-10-07 while testing; not changed.
+- **Share options in a cramped call bar: FIXED**, see "Closed (kept for the
+  record)" at the end of this file.
 - **Share-audio MUTE is a seam, not a feature.** The share's Opus chain
   carries `valve name=sharevalve drop=false` and its comment used to read as
   though muting the share independently of the microphone were implemented.
@@ -3817,3 +3804,49 @@ Build 303: after an RDP audio endpoint drop, Settings > Test and Test mention
 played in 4/4 rounds and the ring in 3/4; in round 2 the ring logged
 `call sound loop= "ring"` but was silent for 15 s, then audible a minute later
 without a restart. Not reproduced in two more rounds. Tasks/2026-10-07-win-rc.md.
+
+## Closed (kept for the record)
+
+Each entry was open here and is proven fixed by a commit plus the code that does
+it. FIXED is a source fact: unless an entry says otherwise, **Live: NOT TESTED**.
+
+- **FIXED (`d1bc1b2e`, v0.10.0) — soft logout looped through "Open it".** A soft
+  logout now signs in again as the SAME device, bound to the record's
+  homeserver (`RustSdkMatrixClient.cpp`, `softLogoutReported`). Lesson: resume
+  the saved device id, never mint a new one. Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — "[unsupported event]" for an empty
+  `m.space.parent`.** ruma needs `via`, so `{}` (the spec's removal) arrives as
+  `FailedToParseState`; `failed_state_parse_body` now reads it as "removed this
+  room from a space". Lesson: read the deserializer's complaint. Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — an all-Arabic paragraph was left-aligned.**
+  `MessageHtml` sets each block's direction from its own text, code stays LTR;
+  tests assert `textDirection()` per block. Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — the room-list preview of an edit showed "* ...".**
+  An edit previews its new content, never the fallback body (Rust test
+  `an_edit_previews_its_new_content_not_the_fallback`). Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — one invite raised two notifications, the first
+  "Empty Room".** `InviteNoticeTracker` settles an invite 1 s and treats it gone
+  only after 3 s off the list; `InviteNoticeTrackerTest` covers it. Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — "People in this Space" listed a banned member.**
+  The list reads `RoomInfoController::joinedMembers`, joined only. Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — tray options missing from settings search.**
+  Both entries carry keywords and anchors, and `trayAvailable` is no longer
+  CONSTANT (re-polled every 4 s). Live: NOT TESTED.
+- **FIXED (`d1bc1b2e`, v0.10.0) — `recomputePresentationReady is not a function`
+  at session end.** The bare `Qt.callLater` became a child `Timer`
+  (`presentationResetSettledTimer`) destroyed with the pane. Live: NOT TESTED.
+- **FIXED (`d7f8e949`, v0.10.1) — screen share could not start on a KDE Plasma
+  X11 session** (found on openSUSE 2026-10-06). `portalFailureFallsBackToDisplays`
+  sends x11_unsupported, session_refused, no_answer and timeout on an xcb
+  session to Lightning's own display picker; tests in `CallControllerTest`.
+  Live: NOT TESTED on Plasma X11.
+- **FIXED (`a2e78909`, v0.10.1) — share options unreachable in the compact call
+  bar (#26).** `callBarShareOptionsChevron` keeps its width in the compact strip;
+  `CallUiContractTest` covers it. Live: NOT TESTED.
+- **FIXED (`223797b4`, v0.10.0) — one undecryptable stream silenced every
+  participant.** A receive sink that never prerolled held the subscriber
+  pipeline in PAUSED; every receive bin now sets `async-handling`. The mechanism
+  was a hypothesis when the entry was written and was never confirmed with the
+  tone rig, so the cause is inferred from the fix. The same commit closed the two
+  older follow-ups (a refused `join()` during a call now keeps that call;
+  `m_deliveredKeyIndex` resets per call). Live: NOT TESTED.
