@@ -857,8 +857,9 @@ What that means in practice:
   `allow_failure` there, the `needs` entry is not `optional`, and
   `write-manifest.sh` refuses to publish without the bundle. A Mac that is
   offline, asleep or mid-macOS-update holds the release until it is back;
-  retry the job. In a build-only pipeline the job is still opt-in and
-  `allow_failure`.
+  retry the job. In a build-only pipeline the job is still opt-in, and since
+  2026-10-15 it is blocking there too: it runs only when asked for, so its
+  failure turns that pipeline red instead of showing as a warning.
 - **It is NOT in the signed update manifest.** The client has no macOS install
   strategy — `InstallType::MacosDmg` is not self-installable and the updater
   helper returns `UnsupportedPlatform` — so an entry there would advertise an
@@ -873,7 +874,7 @@ What that means in practice:
   the button, rather than "damaged", which offers nothing.
 
 `tests/test-pipeline-config.py` pins that shape: the need exists and is not
-optional, the job is `allow_failure` only on its build-only rule, no
+optional, the job is never `allow_failure` (neither rule), no
 macOS-tagged job carries a release action, and the update manifest declares no
 macOS format. Each of those was
 proven to fail against an injected defect before it was committed.

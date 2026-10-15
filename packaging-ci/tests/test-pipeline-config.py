@@ -698,8 +698,8 @@ check(_publish_inputs <= _mirror_inputs,
 _missing = sorted(_publish_inputs - _mirror_inputs)
 if _missing:
     print("     missing from mirror-release-to-github: %s" % ", ".join(_missing))
-# A release depends on the Mac (Rokas, 2026-10-07): the need is not optional,
-# and the job is allow_failure only in a build-only pipeline (per rule).
+# A release depends on the Mac (Rokas, 2026-10-07): the need is not optional.
+# A requested build-only macOS run blocks too (Rokas, 2026-10-15).
 for _consumer in ("publish-packages", "mirror-release-to-github"):
     macos_need = next(n for n in doc[_consumer]["needs"]
                       if isinstance(n, dict) and n["job"] == "macos-package-test")
@@ -707,6 +707,9 @@ for _consumer in ("publish-packages", "mirror-release-to-github"):
           f"{_consumer}'s macOS need is NOT optional: no release without macOS")
 check("allow_failure" not in doc["macos-package-test"],
       "the macOS job sets allow_failure per rule, never job-wide")
+check(all(rule.get("allow_failure", False) is False
+          for rule in resolve_extends("macos-package-test")["rules"]),
+      "no macOS rule is allow_failure: a requested macOS build fails the pipeline")
 check("LIGHTNING_REQUIRE_MACOS_ASSET=true ./packaging-ci/scripts/write-manifest.sh"
       in doc["publish-packages"].get("script", []),
       "publish-packages tells write-manifest.sh to refuse a missing macOS bundle")
@@ -2026,7 +2029,7 @@ _snap_base = {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
               "RELEASE_NOTES_B64": "", "BUILD_WINDOWS_PACKAGES": "false"}
 _snapshot_cases = [
     (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="c" * 40),
-     _SNAPSHOT_FLEET | {"macos-package-test"}, _SNAPSHOT_CANARIES | {"macos-package-test"}),
+     _SNAPSHOT_FLEET | {"macos-package-test"}, _SNAPSHOT_CANARIES),
     (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="main"),
      _SNAPSHOT_FLEET, _SNAPSHOT_CANARIES),
     (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
@@ -2035,7 +2038,7 @@ _snapshot_cases = [
      {"config-tests", "resolve-source", "build-rpm", "validate-rpm",
       "validate-rpm-opensuse"} | _SNAPSHOT_CANARIES, _SNAPSHOT_CANARIES),
     (dict(_snap_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="true", SOURCE_REF="d" * 40),
-     {"config-tests", "resolve-source", "macos-package-test"}, {"macos-package-test"}),
+     {"config-tests", "resolve-source", "macos-package-test"}, set()),
     (dict(_snap_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="false",
           BUILD_WINDOWS_PACKAGES="true", SOURCE_REF="e" * 40),
      {"config-tests", "resolve-source", "windows-package-test"}, set()),

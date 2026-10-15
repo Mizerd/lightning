@@ -93,7 +93,8 @@ variables:
 # commit is still pinned there: EXPECTED_SOURCE_SHA comes from resolve-source,
 # and build-macos.sh refuses anything but a full SHA.
 #
-# A build-only pipeline is unchanged: opt-in, pinned SOURCE_REF, allow_failure.
+# A build-only pipeline is opt-in with a pinned SOURCE_REF, and blocking too
+# since 2026-10-15: it runs only when asked for.
 # Not constrained on BUILD_FORMATS: the Mac is a dedicated host, so it runs
 # alongside the Linux fleet rather than being silently left out of full-fleet
 # pipelines. BUILD_FORMATS=none gives a macOS-only pipeline.
@@ -105,7 +106,7 @@ variables:
       allow_failure: false
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $SOURCE_REF =~ /^[0-9a-f]{40}$/'
       when: on_success
-      allow_failure: true
+      allow_failure: false
     - when: never
 
 # Dedicated Docker-socket runner security gate. A Windows test job is present
@@ -781,8 +782,9 @@ macos-package-test:
   resource_group: lightning-macos-package
   interruptible: true
   # Blocking in a release (2026-10-07): an unavailable or failing Mac holds the
-  # release back, because a release may not pass with a missing asset. A
-  # build-only pipeline keeps it allow_failure; both are set in the rules.
+  # release back, because a release may not pass with a missing asset. Blocking
+  # in a build-only pipeline too (2026-10-15): there it runs only on request,
+  # so a failure is the answer that was asked for, not a warning to skim past.
   # Headroom, not an estimate.
   timeout: 3h
   needs:
