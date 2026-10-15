@@ -277,6 +277,8 @@ private:
     // Per instance so a test can enable the trace; a function-static would
     // freeze the first value for the whole process.
     bool m_traceEnabled = false;
+    // Why the last publishTick returned early; trace only (string literals).
+    const char *m_lastSkipReason = nullptr;
     bool m_appActive = true;
     // When focus was lost (only meaningful while m_appActive is false).
     qint64 m_inactiveSinceMs = 0;

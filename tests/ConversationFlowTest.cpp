@@ -693,6 +693,41 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 3);
     }
 
+    // What the backend really produces: rooms.rs sends /createRoom once, with
+    // no retry and a 120 s timeout (create_request_config), so it cannot answer
+    // before this 60 s guard fires. The order is always: the guard fires and
+    // arms the per-person block, the dialog may be closed and reopened, and the
+    // answer arrives LATE (success: the room is made, filed as a DM by the
+    // backend's own mark_as_dm and listed by sync; or a failure). The block
+    // must hold until then, and the late answer must lift it without opening
+    // or failing anything.
+    void theGuardSurvivesAReopenAndALateSuccessLiftsIt()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setOpTimeoutMsForTest(20);
+        const QString user = QStringLiteral("@remote:other.example");
+
+        controller.startDirectMessage(user);
+        const quint64 firstOp = client.lastOpId;
+        QTRY_VERIFY(!controller.busy());
+        const QString shown = controller.errorMessage();
+        QVERIFY(shown.contains(QLatin1String("taking longer")));
+
+        // Closing and reopening the dialog does not forget the running create.
+        controller.reset();
+        controller.startDirectMessage(user);
+        QCOMPARE(client.createDmCalls, 1);
+
+        Q_EMIT client.dmCreateFinished(firstOp, true,
+                                       QStringLiteral("!late:other.example"),
+                                       QString());
+        QVERIFY(!controller.busy());
+        controller.startDirectMessage(user);
+        QCOMPARE(client.createDmCalls, 2);
+    }
+
     void twoTimedOutCreatesKeepBothGuards()
     {
         FakeClient client;

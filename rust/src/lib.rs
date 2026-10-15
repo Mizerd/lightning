@@ -86,6 +86,7 @@ mod denoise;
 mod discover;
 mod gifs;
 mod ignore;
+mod iotrace;
 mod pushrules;
 mod imagesend;
 mod linkmedia;
@@ -197,6 +198,8 @@ struct RustClient {
     // cannot host those: their tasks die with the runtime.
     runtime: Arc<tokio::runtime::Runtime>,
     timelines: Arc<timeline::TimelineRegistry>,
+    // In-flight / returned DM creates; see rooms::DmCreateRegistry.
+    dm_creates: Arc<rooms::DmCreateRegistry>,
     // Only when C++ has a media backend do inbound call handlers include the
     // remote SDP in their payloads. Off by default.
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
@@ -337,6 +340,7 @@ impl RustClient {
             sync_mode: Arc::new(Mutex::new(SyncMode::Stopped)),
             runtime: Arc::new(runtime),
             timelines: Arc::new(timeline::TimelineRegistry::new(events)),
+            dm_creates: Arc::new(rooms::DmCreateRegistry::default()),
             call_media_capable: Arc::new(
                 std::sync::atomic::AtomicBool::new(false)),
             room_list_service: Arc::new(Mutex::new(None)),
@@ -11152,6 +11156,13 @@ fn install_event_handlers(
     // MSC4278 media-preview config and Element's recent emoji changed in
     // account data. Only the type crosses; C++ re-reads it.
     accountprefs::install_change_handlers(client, Arc::clone(&events));
+
+    // A room an administrator deleted from another of the user's sessions
+    // (serveradmin.rs): the server purged it, so sync never says it is gone.
+    serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
+
+    // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
+    iotrace::start_if_enabled(Arc::clone(&events));
 
     // A power-level change invalidates cached permission flags now. Routed
     // through the existing members poke, since the member snapshot carries

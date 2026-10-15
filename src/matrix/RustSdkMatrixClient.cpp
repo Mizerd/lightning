@@ -10788,6 +10788,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
+    // Opt-in Rust-side trace lines (LIGHTNING_IO_TRACE): numbers and thread
+    // names only, logged here so --log-file captures them.
+    if (type == QLatin1String("rust_trace")) {
+        qInfo("%s", qPrintable(event.value(QStringLiteral("line")).toString()));
+        return true;
+    }
+
     if (type == QLatin1String("presence_publish_failed")) {
         Q_EMIT presencePublishFailed(
             event.value(QStringLiteral("category")).toString(),

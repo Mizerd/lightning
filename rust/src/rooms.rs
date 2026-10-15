@@ -31,9 +31,9 @@ use matrix_sdk::{
             space::child::SpaceChildEventContent,
             InitialStateEvent, StateEventType, SyncStateEvent, TimelineEventType,
         },
-        room::RoomType,
+        room::{JoinRule, RoomType},
         serde::Raw,
-        EventId, OwnedMxcUri, OwnedUserId, RoomId, UInt, UserId,
+        EventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, UInt, UserId,
     },
     RoomMemberships, RoomState,
 };
@@ -925,9 +925,129 @@ pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String,
         .map_err(|_| "serialization failed".to_owned())
 }
 
-/// Create an encrypted DM with `user_id` via `Client::create_dm`
-/// (TrustedPrivateChat preset, encryption state, `is_direct`, and the SDK's
-/// locked m.direct update).
+/// How long one create request may take. Longer than the UI's own 60 s guard
+/// (ConversationController) so that guard, not a transport error, is what the
+/// user meets first and its per-person block against a second create is armed
+/// while this request is still running. A hung federated invite is the
+/// reason this is long at all.
+const CREATE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The request config for `/createRoom`. matrix-sdk's DEFAULT is a 30 s
+/// timeout per attempt and an unlimited-attempt retry of 5xx/429 with backoff
+/// for up to 15 minutes. `/createRoom` is not idempotent: a retried 5xx makes
+/// one more room per attempt. So: exactly one attempt, no retry.
+pub(crate) fn create_request_config() -> matrix_sdk::config::RequestConfig {
+    matrix_sdk::config::RequestConfig::new()
+        .disable_retry()
+        .timeout(CREATE_REQUEST_TIMEOUT)
+}
+
+/// Send a `/createRoom` once (see `create_request_config`).
+async fn send_create_room(
+    client: &matrix_sdk::Client,
+    request: create_room::v3::Request,
+) -> Result<OwnedRoomId, matrix_sdk::HttpError> {
+    client
+        .send(request)
+        .with_request_config(create_request_config())
+        .await
+        .map(|r| r.room_id)
+}
+
+/// The request `Client::create_dm` builds (TrustedPrivateChat preset,
+/// `is_direct`, the invite, recommended encryption), sent by us so that the
+/// retry policy is ours.
+pub(crate) fn dm_create_request(uid: &UserId) -> create_room::v3::Request {
+    let initial_state = vec![InitialStateEvent::with_empty_state_key(
+        RoomEncryptionEventContent::with_recommended_defaults(),
+    )
+    .to_raw_any()];
+    assign!(create_room::v3::Request::new(), {
+        invite: vec![uid.to_owned()],
+        is_direct: true,
+        preset: Some(RoomPreset::TrustedPrivateChat),
+        initial_state,
+    })
+}
+
+/// Per-bridge record of DM creates: how many are in flight and which room ids
+/// successful ones returned. An orphan sweep consults it so a failed request
+/// can never remove the room of a retry that is running or has succeeded.
+#[derive(Default)]
+pub(crate) struct DmCreateRegistry {
+    state: std::sync::Mutex<DmCreateState>,
+}
+
+#[derive(Default)]
+struct DmCreateState {
+    in_flight: usize,
+    created: std::collections::HashSet<OwnedRoomId>,
+    /// End times (ms) of creates that ended WITHOUT a Matrix answer: the
+    /// server may still be federating their invite, so each counts as in
+    /// flight for `UNANSWERED_BUSY_MS`. Newest last, bounded.
+    unanswered_ends: Vec<u64>,
+}
+
+/// How long a create that ended without a Matrix answer keeps blocking sweeps.
+const UNANSWERED_BUSY_MS: u64 = 10 * 60 * 1000;
+
+/// Counts one in-flight create until dropped (including on task abort).
+pub(crate) struct DmCreateGuard(Arc<DmCreateRegistry>);
+
+impl Drop for DmCreateGuard {
+    fn drop(&mut self) {
+        if let Ok(mut st) = self.0.state.lock() {
+            st.in_flight = st.in_flight.saturating_sub(1);
+        }
+    }
+}
+
+impl DmCreateRegistry {
+    pub(crate) fn begin(self: &Arc<Self>) -> DmCreateGuard {
+        if let Ok(mut st) = self.state.lock() {
+            st.in_flight += 1;
+        }
+        DmCreateGuard(Arc::clone(self))
+    }
+    pub(crate) fn record_created(&self, room_id: &RoomId) {
+        if let Ok(mut st) = self.state.lock() {
+            st.created.insert(room_id.to_owned());
+        }
+    }
+    pub(crate) fn record_unanswered_end(&self, ended_ms: u64) {
+        if let Ok(mut st) = self.state.lock() {
+            st.unanswered_ends.push(ended_ms);
+            let len = st.unanswered_ends.len();
+            if len > 16 {
+                st.unanswered_ends.drain(..len - 16);
+            }
+        }
+    }
+    /// Whether anything that may still be running server-side exists: a create
+    /// in flight, or one that ended unanswered within the last ten minutes. A
+    /// poisoned lock reads as busy: never sweep on a guess.
+    pub(crate) fn busy(&self, now_ms: u64) -> bool {
+        self.state.lock().map_or(true, |st| {
+            st.in_flight > 0
+                || st
+                    .unanswered_ends
+                    .iter()
+                    .any(|&end| now_ms.saturating_sub(end) < UNANSWERED_BUSY_MS)
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn in_flight(&self) -> usize {
+        self.state.lock().map(|st| st.in_flight).unwrap_or(1)
+    }
+    pub(crate) fn returned_by_a_create(&self, room_id: &RoomId) -> bool {
+        self.state.lock().map(|st| st.created.contains(room_id)).unwrap_or(true)
+    }
+}
+
+/// Create an encrypted DM with `user_id`. Same request as
+/// `Client::create_dm`, sent once without retry; the `m.direct` follow-up the
+/// SDK would do (`Account::mark_as_dm`) is done here, and the room is picked
+/// up from sync.
 pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let uid: OwnedUserId =
@@ -937,35 +1057,271 @@ pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Res
     }
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
+    let registry = Arc::clone(&bridge.dm_creates);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let result = client.create_dm(&uid).await;
+        // Rooms known before the request, and when it started.
+        let before: std::collections::HashSet<OwnedRoomId> =
+            client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
+        let started_ms = now_ms();
+        let guard = registry.begin();
+        let result = send_create_room(&client, dm_create_request(&uid)).await;
+        let ended_ms = now_ms();
+        let answered = match &result {
+            Ok(room_id) => {
+                registry.record_created(room_id);
+                true
+            }
+            Err(err) => {
+                let answer = err.as_client_api_error();
+                matrix_answered(
+                    answer.map(|e| e.status_code.as_u16()),
+                    answer.is_some_and(|e| {
+                        matches!(e.body, matrix_sdk::ruma::api::error::ErrorBody::Standard(_))
+                    }),
+                )
+            }
+        };
+        // No Matrix answer (transport error, proxy status): the server may be
+        // federating this invite still, so it keeps blocking OTHER requests'
+        // sweeps. Recorded BEFORE the guard drops so there is no gap.
+        if !answered {
+            registry.record_unanswered_end(ended_ms);
+        }
+        // This request is over: it must not count against its own sweep.
+        drop(guard);
+        // Filing the room as a DM only writes the user's own account data, so
+        // it is done even if the session ended meanwhile (bounded), and before
+        // the lifecycle check: skipping it would leave a working room unfiled.
+        if let Ok(room_id) = &result {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(15),
+                client.account().mark_as_dm(room_id, std::slice::from_ref(&uid)),
+            )
+            .await;
+        }
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         match result {
-            Ok(room) => {
+            Ok(room_id) => {
                 enqueue(&events, json!({
                     "type": "dm_create_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": true,
-                    "room_id": room.room_id().to_string(),
+                    "room_id": room_id.to_string(),
                 }));
-                crate::enqueue_rooms(&events, &client).await;
+                // The room arrives by sync; list it as soon as it has.
+                let echo = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    client.await_room_remote_echo(&room_id),
+                )
+                .await;
+                if echo.is_ok() && timelines.lifecycle_current(lifecycle) {
+                    crate::enqueue_rooms(&events, &client).await;
+                }
             }
             Err(err) => {
+                let category = classify_room_error(&err.to_string());
                 enqueue(&events, json!({
                     "type": "dm_create_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": false,
-                    "category": classify_room_error(&err.to_string()),
+                    "category": category,
                 }));
+                if answered && !refused_before_creation(category) {
+                    sweep_failed_dm_orphans(
+                        &client, &before, started_ms, ended_ms, &registry, &timelines, lifecycle,
+                    )
+                    .await;
+                }
             }
         }
     });
     Ok(())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Categories that mean the server refused the request outright, so no room
+/// exists to clean up.
+pub(crate) fn refused_before_creation(category: &str) -> bool {
+    matches!(category, "forbidden" | "rate_limited" | "invalid" | "unrecognized" | "not_found")
+}
+
+/// Whether a failed create may be followed by an orphan sweep: the HOMESERVER
+/// answered with its own Matrix error body (`errcode`/`error`), it was not a
+/// plain refusal, and the status is not one a proxy or timeout produces
+/// (408, 499, 502, 503, 504). A 5xx without a Matrix body comes from something
+/// in front of Synapse, which may still be finishing the request. Timeouts
+/// and transport errors carry no status and never qualify.
+///
+/// UNVERIFIED: what status and body Synapse returns for a failed REMOTE invite
+/// inside /createRoom (the room exists afterwards). That needs a live capture;
+/// until then a sweep after such a failure happens only if it answers with a
+/// standard Matrix body.
+pub(crate) fn sweep_allowed(status: Option<u16>, standard_body: bool, category: &str) -> bool {
+    matrix_answered(status, standard_body) && !refused_before_creation(category)
+}
+
+/// Whether the homeserver itself ANSWERED (a status with its own Matrix error
+/// body, not one a proxy or timeout produces). Anything else leaves the
+/// request's fate on the server unknown.
+pub(crate) fn matrix_answered(status: Option<u16>, standard_body: bool) -> bool {
+    status.is_some_and(|s| standard_body && !matches!(s, 408 | 499 | 502 | 503 | 504))
+}
+
+/// How far the server's clock may differ from ours when comparing a room's
+/// creation time with the request's window.
+const CREATE_CLOCK_SKEW_MS: u64 = 30_000;
+
+/// Whether a room's `m.room.create` `origin_server_ts` falls inside THIS
+/// request's window: not before it started and not after it ended (each with
+/// skew). A room created later belongs to a later request. A room with no
+/// readable timestamp is NOT inside.
+pub(crate) fn created_in_window(create_ts_ms: Option<u64>, started_ms: u64, ended_ms: u64) -> bool {
+    create_ts_ms.is_some_and(|ts| {
+        ts >= started_ms.saturating_sub(CREATE_CLOCK_SKEW_MS)
+            && ts <= ended_ms.saturating_add(CREATE_CLOCK_SKEW_MS)
+    })
+}
+
+/// What the store can say about a room, for deciding whether it is the empty
+/// room a failed `create_dm` left behind.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DmOrphanProbe {
+    pub joined: bool,
+    pub joined_members: u64,
+    pub invited_members: u64,
+    pub has_name: bool,
+    pub is_space: bool,
+    pub known_before_request: bool,
+    pub created_by_us: bool,
+    pub marked_direct: bool,
+    /// `create_dm`'s initial state: encrypted, join rule `invite`.
+    pub encrypted: bool,
+    pub join_rule_invite: bool,
+    pub created_in_window: bool,
+    /// A successful create returned this room id.
+    pub returned_by_a_create: bool,
+}
+
+/// True only for a room this failed request demonstrably created: new since
+/// the request, created inside its window, ours, joined, ALONE in it with NO
+/// invite delivered (an `invited == 1` membership means the invite landed, i.e.
+/// the create succeeded and only its response was lost, so it is a working
+/// DM), unnamed, encrypted with join rule `invite` exactly as `create_dm`
+/// makes it, not already filed as a DM, not a Space and not the product of a
+/// create that succeeded. Every clause guards a room the user meant to keep;
+/// whatever the store cannot answer counts as NOT a match.
+pub(crate) fn is_failed_dm_orphan(p: &DmOrphanProbe) -> bool {
+    p.joined
+        && !p.known_before_request
+        && !p.returned_by_a_create
+        && p.created_in_window
+        && p.created_by_us
+        && p.joined_members == 1
+        && p.invited_members == 0
+        && !p.has_name
+        && !p.is_space
+        && !p.marked_direct
+        && p.encrypted
+        && p.join_rule_invite
+}
+
+/// `origin_server_ts` of the room's `m.room.create`, if the store has it.
+async fn create_ts_ms(room: &matrix_sdk::Room) -> Option<u64> {
+    use matrix_sdk::ruma::events::room::create::RoomCreateEventContent;
+    match room.get_state_event_static::<RoomCreateEventContent>().await.ok()??.deserialize().ok()? {
+        SyncOrStrippedState::Sync(SyncStateEvent::Original(ev)) => {
+            Some(u64::from(ev.origin_server_ts.get()))
+        }
+        _ => None,
+    }
+}
+
+/// Sleep `secs`, waking each second to stop at once when the session ends, so
+/// sign-out never waits on this task (it runs on the tracked pool).
+async fn sleep_while_current(
+    secs: u64,
+    timelines: &Arc<crate::timeline::TimelineRegistry>,
+    lifecycle: u64,
+) -> bool {
+    for _ in 0..secs {
+        if !timelines.lifecycle_current(lifecycle) {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    timelines.lifecycle_current(lifecycle)
+}
+
+/// After a server-answered DM create failure, look for the room it left and
+/// leave + forget it. The room arrives by sync, possibly after the error, so
+/// look a few times. Never touches a room that does not satisfy
+/// `is_failed_dm_orphan`, and does nothing at all while any other DM create is
+/// in flight.
+async fn sweep_failed_dm_orphans(
+    client: &matrix_sdk::Client,
+    before: &std::collections::HashSet<OwnedRoomId>,
+    started_ms: u64,
+    ended_ms: u64,
+    registry: &Arc<DmCreateRegistry>,
+    timelines: &Arc<crate::timeline::TimelineRegistry>,
+    lifecycle: u64,
+) {
+    let me = client.user_id().map(ToOwned::to_owned);
+    for delay in [3u64, 7, 15, 35] {
+        if !sleep_while_current(delay, timelines, lifecycle).await {
+            return;
+        }
+        // A retry is running (or just ran): its room is not this request's.
+        if registry.busy(now_ms()) {
+            continue;
+        }
+        for room in client.joined_rooms() {
+            if before.contains(room.room_id()) {
+                continue;
+            }
+            let creators = room.creators().unwrap_or_default();
+            let probe = DmOrphanProbe {
+                joined: room.state() == RoomState::Joined,
+                joined_members: room.joined_members_count(),
+                invited_members: room.invited_members_count(),
+                has_name: room.name().is_some_and(|n| !n.trim().is_empty()),
+                is_space: room.is_space(),
+                known_before_request: false,
+                created_by_us: me.as_ref().is_some_and(|m| creators.contains(m)),
+                marked_direct: room.is_direct().await.unwrap_or(true),
+                encrypted: room.encryption_state().is_encrypted(),
+                join_rule_invite: matches!(room.join_rule(), Some(JoinRule::Invite)),
+                created_in_window: created_in_window(
+                    create_ts_ms(&room).await,
+                    started_ms,
+                    ended_ms,
+                ),
+                returned_by_a_create: registry.returned_by_a_create(room.room_id()),
+            };
+            if !is_failed_dm_orphan(&probe) {
+                continue;
+            }
+            // Re-check immediately before the destructive step.
+            if !timelines.lifecycle_current(lifecycle) || registry.busy(now_ms()) {
+                return;
+            }
+            if room.leave().await.is_ok() {
+                let _ = room.forget().await;
+            }
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,17 +1440,22 @@ pub(crate) fn create_room(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let result = client.create_room(request).await;
+        // Sent once, without retry, with a timeout longer than the UI's 60 s
+        // guard (see `create_request_config`): a retried 5xx would make a
+        // second named room.
+        let result = send_create_room(&client, request)
+            .await
+            .map_err(|e| classify_room_error(&e.to_string()));
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         match result {
-            Ok(room) => {
+            Ok(room_id) => {
                 // Optional Space placement. A failure there is reported as a warning, not
                 // a failed room creation.
                 let mut warning = String::new();
                 if !opts.space_id.is_empty() {
-                    let placed = add_space_child(&client, &opts.space_id, room.room_id().as_str())
+                    let placed = add_space_child(&client, &opts.space_id, room_id.as_str())
                         .await
                         .is_ok();
                     if !placed {
@@ -1106,18 +1467,26 @@ pub(crate) fn create_room(
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": true,
-                    "room_id": room.room_id().to_string(),
+                    "room_id": room_id.to_string(),
                     "warning": warning,
                 }));
-                crate::enqueue_rooms(&events, &client).await;
+                // The room arrives by sync; list it as soon as it has.
+                let echo = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    client.await_room_remote_echo(&room_id),
+                )
+                .await;
+                if echo.is_ok() && timelines.lifecycle_current(lifecycle) {
+                    crate::enqueue_rooms(&events, &client).await;
+                }
             }
-            Err(err) => {
+            Err(category) => {
                 enqueue(&events, json!({
                     "type": "room_create_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": false,
-                    "category": classify_room_error(&err.to_string()),
+                    "category": category,
                 }));
             }
         }
@@ -5806,6 +6175,160 @@ mod tests {
         // SVG is active content and never previewable; image_fields() is the final
         // gate.
         assert!(image_fields("image/svg+xml".to_owned(), b"<svg></svg>".to_vec()).is_err());
+    }
+
+    fn orphan_probe() -> DmOrphanProbe {
+        DmOrphanProbe {
+            joined: true,
+            joined_members: 1,
+            invited_members: 0,
+            has_name: false,
+            is_space: false,
+            known_before_request: false,
+            created_by_us: true,
+            marked_direct: false,
+            encrypted: true,
+            join_rule_invite: true,
+            created_in_window: true,
+            returned_by_a_create: false,
+        }
+    }
+
+    #[test]
+    fn a_failed_dm_leaves_an_orphan_that_is_recognised() {
+        assert!(is_failed_dm_orphan(&orphan_probe()));
+    }
+
+    // invited == 1 means the invite was DELIVERED: the create succeeded and
+    // only its response was lost, so this is a working DM and must never be
+    // removed.
+    #[test]
+    fn a_delivered_invite_is_a_working_dm_not_an_orphan() {
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { invited_members: 1, ..orphan_probe() }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { joined_members: 2, ..orphan_probe() }));
+    }
+
+    #[test]
+    fn nothing_the_user_meant_to_keep_is_an_orphan() {
+        let p = orphan_probe();
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { known_before_request: true, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { created_by_us: false, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { joined: false, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { has_name: true, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { is_space: true, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { marked_direct: true, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { invited_members: 2, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { encrypted: false, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { join_rule_invite: false, ..p }));
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { created_in_window: false, ..p }));
+        // The room a successful retry returned.
+        assert!(!is_failed_dm_orphan(&DmOrphanProbe { returned_by_a_create: true, ..p }));
+    }
+
+    #[test]
+    fn creation_time_is_inside_this_requests_window() {
+        let (start, end) = (1_000_000, 1_050_000);
+        assert!(created_in_window(Some(start), start, end));
+        assert!(created_in_window(Some(end), start, end));
+        assert!(created_in_window(Some(start - CREATE_CLOCK_SKEW_MS), start, end));
+        assert!(created_in_window(Some(end + CREATE_CLOCK_SKEW_MS), start, end));
+        assert!(!created_in_window(Some(start - CREATE_CLOCK_SKEW_MS - 1), start, end));
+        // A later retry's room is past this request's end.
+        assert!(!created_in_window(Some(end + CREATE_CLOCK_SKEW_MS + 1), start, end));
+        assert!(!created_in_window(None, start, end));
+        assert!(created_in_window(Some(0), 5, 10));
+    }
+
+    // Only the homeserver's own Matrix error can justify a sweep.
+    #[test]
+    fn only_a_matrix_error_body_may_sweep() {
+        assert!(!sweep_allowed(None, false, "network"));
+        assert!(!sweep_allowed(None, true, "network"));
+        assert!(sweep_allowed(Some(500), true, "network"));
+        assert!(sweep_allowed(Some(400), true, "network"));
+        // A 5xx with no Matrix body is a proxy, not Synapse.
+        assert!(!sweep_allowed(Some(500), false, "network"));
+        for transient in [408, 499, 502, 503, 504] {
+            assert!(!sweep_allowed(Some(transient), true, "network"), "{transient}");
+        }
+        for c in ["forbidden", "rate_limited", "invalid", "unrecognized", "not_found"] {
+            assert!(refused_before_creation(c), "{c}");
+            assert!(!sweep_allowed(Some(403), true, c), "{c}");
+        }
+    }
+
+    // A failed request must not sweep while a retry runs, nor remove the room
+    // a successful create returned.
+    #[test]
+    fn the_registry_tracks_in_flight_creates_and_returned_rooms() {
+        let reg = Arc::new(DmCreateRegistry::default());
+        assert_eq!(reg.in_flight(), 0);
+        let first = reg.begin();
+        let second = reg.begin();
+        assert_eq!(reg.in_flight(), 2);
+        drop(first);
+        assert_eq!(reg.in_flight(), 1);
+        let room = RoomId::parse("!made:example.org").unwrap();
+        assert!(!reg.returned_by_a_create(&room));
+        reg.record_created(&room);
+        assert!(reg.returned_by_a_create(&room));
+        drop(second);
+        assert_eq!(reg.in_flight(), 0);
+    }
+
+    // A retry that ended with no Matrix answer may still be federating its
+    // invite: it blocks every sweep for ten minutes, so it cannot lose its
+    // room to the first request's sweep.
+    #[test]
+    fn an_unanswered_create_keeps_blocking_sweeps_for_ten_minutes() {
+        let reg = Arc::new(DmCreateRegistry::default());
+        let t0 = 5_000_000;
+        assert!(!reg.busy(t0));
+        reg.record_unanswered_end(t0);
+        assert!(reg.busy(t0 + 1));
+        assert!(reg.busy(t0 + UNANSWERED_BUSY_MS - 1));
+        assert!(!reg.busy(t0 + UNANSWERED_BUSY_MS));
+        // In flight still blocks on its own.
+        let g = reg.begin();
+        assert!(reg.busy(t0 + UNANSWERED_BUSY_MS * 2));
+        drop(g);
+        assert!(!reg.busy(t0 + UNANSWERED_BUSY_MS * 2));
+        // The record is bounded.
+        for i in 0..100 {
+            reg.record_unanswered_end(i);
+        }
+        assert!(reg.state.lock().unwrap().unanswered_ends.len() <= 16);
+    }
+
+    #[test]
+    fn a_matrix_answer_needs_a_standard_body_and_a_non_proxy_status() {
+        assert!(matrix_answered(Some(500), true));
+        assert!(matrix_answered(Some(403), true));
+        assert!(!matrix_answered(None, false));
+        assert!(!matrix_answered(Some(500), false));
+        assert!(!matrix_answered(Some(502), true));
+    }
+
+    // /createRoom is not idempotent: the SDK default would retry a 5xx for up
+    // to 15 minutes and give up a hung request at 30 s, before the UI guard.
+    #[test]
+    fn creates_are_sent_once_with_a_timeout_past_the_ui_guard() {
+        let default = format!("{:?}", matrix_sdk::config::RequestConfig::default());
+        assert!(!default.contains("retry_limit"), "{default}");
+        let ours = format!("{:?}", create_request_config());
+        assert!(ours.contains("retry_limit: 0"), "{ours}");
+        assert!(CREATE_REQUEST_TIMEOUT > std::time::Duration::from_secs(60));
+    }
+
+    // The request is the one Client::create_dm builds.
+    #[test]
+    fn the_dm_request_is_what_create_dm_builds() {
+        let uid = UserId::parse("@peer:example.org").unwrap();
+        let req = dm_create_request(&uid);
+        assert!(req.is_direct);
+        assert_eq!(req.invite, vec![uid]);
+        assert!(matches!(req.preset, Some(RoomPreset::TrustedPrivateChat)));
+        assert_eq!(req.initial_state.len(), 1);
     }
 
     #[test]

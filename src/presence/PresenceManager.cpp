@@ -569,8 +569,27 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
 void PresenceManager::publishTick(bool force, bool afterRejection)
 {
     if (!m_client || !m_client->supportsPresence() || !m_syncing
-        || !publishEnabled())
+        || !publishEnabled()) {
+        // The four silent early returns: "no failures in the log" used to be
+        // indistinguishable from "stopped publishing". Logged on a CHANGE of
+        // reason only, so a long stall is one line, not one per tick.
+        if (m_traceEnabled) {
+            const char *reason = !m_client ? "no-client"
+                : !m_client->supportsPresence() ? "unsupported"
+                : !m_syncing ? "not-syncing"
+                : "sharing-off";
+            if (m_lastSkipReason != reason) {
+                m_lastSkipReason = reason;
+                qInfo("presence-publish-skipped reason=%s force=%d attempts=%lld "
+                      "upMs=%lld",
+                      reason, force ? 1 : 0,
+                      static_cast<long long>(m_publishAttempts),
+                      static_cast<long long>(m_clock.elapsed()));
+            }
+        }
         return;
+    }
+    m_lastSkipReason = nullptr;
     const int desired = desiredOwnState();
     if (!force && desired == m_lastPublished)
         return;

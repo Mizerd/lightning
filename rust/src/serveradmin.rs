@@ -18,8 +18,14 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::ruma::RoomId;
-use matrix_sdk::RoomState;
+use matrix_sdk::ruma::{
+    api::client::config::{get_global_account_data, set_global_account_data},
+    events::{macros::EventContent, GlobalAccountDataEvent, GlobalAccountDataEventType},
+    serde::Raw,
+    RoomId,
+};
+use matrix_sdk::{event_handler::EventHandlerHandle, Client, RoomState};
+use serde::{Deserialize, Serialize};
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use serde_json::json;
 
@@ -58,6 +64,153 @@ pub(crate) async fn mark_deleted_room_left(
         (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
     })
     .await
+}
+
+/// Account data that tells the user's OTHER sessions a room was deleted.
+///
+/// The deleting session marks the room left in its own store, but the server
+/// purged the room, so no leave ever reaches a different device of the same
+/// user, a session that was offline during the delete, or one that outlived
+/// the follow window. Without this they keep a Joined room that no sync will
+/// mention again. The content is room ids the user themself deleted: no
+/// secrets, no keys, no message data. Capped, oldest dropped first.
+pub(crate) const DELETED_ROOMS_TYPE: &str = "org.lightning_matrix.deleted_rooms";
+const DELETED_ROOMS_CAP: usize = 100;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "org.lightning_matrix.deleted_rooms", kind = GlobalAccountData)]
+pub(crate) struct DeletedRoomsEventContent {
+    #[serde(default)]
+    pub rooms: Vec<String>,
+}
+
+/// `existing` plus `room_id`, deduplicated, newest last, at most the cap.
+/// Pure and unit-tested.
+pub(crate) fn merge_deleted_rooms(existing: &[String], room_id: &str) -> Vec<String> {
+    let mut out: Vec<String> = existing.iter().filter(|r| r.as_str() != room_id).cloned().collect();
+    out.push(room_id.to_owned());
+    if out.len() > DELETED_ROOMS_CAP {
+        out.drain(..out.len() - DELETED_ROOMS_CAP);
+    }
+    out
+}
+
+/// Record a completed delete in account data so other sessions follow it. A
+/// failure is silent on purpose: it only loses the cross-session courtesy.
+async fn record_deleted_room(client: &Client, room_id: &str) {
+    let Some(own) = client.user_id().map(ToOwned::to_owned) else { return };
+    // The SERVER's copy, not the local one: another session may have written
+    // since this one last synced, and a read-modify-write on a stale copy would
+    // drop its entries. 404 is an empty list; any other failure aborts the
+    // write rather than clobber what could not be read.
+    let get = get_global_account_data::v3::Request::new(
+        own.clone(),
+        GlobalAccountDataEventType::from(DELETED_ROOMS_TYPE),
+    );
+    let existing: Vec<String> = match client.send(get).with_request_config(account_data_config()).await {
+        Ok(r) => serde_json::from_str::<DeletedRoomsEventContent>(r.account_data.json().get())
+            .map(|c| c.rooms)
+            .unwrap_or_default(),
+        Err(err) if err.as_client_api_error().is_some_and(|e| e.status_code.as_u16() == 404) => {
+            Vec::new()
+        }
+        Err(_) => return,
+    };
+    let content = DeletedRoomsEventContent { rooms: merge_deleted_rooms(&existing, room_id) };
+    let Ok(raw) = Raw::new(&content) else { return };
+    let request = set_global_account_data::v3::Request::new_raw(
+        own,
+        GlobalAccountDataEventType::from(DELETED_ROOMS_TYPE),
+        raw.cast_unchecked(),
+    );
+    let _ = client.send(request).with_request_config(account_data_config()).await;
+}
+
+fn account_data_config() -> matrix_sdk::config::RequestConfig {
+    matrix_sdk::config::RequestConfig::new().disable_retry().timeout(ADMIN_REQUEST_TIMEOUT)
+}
+
+/// The listed rooms this session still holds as JOINED. Invited rooms are
+/// left alone: a purged room leaves no live invite, and an invite is not ours
+/// to hide on the strength of a list.
+fn held_listed(
+    get_room: &impl Fn(&RoomId) -> Option<matrix_sdk::BaseRoom>,
+    listed: &[String],
+) -> Vec<matrix_sdk::BaseRoom> {
+    listed
+        .iter()
+        .filter_map(|id| RoomId::parse(id).ok())
+        .filter_map(|rid| get_room(&rid))
+        .filter(|room| room.state() == RoomState::Joined)
+        .collect()
+}
+
+/// Mark every held listed room left UNLESS the server still lists it in
+/// `GET /joined_rooms`. The list is never cleared (it is capped, not pruned),
+/// and a room deleted without `block` can be joined again under the same id:
+/// without this check that room would be hidden again on every delivery, on
+/// every session.
+async fn apply_deleted_rooms(
+    held: &[matrix_sdk::BaseRoom],
+    server_joined: &std::collections::HashSet<String>,
+) -> bool {
+    let mut changed = false;
+    for room in held {
+        if server_joined.contains(room.room_id().as_str()) {
+            continue;
+        }
+        if mark_deleted_room_left(room).await.is_ok() {
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// The rooms the server says we are joined to, or `None` if it could not be
+/// asked (then nothing is hidden: a guess must not hide a live room).
+async fn server_joined_rooms(client: &Client) -> Option<std::collections::HashSet<String>> {
+    let response = client
+        .send(matrix_sdk::ruma::api::client::membership::joined_rooms::v3::Request::new())
+        .with_request_config(account_data_config())
+        .await
+        .ok()?;
+    Some(response.joined_rooms.iter().map(ToString::to_string).collect())
+}
+
+/// Another session deleted a room (or our own write came back): drop it here
+/// too. Marking is idempotent, so the echo of our own write is a no-op.
+pub(crate) fn install_deleted_room_handler(
+    client: &Client,
+    events: crate::EventQueueRef,
+) -> EventHandlerHandle {
+    client.add_event_handler(
+        move |ev: GlobalAccountDataEvent<DeletedRoomsEventContent>, client: Client| {
+            let events = Arc::clone(&events);
+            let listed = ev.content.rooms.clone();
+            async move {
+                let held = held_listed(&|id| client.get_room(id).map(|r| (*r).clone()), &listed);
+                // One request per delivery, and only when a listed room is
+                // actually held.
+                if held.is_empty() {
+                    return;
+                }
+                // SDK event handlers run inside sync processing: a network
+                // round trip here would stall the sync loop, so hand it off.
+                // The request is bounded (ADMIN_REQUEST_TIMEOUT). `is_active()`
+                // is a best-effort check, not a lifecycle token: the work only
+                // marks rooms left in the store this client holds.
+                tokio::spawn(async move {
+                    let Some(server_joined) = server_joined_rooms(&client).await else { return };
+                    if !client.is_active() {
+                        return;
+                    }
+                    if apply_deleted_rooms(&held, &server_joined).await {
+                        crate::enqueue_rooms(&events, &client).await;
+                    }
+                });
+            }
+        },
+    )
 }
 
 /// `base` plus `segments`, each percent-encoded as one path segment, so an id
@@ -335,6 +488,9 @@ pub(crate) fn admin_delete_room(
                                 // sync catches up: the old behaviour.
                                 let _ = mark_deleted_room_left(&room).await;
                             }
+                            // Tell the user's other sessions (see
+                            // `DELETED_ROOMS_TYPE`).
+                            record_deleted_room(&client, &room_id).await;
                         }
                         let category = if status == "failed" { "server" } else { "" };
                         enqueue(
@@ -365,6 +521,18 @@ pub(crate) fn admin_delete_room(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn deleted_rooms_merge_dedups_caps_and_keeps_newest_last() {
+        let a = vec!["!a:x".to_owned(), "!b:x".to_owned()];
+        assert_eq!(merge_deleted_rooms(&a, "!c:x"), ["!a:x", "!b:x", "!c:x"]);
+        assert_eq!(merge_deleted_rooms(&a, "!a:x"), ["!b:x", "!a:x"]);
+        let many: Vec<String> = (0..DELETED_ROOMS_CAP).map(|i| format!("!r{i}:x")).collect();
+        let out = merge_deleted_rooms(&many, "!new:x");
+        assert_eq!(out.len(), DELETED_ROOMS_CAP);
+        assert_eq!(out.first().map(String::as_str), Some("!r1:x"));
+        assert_eq!(out.last().map(String::as_str), Some("!new:x"));
+    }
+
     use super::*;
 
     // Every id is one percent-encoded path segment: nothing can climb out of
@@ -497,6 +665,34 @@ mod tests {
         // Idempotent.
         mark_deleted_room_left(&room).await.expect("again");
         assert_eq!(room.state(), RoomState::Left);
+
+        // Another session's delete arrives as account data: only the listed,
+        // held, Joined rooms go; an unknown or malformed id is skipped.
+        let other = RoomId::parse("!other:example.org").unwrap();
+        let other_room = client.get_or_create_room(&other, RoomState::Joined);
+        let back = RoomId::parse("!back:example.org").unwrap();
+        let back_room = client.get_or_create_room(&back, RoomState::Joined);
+        let listed = vec![
+            "!other:example.org".to_owned(),
+            "!back:example.org".to_owned(),
+            "!nope:example.org".to_owned(),
+            "junk".to_owned(),
+        ];
+        let held = held_listed(&|id| client.get_room(id), &listed);
+        assert_eq!(held.len(), 2);
+        // `!back` was deleted without block and joined again: the server still
+        // lists it, so it must NOT be hidden. `!other` is gone from the server.
+        let server_joined: std::collections::HashSet<String> =
+            ["!back:example.org", "!kept:example.org"].iter().map(|s| (*s).to_owned()).collect();
+        assert!(apply_deleted_rooms(&held, &server_joined).await);
+        assert_eq!(other_room.state(), RoomState::Left);
+        assert_eq!(back_room.state(), RoomState::Joined);
+        assert_eq!(client.get_room(&kept).unwrap().state(), RoomState::Joined);
+        // A second delivery changes nothing, and nothing is held that is
+        // already Left.
+        let held = held_listed(&|id| client.get_room(id), &listed);
+        assert_eq!(held.len(), 1);
+        assert!(!apply_deleted_rooms(&held, &server_joined).await);
     }
 
     #[test]
