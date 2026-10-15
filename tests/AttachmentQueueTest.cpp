@@ -12,6 +12,7 @@
 
 #include <QBuffer>
 #include <QImage>
+#include <QMimeData>
 #include <QScopeGuard>
 #include <QSemaphore>
 #include <QSignalSpy>
@@ -20,6 +21,7 @@
 #include <QtTest/QtTest>
 
 #include <memory>
+#include <tuple>
 
 namespace {
 
@@ -42,7 +44,8 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    QString currentUserId() const override { return QStringLiteral("@me:example.org"); }
+    QString userId = QStringLiteral("@me:example.org");
+    QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
     void stopSync() override {}
@@ -203,6 +206,32 @@ QByteArray tinyPng()
         "0000000d4944415478da63fcff9fa10e0003030101c9fe92ef0000000049454e44"
         "ae426082");
     return png;
+}
+
+// The first bytes of a Matroska file: the EBML header with DocType
+// "matroska". The shared MIME database proves only the CONTAINER from these
+// (application/x-matroska); whether it holds a picture is in the tracks.
+QByteArray tinyMatroskaHeader()
+{
+    return QByteArray::fromHex(
+               "1a45dfa39f428681014282886d6174726f736b61")
+        + QByteArray(64, '\0');
+}
+
+// An ASF header object GUID (WMV, WMA): proven as application/vnd.ms-asf.
+QByteArray tinyAsfHeader()
+{
+    return QByteArray::fromHex("3026b2758e66cf11a6d900aa0062ce6c")
+        + QByteArray(64, '\0');
+}
+
+// An ISO base-media header whose brand (avc1) the shared MIME database does
+// not know, so the content proves nothing and the extension decides.
+QByteArray unknownBrandMp4Header()
+{
+    return QByteArray::fromHex(
+               "000000186674797061766331000000006176633169736f6d")
+        + QByteArray(64, '\0');
 }
 
 // Minimal ISO base-media (MP4) header: an `ftyp` box with the `isom` brand.
@@ -1395,6 +1424,336 @@ private Q_SLOTS:
             QCOMPARE(lightning::imagefmt::sniffRasterMime(result.png),
                      QStringLiteral("image/png"));
         }
+    }
+
+    // --- #41: a picked video or audio file is classified by what it is ---
+
+    // The shared MIME database names Matroska and ASF generically by content
+    // (application/x-matroska, application/vnd.ms-asf), so before the fix an
+    // .mkv (OBS's default recording), .mka, .wmv or .wma was queued as a plain
+    // file and went out as m.file. The extension may NARROW a proven container
+    // to the audio or video type that inherits from it, and nothing else.
+    void detectMimeNarrowsAGenericContainerByItsExtension()
+    {
+        QTemporaryDir dir;
+        struct Case {
+            const char *name;
+            QByteArray bytes;
+            const char *expected;
+        };
+        const Case cases[] = {
+            {"recording.mkv", tinyMatroskaHeader(), "video/x-matroska"},
+            {"RECORDING.MKV", tinyMatroskaHeader(), "video/x-matroska"},
+            {"album.mka", tinyMatroskaHeader(), "audio/x-matroska"},
+            {"clip.wmv", tinyAsfHeader(), "video/x-ms-wmv"},
+            {"song.wma", tinyAsfHeader(), "audio/x-ms-wma"},
+            // Content still wins over a name that disagrees with it.
+            {"picture.mkv", tinyPng(), "image/png"},
+            {"clip.mp4", tinyMp4Header(), "video/mp4"},
+            // Proved nothing: the extension decides, as before.
+            {"camera.mp4", unknownBrandMp4Header(), "video/mp4"},
+            // A container with no name to narrow it stays a file.
+            {"no-extension", tinyMatroskaHeader(), "application/x-matroska"},
+        };
+        for (const Case &c : cases) {
+            const QString path =
+                writeFile(dir, QString::fromLatin1(c.name), c.bytes);
+            QVERIFY(!path.isEmpty());
+            QCOMPARE(AttachmentQueueModel::detectMime(path),
+                     QString::fromLatin1(c.expected));
+        }
+        // Only a proven MEDIA container is narrowed. A playlist name is an
+        // audio/* type inheriting text/plain, and .yt a video/* type inheriting
+        // application/zip: neither is sound or picture.
+        const QString playlist = writeFile(
+            dir, QStringLiteral("list.vlc"),
+            QByteArrayLiteral("song one.mp3\nsong two.mp3\n"));
+        QVERIFY(!AttachmentQueueModel::detectMime(playlist)
+                     .startsWith(QLatin1String("audio/")));
+        const QString archive = writeFile(
+            dir, QStringLiteral("bundle.yt"),
+            QByteArrayLiteral("PK\x03\x04") + QByteArray(64, '\0'));
+        QCOMPARE(AttachmentQueueModel::detectMime(archive),
+                 QStringLiteral("application/zip"));
+    }
+
+    // End to end through the composer: an .mkv takes the VIDEO send path, with
+    // its poster, geometry and duration; before the fix it took the plain
+    // attachment path as application/x-matroska.
+    void aPickedMatroskaVideoIsSentAsAVideo()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("obs-recording.mkv"),
+                                       tinyMatroskaHeader());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QVERIFY2(!capturedTag.isEmpty(),
+                 "a Matroska video was never postered: it was not classified "
+                 "as a video");
+        composer.send();
+        const QByteArray poster = tinyJpeg();
+        composer.attachments()->applyPoster(capturedTag, poster, QSize(320, 180),
+                                            QSize(1920, 1080), 9000);
+        QCOMPARE(client.videoSends, 1);
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(client.lastMime, QStringLiteral("video/x-matroska"));
+        QCOMPARE(client.lastThumbnail, poster);
+        QCOMPARE(client.lastDurationMs, 9000);
+    }
+
+    // The audio twin: an .mka or .wma is sent with an audio/* type (the Rust
+    // side turns that into m.audio) and its decoded duration.
+    void aPickedMatroskaOrWmaAudioIsSentAsAudio()
+    {
+        for (const auto &[name, bytes, mime] :
+             {std::tuple{"album.mka", tinyMatroskaHeader(), "audio/x-matroska"},
+              std::tuple{"song.wma", tinyAsfHeader(), "audio/x-ms-wma"}}) {
+            FakeClient client;
+            MessageComposer composer;
+            composer.setClient(&client);
+            composer.setRoomId(QStringLiteral("!room:example.org"));
+            QString capturedTag;
+            composer.attachments()->setPosterRequestHook(
+                [&capturedTag](const QString &tag, const QString &) {
+                    capturedTag = tag;
+                });
+            QTemporaryDir dir;
+            const QString path =
+                writeFile(dir, QString::fromLatin1(name), bytes);
+            composer.addAttachment(QUrl::fromLocalFile(path));
+            QVERIFY2(!capturedTag.isEmpty(),
+                     "audio was never decoded for its duration: it was not "
+                     "classified as audio");
+            composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 61000);
+            composer.send();
+            QCOMPARE(client.fileSends, 1);
+            QCOMPARE(client.videoSends, 0);
+            QCOMPARE(client.lastMime, QString::fromLatin1(mime));
+            QCOMPARE(client.lastDurationMs, 61000);
+        }
+    }
+
+    // --- #42: a dropped file reaches the queue ------------------------------
+
+    // "file://localhost/x" is the local path /x, but QUrl makes it the
+    // UNC-style "//localhost/x", which never exists: such a drop failed with
+    // "That file cannot be read." before the fix.
+    void aLocalhostFileUrlIsTheLocalPath()
+    {
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("a b#1.bin"),
+                                       QByteArray(16, 'a'));
+        QUrl localhost = QUrl::fromLocalFile(path);
+        localhost.setHost(QStringLiteral("LocalHost"));
+        QVERIFY(!QFileInfo(localhost.toLocalFile()).isReadable());
+        QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(localhost)
+                     .toLocalFile(),
+                 path);
+        // A sloppy uri-list wrote the '#' unescaped: QUrl reads a fragment.
+        const QUrl sloppy = QUrl::fromEncoded(
+            QUrl::fromLocalFile(dir.path()).toEncoded()
+            + QByteArrayLiteral("/a%20b#1.bin"));
+        QCOMPARE(sloppy.fragment(), QStringLiteral("1.bin"));
+        QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(sloppy)
+                     .toLocalFile(),
+                 path);
+        // Anything that is not a local file is left alone.
+        const QUrl web(QStringLiteral("https://example.org/a#b"));
+        QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(web), web);
+
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+        composer.addDroppedAttachments({localhost}, QString());
+        QCOMPARE(rejected.count(), 0);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
+    // GTK writes the portal key with its NUL terminator, KDE without.
+    void thePortalKeyIsReadWithOrWithoutItsNul()
+    {
+        QCOMPARE(AttachmentQueueModel::portalKeyFrom(
+                     QByteArray("12345\0", 6)),
+                 QStringLiteral("12345"));
+        QCOMPARE(AttachmentQueueModel::portalKeyFrom("12345"),
+                 QStringLiteral("12345"));
+        QCOMPARE(AttachmentQueueModel::portalKeyFrom({}), QString());
+        QMimeData mime;
+        QCOMPARE(AttachmentQueueModel::portalKeyFromMimeData(&mime), QString());
+        mime.setData(QStringLiteral("application/vnd.portal.files"),
+                     QByteArray("legacy\0", 7));
+        QCOMPARE(AttachmentQueueModel::portalKeyFromMimeData(&mime),
+                 QStringLiteral("legacy"));
+        mime.setData(QStringLiteral("application/vnd.portal.filetransfer"),
+                     "current");
+        QCOMPARE(AttachmentQueueModel::portalKeyFromMimeData(&mime),
+                 QStringLiteral("current"));
+    }
+
+    // A Flatpak build is handed the HOST path, which does not exist inside the
+    // sandbox; the file is reachable through the FileTransfer portal key the
+    // file manager put beside it. Before the fix the key was never read and the
+    // drop failed with "That file cannot be read."
+    void aSandboxedDropIsResolvedThroughThePortal()
+    {
+        const auto reset = qScopeGuard([] {
+            AttachmentQueueModel::setPortalRetrieveHook({});
+        });
+        QTemporaryDir dir;
+        const QString exported = writeFile(dir, QStringLiteral("clip.bin"),
+                                           QByteArray(32, 'v'));
+        const QUrl hostPath = QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("not-in-the-sandbox/clip.bin")));
+        QStringList askedKeys;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &key,
+                std::function<void(bool, const QStringList &)> done) {
+                askedKeys.append(key);
+                done(true, {exported});
+            });
+
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("key-1"));
+        QCOMPARE(askedKeys, QStringList{QStringLiteral("key-1")});
+        QCOMPARE(rejected.count(), 0);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(composer.attachments()
+                     ->data(composer.attachments()->index(0, 0),
+                            AttachmentQueueModel::LocalUrlRole)
+                     .toUrl()
+                     .toLocalFile(),
+                 exported);
+
+        // A readable drop never asks the portal, key or not.
+        composer.attachments()->clearAll();
+        const QString readable = writeFile(dir, QStringLiteral("here.bin"),
+                                           QByteArray(8, 'h'));
+        composer.addDroppedAttachments({QUrl::fromLocalFile(readable)},
+                                       QStringLiteral("key-2"));
+        QCOMPARE(askedKeys.size(), 1);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
+    // The portal failing falls back to the dropped URLs, so the user still
+    // gets addFile's refusal, and in a sandbox it names the way that works.
+    // An answer that arrives after a room switch queues nothing.
+    void aPortalFailureOrALateAnswerIsHandled()
+    {
+        const auto reset = qScopeGuard([] {
+            AttachmentQueueModel::setPortalRetrieveHook({});
+            AttachmentQueueModel::setSandboxKindForTesting({});
+        });
+        AttachmentQueueModel::setSandboxKindForTesting(QStringLiteral("flatpak"));
+        std::function<void(bool, const QStringList &)> pending;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &,
+                std::function<void(bool, const QStringList &)> done) {
+                pending = std::move(done);
+            });
+        QTemporaryDir dir;
+        const QUrl hostPath = QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("elsewhere/clip.bin")));
+
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("k"));
+        QVERIFY(pending);
+        pending(false, {});
+        QCOMPARE(rejected.count(), 1);
+        QVERIFY2(rejected.at(0).at(0).toString().contains(
+                     QLatin1String("sandbox")),
+                 qPrintable(rejected.at(0).at(0).toString()));
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+
+        // Without a key in a sandbox: the same sentence, no portal call.
+        pending = nullptr;
+        composer.addDroppedAttachments({hostPath}, QString());
+        QVERIFY(!pending);
+        QCOMPARE(rejected.count(), 2);
+
+        // Room switch while the portal is answering.
+        const QString exported = writeFile(dir, QStringLiteral("late.bin"),
+                                           QByteArray(8, 'l'));
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("k2"));
+        QVERIFY(pending);
+        composer.setRoomId(QStringLiteral("!other:example.org"));
+        pending(true, {exported});
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+        QCOMPARE(rejected.count(), 2);
+    }
+
+    // A portal answer for a drop made in one account must never stage a file in
+    // the next one. The room id alone cannot tell: room A, sign-out, the next
+    // account opens room A (§9).
+    void aLatePortalAnswerNeverCrossesIntoAnotherAccount()
+    {
+        const auto reset = qScopeGuard([] {
+            AttachmentQueueModel::setPortalRetrieveHook({});
+        });
+        std::function<void(bool, const QStringList &)> pending;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &,
+                std::function<void(bool, const QStringList &)> done) {
+                pending = std::move(done);
+            });
+        QTemporaryDir dir;
+        const QString exported = writeFile(dir, QStringLiteral("late.bin"),
+                                           QByteArray(8, 'l'));
+        const QUrl hostPath = QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("elsewhere/clip.bin")));
+        const QString room = QStringLiteral("!room:example.org");
+
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(room);
+
+        // Another account, same room id, before the answer.
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("k1"));
+        QVERIFY(pending);
+        client.userId = QStringLiteral("@someone-else:example.org");
+        pending(true, {exported});
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+
+        // Sign-out and back into the same room before the answer.
+        pending = nullptr;
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("k2"));
+        QVERIFY(pending);
+        client.logout();
+        composer.setRoomId(room);
+        pending(true, {exported});
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+
+        // Control: the same answer in the same session is queued and the bar
+        // is told, so it can focus the editor after an async drop.
+        QSignalSpy resolved(&composer,
+                            &MessageComposer::droppedAttachmentsResolved);
+        pending = nullptr;
+        composer.addDroppedAttachments({hostPath}, QStringLiteral("k3"));
+        QVERIFY(pending);
+        pending(true, {exported});
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(resolved.count(), 1);
     }
 };
 

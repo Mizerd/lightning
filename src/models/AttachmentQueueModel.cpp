@@ -11,12 +11,21 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QMimeData>
 #include <QMimeDatabase>
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QSize>
+#include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
+
+#ifdef HAVE_QT_DBUS
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#endif
 
 #include <memory>
 
@@ -104,7 +113,252 @@ QString pathShape(const QString &path)
                  : QStringLiteral("no"));
 }
 
+const char kPortalFileTransfer[] = "application/vnd.portal.filetransfer";
+const char kPortalFilesLegacy[] = "application/vnd.portal.files";
+
+AttachmentQueueModel::PortalRetrieveHook &portalRetrieveHook()
+{
+    static AttachmentQueueModel::PortalRetrieveHook hook;
+    return hook;
+}
+
+QString &sandboxKindOverride()
+{
+    static QString kind;
+    return kind;
+}
+
+// org.freedesktop.portal.FileTransfer.RetrieveFiles: exports the files behind
+// a drop's key into the document portal and returns their paths there
+// (/run/user/<uid>/doc/...), which a sandbox can open. Bounded; any failure
+// is reported as one, never as an empty success.
+void retrieveFromPortal(
+    const QString &key,
+    const std::function<void(bool, const QStringList &)> &done,
+    QObject *context)
+{
+    if (const auto &hook = portalRetrieveHook()) {
+        hook(key, done);
+        return;
+    }
+#ifdef HAVE_QT_DBUS
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        qCWarning(lcAttach) << "drop portal unavailable reason=no_session_bus";
+        done(false, {});
+        return;
+    }
+    QDBusMessage call = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.portal.Documents"),
+        QStringLiteral("/org/freedesktop/portal/documents"),
+        QStringLiteral("org.freedesktop.portal.FileTransfer"),
+        QStringLiteral("RetrieveFiles"));
+    call << key << QVariantMap{};
+    auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(call, 5000),
+                                                context);
+    QObject::connect(watcher, &QDBusPendingCallWatcher::finished, context,
+                     [done](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        const QDBusPendingReply<QStringList> reply = *w;
+        if (reply.isError()) {
+            // The error NAME only: its message may carry a path.
+            qCWarning(lcAttach) << "drop portal refused error="
+                                << qPrintable(reply.error().name());
+            done(false, {});
+            return;
+        }
+        done(true, reply.value());
+    });
+#else
+    Q_UNUSED(key)
+    Q_UNUSED(context)
+    done(false, {});
+#endif
+}
+
 } // namespace
+
+QString AttachmentQueueModel::detectMime(const QString &path)
+{
+    const QFileInfo info(path);
+    const QMimeDatabase db;
+    const QMimeType content =
+        db.mimeTypeForFile(info, QMimeDatabase::MatchContent);
+    const QMimeType byName =
+        db.mimeTypeForFile(info, QMimeDatabase::MatchExtension);
+    // Content proved nothing: the extension decides.
+    if (!content.isValid() || content.isDefault()) {
+        const QString name = byName.isValid() && !byName.isDefault()
+            ? byName.name()
+            : db.mimeTypeForFile(info).name();
+        return name.isEmpty() ? QStringLiteral("application/octet-stream")
+                              : name;
+    }
+    // Content proved a CONTAINER that carries either sound or picture, and the
+    // shared MIME database names it generically: Matroska is
+    // application/x-matroska, ASF is application/vnd.ms-asf. Taken as is, an
+    // .mkv recording (OBS's default) or a .wmv went out as m.file and played
+    // nowhere. The extension may only narrow one of these containers to an
+    // audio or video type that INHERITS from what the bytes proved, so a .mkv
+    // name on PNG bytes stays a PNG. A closed list, because other generic
+    // parents have audio/video children that are not media at all: text/plain
+    // (.m4u and .vlc playlists) and application/zip (.yt).
+    static const QStringList kGenericMediaContainers = {
+        QStringLiteral("application/x-matroska"),
+        QStringLiteral("application/vnd.ms-asf"),
+        QStringLiteral("application/ogg"),
+        QStringLiteral("application/x-riff"),
+        QStringLiteral("application/x-iff"),
+    };
+    const QString proven = content.name();
+    if (kGenericMediaContainers.contains(proven) && byName.isValid()
+        && (byName.name().startsWith(QLatin1String("video/"))
+            || byName.name().startsWith(QLatin1String("audio/")))
+        && byName.inherits(proven))
+        return byName.name();
+    return proven;
+}
+
+QString AttachmentQueueModel::portalKeyFrom(const QByteArray &raw)
+{
+    // GTK writes the key with its terminating NUL, KDE without.
+    QByteArray key = raw;
+    while (!key.isEmpty() && key.back() == '\0')
+        key.chop(1);
+    return QString::fromUtf8(key).trimmed();
+}
+
+QString AttachmentQueueModel::portalKeyFromMimeData(const QMimeData *mime)
+{
+    if (!mime)
+        return {};
+    for (const char *format : {kPortalFileTransfer, kPortalFilesLegacy}) {
+        const QString name = QString::fromLatin1(format);
+        if (mime->hasFormat(name)) {
+            const QString key = portalKeyFrom(mime->data(name));
+            if (!key.isEmpty())
+                return key;
+        }
+    }
+    return {};
+}
+
+QUrl AttachmentQueueModel::normalizeDroppedUrl(const QUrl &url)
+{
+    if (!url.isLocalFile())
+        return url;
+    QUrl out = url;
+    const QString host = url.host();
+    if (!host.isEmpty()) {
+        const bool localhost =
+            host.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0;
+#ifdef Q_OS_WIN
+        // \\HOST\share is a real UNC path on Windows, so only "localhost"
+        // (whose "C:" is no share name) is folded.
+        const bool ownHost = false;
+#else
+        const bool ownHost = host.compare(QSysInfo::machineHostName(),
+                                          Qt::CaseInsensitive) == 0;
+#endif
+        if (localhost || ownHost)
+            out.setHost(QString());
+    }
+    if ((out.hasFragment() || out.hasQuery())
+        && !QFileInfo::exists(out.toLocalFile())) {
+        QString literal = out.path(QUrl::FullyDecoded);
+        if (out.hasQuery())
+            literal += QLatin1Char('?') + out.query(QUrl::FullyDecoded);
+        if (out.hasFragment())
+            literal += QLatin1Char('#') + out.fragment(QUrl::FullyDecoded);
+        const QUrl rebuilt = QUrl::fromLocalFile(
+            out.host().isEmpty()
+                ? literal
+                : QStringLiteral("//") + out.host() + literal);
+        if (QFileInfo::exists(rebuilt.toLocalFile()))
+            out = rebuilt;
+    }
+    return out;
+}
+
+void AttachmentQueueModel::setPortalRetrieveHook(PortalRetrieveHook hook)
+{
+    portalRetrieveHook() = std::move(hook);
+}
+
+QString AttachmentQueueModel::sandboxKind()
+{
+    if (!sandboxKindOverride().isEmpty())
+        return sandboxKindOverride();
+    if (QFileInfo::exists(QStringLiteral("/.flatpak-info")))
+        return QStringLiteral("flatpak");
+    if (!qEnvironmentVariableIsEmpty("SNAP"))
+        return QStringLiteral("snap");
+    return QStringLiteral("none");
+}
+
+void AttachmentQueueModel::setSandboxKindForTesting(const QString &kind)
+{
+    sandboxKindOverride() = kind;
+}
+
+void AttachmentQueueModel::resolveDroppedUrls(
+    const QList<QUrl> &urls, const QString &portalKey, QObject *context,
+    std::function<void(const QList<QUrl> &)> done)
+{
+    // QML reads the key with DragEvent.getDataAsString, which keeps GTK's
+    // terminating NUL inside the string; the portal would refuse that key.
+    const QString key = portalKeyFrom(portalKey.toUtf8());
+    QList<QUrl> normalized;
+    normalized.reserve(urls.size());
+    bool unreadable = false;
+    for (const QUrl &url : urls) {
+        const QUrl local = normalizeDroppedUrl(url);
+        if (local != url) {
+            // Which repair applied, never the path.
+            const bool hostFolded = url.host() != local.host();
+            const bool literalRestored = (url.hasFragment() || url.hasQuery())
+                && !local.hasFragment() && !local.hasQuery();
+            qCInfo(lcAttach) << "drop url normalized"
+                             << "hostFolded=" << hostFolded
+                             << "literalHashOrQuery=" << literalRestored;
+        }
+        if (local.isLocalFile()
+            && !QFileInfo(local.toLocalFile()).isReadable())
+            unreadable = true;
+        normalized.append(local);
+    }
+    // The ordinary case, sandboxed or not: the dropped paths are readable here
+    // and the portal is never asked.
+    if (key.isEmpty() || (!unreadable && !normalized.isEmpty())) {
+        if (unreadable)
+            qCWarning(lcAttach) << "drop unreadable portal_key=none sandbox="
+                                << qPrintable(sandboxKind());
+        done(normalized);
+        return;
+    }
+    QPointer<QObject> guard(context);
+    retrieveFromPortal(
+        key,
+        [guard, normalized, done](bool ok, const QStringList &paths) {
+            if (!guard)
+                return;
+            if (!ok || paths.isEmpty()) {
+                qCWarning(lcAttach) << "drop resolved via=portal_failed"
+                                    << "count=" << normalized.size()
+                                    << "sandbox=" << qPrintable(sandboxKind());
+                done(normalized);
+                return;
+            }
+            QList<QUrl> resolved;
+            resolved.reserve(paths.size());
+            for (const QString &path : paths)
+                resolved.append(QUrl::fromLocalFile(path));
+            qCInfo(lcAttach) << "drop resolved via=portal"
+                             << "count=" << resolved.size();
+            done(resolved);
+        },
+        context);
+}
 
 QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
 {
@@ -122,11 +376,20 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     if (!info.isFile() || !info.isReadable()) {
         // exists() and isReadable() disagreeing points to permissions or path
         // translation, not a user mistake.
+        const QString sandbox = sandboxKind();
         qCWarning(lcAttach) << "attachment refused reason=unreadable"
                             << "exists=" << info.exists()
                             << "isFile=" << info.isFile()
                             << "readable=" << info.isReadable()
+                            << "sandbox=" << qPrintable(sandbox)
                             << qPrintable(pathShape(path));
+        // A path that does not exist inside a sandbox is almost always a host
+        // path the sandbox cannot see (a drop from a file manager that offered
+        // no portal key). Say so, and name the way that works: the picker goes
+        // through the file chooser portal.
+        if (!info.exists() && sandbox != QLatin1String("none"))
+            return tr("Lightning's sandbox can't see that file. Attach it "
+                      "with the + button instead.");
         return tr("That file cannot be read.");
     }
     if (info.size() <= 0) {
@@ -151,15 +414,10 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     entry.fileName = info.fileName();
     entry.sizeBytes = info.size();
 
-    // MIME from content first, extension only as tie-breaker, so a mislabelled
-    // extension cannot pick the send path.
-    const QMimeDatabase db;
-    const QMimeType mime = db.mimeTypeForFile(info, QMimeDatabase::MatchContent);
-    entry.mime = mime.isValid() && !mime.isDefault()
-        ? mime.name()
-        : db.mimeTypeForFile(info).name();
-    if (entry.mime.isEmpty())
-        entry.mime = QStringLiteral("application/octet-stream");
+    // MIME from content first, extension only as tie-breaker or to narrow a
+    // generic container, so a mislabelled extension cannot pick the send path.
+    entry.mime = detectMime(path);
+    qCDebug(lcAttach) << "attachment classified mime=" << entry.mime;
     entry.isImage = entry.mime.startsWith(QLatin1String("image/"));
     entry.animated = entry.mime == QLatin1String("image/gif");
     entry.isVideo = entry.mime.startsWith(QLatin1String("video/"));

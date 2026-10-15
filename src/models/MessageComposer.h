@@ -280,6 +280,12 @@ public:
     // Add a picked/dropped file; emits attachmentRejected(reason) when the
     // file fails validation (directory, unreadable, empty, over limit).
     Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
+    // A drop: its URLs plus the FileTransfer portal key a sandboxed drop
+    // carries ("" when none). Resolved to readable files first (see
+    // AttachmentQueueModel::resolveDroppedUrls), then queued like addAttachment.
+    // A portal answer that arrives after a room switch is dropped.
+    Q_INVOKABLE void addDroppedAttachments(const QList<QUrl> &urls,
+                                           const QString &portalKey);
     // Ctrl+V: returns true when the clipboard held an image or local file URLs
     // that were queued; false lets the editor paste text. Text that looks like
     // a path is never treated as a file.
@@ -323,6 +329,10 @@ Q_SIGNALS:
     void editsRemoved(const QString &eventId, bool ok, int removed,
                       int failed, bool truncated);
     void attachmentRejected(const QString &reason);
+    // A drop finished resolving and its files were offered to the queue
+    // (synchronously, or later when the portal answered). The bar focuses the
+    // editor on it so Return sends.
+    void droppedAttachmentsResolved();
 
 public:
     /// Whether "… is typing" leaves this device (Settings -> Privacy). A seam
@@ -380,6 +390,9 @@ private:
     ImageSendPrep m_imagePrep;
     QString m_text;
     QString m_roomId;
+    // Bumped on sign-out and client change: a portal answer to a drop made in
+    // an earlier session must never stage a file in this one (§9).
+    quint64 m_dropGeneration = 0;
     QString m_replyingToEventId;
     QString m_replyingToSender;
     QString m_replyingToPreview;

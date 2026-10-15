@@ -136,6 +136,7 @@ void MessageComposer::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_imagePrep.releaseAll();
     m_client = client;
+    ++m_dropGeneration;
     m_attachments->setClient(client);
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished,
@@ -151,6 +152,7 @@ void MessageComposer::setClient(MatrixClient *client)
                                         truncated);
                 });
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
+            ++m_dropGeneration;
             m_imagePrep.releaseAll();
             m_attachments->clearAll();
             // Unresolved voice recordings must not outlive the session on disk.
@@ -194,6 +196,40 @@ void MessageComposer::addAttachment(const QUrl &fileUrl)
         Q_EMIT attachmentRejected(reason);
 }
 
+void MessageComposer::addDroppedAttachments(const QList<QUrl> &urls,
+                                            const QString &portalKey)
+{
+    if (!attachmentsSupported()) {
+        Q_EMIT attachmentRejected(
+            tr("Attachments are not supported on this backend."));
+        return;
+    }
+    // The room id alone is not enough: room A, sign-out, the next account
+    // opens room A. Session, client and account must all still match.
+    const QString roomId = m_roomId;
+    const quint64 generation = m_dropGeneration;
+    const MatrixClient *client = m_client;
+    const QString userId = m_client->currentUserId();
+    AttachmentQueueModel::resolveDroppedUrls(
+        urls, portalKey, this,
+        [this, roomId, generation, client, userId](
+            const QList<QUrl> &resolved) {
+            if (m_roomId != roomId || m_dropGeneration != generation
+                || m_client != client || !m_client
+                || m_client->currentUserId() != userId)
+                return; // the user moved on while the portal answered
+            // Only a portal key was dropped and the portal gave nothing: say
+            // so rather than leave the drop silently ignored.
+            if (resolved.isEmpty()) {
+                Q_EMIT attachmentRejected(tr("That file cannot be read."));
+                return;
+            }
+            for (const QUrl &url : resolved)
+                addAttachment(url);
+            Q_EMIT droppedAttachmentsResolved();
+        });
+}
+
 bool MessageComposer::pasteFromClipboard()
 {
     if (!attachmentsSupported())
@@ -204,18 +240,20 @@ bool MessageComposer::pasteFromClipboard()
         return false;
 
     // Real file MIME data (text/uri-list), e.g. from a file manager. Plain text
-    // is never interpreted as paths.
+    // is never interpreted as paths. Resolved like a drop, so a sandboxed
+    // paste reaches the file through the portal key copied with it.
     if (mime->hasUrls()) {
-        bool any = false;
+        QList<QUrl> local;
         const auto urls = mime->urls();
         for (const QUrl &url : urls) {
-            if (!url.isLocalFile())
-                continue;
-            any = true;
-            addAttachment(url);
+            if (url.isLocalFile())
+                local.append(url);
         }
-        if (any)
+        if (!local.isEmpty()) {
+            addDroppedAttachments(
+                local, AttachmentQueueModel::portalKeyFromMimeData(mime));
             return true;
+        }
     }
 
     if (mime->hasImage()) {

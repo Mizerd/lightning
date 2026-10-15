@@ -1152,16 +1152,28 @@ Rectangle {
                             + AppTheme.spacing12
 
             // Files dropped here are queued for the open thread, never the room
-            // composer.
+            // composer. Resolved through the FileTransfer portal key when the
+            // sandbox cannot open the dropped paths (as in MessageComposerBar).
             DropArea {
                 id: threadDropArea
                 anchors.fill: parent
                 enabled: app.thread.attachmentsSupported
-                keys: ["text/uri-list"]
+                keys: ["text/uri-list", "application/vnd.portal.filetransfer",
+                       "application/vnd.portal.files"]
+                function portalKey(drop) {
+                    var formats = ["application/vnd.portal.filetransfer",
+                                   "application/vnd.portal.files"]
+                    for (var i = 0; i < formats.length; ++i) {
+                        if (drop.formats.indexOf(formats[i]) >= 0)
+                            return drop.getDataAsString(formats[i])
+                    }
+                    return ""
+                }
                 onDropped: (drop) => {
-                    if (!drop.hasUrls) return
-                    for (var i = 0; i < drop.urls.length; ++i)
-                        app.thread.addAttachment(drop.urls[i])
+                    var key = portalKey(drop)
+                    if (!drop.hasUrls && key === "") return
+                    app.thread.addDroppedAttachments(
+                        drop.hasUrls ? drop.urls : [], key)
                     drop.accept(Qt.CopyAction)
                 }
             }

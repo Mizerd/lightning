@@ -1326,17 +1326,38 @@ Item {
         function onDemoOpenCreatePoll() { createPollDialog.openDialog() }
     }
 
-    // Files dragged over the composer are queued (Rust backend).
+    // Files dragged over the composer are queued (Rust backend). A sandboxed
+    // (Flatpak) build is handed HOST paths it cannot open; the file manager
+    // puts a FileTransfer portal key beside them, and the composer resolves the
+    // files through it. The portal formats are accepted on their own too.
     DropArea {
         id: dropArea
         anchors.fill: parent
         enabled: app.composer.attachmentsSupported
-        keys: ["text/uri-list"]
+        keys: ["text/uri-list", "application/vnd.portal.filetransfer",
+               "application/vnd.portal.files"]
+        function portalKey(drop) {
+            var formats = ["application/vnd.portal.filetransfer",
+                           "application/vnd.portal.files"]
+            for (var i = 0; i < formats.length; ++i) {
+                if (drop.formats.indexOf(formats[i]) >= 0)
+                    return drop.getDataAsString(formats[i])
+            }
+            return ""
+        }
         onDropped: (drop) => {
-            if (!drop.hasUrls) return
-            for (var i = 0; i < drop.urls.length; ++i)
-                app.composer.addAttachment(drop.urls[i])
+            var key = portalKey(drop)
+            if (!drop.hasUrls && key === "") return
+            app.composer.addDroppedAttachments(drop.hasUrls ? drop.urls : [],
+                                               key)
             drop.accept(Qt.CopyAction)
+        }
+    }
+    // Focus once the drop's files are actually queued: through the portal that
+    // is after onDropped has returned.
+    Connections {
+        target: app.composer
+        function onDroppedAttachmentsResolved() {
             root.focusStagedAttachmentSend()
         }
     }

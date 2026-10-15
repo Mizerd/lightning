@@ -195,6 +195,11 @@ public:
     // Queues a file for the open thread; emits attachmentRejected(reason) on
     // validation failure. Never logs the path.
     Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
+    // Thread twin of MessageComposer::addDroppedAttachments: a drop's URLs and
+    // its portal key, resolved to readable files, then queued. An answer that
+    // arrives after the thread changed is dropped.
+    Q_INVOKABLE void addDroppedAttachments(const QList<QUrl> &urls,
+                                           const QString &portalKey);
     // Ctrl+V: queues a clipboard image or local file URLs. Returns true when
     // handled so the editor does not also paste.
     Q_INVOKABLE bool pasteFromClipboard();
@@ -306,6 +311,8 @@ private:
     State m_state = Closed;
     QString m_roomId;
     QString m_rootEventId;
+    // Bumped on sign-out and client change; see MessageComposer's twin.
+    quint64 m_dropGeneration = 0;
     QString m_failureCategory;
     QString m_replyToEventId;
     QString m_replyToSender;

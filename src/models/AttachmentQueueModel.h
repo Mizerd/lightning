@@ -5,11 +5,13 @@
 #include <QList>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 
 #include <functional>
 #include <memory>
 
+class QMimeData;
 class QTemporaryDir;
 
 namespace lightning::svgraster {
@@ -123,6 +125,53 @@ public:
     // Add a local file (picker / drop). Returns an empty string on success
     // or a safe, user-facing reason on rejection. Never logs the path.
     Q_INVOKABLE QString addFile(const QUrl &fileUrl);
+    // The MIME type the send path classifies a local file by (image, video,
+    // audio or plain file). From content first, so a mislabelled extension
+    // cannot pick the send path; the extension only breaks a tie (content
+    // proves nothing) or NARROWS a generic container the content did prove to
+    // the audio or video type that inherits from it (Matroska, ASF, Ogg, RIFF,
+    // IFF). See the definition.
+    static QString detectMime(const QString &path);
+
+    // --- Dropped and pasted files -------------------------------------------
+    // A drop or paste names files by URL, and the URL is not always one this
+    // process can open: a sandboxed (Flatpak) app is handed the HOST path, which
+    // does not exist inside the sandbox, and the file is reachable only through
+    // the FileTransfer portal key the source put beside it.
+
+    // The FileTransfer portal key a sandboxed drop or paste carries
+    // (application/vnd.portal.filetransfer, or GTK3's older
+    // application/vnd.portal.files), or "" when there is none. Sources differ
+    // on a trailing NUL; it is stripped.
+    static QString portalKeyFrom(const QByteArray &raw);
+    static QString portalKeyFromMimeData(const QMimeData *mime);
+    // A dropped URL as this process can open it. "file://localhost/x" (and on
+    // Unix "file://<this host>/x") is the local path /x, but QUrl turns it into
+    // the UNC-style "//localhost/x", which never exists. An unescaped '#' or '?'
+    // in a sloppy uri-list became a fragment or query; when only the literal
+    // name exists, it is put back. Anything else is returned unchanged.
+    static QUrl normalizeDroppedUrl(const QUrl &url);
+    // Asks the portal for the files behind `key`; calls back with ok=false and
+    // no paths on any failure. Production uses the session bus; a test installs
+    // its own. Reset with an empty hook.
+    using PortalRetrieveHook = std::function<void(
+        const QString &key,
+        std::function<void(bool ok, const QStringList &paths)> done)>;
+    static void setPortalRetrieveHook(PortalRetrieveHook hook);
+    // "flatpak", "snap" or "none"; overridable for tests ("" restores the real
+    // answer). Only chooses a refusal's wording and a log field.
+    static QString sandboxKind();
+    static void setSandboxKindForTesting(const QString &kind);
+    // Turns a drop's URLs (plus its portal key) into URLs this process can read
+    // and hands them to `done`, synchronously unless the portal has to be asked:
+    // only when a key exists AND some local URL cannot be read (or there are no
+    // URLs at all). A portal failure falls back to the URLs as dropped, so the
+    // refusal the user sees is still addFile's. `done` is dropped if `context`
+    // dies first. Never logs a path.
+    static void resolveDroppedUrls(
+        const QList<QUrl> &urls, const QString &portalKey, QObject *context,
+        std::function<void(const QList<QUrl> &resolved)> done);
+
     // Add clipboard image bytes (already encoded, e.g. PNG).
     QString addImageData(const QByteArray &bytes, const QString &mime,
                          int width, int height);

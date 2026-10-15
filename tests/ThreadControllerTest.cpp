@@ -15,7 +15,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QUrl>
 #include <QtTest/QtTest>
@@ -1706,6 +1708,67 @@ private Q_SLOTS:
         QTest::qWait(250);
         QCOMPARE(located.count(), 0);
         QVERIFY(controller.navigationMessage().isEmpty());
+    }
+
+    // A drop on the thread panel resolves through the portal like the room
+    // composer's, and an answer that arrives after another thread opened, or
+    // after sign-out, queues nothing.
+    void aThreadDropResolvesAndAStaleAnswerIsDropped()
+    {
+        const auto reset = qScopeGuard([] {
+            AttachmentQueueModel::setPortalRetrieveHook({});
+        });
+        std::function<void(bool, const QStringList &)> pending;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &,
+                std::function<void(bool, const QStringList &)> done) {
+                pending = std::move(done);
+            });
+        QTemporaryDir dir;
+        const QString exported = dir.filePath(QStringLiteral("drop.bin"));
+        {
+            QFile f(exported);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(QByteArray(16, 'd'));
+        }
+        const QUrl hostPath = QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("host/drop.bin")));
+
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString firstRoot = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, firstRoot);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        controller.addDroppedAttachments({hostPath}, QStringLiteral("k1"));
+        QVERIFY(pending);
+        pending(true, {exported});
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        controller.attachments()->clearAll();
+
+        // Another thread opens before the answer.
+        pending = nullptr;
+        controller.addDroppedAttachments({hostPath}, QStringLiteral("k2"));
+        QVERIFY(pending);
+        const QString secondRoot = client.timeline(kGeneral).first().eventId;
+        QVERIFY(secondRoot != firstRoot);
+        client.sendThreadReply(kGeneral, secondRoot, QStringLiteral("x"));
+        controller.openThread(kGeneral, secondRoot);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        pending(true, {exported});
+        QCOMPARE(controller.attachments()->rowCount(), 0);
+
+        // Sign-out before the answer.
+        pending = nullptr;
+        controller.addDroppedAttachments({hostPath}, QStringLiteral("k3"));
+        QVERIFY(pending);
+        client.logout();
+        pending(true, {exported});
+        QCOMPARE(controller.attachments()->rowCount(), 0);
     }
 };
 

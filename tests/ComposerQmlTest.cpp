@@ -14,6 +14,9 @@
 #include <QQuickStyle>
 #include <QInputMethodEvent>
 #include <QImage>
+#include <QMimeData>
+#include <QScopeGuard>
+#include <QSignalSpy>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -25,6 +28,8 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
+#include "models/AttachmentQueueModel.h"
+#include "models/MessageComposer.h"
 #include "models/RoomListModel.h"
 
 namespace {
@@ -1807,6 +1812,92 @@ private slots:
         m_window->setWidth(restoreWidth);
         QTest::qWait(180);
         m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // #42 "Drag and drop not working": real drag events on the PRODUCTION
+    // composer bar, so the QML handler, the URL repair and the portal route are
+    // what is under test. Each drop failed with "That file cannot be read."
+    // before the fix: a file://localhost URL became the path //localhost/...,
+    // and a sandboxed drop's portal key was never read.
+    void aDropOnTheComposerReachesTheQueue()
+    {
+        auto *bar = item("composerBar");
+        QVERIFY(bar != nullptr);
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        QVERIFY(m_controller->composer()->attachmentsSupported());
+        AttachmentQueueModel *queue = m_controller->composer()->attachments();
+        queue->clearAll();
+        const auto restore = qScopeGuard([&] {
+            queue->clearAll();
+            AttachmentQueueModel::setPortalRetrieveHook({});
+            m_controller->setCurrentRoomId(previousRoom);
+            QTest::qWait(30);
+        });
+        QSignalSpy rejected(m_controller->composer(),
+                            &MessageComposer::attachmentRejected);
+
+        const QPoint at = bar->mapToScene(QPointF(bar->width() / 2.0,
+                                                  bar->height() / 2.0))
+                              .toPoint();
+        const auto drop = [&](QMimeData *mime) {
+            QDragEnterEvent enter(at, Qt::CopyAction, mime, Qt::LeftButton,
+                                  Qt::NoModifier);
+            QCoreApplication::sendEvent(m_window, &enter);
+            QDropEvent dropped(QPointF(at), Qt::CopyAction, mime,
+                               Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(m_window, &dropped);
+            QCoreApplication::processEvents();
+        };
+
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("dropped file.bin"),
+                                       QByteArray(64, 'd'));
+        QVERIFY(!path.isEmpty());
+
+        // file://localhost/..., CRLF-terminated as text/uri-list specifies.
+        {
+            QUrl url = QUrl::fromLocalFile(path);
+            url.setHost(QStringLiteral("localhost"));
+            QMimeData mime;
+            mime.setData(QStringLiteral("text/uri-list"),
+                         url.toEncoded() + QByteArrayLiteral("\r\n"));
+            drop(&mime);
+            QCOMPARE(rejected.count(), 0);
+            QCOMPARE(queue->rowCount(), 1);
+        }
+        queue->clearAll();
+
+        // A sandboxed drop: the host path does not exist here, the portal key
+        // names the file.
+        QString askedKey;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &key,
+                std::function<void(bool, const QStringList &)> done) {
+                askedKey = key;
+                done(true, {path});
+            });
+        {
+            QMimeData mime;
+            mime.setData(QStringLiteral("text/uri-list"),
+                         QUrl::fromLocalFile(dir.filePath(
+                                                 QStringLiteral("host/x.bin")))
+                                 .toEncoded()
+                             + QByteArrayLiteral("\r\n"));
+            mime.setData(QStringLiteral("application/vnd.portal.filetransfer"),
+                         QByteArray("transfer-7\0", 11));
+            drop(&mime);
+            QCOMPARE(askedKey, QStringLiteral("transfer-7"));
+            QCOMPARE(rejected.count(), 0);
+            QCOMPARE(queue->rowCount(), 1);
+            QCOMPARE(queue->data(queue->index(0, 0),
+                                 AttachmentQueueModel::LocalUrlRole)
+                         .toUrl()
+                         .toLocalFile(),
+                     path);
+        }
+        QCOMPARE(m_warnings, QStringList{});
     }
 };
 
