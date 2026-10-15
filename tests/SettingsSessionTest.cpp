@@ -117,6 +117,8 @@ private Q_SLOTS:
     void messageLayoutAndTextScalePersistAndClamp();
     void accessibilityAndSpacingSettingsPersistAndFallBack();
     void interfaceZoomAndRoomFilterPersistAndClamp();
+    void textRenderingRoundTripsAndUnknownValuesFallBack();
+    void mainAppliesTextRenderingBeforeAnyWindow();
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
     void spacesRailDepthStyleDefaultsToRegionsAndClamps();
     void appearanceIsPerAccountWithGlobalFallback();
@@ -1145,6 +1147,69 @@ void SettingsSessionTest::interfaceZoomAndRoomFilterPersistAndClamp()
     SettingsManager reopened;
     QCOMPARE(reopened.interfaceZoom(), 110);
     QCOMPARE(reopened.roomFilterMode(), 3);
+}
+
+void SettingsSessionTest::textRenderingRoundTripsAndUnknownValuesFallBack()
+{
+    QSettings().remove(QLatin1String(SettingsManager::kTextRenderingKey));
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.textRendering(), SettingsManager::kTextRenderingSmooth);
+        QSignalSpy spy(&settings, &SettingsManager::textRenderingChanged);
+        settings.setTextRendering(SettingsManager::kTextRenderingNative);
+        QCOMPARE(settings.textRendering(), SettingsManager::kTextRenderingNative);
+        QCOMPARE(spy.count(), 1);
+        settings.setTextRendering(SettingsManager::kTextRenderingNative);
+        QCOMPARE(spy.count(), 1);
+    }
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.textRendering(), SettingsManager::kTextRenderingNative);
+    }
+    // An enum, not a quantity: a value from a newer build, or junk, is the
+    // default and NOT the nearest id (std::clamp(2, 0, 1) would be Native).
+    for (const QVariant &bad : { QVariant(2), QVariant(-1), QVariant(99),
+                                 QVariant(QStringLiteral("native")),
+                                 QVariant() }) {
+        QCOMPARE(SettingsManager::textRenderingFromValue(bad),
+                 SettingsManager::kTextRenderingSmooth);
+        QSettings().setValue(QLatin1String(SettingsManager::kTextRenderingKey), bad);
+        SettingsManager s;
+        QCOMPARE(s.textRendering(), SettingsManager::kTextRenderingSmooth);
+    }
+    QCOMPARE(SettingsManager::textRenderingFromValue(1),
+             SettingsManager::kTextRenderingNative);
+    QSettings().remove(QLatin1String(SettingsManager::kTextRenderingKey));
+}
+
+// main() cannot be called from a test, so assert its source: the stored key
+// must be read and handed to QQuickWindow::setTextRenderType before the
+// QApplication (and therefore any window) is constructed.
+void SettingsSessionTest::mainAppliesTextRenderingBeforeAnyWindow()
+{
+    QFile f(QStringLiteral(REPO_ROOT "/src/main.cpp"));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QString src = QString::fromUtf8(f.readAll());
+    QVERIFY(src.contains(QStringLiteral("QQuickWindow::setTextRenderType")));
+    QVERIFY(src.contains(QStringLiteral("QQuickWindow::NativeTextRendering")));
+    const qsizetype call = src.indexOf(
+        QStringLiteral("applyTextRenderingPreference(\n        QSettings()"));
+    const qsizetype app = src.indexOf(QStringLiteral("QApplication app(argc, argv);"));
+    QVERIFY2(call > 0, "main() never applies the stored preference");
+    QVERIFY2(app > call, "text rendering must be applied before QApplication");
+
+    // Findable in settings search, and the tray options too (including the
+    // macOS wording).
+    QFile q(QStringLiteral(REPO_ROOT "/qml/SettingsScreen.qml"));
+    QVERIFY(q.open(QIODevice::ReadOnly));
+    const QString qml = QString::fromUtf8(q.readAll());
+    for (const char *anchor : { "textRenderingCombo", "closeToTrayCheck",
+                                "startInTrayCheck" }) {
+        QVERIFY2(qml.contains(QStringLiteral("anchor: \"%1\"").arg(QLatin1String(anchor))),
+                 anchor);
+        QVERIFY2(qml.contains(QStringLiteral("objectName: \"%1\"").arg(QLatin1String(anchor))),
+                 anchor);
+    }
 }
 
 void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()

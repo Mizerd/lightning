@@ -133,6 +133,12 @@ Item {
           keywords: qsTr("interface zoom scale bigger ui size"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
           anchor: "interfaceZoomSlider" },
+        { title: qsTr("Text rendering"),
+          keywords: qsTr("text rendering anti-aliasing antialiasing aliasing "
+                         + "smooth hinting font native blurry fuzzy sharp "
+                         + "subpixel fontconfig"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "textRenderingCombo" },
         { title: qsTr("Font"), keywords: qsTr("font family typeface"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
           anchor: "uiFontSelector" },
@@ -224,11 +230,12 @@ Item {
           anchor: "keepRoomListOrderStillCheck" },
         { title: qsTr("Keep running in the tray"),
           keywords: qsTr("tray system tray minimize close background icon "
-                         + "taskbar quit close to tray"),
+                         + "taskbar quit close to tray menu bar"),
           section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
           anchor: "closeToTrayCheck" },
         { title: qsTr("Start in the tray"),
-          keywords: qsTr("tray start startup minimized background icon"),
+          keywords: qsTr("tray start startup minimized background icon "
+                         + "menu bar hidden"),
           section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
           anchor: "startInTrayCheck" },
         { title: qsTr("Side panel width"),
@@ -3147,6 +3154,53 @@ Item {
                                        + "icons and layout. Ctrl+= and Ctrl+- "
                                        + "adjust it anywhere. Takes effect the "
                                        + "next time Lightning starts.")
+                        }
+
+                        // Text rendering: applied by main() before any
+                        // window exists, hence the restart caption.
+                        SettingsGroupLabel { text: qsTr("Text rendering") }
+                        AppComboBox {
+                            id: textRenderingCombo
+                            objectName: "textRenderingCombo"
+                            storm: true
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 420
+                            textRole: "label"
+                            valueRole: "value"
+                            // Values match SettingsManager's
+                            // kTextRendering* constants.
+                            model: [
+                                { label: qsTr("Smooth (default)"), value: 0 },
+                                { label: qsTr("Native (follows your system's "
+                                              + "font hinting and anti-aliasing)"),
+                                  value: 1 }
+                            ]
+                            function syncFromSetting() {
+                                syncToValue(app.settings.textRendering)
+                            }
+                            Component.onCompleted: syncFromSetting()
+                            Connections {
+                                target: app.settings
+                                function onTextRenderingChanged() {
+                                    textRenderingCombo.syncFromSetting()
+                                }
+                            }
+                            onActivated: app.settings.textRendering = currentValue
+                            Accessible.name: qsTr("Text rendering")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("Native hands text to your system's "
+                                       + "font renderer, so it follows its "
+                                       + "hinting and anti-aliasing settings. "
+                                       + "Takes effect the next time "
+                                       + "Lightning starts.")
                         }
 
                         // UI font (bundled OFL families).

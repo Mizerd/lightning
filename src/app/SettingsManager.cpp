@@ -3451,6 +3451,29 @@ void SettingsManager::clearShortcutSequence(const QString &actionId)
     m_store->remove(leaf);
 }
 
+int SettingsManager::textRenderingFromValue(const QVariant &stored)
+{
+    bool ok = false;
+    const int v = stored.toInt(&ok);
+    if (ok && v == kTextRenderingNative)
+        return kTextRenderingNative;
+    return kTextRenderingSmooth;
+}
+
+int SettingsManager::textRendering() const
+{
+    return textRenderingFromValue(m_store->value(kTextRenderingKey));
+}
+
+void SettingsManager::setTextRendering(int mode)
+{
+    mode = textRenderingFromValue(mode);
+    if (textRendering() == mode)
+        return;
+    m_store->setValue(kTextRenderingKey, mode);
+    Q_EMIT textRenderingChanged();
+}
+
 int SettingsManager::interfaceZoom() const
 {
     const int stored = m_store->value(kInterfaceZoom, 100).toInt();

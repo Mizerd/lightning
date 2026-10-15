@@ -413,6 +413,11 @@ class SettingsManager : public QObject
     // QT_SCALE_FACTOR before the app exists, so it applies on next launch.
     Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
                    NOTIFY interfaceZoomChanged)
+    // Text rendering backend (0 smooth, 1 native). Global: main() applies it
+    // with QQuickWindow::setTextRenderType before any window exists, so it
+    // takes effect on next launch.
+    Q_PROPERTY(int textRendering READ textRendering WRITE setTextRendering
+                   NOTIFY textRenderingChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
@@ -870,6 +875,14 @@ public:
     static constexpr int kDefaultTimelineWheelSpeed = 1; // Fast
     static constexpr int kMinInterfaceZoom = 75;
     static constexpr int kMaxInterfaceZoom = 150;
+    // Text rendering ids. An ENUM, not a quantity: an unknown stored value
+    // (written by a newer build) means the default, never the nearest id.
+    static constexpr int kTextRenderingSmooth = 0;
+    static constexpr int kTextRenderingNative = 1;
+    static constexpr auto kTextRenderingKey = "ui/textRendering";
+    static int textRenderingFromValue(const QVariant &stored);
+    int textRendering() const;
+    void setTextRendering(int mode);
     int interfaceZoom() const;
     void setInterfaceZoom(int percent);
 
@@ -1120,6 +1133,7 @@ Q_SIGNALS:
     void mediaPlaybackRateChanged();
     void voiceMiniPlayerCornerChanged();
     void interfaceZoomChanged();
+    void textRenderingChanged();
     void sessionChanged();
     void secretBackendChanged();
     // A saved-account record was added, removed, or updated.

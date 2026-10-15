@@ -468,6 +468,17 @@ struct PreflightResult {
     QString stdoutMsg;
 };
 
+// Applies the stored "Text rendering" choice. Anything but the native id,
+// including an unreadable value, keeps Qt's default.
+void applyTextRenderingPreference(const QVariant &stored)
+{
+    QQuickWindow::setTextRenderType(
+        SettingsManager::textRenderingFromValue(stored)
+                == SettingsManager::kTextRenderingNative
+            ? QQuickWindow::NativeTextRendering
+            : QQuickWindow::QtTextRendering);
+}
+
 PreflightResult preflightParse(int argc, char *argv[])
 {
     PreflightResult r;
@@ -2182,6 +2193,14 @@ int main(int argc, char *argv[])
             zoomEnvSetHere = true;
         }
     }
+
+    // Text rendering: Qt Quick's own (distance-field) renderer ignores the
+    // system's font hinting and anti-aliasing; "Native" hands glyphs to the
+    // platform rasteriser so they follow it. A window reads the type at
+    // creation, so this must precede the first one. The key is read here, as
+    // the zoom is, because SettingsManager does not exist yet.
+    applyTextRenderingPreference(
+        QSettings().value(QLatin1String(SettingsManager::kTextRenderingKey)));
 
 #ifdef Q_OS_WIN
     // The Media Foundation backend stalls the video surface after the first
