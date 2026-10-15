@@ -12,6 +12,7 @@
 
 #include "app/SettingsManager.h"
 #include "auth/OAuthCallbackServer.h"
+#include "crypto/BackupController.h"
 #include "crypto/E2eeDiagnostics.h"
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
@@ -296,6 +297,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_timelineTracker.reset();
     m_threadTracker.reset();
     m_contextTracker.reset();
+    m_recoveryReopens.clear();
     m_pagination.clear();
     m_maxUploadSize = 0;
     m_uploadLimitRequested = false;
@@ -816,6 +818,7 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_timelineTracker.reset();
     m_threadTracker.reset();
     m_contextTracker.reset();
+    m_recoveryReopens.clear();
     m_pagination.clear();
 
     retireRustHandleAsync(retiring, typingRoom, signIn,
@@ -2548,6 +2551,7 @@ void RustSdkMatrixClient::logout()
     m_timelineTracker.reset();
     m_threadTracker.reset();
     m_contextTracker.reset();
+    m_recoveryReopens.clear();
     m_pagination.clear();
     stopSync();
 
@@ -4143,6 +4147,77 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     Q_EMIT paginationStateChanged(roomId);
 }
 
+namespace {
+qint64 monotonicMs()
+{
+    static QElapsedTimer clock = [] {
+        QElapsedTimer t;
+        t.start();
+        return t;
+    }();
+    return clock.elapsed();
+}
+} // namespace
+
+bool RustSdkMatrixClient::roomTimelineStillOpen(const QString &roomId) const
+{
+    return m_timelineTracker.activeRoom() == roomId
+        || m_timelineTracker.requestedRoom() == roomId;
+}
+
+bool RustSdkMatrixClient::threadTimelineStillOpen(const QString &timelineId) const
+{
+    return m_threadTracker.activeRoom() == timelineId
+        || m_threadTracker.requestedRoom() == timelineId;
+}
+
+bool RustSdkMatrixClient::contextTimelineStillOpen(const QString &timelineId) const
+{
+    return m_contextTracker.activeRoom() == timelineId
+        || m_contextTracker.requestedRoom() == timelineId;
+}
+
+bool RustSdkMatrixClient::admitRecoveryReopen(const QString &timelineId,
+                                              const char *reason,
+                                              std::function<bool()> stillOpen,
+                                              std::function<void()> reopen)
+{
+    using Budget = matrix::RecoveryReopenBudget;
+    qint64 retryInMs = 0;
+    switch (m_recoveryReopens.request(timelineId, monotonicMs(), &retryInMs)) {
+    case Budget::Verdict::Reopen:
+        return true;
+    case Budget::Verdict::AlreadyDeferred:
+        return false;
+    case Budget::Verdict::Defer:
+        break;
+    }
+    // The one line to grep for when a room keeps reopening itself.
+    qCWarning(lcRust) << "timeline recovery reopen capped reason=" << reason
+                      << "timeline=" << matrix::e2ee::redactId(timelineId)
+                      << "reopens=" << Budget::kMaxReopens
+                      << "window_ms=" << m_recoveryReopens.windowMs()
+                      << "deferred_ms=" << retryInMs;
+    QTimer::singleShot(retryInMs, this,
+                       [this, timelineId, reason, stillOpen = std::move(stillOpen),
+                        reopen = std::move(reopen)] {
+        // Owed no more: the session ended (the budget was cleared).
+        if (!m_recoveryReopens.takeDeferred(timelineId, monotonicMs()))
+            return;
+        if (!stillOpen()) {
+            qCInfo(lcRust) << "timeline recovery reopen deferred skipped: "
+                              "no longer open reason=" << reason << "timeline="
+                           << matrix::e2ee::redactId(timelineId);
+            return;
+        }
+        qCInfo(lcRust) << "timeline recovery reopen deferred ran reason="
+                       << reason << "timeline="
+                       << matrix::e2ee::redactId(timelineId);
+        reopen();
+    });
+    return false;
+}
+
 bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
@@ -4587,7 +4662,11 @@ void RustSdkMatrixClient::handleThreadDiff(const QJsonObject &event)
         qCWarning(lcRust) << "thread invalid diff rejected"
                           << "op=" << event.value(QStringLiteral("op")).toString()
                           << "mirror_size=" << mirror.size();
-        openThread(roomId, rootId);
+        if (admitRecoveryReopen(
+                timelineId, "invalid_diff",
+                [this, timelineId] { return threadTimelineStillOpen(timelineId); },
+                [this, roomId, rootId] { openThread(roomId, rootId); }))
+            openThread(roomId, rootId);
         break;
     }
 }
@@ -4788,7 +4867,11 @@ void RustSdkMatrixClient::handleContextDiff(const QJsonObject &event)
         // Never apply a malformed diff; reopen for a fresh snapshot.
         qCWarning(lcRust) << "context invalid diff rejected mirror_size="
                           << mirror.size();
-        openEventContext(roomId, eventId);
+        if (admitRecoveryReopen(
+                timelineId, "invalid_diff",
+                [this, timelineId] { return contextTimelineStillOpen(timelineId); },
+                [this, roomId, eventId] { openEventContext(roomId, eventId); }))
+            openEventContext(roomId, eventId);
         break;
     }
 }
@@ -5881,6 +5964,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                          obj.value(QStringLiteral("verified")).toBool(false));
             entry.insert(QStringLiteral("crossSigned"),
                          obj.value(QStringLiteral("cross_signed")).toBool(false));
+            // What every trust label on the Sessions page reads: crossSigned
+            // for this session, verified for the others (Rust decides,
+            // `recovery::session_row_trusted`). Absent reads as untrusted.
+            entry.insert(QStringLiteral("trusted"),
+                         obj.value(QStringLiteral("trusted")).toBool(false));
             devices.append(entry);
         }
         Q_EMIT deviceListUpdated(
@@ -6085,8 +6173,28 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("key_backup_status")) {
+        // "attempted", then "ok" (the backup key is usable), "ok_no_backup"
+        // (secret storage held no key backup: no history restored),
+        // "nothing_restored" (it held neither a backup key nor this account's
+        // cross-signing keys) or "failed". A failure carries a category only;
+        // the text is ours and translated, never matrix-sdk's.
         const QString state = event.value(QStringLiteral("state")).toString();
-        const QString message = event.value(QStringLiteral("message")).toString();
+        QString message;
+        if (state == QLatin1String("failed")) {
+            const QString category =
+                event.value(QStringLiteral("category")).toString();
+            // recover() verifies this session before it touches the key
+            // backup, so a failure can arrive with the session verified.
+            const bool sessionVerified =
+                event.value(QStringLiteral("session_verified")).toBool(false);
+            const bool becameVerified =
+                event.value(QStringLiteral("became_verified")).toBool(false);
+            qCWarning(lcRust) << "key backup recover failed category="
+                              << category << "session_verified=" << sessionVerified
+                              << "became_verified=" << becameVerified;
+            message = BackupController::recoveryFailureText(
+                category, sessionVerified, becameVerified);
+        }
         Q_EMIT keyBackupResult(state, message);
         return;
     }
@@ -6311,7 +6419,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (m_rustHandle)
             takeRustString(mx_rust_resync_rooms(m_rustHandle));
         const QString openRoom = m_timelineTracker.activeRoom();
-        if (!openRoom.isEmpty())
+        if (!openRoom.isEmpty()
+            && admitRecoveryReopen(
+                   openRoom, "queue_overflow",
+                   [this, openRoom] { return roomTimelineStillOpen(openRoom); },
+                   [this, openRoom] { openRoomTimeline(openRoom); }))
             openRoomTimeline(openRoom);
     }
 }
@@ -6868,7 +6980,11 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
                           << "op=" << event.value(QStringLiteral("op")).toString()
                           << "index=" << event.value(QStringLiteral("index")).toInt(-1)
                           << "mirror_size=" << mirror.size();
-        openRoomTimeline(roomId);
+        if (admitRecoveryReopen(
+                roomId, "invalid_diff",
+                [this, roomId] { return roomTimelineStillOpen(roomId); },
+                [this, roomId] { openRoomTimeline(roomId); }))
+            openRoomTimeline(roomId);
         break;
     }
 }
@@ -7020,6 +7136,13 @@ void RustSdkMatrixClient::handleSendFailed(const QJsonObject &event)
                         tr("Rust SDK send failed.")));
 }
 
+void RustSdkMatrixClient::acknowledgeInterruptedSetup()
+{
+    // BackupController calls this once the report is on screen.
+    if (m_rustHandle)
+        mx_rust_acknowledge_interrupted_setup(m_rustHandle);
+}
+
 void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
 {
     if (!m_loggedIn || !m_rustHandle) {
@@ -7039,9 +7162,12 @@ void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
     // importRoomKeys.
     keyBytes.fill('\0');
     if (!result.isEmpty()) {
+        // The only refusals are "not signed in" and a null argument; the text
+        // is Rust's English, so it goes to the log and ours to the user.
+        qCWarning(lcRust) << "key backup recover not started:" << result;
         Q_EMIT keyBackupResult(QStringLiteral("failed"),
-            result.startsWith(QLatin1String("error: "))
-                ? result.mid(7) : result);
+                               tr("Recovery could not start: this session is "
+                                  "not signed in."));
     }
 }
 

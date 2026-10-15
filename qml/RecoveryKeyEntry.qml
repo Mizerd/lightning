@@ -26,7 +26,8 @@ ColumnLayout {
 
     // True while a request this instance started is in flight.
     readonly property bool running: d.started && d.running
-    // Last outcome this instance saw: "", "ok" or "failed".
+    // Last outcome this instance saw: "", "ok", "ok_no_backup",
+    // "nothing_restored", "failed" or "interrupted".
     readonly property string outcome: d.outcome
 
     signal submitted()
@@ -39,6 +40,12 @@ ColumnLayout {
         property bool running: false
         property string outcome: ""
         property string failMessage: ""
+        // The account the request was made for; a different one signed in
+        // afterwards must not see this instance's outcome.
+        property string userId: ""
+        function activeUserId() {
+            return app.accounts ? app.accounts.activeUserId : ""
+        }
     }
 
     function clear() {
@@ -83,6 +90,7 @@ ColumnLayout {
                 d.running = true
                 d.outcome = ""
                 d.failMessage = ""
+                d.userId = d.activeUserId()
                 app.requestRecoverFromBackup(field.text)
                 // Wipe the field immediately; the key never stays in a QML
                 // property.
@@ -106,6 +114,7 @@ ColumnLayout {
         color: d.outcome === "ok"
                ? AppTheme.stormSuccess
                : d.outcome === "failed" ? AppTheme.stormDanger
+                 : d.outcome.length > 0 ? AppTheme.stormText
                                         : AppTheme.stormTextMuted
         text: d.running
               ? qsTr("Recovery started")
@@ -121,9 +130,26 @@ ColumnLayout {
                           + "session is still not verified, your recovery "
                           + "storage may not hold your cross-signing keys; "
                           + "see Cross-signing under Privacy & security."))
-                : d.outcome === "failed"
-                  ? qsTr("Recovery failed: %1").arg(d.failMessage)
-                  : ""
+                // recover() succeeded but restored less than its name says;
+                // never "Recovery complete" for these (CLAUDE.md section 6).
+                : d.outcome === "ok_no_backup"
+                  ? qsTr("Your recovery key was accepted and this session is "
+                         + "verified, but no key backup could be used (the "
+                         + "account has none, or your secret storage does not "
+                         + "hold its key), so no message history was restored.")
+                  : d.outcome === "nothing_restored"
+                    ? qsTr("Your recovery key was accepted, but your secret "
+                           + "storage holds neither a key backup nor your "
+                           + "cross-signing keys, so nothing was restored and "
+                           + "this session is not verified by it. Verify it "
+                           + "with another session instead.")
+                    : d.outcome === "interrupted"
+                      ? qsTr("The session ended before the restore finished, so "
+                             + "it is not known what was restored. Enter the key "
+                             + "again to finish.")
+                      : d.outcome === "failed"
+                        ? qsTr("Recovery failed: %1").arg(d.failMessage)
+                        : ""
     }
 
     Connections {
@@ -135,10 +161,11 @@ ColumnLayout {
                 return
             if (state === "attempted") {
                 d.running = true
-            } else if (state === "ok") {
+            } else if (state === "ok" || state === "ok_no_backup"
+                       || state === "nothing_restored") {
                 d.running = false
                 d.started = false
-                d.outcome = "ok"
+                d.outcome = state
                 // Recovered secrets change trust/backup state; re-read it.
                 app.refreshCryptoHealth()
                 app.refreshSessionTrustState()
@@ -147,7 +174,22 @@ ColumnLayout {
                 d.started = false
                 d.outcome = "failed"
                 d.failMessage = message
+                // A failure can still have changed trust: recover() verifies
+                // this session before it touches the key backup.
+                app.refreshCryptoHealth()
+                app.refreshSessionTrustState()
             }
+        }
+        // A restore whose session ends (sign-out, account switch) never
+        // reports: the backend's task dies with the session. Without this the
+        // field and button stayed disabled at "Restoring…" for good.
+        function onLoggedInChanged() {
+            if (!d.started)
+                return
+            const sameAccount = d.userId === d.activeUserId()
+            root.clear()
+            if (sameAccount)
+                d.outcome = "interrupted"
         }
     }
 }

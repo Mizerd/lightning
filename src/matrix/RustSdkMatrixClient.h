@@ -2,6 +2,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "calls/SdpStore.h"
+#include "matrix/RecoveryReopenBudget.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix/SessionLifecycleGuard.h"
@@ -578,6 +579,7 @@ public:
     quint64 crossSigningAction(const QString &action, const QString &recoveryKey,
                                bool replaceRecoveryKeyConfirmed) override;
     quint64 requestBackupProgress() override;
+    void acknowledgeInterruptedSetup() override;
     void readAccountPref(const QString &prefType) override;
     void writeAccountPref(const QString &prefType,
                           const QVariantMap &content) override;
@@ -795,9 +797,12 @@ Q_SIGNALS:
                                   const QString &serverEventId,
                                   const QString &message);
 
-    // Fires once per recoverFromBackup call. `state` is "attempted", then "ok"
-    // or "failed". `message` is non-secret failure detail or empty; never the
-    // recovery key or imported key material.
+    // Fires once per recoverFromBackup call. `state` is "attempted", then one
+    // of "ok" (the backup key is usable), "ok_no_backup" (secret storage held
+    // no key backup, so no history was restored), "nothing_restored" (it held
+    // neither a backup key nor the cross-signing keys) or "failed". `message`
+    // is our translated failure text (BackupController::recoveryFailureText)
+    // or empty; never matrix-sdk's text, the recovery key or key material.
     void keyBackupResult(const QString &state, const QString &message);
 
     // Fires once per reloadRoomTimeline() call.
@@ -860,7 +865,8 @@ Q_SIGNALS:
     void cryptoBootstrapEvent(const QString &kind, const QString &state,
                               quint64 count, quint64 inconclusive);
     // Entries carry deviceId, displayName, lastSeenTs, lastSeenIp, isCurrent,
-    // hasCryptoIdentity, verified, crossSigned.
+    // hasCryptoIdentity, verified, crossSigned, trusted. Trust labels read
+    // `trusted` only: `isCurrent ? crossSigned : verified`, decided in Rust.
     void deviceListUpdated(bool ok, const QVariantList &devices);
     // `deviceCrossSigned` is `is_cross_signed_by_owner()` and is what the
     // current session's trust label uses. Do not use `Device::is_verified()`
@@ -1103,6 +1109,7 @@ private:
     friend class RoomNotificationModeTest;
     friend class RtcBridgePayloadTest;
     friend class SyncMessageRowTest;
+    friend class E2eeBridgeTest;
 
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,
@@ -1164,6 +1171,18 @@ private:
     /// pagination state. A no-op for the room the tracker currently wants, so a
     /// re-open keeps its rows until its reset replaces them.
     void retireRoomTimelineMirror(const QString &roomId);
+    // The loop breaker on the reopens that recover a damaged mirror
+    // (RecoveryReopenBudget). True: reopen now. False: capped; one escalation
+    // is logged and `reopen` runs once when the window has room again, if it
+    // is still owed (the budget was not cleared) and `stillOpen` says the
+    // timeline is still the one requested or shown.
+    bool admitRecoveryReopen(const QString &timelineId, const char *reason,
+                             std::function<bool()> stillOpen,
+                             std::function<void()> reopen);
+    // The `stillOpen` guards: the timeline is the one requested or active.
+    bool roomTimelineStillOpen(const QString &roomId) const;
+    bool threadTimelineStillOpen(const QString &timelineId) const;
+    bool contextTimelineStillOpen(const QString &timelineId) const;
     void handleThreadListReset(const QJsonObject &event);
     void handleThreadSubscriptionEvent(const QString &type,
                                        const QJsonObject &event);
@@ -1319,6 +1338,9 @@ private:
     // The read-only event context view, same scheme, keyed by contextTimelineId
     // and stamped with Rust's context_generation.
     matrix::rust_timeline::TimelineGenerationTracker m_contextTracker;
+    // Per timeline id (room, thread or context): recovery reopens in the last
+    // window, and whether one is deferred.
+    matrix::RecoveryReopenBudget m_recoveryReopens;
     QHash<QString, PaginationState> m_pagination;
     // The room whose Threads view is open, plus the adopted thread-list
     // generation (stale snapshots are rejected).

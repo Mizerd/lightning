@@ -92,6 +92,10 @@ public:
         ThreadRootIdRole,        // Non-empty on thread replies.
         IsThreadRootRole,        // True if any event in this room has this as root.
         ThreadReplyCountRole,    // Number of visible replies for a thread root.
+        // A thread reply in the ROOM timeline that cannot be decrypted yet
+        // (isThreadReplyAwaitingKeys). Drawn as a one-line thread notice, never
+        // as a standalone message (CLAUDE.md §8).
+        ThreadReplyAwaitingKeysRole,
         // SDK thread-summary presentation roles (thread roots only).
         ThreadLatestPreviewRole,   // Sanitized preview of the latest reply.
         ThreadLatestKindRole,      // Semantic kind for a safe label (image/gif/…).
@@ -286,6 +290,12 @@ public:
     // `call` row or the legacy "state event with kind m.call" (older bridges,
     // mock/HTTP). Static and stateless so every reader asks one question.
     static bool isCallEventRow(const TimelineEvent &e);
+    // matrix-sdk-ui cannot classify an undecryptable thread reply (it reads
+    // relations from decrypted content only), so it reaches the room timeline;
+    // the Rust bridge tags it with the root its cleartext relation names. True
+    // for such a row in the room timeline; false in a thread timeline, where it
+    // is simply a reply. It stays in the model so its session is still retried.
+    bool isThreadReplyAwaitingKeys(const TimelineEvent &e) const;
     /// Recomputes latestCallEventId() and emits when it moves. Cheap: scans
     /// from the newest end and stops at the first call row.
     void refreshLatestCallEvent();

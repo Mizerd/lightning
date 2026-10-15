@@ -1324,6 +1324,53 @@ impl TimelineRegistry {
         Some((timeline, thread.thread_gen, self.lifecycle_gen.load(Ordering::SeqCst)))
     }
 
+    /// How many of `resolved` (events matrix-sdk's redecryptor just decrypted
+    /// in `room_id`) are replies in the open thread that its SDK timeline does
+    /// not hold.
+    ///
+    /// Diagnostic only, and deliberately not a refresh. matrix-sdk 0.18 keeps a
+    /// thread's events in an in-memory linked chunk of copies; `on_resolved_utds`
+    /// replaces UTDs in the room chunk, pinned and event-focused caches only
+    /// (event_cache/redecryptor.rs), and post-processing marks the thread with
+    /// an EMPTY event list (caches/room/state.rs `post_process_new_events`), so
+    /// the thread chunk keeps the undecryptable copy, which a thread-focused
+    /// timeline never shows. Rebuilding the thread timeline re-subscribes to the
+    /// same chunk, and once it holds the root its back-pagination reports the
+    /// start without fetching (caches/thread/pagination.rs). Only a gappy sync
+    /// or a restart clears it, and the one public reset (`RoomEventCache::clear`)
+    /// also deletes the room's persisted events. So this counts the case for the
+    /// log; it cannot repair it.
+    pub(crate) async fn redecrypted_replies_missing_from_open_thread(
+        &self,
+        client: &Client,
+        room_id: &str,
+        resolved: &[String],
+    ) -> usize {
+        let open = self.active_thread.lock().ok().and_then(|guard| {
+            guard.as_ref().and_then(|thread| {
+                (thread.room_id == room_id).then(|| {
+                    Some((thread.root_event_id.clone(), thread.timeline.clone()?))
+                })?
+            })
+        });
+        let Some((root, timeline)) = open else { return 0 };
+        let Ok(room_ref) = RoomId::parse(room_id) else { return 0 };
+        let Some(room) = client.get_room(&room_ref) else { return 0 };
+        let Ok((cache, _drop_handles)) = room.event_cache().await else { return 0 };
+        let mut missing = 0;
+        for id in resolved {
+            let Ok(event_id) = matrix_sdk::ruma::EventId::parse(id) else { continue };
+            let Ok(Some(event)) = cache.find_event(&event_id).await else { continue };
+            if decrypted_thread_root(event.raw()).as_deref() != Some(root.as_str()) {
+                continue;
+            }
+            if timeline.item_by_event_id(&event_id).await.is_none() {
+                missing += 1;
+            }
+        }
+        missing
+    }
+
     /// One backward pagination batch for the open thread. Single-flight and
     /// suppressed after reaching the start, like the room path.
     pub fn paginate_thread_back(
@@ -4175,6 +4222,19 @@ fn event_item_to_json(
                     out["undecryptable"] = true.into();
                     out["body"] = "".into();
                     out["error_kind"] = utd_category(encrypted).into();
+                    // A thread reply that cannot be decrypted yet still names its
+                    // thread in the clear (see `cleartext_thread_root`). Tagging it
+                    // lets the room timeline show it as a thread notice instead of
+                    // a standalone message (CLAUDE.md §8) while the item stays in
+                    // the SDK timeline, where Retry and the automatic recovery
+                    // passes find its session.
+                    if msg_like.thread_root.is_none() {
+                        if let Some(root) =
+                            event.original_json().and_then(cleartext_thread_root)
+                        {
+                            out["thread_root_id"] = root.into();
+                        }
+                    }
                 }
                 MsgLikeKind::Sticker(sticker) => {
                     // Stickers render through the image path; only safe metadata crosses, and
@@ -5975,6 +6035,47 @@ async fn utd_session_ids(timeline: &Timeline) -> Vec<String> {
         }
     }
     session_ids
+}
+
+/// The thread root an `m.room.encrypted` event names in its CLEARTEXT
+/// `m.relates_to`, if that relation is `m.thread`.
+///
+/// matrix-sdk-ui 0.18 reads relations only from decrypted content
+/// (`process_content_relations` ends in `_ => (None, None)`,
+/// timeline/controller/metadata.rs), so an undecryptable thread reply has no
+/// thread root, passes `hide_threaded_events` and sits in the live timeline as
+/// a standalone row until it decrypts, when the SDK removes it. Senders keep
+/// relations outside the ciphertext by design, and this is the very field
+/// matrix-sdk-crypto copies into the decrypted event
+/// (olm/group_sessions/inbound.rs), so reading it trusts nothing the SDK does
+/// not. Identifiers only; a malformed id yields None.
+fn cleartext_thread_root(
+    raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
+) -> Option<String> {
+    if raw.get_field::<String>("type").ok().flatten().as_deref()
+        != Some("m.room.encrypted")
+    {
+        return None;
+    }
+    let content = raw.get_field::<serde_json::Value>("content").ok().flatten()?;
+    let relation = content.get("m.relates_to")?;
+    if relation.get("rel_type")?.as_str()? != "m.thread" {
+        return None;
+    }
+    let root = relation.get("event_id")?.as_str()?;
+    matrix_sdk::ruma::EventId::parse(root).ok().map(|id| id.to_string())
+}
+
+/// The `m.thread` root a (decrypted or plain) event's content names.
+fn decrypted_thread_root(
+    raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
+) -> Option<String> {
+    let content = raw.get_field::<serde_json::Value>("content").ok().flatten()?;
+    let relation = content.get("m.relates_to")?;
+    if relation.get("rel_type")?.as_str()? != "m.thread" {
+        return None;
+    }
+    relation.get("event_id")?.as_str().map(str::to_owned)
 }
 
 fn utd_category(encrypted: &EncryptedMessage) -> &'static str {
@@ -8173,5 +8274,166 @@ mod reply_fallback_tests {
     #[test]
     fn nothing_after_the_fallback_is_empty() {
         assert_eq!(strip("> <@a:b.c> q\n\n"), "");
+    }
+}
+
+/// An undecryptable thread reply in the room timeline (F4, 2026-10-14). Real
+/// matrix-sdk(-ui) objects over a loopback `MatrixMockServer`; the event is a
+/// Megolm event whose session this client never had, so nothing is decrypted.
+#[cfg(test)]
+mod thread_utd_tests {
+    use super::{
+        cleartext_thread_root, event_item_to_json, lightning_event_filter, TimelineRegistry,
+    };
+    use matrix_sdk::ruma::api::client::sync::sync_events::v5;
+    use matrix_sdk::ruma::events::AnySyncTimelineEvent;
+    use matrix_sdk::ruma::room_id;
+    use matrix_sdk::ruma::serde::Raw;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk_base::RequestedRequiredStates;
+    use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
+    use serde_json::{json, Value};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    const ROOT: &str = "$threadroot:morpheus.localhost";
+    const REPLY: &str = "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM";
+
+    /// matrix-sdk's own UTD fixture (tests/integration/encryption/backups.rs)
+    /// with the cleartext `m.relates_to` a client puts on an encrypted reply.
+    fn encrypted(relates_to: Option<Value>) -> Value {
+        let mut content = json!({
+            "algorithm": "m.megolm.v1.aes-sha2",
+            "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                           YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                           PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                           iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                           JGJjKfV57NAhp8W+9oT7ugwO",
+            "device_id": "KIUVQQSDTM",
+            "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+            "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+        });
+        if let Some(relation) = relates_to {
+            content["m.relates_to"] = relation;
+        }
+        json!({
+            "event_id": REPLY,
+            "origin_server_ts": 1698579035927u64,
+            "sender": "@example2:morpheus.localhost",
+            "type": "m.room.encrypted",
+            "content": content,
+        })
+    }
+
+    fn thread_relation(root: &str) -> Value {
+        json!({
+            "rel_type": "m.thread",
+            "event_id": root,
+            "is_falling_back": true,
+            "m.in_reply_to": { "event_id": root },
+        })
+    }
+
+    fn raw(value: Value) -> Raw<AnySyncTimelineEvent> {
+        Raw::from_json_string(value.to_string()).unwrap()
+    }
+
+    #[test]
+    fn only_a_cleartext_thread_relation_names_a_root() {
+        assert_eq!(
+            cleartext_thread_root(&raw(encrypted(Some(thread_relation(ROOT))))).as_deref(),
+            Some(ROOT)
+        );
+        // A plain rich reply is not a thread reply (CLAUDE.md §8).
+        let reply = json!({ "m.in_reply_to": { "event_id": ROOT } });
+        assert_eq!(cleartext_thread_root(&raw(encrypted(Some(reply)))), None);
+        assert_eq!(cleartext_thread_root(&raw(encrypted(None))), None);
+        // Not an event id.
+        assert_eq!(
+            cleartext_thread_root(&raw(encrypted(Some(thread_relation("not-an-id"))))),
+            None
+        );
+        // Only an encrypted event is read this way; a decrypted one has the
+        // SDK's own thread root.
+        let mut plain = encrypted(Some(thread_relation(ROOT)));
+        plain["type"] = json!("m.room.message");
+        assert_eq!(cleartext_thread_root(&raw(plain)), None);
+    }
+
+    /// The SDK premise and the fix, on one real item: matrix-sdk-ui places an
+    /// undecryptable thread reply in a `hide_threaded_events` live timeline
+    /// (it reads relations only from decrypted content), and the row Lightning
+    /// sends to C++ names its thread. Before the fix `thread_root_id` was
+    /// absent and the row rendered as a standalone "Waiting for keys" message.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_undecryptable_thread_reply_in_the_room_timeline_names_its_thread() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_encryption_settings(crate::encryption_settings()))
+            .build()
+            .await;
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        client.event_cache().subscribe().expect("event cache");
+
+        let room = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+        let mut response = v5::Response::new("pos-1".to_owned());
+        let mut entry = v5::response::Room::default();
+        entry.required_state = vec![Raw::from_json_string(
+            json!({
+                "type": "m.room.encryption", "state_key": "",
+                "event_id": "$encryption", "origin_server_ts": 1698579035000u64,
+                "sender": "@example2:morpheus.localhost",
+                "content": { "algorithm": "m.megolm.v1.aes-sha2" }
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        entry.timeline = vec![Raw::from_json_string(
+            encrypted(Some(thread_relation(ROOT))).to_string(),
+        )
+        .unwrap()];
+        response.rooms.insert(room.to_owned(), entry);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+
+        let room = client.get_room(room).expect("room known");
+        // Built as Lightning builds the room timeline.
+        let timeline = TimelineBuilder::new(&room)
+            .event_filter(lightning_event_filter)
+            .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+            .build()
+            .await
+            .expect("timeline");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let utd = loop {
+            let found = timeline.items().await.iter().find_map(|item| {
+                item.as_event()
+                    .filter(|event| event.content().is_unable_to_decrypt())
+                    .map(|event| (item.unique_id().0.clone(), event.clone()))
+            });
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "SDK premise changed: the undecryptable thread reply is not in \
+                 the live timeline; the tag may no longer be needed"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let row = event_item_to_json(&utd.0, &utd.1, "@me:morpheus.localhost", &registry);
+        assert_eq!(row["undecryptable"], true);
+        assert_eq!(row["event_id"], REPLY);
+        assert_eq!(
+            row["thread_root_id"], ROOT,
+            "the room timeline row must name the thread it belongs to"
+        );
     }
 }

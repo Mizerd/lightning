@@ -113,6 +113,7 @@ mod sso;
 mod stickers;
 mod uia;
 mod warm_rooms;
+mod recovery;
 // Account password change and its capability probe (FFI in the module).
 mod password;
 mod policy;
@@ -172,6 +173,10 @@ fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool
 
 struct RustClient {
     store_path: PathBuf,
+    /// Process-unique id of this bridge. Lifecycle numbers restart at every
+    /// bridge, so "already reported in this lifecycle" must name the bridge
+    /// too (`recovery::interrupted_setup_to_report`).
+    bridge_id: u64,
     /// The local message index (SQLite FTS5), opened lazily inside the
     /// account's store directory so it is deleted with the account.
     ///
@@ -329,6 +334,7 @@ impl RustClient {
         let index_all = Arc::new(indexall::Control::new(&store_path));
         Ok(Self {
             store_path,
+            bridge_id: recovery::next_bridge_id(),
             search_index: Arc::new(Mutex::new(None)),
             index_shutdown: Arc::new(AtomicBool::new(false)),
             index_all,
@@ -1790,6 +1796,28 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         });
         drop(task_slot);
 
+        // A recovery-key-minting action from an earlier session that never
+        // reported (aborted at teardown, or the process died) left its marker.
+        // Say so once, through the result the action would have sent: the
+        // account may now have secret storage whose key nobody was shown.
+        // op_id 0 is no operation of this session's; BackupController accepts
+        // it for this category only.
+        // The marker stays until the user has been shown the report
+        // (mx_rust_acknowledge_interrupted_setup).
+        if recovery::interrupted_setup_to_report(
+            &bridge.store_path, bridge.bridge_id, bridge.timelines.lifecycle(),
+        ) {
+            enqueue(
+                &bridge.events,
+                json!({
+                    "type": "backup_action_result", "op_id": 0,
+                    "lifecycle": bridge.timelines.lifecycle(),
+                    "action": "enable", "ok": false,
+                    "category": "setup_interrupted",
+                }),
+            );
+        }
+
         // Crypto-bootstrap observer: forwards sanitized state names and counts
         // (never key material, session ids or secrets), stamped with the lifecycle
         // so a stale observer cannot update a later account. Stopped in
@@ -1917,6 +1945,15 @@ async fn run_crypto_bootstrap_observer(
     let mut recovery_states = recovery.state_stream();
     let mut backup_states = backups.state_stream();
     let mut room_keys = encryption.room_keys_received_stream().await;
+    // What matrix-sdk's event-cache redecryptor did with arriving keys: how
+    // many stored undecryptable events it resolved, and whether it lagged and
+    // may have missed some. Counts only. Without it a log cannot tell "the key
+    // never arrived" from "the key arrived and nothing was redecrypted", which
+    // is the open question behind a thread reply that stayed "Waiting for
+    // keys" until a manual Retry (open-items, F4).
+    let mut redecryption = Some(Box::pin(
+        client.event_cache().subscribe_to_decryption_reports(),
+    ));
 
     // Nudge channel and m.secret.send observer. The handler forwards only the
     // fact that a secret event was decrypted, never its name, value or sender.
@@ -2162,6 +2199,54 @@ async fn run_crypto_bootstrap_observer(
                     )
                 {
                     run_backup_download_pass(&client, &timelines).await;
+                }
+            }
+            report = async {
+                match redecryption.as_mut() {
+                    Some(stream) => stream.next().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                use matrix_sdk::event_cache::RedecryptorReport;
+                match report {
+                    Some(Ok(RedecryptorReport::ResolvedUtds { room_id, events: resolved })) => {
+                        emit_crypto_bootstrap(
+                            &events, lifecycle, "utds_resolved", "",
+                            resolved.len() as u64,
+                        );
+                        // A reply decrypted here that the open thread view will
+                        // never show (matrix-sdk keeps the thread's stale copy;
+                        // see the registry method). Counted for the log only.
+                        let ids: Vec<String> =
+                            resolved.iter().map(|id| id.to_string()).collect();
+                        let missing = timelines
+                            .redecrypted_replies_missing_from_open_thread(
+                                &client, room_id.as_str(), &ids,
+                            )
+                            .await;
+                        if missing > 0 {
+                            emit_crypto_bootstrap(
+                                &events, lifecycle, "thread_reply_out_of_view", "",
+                                missing as u64,
+                            );
+                        }
+                    }
+                    // The SDK's redecryptor missed room keys.
+                    Some(Ok(RedecryptorReport::Lagging)) => {
+                        emit_crypto_bootstrap(
+                            &events, lifecycle, "redecryption_lagging", "", 0,
+                        );
+                    }
+                    // Our own subscriber fell behind and missed reports; the
+                    // redecryptor itself may be fine.
+                    Some(Err(_)) => {
+                        emit_crypto_bootstrap(
+                            &events, lifecycle, "redecryption_reports_missed", "", 0,
+                        );
+                    }
+                    Some(Ok(RedecryptorReport::BackupAvailable)) => {}
+                    // The event cache is gone; park this arm.
+                    None => redecryption = None,
                 }
             }
             keys = async {
@@ -3482,8 +3567,16 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
 /// accepts a Base58 recovery key or a recovery passphrase. Never logs the
 /// input or any imported key material. Result events:
 ///   { "type": "key_backup_status", "state": "attempted" }
-///   { "type": "key_backup_status", "state": "ok" }
-///   { "type": "key_backup_status", "state": "failed", "message": "…" }
+///   { "type": "key_backup_status", "state": "ok" | "ok_no_backup"
+///                                         | "nothing_restored" }
+///   { "type": "key_backup_status", "state": "failed", "category": "…" }
+///
+/// `recover()` returning Ok does not mean anything was restored: a secret
+/// storage without a backup key restores no message keys, and one without
+/// cross-signing keys verifies nothing. The state says which
+/// (`recovery::recover_outcome`). On failure `category`
+/// (`recovery::classify_recover_error`) is all that crosses: C++ shows its
+/// own translated text for it.
 ///
 /// After recovery the SDK does not download keys if the backup key was
 /// already stored, so a download pass for the open room runs here, with
@@ -3506,39 +3599,100 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
                 &events,
                 json!({ "type": "key_backup_status", "state": "attempted" }),
             );
-            let recovery = client.encryption().recovery();
-            match recovery.recover(&recovery_key).await {
+            let encryption = client.encryption();
+            // Whether this session's own device is cross-signed by its owner,
+            // the question matrix-sdk's `verification_state()` asks. Read after
+            // the call on BOTH arms: `import_secrets()` signs this device before
+            // it touches the key backup (secret_store.rs:403-461), so a failure
+            // in the backup step arrives with the session already verified.
+            // Read BEFORE as well, so "now verified" is said only when this
+            // call did it, not for a session verified earlier by SAS.
+            let verified_before = own_session_cross_signed(&client).await;
+            match encryption.recovery().recover(&recovery_key).await {
                 Ok(_) => {
+                    let backup_usable = encryption.backups().are_enabled().await;
+                    let identity_held = own_session_cross_signed(&client).await;
                     // Forced post-recover download for the open room. This is the only place
                     // that can re-run a pass a room already had. Visible rows are re-decrypted
                     // indirectly via `room_keys_received_stream` ->
                     // `retry_decryption_after_import` (active room only).
-                    if let Some(room_id) = timelines.active_room_id() {
-                        timelines.clear_backup_attempt(&room_id);
-                        timelines
-                            .download_backup_keys_for_room(
-                                &client, &room_id,
-                            )
-                            .await;
+                    if backup_usable {
+                        if let Some(room_id) = timelines.active_room_id() {
+                            timelines.clear_backup_attempt(&room_id);
+                            timelines
+                                .download_backup_keys_for_room(
+                                    &client, &room_id,
+                                )
+                                .await;
+                        }
                     }
                     enqueue(
                         &events,
-                        json!({ "type": "key_backup_status", "state": "ok" }),
+                        json!({
+                            "type": "key_backup_status",
+                            "state": recovery::recover_outcome(
+                                backup_usable, identity_held,
+                            ),
+                        }),
                     );
                 }
-                Err(err) => enqueue(
-                    &events,
-                    json!({
-                        "type": "key_backup_status",
-                        "state": "failed",
-                        "message": format_matrix_error(
-                            "Matrix Rust SDK key backup recover failed", err),
-                    }),
-                ),
+                Err(err) => {
+                    let category = recovery::classify_recover_error(&err);
+                    let session_verified = own_session_cross_signed(&client).await;
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "key_backup_status",
+                            "state": "failed",
+                            // Category only. The SDK's text is English, and a key
+                            // that fails to decode is quoted in it (`DecodeError`
+                            // prints the offending character, prefix or parity
+                            // byte), so it is neither shown nor logged.
+                            "category": category,
+                            "session_verified": session_verified,
+                            "became_verified": !verified_before && session_verified,
+                        }),
+                    );
+                }
             }
         });
         Ok(String::new())
     })
+}
+
+/// Room keys in the store and how many of them the current backup version
+/// holds. Counts only. Reached through `olm_machine_for_testing` (matrix-sdk's
+/// `testing` feature, see rust/Cargo.toml): a read-only call, like the
+/// secret-request site.
+async fn backup_room_key_counts(client: &Client) -> Option<(u64, u64)> {
+    let machine = client.olm_machine_for_testing().await;
+    let counts = machine.as_ref()?.backup_machine().room_key_counts().await.ok()?;
+    Some((counts.backed_up as u64, counts.total as u64))
+}
+
+/// Whether this session's own device is cross-signed by its owner: the
+/// question matrix-sdk's `verification_state()` asks (never
+/// `Device::is_verified()`, a constant true for our own device).
+async fn own_session_cross_signed(client: &Client) -> bool {
+    client
+        .encryption()
+        .get_own_device()
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|device| device.is_cross_signed_by_owner())
+}
+
+/// The user has been shown a `setup_interrupted` report (sent at sync start by
+/// `recovery::interrupted_setup_to_report`): remove the marker. Until then it
+/// stays, so a report lost on the way is made again by the next session.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_acknowledge_interrupted_setup(ptr: *mut c_void) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(bridge) = unsafe { bridge(ptr) } {
+            recovery::acknowledge_interrupted_setup(&bridge.store_path);
+        }
+    }));
 }
 
 /// Reload a room's timeline via Room::messages, emitting the same
@@ -5839,15 +5993,25 @@ pub unsafe extern "C" fn mx_rust_backup_action(
         let events = Arc::clone(&bridge.events);
         let lifecycle = bridge.timelines.lifecycle();
         let timelines = Arc::clone(&bridge.timelines);
-        // No inner timeout: `Recovery::enable()` returns the new key only after the
-        // room-key upload settles, so a timeout would leave recovery enabled on the
-        // server with the key never delivered.
+        let store_path = bridge.store_path.clone();
+        // The key is reported as soon as it exists. `enable()` without
+        // `wait_for_backups_to_upload()` returns right after secret storage is
+        // created and only triggers the room-key upload, which carries on in the
+        // SDK's backup task and is reported through `backup_progress` (the card
+        // asks for it after every result). Waiting for the upload put minutes of
+        // teardown exposure (`SHUTDOWN_ACTION_JOIN_MS` aborts this task on an
+        // account switch or quit) between "secret storage exists" and "the user
+        // has the key", with nothing reported.
         //
-        // The teardown abort (`SHUTDOWN_ACTION_JOIN_MS`) can cause that same state
-        // if the user switches account during a long upload. The real fix is to
-        // report the key as soon as it exists and let `backup_progress` carry the
-        // upload; that changes what `backup_action_result` means to QML.
+        // No inner timeout, for the same reason. What remains of that window
+        // (the secret-storage requests themselves) is covered by the marker:
+        // a minting action that never reports leaves it behind, and the next
+        // session reports it (`recovery::interrupted_setup_to_report`). The
+        // marker is written when the task actually runs, so an action that
+        // never started (a dropped spawn) is not reported as interrupted.
+        let mints_key = matches!(action.as_str(), "enable" | "reset_key");
         bridge.spawn_reported_action("backup_action", async move {
+            let marker = mints_key.then(|| recovery::SetupMarker::start(&store_path));
             let encryption = client.encryption();
             let recovery = encryption.recovery();
             let backups = encryption.backups();
@@ -5855,7 +6019,6 @@ pub unsafe extern "C" fn mx_rust_backup_action(
             let result: Result<Option<String>, String> = match action.as_str() {
                 "enable" => recovery
                     .enable()
-                    .wait_for_backups_to_upload()
                     .await
                     .map(Some)
                     .map_err(|e| e.to_string()),
@@ -5882,7 +6045,12 @@ pub unsafe extern "C" fn mx_rust_backup_action(
                 _ => Err("unknown backup action".to_owned()),
             };
             if !timelines.lifecycle_current(lifecycle) {
+                // Nobody is left to show the outcome to: the marker stays, and
+                // the next session says the setup was interrupted.
                 return;
+            }
+            if let Some(marker) = marker {
+                marker.finish();
             }
             match result {
                 Ok(key) => enqueue(
@@ -5974,6 +6142,15 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(
                 Ok(Some(Ok(UploadState::Idle))) => (0, 0, "idle"),
                 _ => (0, 0, "unknown"),
             };
+            // Outside an upload the stream carries no counts, and right after
+            // `enable()` (which no longer waits for the upload) the upload may
+            // not have started: "idle" with every key still local. The store's
+            // own counts say what is really backed up, so sign-out still warns.
+            let (backed_up, total) = if upload == "uploading" {
+                (backed_up, total)
+            } else {
+                backup_room_key_counts(&client).await.unwrap_or((backed_up, total))
+            };
             if !timelines.lifecycle_current(lifecycle) {
                 return;
             }
@@ -6037,6 +6214,7 @@ pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
                         cross_signed = crypto_device.is_cross_signed_by_owner();
                     }
                 }
+                let is_current = device.device_id == own_device_id;
                 devices.push(json!({
                     "device_id": device_id,
                     "display_name": device.display_name.unwrap_or_default(),
@@ -6045,10 +6223,14 @@ pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
                         .map(|ts| u64::from(ts.get()))
                         .unwrap_or(0),
                     "last_seen_ip": device.last_seen_ip.unwrap_or_default(),
-                    "is_current": device.device_id == own_device_id,
+                    "is_current": is_current,
                     "has_crypto_identity": has_crypto_identity,
                     "verified": verified,
                     "cross_signed": cross_signed,
+                    // The one flag every trust label on the Sessions page reads.
+                    "trusted": recovery::session_row_trusted(
+                        is_current, verified, cross_signed,
+                    ),
                 }));
             }
             enqueue(&events, json!({
@@ -18220,6 +18402,100 @@ mod utd_recovery_tests {
             .expect("store")
             .expect("the second device is known");
         assert_eq!(device.is_verified(), trusted, "fixture: trust as asked");
+    }
+
+    /// Give the client a second device of its own that is SIGNED by our
+    /// self-signing key, while this client holds none of the cross-signing
+    /// private keys, i.e. our own identity is not verified here: the shape of a
+    /// fresh, unverified session looking at an account whose other sessions
+    /// were cross-signed elsewhere.
+    async fn add_own_device_signed_by_an_unverified_identity(client: &Client) {
+        let user = client.user_id().expect("logged in").to_owned();
+        let other_id = device_id!("SIGNEDDEVICE");
+        let other = OlmMachine::new(&user, other_id).await;
+        let bootstrap = other.bootstrap_cross_signing(false).await.expect("bootstrap");
+        let keys = bootstrap.upload_signing_keys_req;
+        let device = other
+            .get_device(&user, other_id, None)
+            .await
+            .expect("store")
+            .expect("own device");
+        let signed = device.verify().await.expect("signed by our self-signing key");
+        // `verify()` signs a copy with its signatures cleared, so merge the
+        // self-signing signature into the device's own self-signed keys
+        // (signatures are outside the canonical JSON both sign).
+        let signed_keys = serde_json::to_value(&signed.signed_keys).unwrap();
+        let ssk_signatures =
+            signed_keys[user.as_str()][other_id.as_str()]["signatures"][user.as_str()].clone();
+        let mut device_json = serde_json::to_value(device.as_device_keys()).unwrap();
+        for (key_id, signature) in ssk_signatures.as_object().expect("an SSK signature") {
+            device_json["signatures"][user.as_str()][key_id] = signature.clone();
+        }
+        let device_json = device_json.to_string();
+        let cross = |key: Option<matrix_sdk_base::crypto::types::CrossSigningKey>| {
+            Raw::from_json_string(serde_json::to_string(&key.expect("key")).unwrap()).unwrap()
+        };
+        let mut response = get_keys::v3::Response::new();
+        response.device_keys.insert(
+            user.clone(),
+            BTreeMap::from([(
+                other_id.to_owned(),
+                Raw::from_json_string(device_json).unwrap(),
+            )]),
+        );
+        response.master_keys.insert(user.clone(), cross(keys.master_key));
+        response.self_signing_keys.insert(user.clone(), cross(keys.self_signing_key));
+        response.user_signing_keys.insert(user.clone(), cross(keys.user_signing_key));
+        let machine = client.olm_machine_for_testing().await;
+        machine
+            .as_ref()
+            .expect("olm machine")
+            .mark_request_as_sent(&TransactionId::new(), &response)
+            .await
+            .expect("keys query answer accepted");
+    }
+
+    // Review L1: the Sessions page's rule on real SDK devices, not on booleans.
+    // A device signed by an identity this session has not verified is NOT
+    // trusted (the old label, `crossSigned`, badged it green), and a device
+    // verified by SAS without cross-signing IS (the old label said "Not
+    // verified").
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_sessions_trust_rule_follows_the_sdk_on_real_devices() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        let user = client.user_id().expect("logged in").to_owned();
+
+        // One fixture at a time: a /keys/query answer is the user's whole
+        // device list, so the second replaces the first.
+        add_own_device_signed_by_an_unverified_identity(&client).await;
+
+        let encryption = client.encryption();
+        let signed = encryption
+            .get_device(&user, device_id!("SIGNEDDEVICE"))
+            .await
+            .expect("store")
+            .expect("the signed device is known");
+        assert!(signed.is_cross_signed_by_owner(), "fixture: signed by our key");
+        assert!(!signed.is_verified(), "fixture: our identity is not verified here");
+        assert!(!super::recovery::session_row_trusted(
+            false,
+            signed.is_verified(),
+            signed.is_cross_signed_by_owner(),
+        ));
+
+        add_own_device(&client, true).await;
+        let sas_only = encryption
+            .get_device(&user, device_id!("OTHERDEVICE"))
+            .await
+            .expect("store")
+            .expect("the SAS-verified device is known");
+        assert!(!sas_only.is_cross_signed_by_owner(), "fixture: never cross-signed");
+        assert!(super::recovery::session_row_trusted(
+            false,
+            sas_only.is_verified(),
+            sas_only.is_cross_signed_by_owner(),
+        ));
     }
 
     // The policy itself, so a later edit cannot quietly drop back to OneShot

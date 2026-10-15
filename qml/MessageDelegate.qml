@@ -33,6 +33,7 @@ Item {
         model.isVirtual !== true && model.redacted !== true
         && model.isLocalEcho !== true
         && !root.isCallEvent && !root.isStateActivity
+        && !root.isThreadKeyWait
         && root.eventIdForActions() !== ""
         // A gallery forwards as its first attachment only.
         && !root.isGallery
@@ -91,6 +92,14 @@ Item {
     // state. Every branch that enumerates row kinds must name it. `=== true` so
     // a model without the role keeps the old behaviour.
     readonly property bool isCallEvent: model.isCallEvent === true
+    // A thread reply that cannot be decrypted yet, in the room timeline. The
+    // SDK cannot tell it is threaded until it decrypts, so it reaches this
+    // timeline; it renders as a one-line thread notice, never as a standalone
+    // message (CLAUDE.md §8), and stays in the model so Retry and the
+    // automatic recovery passes still reach its session. Once it decrypts the
+    // SDK removes it from this timeline. The model decides
+    // (TimelineModel::isThreadReplyAwaitingKeys); `=== true` as above.
+    readonly property bool isThreadKeyWait: model.threadReplyAwaitingKeys === true
     // A zero-height presentation filter: state events stay in the model, so
     // toggling the setting needs no resync. "Room activity" is a master switch
     // with membership and member_profile halves; other kinds follow the master.
@@ -189,6 +198,7 @@ Item {
          || deletedFollower) ? 0
         : isVirtualRow ? virtualRow.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
+        : isThreadKeyWait ? threadKeyWaitRow.implicitHeight + AppTheme.spacingS * 2
         : isStateActivity ? stateActivity.implicitHeight
         : layout.implicitHeight + messageTopSpacing
     property bool heightSeedActive: false
@@ -645,7 +655,7 @@ Item {
     function openContextMenu(x, y, alreadyInOverlaySpace) {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity
-            || root.isCallEvent || root.readOnlyView)
+            || root.isCallEvent || root.isThreadKeyWait || root.readOnlyView)
             return
         // Dismiss transient row surfaces first: the picker and this menu share
         // one overlay, so the later one covers the other and z cannot fix it.
@@ -807,6 +817,7 @@ Item {
         if (!root.rowActionsEnabled || root.readOnlyView
                 || model.redacted === true
                 || root.isVirtualRow || root.isStateActivity || root.isCallEvent
+                || root.isThreadKeyWait
                 || id.length === 0 || id.indexOf("local:") === 0
                 || !root.timelineModel
                 || root.timelineModel.messagePermalink(id).length === 0)
@@ -817,6 +828,7 @@ Item {
         return true
     }
     activeFocusOnTab: !isVirtualRow && !isStateActivity && !isCallEvent
+                      && !isThreadKeyWait
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Menu
             || (event.key === Qt.Key_F10
@@ -1062,8 +1074,8 @@ Item {
     readonly property bool roomEncrypted:
         root.timelineView ? root.timelineView.roomEncrypted === true : false
     function refreshPreview() {
-        if (isVirtualRow || isStateActivity || isCallEvent || model.redacted
-            || model.isImage || model.isFile
+        if (isVirtualRow || isStateActivity || isCallEvent || isThreadKeyWait
+            || model.redacted || model.isImage || model.isFile
             || actionKey === "" || !app.linkPreviews.supported) {
             preview = ({ state: "none" })
             return
@@ -1233,6 +1245,68 @@ Item {
         }
     }
 
+    // The thread notice for isThreadKeyWait: where the reply belongs, and the
+    // same bounded manual Retry an undecryptable message row offers (the
+    // thread panel cannot show an undecryptable reply at all). No sender, no
+    // body, no hover bar or context menu: it is not a message of this
+    // timeline. A Loader on the row kind alone, like callEventRow.
+    Loader {
+        id: threadKeyWaitRow
+        objectName: "threadKeyWaitRow"
+        active: root.isThreadKeyWait
+        visible: active
+        y: AppTheme.spacingS
+        x: root.avatarGutterWidth
+        width: parent.width - x
+        sourceComponent: RowLayout {
+            id: keyWaitLine
+            spacing: AppTheme.spacingS
+            readonly property string rootId: model.threadRootId || ""
+            Icon {
+                name: "forum"
+                size: 14
+                color: AppTheme.textMuted
+            }
+            Label {
+                objectName: "threadKeyWaitText"
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                text: qsTr("A reply in a thread is waiting for keys")
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.italic: true
+            }
+            Label {
+                objectName: "threadKeyWaitOpen"
+                text: qsTr("Open thread")
+                color: root.inlineLinkInk
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.underline: true
+                visible: keyWaitLine.rootId !== ""
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: root.rowActionsEnabled
+                    onClicked: app.thread.openThread(app.currentRoomId,
+                                                     keyWaitLine.rootId)
+                }
+            }
+            Label {
+                objectName: "threadKeyWaitRetry"
+                text: qsTr("Retry decryption")
+                color: root.inlineLinkInk
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.underline: true
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: root.rowActionsEnabled
+                    onClicked: root.timelineModel.retryDecryption()
+                }
+            }
+        }
+    }
+
     // Compact room-activity summary, collapsed by default; the whole row is the
     // expand/collapse control.
     RoomActivityDelegate {
@@ -1298,6 +1372,7 @@ Item {
             root.navigationHighlightId === (model.eventId || "")
         readonly property bool wanted:
             !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
+            && !root.isThreadKeyWait
             && (rowHover.hovered || root.actionsPinned || navigationLanded)
         // Opacity rather than `visible`, so the jump highlight fades like the
         // thread panel's landing instead of snapping on and off.
@@ -1320,6 +1395,7 @@ Item {
     ColumnLayout {
         id: layout
         visible: !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
+                 && !root.isThreadKeyWait
         y: root.messageTopSpacing
         // Indented while selecting so the circle has its own column.
         x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0
@@ -3320,7 +3396,7 @@ Item {
         // the chips paint upward from it, so receipts never add a tail. Outside
         // `layout` because `layout` is hidden for call-event and room-activity
         // rows, which can carry receipts too.
-        y: root.isCallEvent || root.isStateActivity
+        y: root.isCallEvent || root.isStateActivity || root.isThreadKeyWait
            ? root.height : layout.y + layout.height
         height: 0
         z: 3

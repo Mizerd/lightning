@@ -203,7 +203,39 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
         m_ownIdentity = state;
     } else if (kind == QLatin1String("cross_signing_secrets")) {
         m_crossSigning = state;
+    } else if (kind == QLatin1String("utds_resolved")) {
+        // matrix-sdk's redecryptor turned stored undecryptable events into
+        // decrypted ones. Logged beside the key arrivals below so a capture
+        // can tell "the key never came" from "it came and nothing was
+        // redecrypted" (a thread reply that stayed "Waiting for keys" until a
+        // manual Retry). Counts only.
+        qCInfo(lcCryptoBootstrap) << "undecryptable events resolved count="
+                                  << count;
+        return;
+    } else if (kind == QLatin1String("thread_reply_out_of_view")) {
+        // Replies matrix-sdk decrypted that the open thread view cannot show:
+        // its in-memory thread cache keeps the undecryptable copy until a
+        // restart (see TimelineRegistry::
+        // redecrypted_replies_missing_from_open_thread). Counts only.
+        qCWarning(lcCryptoBootstrap)
+            << "thread replies decrypted but not shown in the open thread count="
+            << count;
+        return;
+    } else if (kind == QLatin1String("redecryption_lagging")) {
+        // matrix-sdk's redecryptor reported that its key stream lagged: some
+        // keys may have arrived without a redecryption attempt.
+        qCWarning(lcCryptoBootstrap) << "redecryption lagged; keys may have "
+                                        "arrived without a retry";
+        return;
+    } else if (kind == QLatin1String("redecryption_reports_missed")) {
+        // Our own subscriber to those reports fell behind: the counts above
+        // are short, the redecryptor itself may be fine.
+        qCWarning(lcCryptoBootstrap) << "redecryption reports missed; the "
+                                        "resolved counts are incomplete";
+        return;
     } else if (kind == QLatin1String("room_keys_received")) {
+        // Counts only, and when: the other half of the question above.
+        qCInfo(lcCryptoBootstrap) << "room keys received count=" << count;
         if (count > 0) {
             m_keysReceived += static_cast<int>(
                 qMin<quint64>(count, 1000000));

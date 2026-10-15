@@ -44,7 +44,10 @@ Assessment assess(const QString &backupState, const QString &uploadState,
         // unknown / creating / enabling / resuming / downloading / disabling:
         // the backup is not (yet) in use, so nothing can be promised.
         a = make(Level::Unknown, QStringLiteral("unknown"));
-    } else if (uploadState == QLatin1String("uploading") && total > backedUp) {
+    } else if (total > backedUp) {
+        // Keys this backup version does not hold yet, whatever the upload
+        // state says: right after setup the upload may not have started
+        // ("idle"), and an "error" leaves them local just the same.
         a = make(Level::Uploading, QStringLiteral("uploading"));
         a.pendingKeys = total - backedUp;
         a.totalKeys = total;

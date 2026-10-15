@@ -8303,12 +8303,13 @@ Item {
                                 || app.sessionDevicesLoading
                                 ? false
                                 : app.sessionDevices.length > 0
-                                  // Not d.verified: is_verified() is always
-                                  // true for our own device (the SDK marks it
-                                  // locally trusted), so it would report an
-                                  // unverified account as trusted.
+                                  // `trusted` is the SDK's own answer per row
+                                  // (crossSigned for this session, whose
+                                  // is_verified() is a constant true; verified
+                                  // for the others, whose signature alone is
+                                  // not trust).
                                   ? app.sessionDevices.every(
-                                        d => d.crossSigned === true)
+                                        d => d.trusted === true)
                                   : app.cryptoHealth.currentDeviceVerified
                                     === CryptoHealthModel.Yes
                             readonly property var chainSteps: [
@@ -8539,11 +8540,11 @@ Item {
                                                 out.push(d)
                                             // Same fact as the chip, so the filter
                                             // matches the badge.
-                                            else if (f === "verified" && d.crossSigned === true)
+                                            else if (f === "verified" && d.trusted === true)
                                                 out.push(d)
                                             else if (f === "unverified"
                                                      && d.hasCryptoIdentity === true
-                                                     && d.crossSigned !== true)
+                                                     && d.trusted !== true)
                                                 out.push(d)
                                         }
                                         return out
@@ -8611,22 +8612,21 @@ Item {
                                                     }
                                                     StatusChip {
                                                         storm: true
-                                                        // crossSigned, not verified: matrix-sdk
-                                                        // marks our own device locally trusted at
-                                                        // creation, so is_verified() is always
-                                                        // true for "This session". Follow-up: for
-                                                        // other rows is_verified() is better (it
-                                                        // also covers SAS without cross-signing),
-                                                        // i.e. `isCurrent ? crossSigned :
-                                                        // verified`.
-                                                        label: modelData.crossSigned === true
+                                                        // `trusted` = isCurrent ? crossSigned :
+                                                        // verified, from the SDK (Rust's
+                                                        // session_row_trusted). Neither flag
+                                                        // alone: is_verified() is a constant
+                                                        // true for "This session", and a
+                                                        // signature by a key this session does
+                                                        // not trust is not trust.
+                                                        label: modelData.trusted === true
                                                               ? qsTr("Verified")
                                                               : modelData.hasCryptoIdentity === true
                                                                 ? qsTr("Not verified")
                                                                 : qsTr("No encryption")
-                                                        iconName: modelData.crossSigned === true
+                                                        iconName: modelData.trusted === true
                                                                   ? "verified_user" : ""
-                                                        tone: modelData.crossSigned === true
+                                                        tone: modelData.trusted === true
                                                               ? "success" : "neutral"
                                                     }
                                                 }

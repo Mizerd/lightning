@@ -77,6 +77,20 @@ public:
     // host (a local test server). Anything else from the server is refused.
     static bool isSafeApprovalUrl(const QString &url);
 
+    // Translated text for a failed recovery-key restore, by the category the
+    // backend classified matrix-sdk's error into ("recovery_key_wrong",
+    // "recovery_key_malformed", "no_secret_storage", ...). The SDK's own text is
+    // never shown: it is English, and for a key that does not decode it quotes
+    // part of what was typed.
+    // `sessionVerified`: this session is verified after the attempt, so for a
+    // failure in the key-backup step (which comes after recover() signs the
+    // device) the text must not tell the user to go and verify it.
+    // `becameVerified`: this attempt is what verified it ("now verified").
+    // Key-entry failures (wrong, malformed, ...) always get their own text.
+    static QString recoveryFailureText(const QString &category,
+                                       bool sessionVerified = false,
+                                       bool becameVerified = false);
+
     // "enable" | "create_backup" | "reset_key" | "disable_and_delete" |
     // "disable_recovery" | "setup_cross_signing" | "reset_cross_signing".
     // Refused (with `error`) for anything else or while an action is in flight.
@@ -143,6 +157,10 @@ private:
     QString m_cancelReason;
     QString m_notice;
     QString m_recoveryKey;
+    // A "setup_interrupted" report that arrived while an operation was in
+    // flight; shown when that operation has reported.
+    bool m_setupInterruptedPending = false;
+    void showSetupInterrupted();
     QString m_backupState;
     QString m_uploadState;
     qint64 m_backedUp = 0;

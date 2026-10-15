@@ -96,6 +96,19 @@ void BackupController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::backupActionFinished, this,
             [this](quint64 opId, const QString &action, bool ok,
                    const QString &recoveryKey, const QString &category) {
+        // An earlier session's setup that never reported (the backend found
+        // its marker at sync start). It belongs to no operation of ours, so it
+        // only informs, and never over an operation in flight.
+        if (opId == 0 && !ok && category == QLatin1String("setup_interrupted")) {
+            // Never over an operation in flight, and never dropped: queued
+            // until that operation has reported (review L3).
+            if (busy()) {
+                m_setupInterruptedPending = true;
+                return;
+            }
+            showSetupInterrupted();
+            return;
+        }
         if (opId == 0 || opId != m_op)
             return;
         const bool cancelWasRequested = m_cancelling;
@@ -136,6 +149,8 @@ void BackupController::setClient(MatrixClient *client)
         // On any outcome: even a failure can change server state, and the stale
         // snapshot gates destructive buttons.
         Q_EMIT cryptoHealthStale();
+        if (m_setupInterruptedPending)
+            showSetupInterrupted();
     });
     connect(m_client, &MatrixClient::backupProgress, this,
             [this](const QString &backupState, const QString &uploadState,
@@ -153,6 +168,7 @@ void BackupController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
         // Key material must not outlive the session it was minted in.
         m_op = 0;
+        m_setupInterruptedPending = false;
         clearAuth();
         m_recoveryKey.clear();
         m_error.clear();
@@ -265,10 +281,112 @@ QString BackupController::failureText(const QString &category) const
         return tr("Lightning could not tell whether secret storage is set up "
                   "yet. Wait a moment and try again.");
     }
+    if (category == QLatin1String("setup_interrupted")) {
+        return tr("Setting up recovery (or creating a new recovery key) was "
+                  "interrupted, when Lightning closed or switched accounts, "
+                  "before the new recovery key could be shown. Your account may "
+                  "now have secret storage whose key you were never given. "
+                  "Check the state above: if recovery reads as set up, create a "
+                  "new recovery key so that you hold one that works.");
+    }
     if (category == QLatin1String("forbidden"))
         return tr("The server refused this backup change.");
     return tr("The backup change did not complete. Some of it may already have "
               "been applied — check the state above.");
+}
+
+void BackupController::showSetupInterrupted()
+{
+    m_setupInterruptedPending = false;
+    const QString text = failureText(QStringLiteral("setup_interrupted"));
+    // A key on screen belongs to an action that did report; it stays. An
+    // operation's own failure keeps the error line; this goes to the notice.
+    if (m_error.isEmpty()) {
+        m_lastAction = QStringLiteral("enable");
+        m_errorCategory = QStringLiteral("setup_interrupted");
+        m_error = text;
+    } else {
+        m_notice = text;
+    }
+    Q_EMIT stateChanged();
+    Q_EMIT cryptoHealthStale();
+    // Shown now, so the backend may forget it. A report still queued when the
+    // session ends is not acknowledged and comes back next session.
+    if (m_client)
+        m_client->acknowledgeInterruptedSetup();
+}
+
+QString BackupController::recoveryFailureText(const QString &category,
+                                              bool sessionVerified,
+                                              bool becameVerified)
+{
+    // Only these can fail AFTER import_secrets() has signed this device. A
+    // key-entry failure (wrong, malformed, no secret storage, unsupported)
+    // stops before anything was imported, and always gets its own sentence:
+    // "verified, but" would hide the one thing the user must fix.
+    const bool afterImport = category == QLatin1String("network")
+        || category == QLatin1String("server_refused")
+        || category == QLatin1String("secret_storage_mismatch")
+        || category == QLatin1String("backup_key_unreadable")
+        || category == QLatin1String("failed");
+    if (sessionVerified && afterImport) {
+        QString reason;
+        if (category == QLatin1String("network"))
+            reason = tr("Lightning could not reach your homeserver. Try again.");
+        else if (category == QLatin1String("server_refused"))
+            reason = tr("your homeserver refused the request. Try again later.");
+        else if (category == QLatin1String("secret_storage_mismatch"))
+            reason = tr("the backup key in your secret storage does not match "
+                        "the key backup on the server.");
+        else if (category == QLatin1String("backup_key_unreadable"))
+            reason = tr("the backup key could not be read from your secret "
+                        "storage. Try again.");
+        else
+            reason = tr("try again.");
+        // "now" only when this attempt verified it; a session verified earlier
+        // (by SAS) is simply verified.
+        return becameVerified
+            ? tr("This session is now verified, but the key backup could not "
+                 "be restored: %1").arg(reason)
+            : tr("This session is verified, but the key backup could not be "
+                 "restored: %1").arg(reason);
+    }
+    if (category == QLatin1String("recovery_key_wrong")) {
+        return tr("That recovery key or passphrase does not unlock this "
+                  "account's secret storage. Check it and try again.");
+    }
+    if (category == QLatin1String("recovery_key_malformed")) {
+        return tr("That is not a valid recovery key. Check it for a mistyped or "
+                  "missing character. A passphrase works only if one was chosen "
+                  "when recovery was set up.");
+    }
+    if (category == QLatin1String("no_secret_storage")) {
+        return tr("This account has no secret storage on the server, so there "
+                  "is nothing a recovery key can unlock. Verify this session "
+                  "with another session instead.");
+    }
+    if (category == QLatin1String("secret_storage_unsupported")) {
+        return tr("This account's secret storage uses a format Lightning cannot "
+                  "open. Verify this session with another session instead.");
+    }
+    if (category == QLatin1String("secret_storage_mismatch")) {
+        return tr("The recovery key was accepted, but what it unlocks no longer "
+                  "matches this account's keys: they were replaced after this "
+                  "recovery key was saved. Verify this session with another "
+                  "session instead.");
+    }
+    if (category == QLatin1String("backup_key_unreadable")) {
+        return tr("The key backup's key could not be read from your secret "
+                  "storage. Check your connection and try again.");
+    }
+    if (category == QLatin1String("network")) {
+        return tr("Lightning could not reach your homeserver. Check your "
+                  "connection and try again.");
+    }
+    if (category == QLatin1String("server_refused")) {
+        return tr("Your homeserver refused the request. Try again later.");
+    }
+    return tr("Recovery did not complete. Try again.");
 }
 
 void BackupController::runAction(const QString &action)

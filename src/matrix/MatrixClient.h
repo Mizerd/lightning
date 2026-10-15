@@ -1041,6 +1041,10 @@ public:
     // late answer to an earlier request is told apart. 0 for a client that
     // does not number them.
     virtual quint64 requestBackupProgress() { return 0; }
+    // The user has been SHOWN a "setup_interrupted" report (op 0): the backend
+    // may drop the marker it was reported from. Never on mere receipt, so a
+    // report queued behind an operation and lost to a sign-out is made again.
+    virtual void acknowledgeInterruptedSetup() {}
 
     // Two standard account-data preferences, nothing else: "m.media_preview_config"
     // (MSC4278) and "m.recent_emoji". readAccountPref answers from the SDK's

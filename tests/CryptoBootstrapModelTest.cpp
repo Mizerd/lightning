@@ -543,6 +543,36 @@ private Q_SLOTS:
         QVERIFY(m.ownIdentity().isEmpty());
         QVERIFY(m.crossSigningSecrets().isEmpty());
     }
+
+    // F4 (2026-10-14): a thread reply stayed "Waiting for keys" until a manual
+    // Retry decrypted it at once, and the log could not say whether its key
+    // had arrived (room_keys_received was counted, never logged) or whether
+    // matrix-sdk's redecryptor had resolved anything (not observed at all).
+    // Both are now in the log, as counts, and neither moves the phase.
+    void keyArrivalAndRedecryptionAreLoggedAndChangeNoPhase()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "unverified");
+        const auto phase = m.phase();
+        QSignalSpy changed(&m, &CryptoBootstrapModel::changed);
+
+        QTest::ignoreMessage(QtInfoMsg,
+                             QRegularExpression(QStringLiteral(
+                                 "room keys received count= 3")));
+        apply(m, "room_keys_received", "", 3);
+        QTest::ignoreMessage(QtInfoMsg,
+                             QRegularExpression(QStringLiteral(
+                                 "undecryptable events resolved count= 2")));
+        apply(m, "utds_resolved", "", 2);
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral(
+                                 "redecryption lagged")));
+        apply(m, "redecryption_lagging", "");
+
+        QCOMPARE(m.phase(), phase);
+        // Only the key count refreshes the status text, as before.
+        QCOMPARE(changed.count(), 1);
+    }
 };
 
 QTEST_MAIN(CryptoBootstrapModelTest)

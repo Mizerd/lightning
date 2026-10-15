@@ -92,9 +92,10 @@ public:
     // One sanitized coordinator event. kind: verification_state /
     // recovery_state / backup_state / backup_exists / backup_download /
     // secrets_pending / room_keys_received / secret_request / secret_response /
-    // own_identity / cross_signing_secrets. state: SDK enum name or fixed
-    // token. count: imported keys (room_keys_received) or eligible verified
-    // devices (secret_request).
+    // own_identity / cross_signing_secrets, and the log-only utds_resolved /
+    // redecryption_lagging. state: SDK enum name or fixed token. count:
+    // imported keys (room_keys_received), events the SDK redecrypted
+    // (utds_resolved) or eligible verified devices (secret_request).
     void applyEvent(const QString &kind, const QString &state, quint64 count,
                     quint64 inconclusive = 0);
     void reset();

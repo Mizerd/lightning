@@ -501,6 +501,45 @@ ApplicationWindow {
         QVERIFY(barRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(threadRect));
     }
 
+    // F4 (2026-10-14): an undecryptable thread reply in the room timeline was
+    // drawn as a standalone "Waiting for keys" message (CLAUDE.md §8). It is a
+    // one-line thread notice now, with Open thread and Retry, and nothing of a
+    // message: no body layout, no hover bar.
+    void anUndecryptableThreadReplyRendersAsAThreadNotice()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("body"), QString());
+        f.insert(QStringLiteral("isEncrypted"), true);
+        f.insert(QStringLiteral("isDecrypted"), false);
+        f.insert(QStringLiteral("undecryptable"), true);
+        f.insert(QStringLiteral("threadRootId"), QStringLiteral("$root"));
+        f.insert(QStringLiteral("threadReplyAwaitingKeys"), true);
+        Delegate d;
+        QVERIFY(buildDelegate(controller, f, d));
+        QVERIFY(d.root->property("isThreadKeyWait").toBool());
+        auto *notice = findItem(d.root, QStringLiteral("threadKeyWaitRow"));
+        QVERIFY2(notice && notice->isVisible(),
+                 "the thread reply has no thread notice");
+        for (const char *name : { "threadKeyWaitText", "threadKeyWaitOpen",
+                                  "threadKeyWaitRetry" }) {
+            auto *item = findItem(d.root, QString::fromLatin1(name));
+            QVERIFY2(item && item->isVisible(), name);
+        }
+        // Not a message: no row selection, no focus stop, one compact line.
+        QVERIFY(!d.root->property("rowSelectable").toBool());
+        QVERIFY(!d.root->property("activeFocusOnTab").toBool());
+        QVERIFY2(d.root->implicitHeight() < 48,
+                 qPrintable(QString::number(d.root->implicitHeight())));
+        // The same row in the model's other shape (an ordinary undecryptable
+        // message) keeps the message layout and no notice.
+        f.insert(QStringLiteral("threadReplyAwaitingKeys"), false);
+        Delegate plain;
+        QVERIFY(buildDelegate(controller, f, plain));
+        auto *none = findItem(plain.root, QStringLiteral("threadKeyWaitRow"));
+        QVERIFY(!none || !none->isVisible());
+    }
+
     // The thread panel's own rows: its composer already replies in the
     // thread, so the button would only reopen the same thread.
     void theThreadPanelsRowsDoNotOfferIt()

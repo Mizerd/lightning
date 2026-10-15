@@ -1019,21 +1019,26 @@ private Q_SLOTS:
         QVERIFY(settings.contains(QStringLiteral("var all = app.sessionDevices")));
         QVERIFY(settings.contains(QStringLiteral("var f = sessionFilter.current")));
         for (const char *branch : { "f === \"current\" && d.isCurrent === true",
-                                    "f === \"verified\" && d.crossSigned === true",
+                                    "f === \"verified\" && d.trusted === true",
+                                    "d.trusted !== true",
                                     "f === \"unverified\"" })
             QVERIFY2(settings.contains(QLatin1String(branch)), branch);
         QVERIFY(settings.contains(QStringLiteral("This session")));
         QVERIFY(settings.contains(QStringLiteral("Not verified")));
 
-        // No trust binding may read `verified`: Device::is_verified() is
-        // always true for our own device (matrix-sdk marks it locally
-        // trusted), so a label bound to it is permanently green. For other
-        // devices is_verified() would be the better flag; relax this to "no
-        // unconditional read" if that is ever done.
-        QVERIFY2(!withoutComments(settings).contains(QStringLiteral("modelData.verified"))
-                 && !withoutComments(settings).contains(QStringLiteral("d.verified")),
-                 "a trust binding reads verified, which is a constant true "
-                 "for our own device; it must read crossSigned");
+        // Every trust label, both filters and the rollup read `trusted`, which
+        // Rust derives as `isCurrent ? crossSigned : verified`. Neither raw
+        // flag serves alone: Device::is_verified() is always true for our own
+        // device (matrix-sdk marks it locally trusted), and
+        // is_cross_signed_by_owner() badged devices the SDK does not trust
+        // (signed by a key this session never verified) and missed devices it
+        // does (verified by SAS without cross-signing).
+        const QString code = withoutComments(settings);
+        for (const char *raw : { "modelData.verified", "d.verified",
+                                 "modelData.crossSigned", "d.crossSigned" })
+            QVERIFY2(!code.contains(QLatin1String(raw)), raw);
+        QVERIFY(code.contains(QStringLiteral("label: modelData.trusted === true")));
+        QVERIFY(code.contains(QStringLiteral("d => d.trusted === true")));
         QVERIFY(!settings.contains(QStringLiteral("is not supported yet")));
         QVERIFY(settings.contains(
             QStringLiteral("signOutOtherSessionsButton")));

@@ -184,6 +184,7 @@ private Q_SLOTS:
     void senderIdentityRolesUseSdkProfileAndSafeAvatarMxc();
     void senderGroupingBoundariesAreDeterministic();
     void readMarkerDoesNotBreakSenderGroupButVisibleRowsDo();
+    void anUndecryptableThreadReplyIsANoticeNotAMessage();
     void mediaAndPaginationPreserveSenderGrouping();
     void groupingRefreshCoalescesAcrossPrependBurst();
     void memberProfileUpdateEmitsIdentityRoles();
@@ -1718,6 +1719,64 @@ void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()
     QVERIFY(m_model->data(m_model->index(4), TimelineModel::BeginsSenderGroupRole).toBool());
     QVERIFY(m_model->data(m_model->index(6), TimelineModel::BeginsSenderGroupRole).toBool());
     QVERIFY(!m_model->data(m_model->index(3), TimelineModel::ShowSenderIdentityRole).toBool());
+}
+
+// F4 (2026-10-14): a thread reply that could not be decrypted sat in the room
+// timeline as a standalone "Waiting for keys" message (CLAUDE.md §8). The SDK
+// cannot classify it; the Rust bridge now tags it with the root its cleartext
+// relation names, and the model makes it a thread notice: flagged for the
+// delegate, outside every sender run, hosting no receipts, still in the model
+// (so Retry reaches its session), and a plain reply in the thread panel.
+void TimelineModelDiffTest::anUndecryptableThreadReplyIsANoticeNotAMessage()
+{
+    const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
+    auto first = makeEvent(QStringLiteral("$first"), QStringLiteral("one"));
+    first.timestamp = base;
+    auto reply = makeEvent(QStringLiteral("$reply"), QString());
+    reply.sender = QStringLiteral("@bob:example.org");
+    reply.timestamp = base.addSecs(20);
+    reply.undecryptable = true;
+    reply.threadRootId = QStringLiteral("$root");
+    ReadReceipt reader;
+    reader.userId = QStringLiteral("@carol:example.org");
+    reader.tsMs = 1700000030000;
+    reply.readBy = { reader };
+    auto second = makeEvent(QStringLiteral("$second"), QStringLiteral("two"));
+    second.timestamp = base.addSecs(40);
+    // An ordinary undecryptable message is NOT a thread notice.
+    auto plainUtd = makeEvent(QStringLiteral("$plainutd"), QString());
+    plainUtd.timestamp = base.addSecs(50);
+    plainUtd.undecryptable = true;
+    m_client->mirror = { first, reply, second, plainUtd };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 4);
+
+    const auto awaiting = [this](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::ThreadReplyAwaitingKeysRole).toBool();
+    };
+    QVERIFY(awaiting(1));
+    QVERIFY(!awaiting(0));
+    QVERIFY(!awaiting(3));
+    // It stays in the model, with its thread, for Retry and "Open thread".
+    QCOMPARE(m_model->data(m_model->index(1), TimelineModel::ThreadRootIdRole)
+                 .toString(), QStringLiteral("$root"));
+    // Alice's run is not split by it: "two" continues "one", as it will once
+    // the reply decrypts and the SDK takes it out of this timeline.
+    QVERIFY(m_model->data(m_model->index(2),
+                          TimelineModel::ContinuesSenderGroupRole).toBool());
+    // Its reader shows on the row above, not on a row that draws no message.
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
+                .toList().isEmpty());
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::ReadReceiptsRole)
+                 .toList().size(), 1);
+
+    // In the thread panel the same row is simply a reply.
+    openThreadModel();
+    Q_EMIT m_client->timelineReset(MatrixClient::threadTimelineId(
+        kRoom, QStringLiteral("$root")));
+    QCOMPARE(m_model->rowCount(), 4);
+    QVERIFY(!awaiting(1));
 }
 
 void TimelineModelDiffTest::mediaAndPaginationPreserveSenderGrouping()

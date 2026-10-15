@@ -3787,6 +3787,17 @@ if(BUILD_TESTING)
     set_tests_properties(space-channels PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Loop breaker on the reopens that recover a damaged timeline mirror.
+    qt_add_executable(recovery-reopen-budget-test
+        tests/RecoveryReopenBudgetTest.cpp
+        src/matrix/RecoveryReopenBudget.h
+    )
+    target_include_directories(recovery-reopen-budget-test PRIVATE src)
+    target_compile_definitions(recovery-reopen-budget-test PRIVATE
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(recovery-reopen-budget-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME recovery-reopen-budget COMMAND recovery-reopen-budget-test)
+
     # Host/presenter separation, as a source scan because it is about which
     # file contains what: presenters never reach the host by id, one presenter
     # is instantiated, Channels needs a Space, and new theme tokens are derived.
@@ -4360,6 +4371,18 @@ if(BUILD_TESTING)
         target_include_directories(context-handlers-test PRIVATE src)
         add_test(NAME context-handlers COMMAND context-handlers-test)
         set_tests_properties(context-handlers PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # Trust and recovery payloads through the real dispatcher: the Sessions
+        # page's `trusted` flag survives the bridge, and a failed restore shows
+        # our translated text, never matrix-sdk's. No FFI handle.
+        qt_add_executable(e2ee-bridge-test
+            tests/E2eeBridgeTest.cpp
+        )
+        lightning_configure_qml_test(e2ee-bridge-test)
+        target_include_directories(e2ee-bridge-test PRIVATE src)
+        add_test(NAME e2ee-bridge COMMAND e2ee-bridge-test)
+        set_tests_properties(e2ee-bridge PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
         qt_add_executable(offline-restore-state-test

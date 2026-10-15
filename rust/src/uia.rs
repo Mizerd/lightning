@@ -1016,9 +1016,12 @@ async fn storage_step(
     match job.storage.take() {
         None => Err("network"),
         Some(StoragePlan::Nothing) => Ok(None),
+        // Not `wait_for_backups_to_upload()`: the room-key upload carries on
+        // in the SDK's backup task, and waiting for it kept the new recovery key
+        // from the user for as long as the upload took, exposed to the teardown
+        // abort (see `mx_rust_backup_action`).
         Some(StoragePlan::EnableRecovery) => recovery
             .enable()
-            .wait_for_backups_to_upload()
             .await
             .map(Some)
             .map_err(|err| classify_room_error(&err.to_string())),

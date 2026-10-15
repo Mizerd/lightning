@@ -794,7 +794,9 @@ private Q_SLOTS:
         // selecting), and only messages are selectable.
         QVERIFY(delegate.contains(QStringLiteral(
             "x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0")));
+        // A thread reply still waiting for its keys is a notice, not a message.
         QVERIFY(delegate.contains(QStringLiteral("&& !root.isCallEvent && !root.isStateActivity\n"
+                                                 "        && !root.isThreadKeyWait\n"
                                                  "        && root.eventIdForActions() !== \"\"")));
     }
 

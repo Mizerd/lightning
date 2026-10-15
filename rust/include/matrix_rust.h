@@ -275,10 +275,20 @@ char *mx_rust_probe_encrypted_send(void *client,
  * matrix-sdk's client.encryption().recovery().recover(<key>) so the SDK
  * imports backed-up room keys from server-side secret storage. The FFI
  * never logs the recovery key. Result events land on the poll queue as
- *   {"type":"key_backup_status","state":"attempted|ok|failed",...}
+ *   {"type":"key_backup_status","state":"attempted|ok|ok_no_backup|
+ *    nothing_restored|failed", "category":..., "session_verified":...,
+ *    "became_verified":...}
  */
 char *mx_rust_recover_from_backup(void *client,
                                   const char *recovery_key);
+
+/*
+ * The user has been shown a `setup_interrupted` backup_action_result (op 0;
+ * BackupController, possibly after an operation in flight), so the
+ * account store's recovery-setup marker can go. Until this is called the
+ * report is repeated by every new session.
+ */
+void mx_rust_acknowledge_interrupted_setup(void *client);
 
 /*
  * Reload a room's recent timeline via matrix-sdk's Room::messages

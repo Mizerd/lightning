@@ -7,6 +7,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QSet>
 #include <QSignalSpy>
 
 #include "crypto/BackupController.h"
@@ -42,6 +43,8 @@ public:
         return acceptSubmit;
     }
     void uiaCancel(quint64 uiaId) override { cancelledFor = uiaId; }
+    void acknowledgeInterruptedSetup() override { ++acknowledged; }
+    int acknowledged = 0;
     quint64 requestBackupProgress() override { return nextProgressId; }
     quint64 nextProgressId = 0;
 
@@ -486,6 +489,14 @@ private Q_SLOTS:
         const auto up = level("enabled", "uploading", 3, 10, 2, "enabled");
         QCOMPARE(up.value("level"), QVariant("uploading"));
         QCOMPARE(up.value("pendingKeys").toLongLong(), qint64(7));
+        // Review L6: right after setup, enable() returns before the upload has
+        // started; the store's counts still show keys the backup lacks.
+        const auto justEnabled = level("enabled", "idle", 0, 40, 2, "enabled");
+        QCOMPARE(justEnabled.value("level"), QVariant("uploading"));
+        QCOMPARE(justEnabled.value("pendingKeys").toLongLong(), qint64(40));
+        QVERIFY(justEnabled.value("warns").toBool());
+        QCOMPARE(level("enabled", "error", 5, 10, 2, "enabled").value("level"),
+                 QVariant("uploading"));
         QCOMPARE(level("enabled", "done", 0, 0, 2, "disabled").value("level"),
                  QVariant("no_recovery"));
         // "Not known" is never reported as "no backup" nor as "fine": a state
@@ -522,6 +533,103 @@ private Q_SLOTS:
         // must never count as a second copy of the keys.
         QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), 1, sessions(true))
                      .value("otherVerifiedDevices").toInt(), 1);
+    }
+
+    // An enable aborted by teardown after secret storage existed never
+    // reported; the next session's backend finds its marker and sends op 0.
+    // Before, op 0 was dropped and the user was told nothing.
+    void anInterruptedSetupFromAnEarlierSessionIsReported()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        QSignalSpy stale(&c, &BackupController::cryptoHealthStale);
+        Q_EMIT client.backupActionFinished(0, QStringLiteral("enable"), false,
+                                           QString(),
+                                           QStringLiteral("setup_interrupted"));
+        QCOMPARE(c.errorCategory(), QStringLiteral("setup_interrupted"));
+        QVERIFY2(c.error().contains(QStringLiteral("interrupted")), qPrintable(c.error()));
+        QVERIFY(c.recoveryKey().isEmpty());
+        QVERIFY(!c.busy());
+        QCOMPARE(stale.count(), 1);
+        // Shown, so the backend may drop its marker (review N3).
+        QCOMPARE(client.acknowledged, 1);
+
+        // Op 0 stays no operation of ours for anything else, and never
+        // replaces what an operation in flight will report.
+        c.runAction(QStringLiteral("create_backup"));
+        QVERIFY(c.busy());
+        Q_EMIT client.backupActionFinished(0, QStringLiteral("enable"), false,
+                                           QString(),
+                                           QStringLiteral("setup_interrupted"));
+        Q_EMIT client.backupActionFinished(0, QStringLiteral("enable"), true,
+                                           QStringLiteral("EsTx not ours"), QString());
+        QVERIFY(c.busy());
+        QVERIFY(c.error().isEmpty());
+        QVERIFY(c.recoveryKey().isEmpty());
+        // Queued, not shown: not acknowledged yet.
+        QCOMPARE(client.acknowledged, 1);
+        // The operation reports; the queued report follows it, and only now
+        // is it acknowledged.
+        Q_EMIT client.backupActionFinished(client.lastOp,
+                                           QStringLiteral("create_backup"), true,
+                                           QString(), QString());
+        QVERIFY(!c.busy());
+        QCOMPARE(c.errorCategory(), QStringLiteral("setup_interrupted"));
+        QCOMPARE(client.acknowledged, 2);
+    }
+
+    // Review N3: a report queued behind an operation and lost to a sign-out is
+    // never acknowledged, so the backend keeps its marker and the next session
+    // reports it again.
+    void aQueuedInterruptedSetupLostToSignOutIsNotAcknowledged()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        c.runAction(QStringLiteral("create_backup"));
+        QVERIFY(c.busy());
+        Q_EMIT client.backupActionFinished(0, QStringLiteral("enable"), false,
+                                           QString(),
+                                           QStringLiteral("setup_interrupted"));
+        Q_EMIT client.loggedOut();
+        QCOMPARE(client.acknowledged, 0);
+        QVERIFY(c.error().isEmpty());
+    }
+
+    // A mistyped recovery key showed matrix-sdk's own English text ("The MAC
+    // check for the secret storage key failed", or a Base58 error quoting the
+    // bad character). Every category has its own translated sentence.
+    void everyRecoveryFailureHasItsOwnPlainText()
+    {
+        const QStringList categories = {
+            QStringLiteral("recovery_key_wrong"),
+            QStringLiteral("recovery_key_malformed"),
+            QStringLiteral("no_secret_storage"),
+            QStringLiteral("secret_storage_unsupported"),
+            QStringLiteral("secret_storage_mismatch"),
+            QStringLiteral("network"),
+            QStringLiteral("server_refused"),
+        };
+        const QString fallback = BackupController::recoveryFailureText(
+            QStringLiteral("failed"));
+        QSet<QString> seen;
+        for (const QString &category : categories) {
+            const QString text = BackupController::recoveryFailureText(category);
+            QVERIFY2(text != fallback, qPrintable(category));
+            QVERIFY2(!text.contains(QStringLiteral("MAC"))
+                         && !text.contains(QStringLiteral("SDK"))
+                         && !text.contains(category),
+                     qPrintable(text));
+            seen.insert(text);
+        }
+        QCOMPARE(seen.size(), categories.size());
+        QVERIFY(BackupController::recoveryFailureText(
+                    QStringLiteral("recovery_key_wrong"))
+                    .contains(QStringLiteral("does not unlock")));
+        // An unknown category is never shown raw.
+        QCOMPARE(BackupController::recoveryFailureText(
+                     QStringLiteral("something_new")), fallback);
     }
 
     void signOutRiskDoesNotSurviveLogout()

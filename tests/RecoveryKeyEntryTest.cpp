@@ -30,12 +30,26 @@ QString readFile(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
+// Stand-in for app.accounts: only the active account is read.
+class FakeAccounts : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QString activeUserId MEMBER userId NOTIFY activeUserIdChanged)
+public:
+    QString userId;
+Q_SIGNALS:
+    void activeUserIdChanged();
+};
+
 // Stand-in for the slice of AppController the component reads.
 class FakeApp : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString sessionTrustState MEMBER trustState NOTIFY trustChanged)
+    Q_PROPERTY(QObject *accounts READ accountsObject CONSTANT)
 public:
+    FakeAccounts accountsFake;
+    QObject *accountsObject() { return &accountsFake; }
     QString trustState = QStringLiteral("Not verified");
     QStringList keys;
     int healthRefreshes = 0;
@@ -51,6 +65,8 @@ public:
 Q_SIGNALS:
     void recoveryStateChanged(const QString &state, const QString &message);
     void trustChanged();
+    // The session ended or another one began (sign-out, account switch).
+    void loggedInChanged();
 };
 
 const char *kScene = R"QML(
@@ -180,6 +196,84 @@ private slots:
         QVERIFY(!text.contains(QStringLiteral("secret-ish")));
         // The field is usable again for another attempt.
         QVERIFY(find(QStringLiteral("firstField"))->property("enabled").toBool());
+    }
+
+    // recover() returning Ok restored nothing when secret storage held no
+    // backup key, and the panel said "Recovery complete" (open-items, recovery
+    // and key backup: four known defects).
+    void aRecoveryThatRestoredNoHistoryDoesNotSayComplete()
+    {
+        m_app.trustState = QStringLiteral("Verified");
+        const int refreshesBefore = m_app.healthRefreshes;
+        submit(QStringLiteral("firstField"), QStringLiteral("key one"));
+        Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok_no_backup"), QString());
+        QString text = statusOf(QStringLiteral("firstField"));
+        QVERIFY2(text.contains(QStringLiteral("no key backup")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Recovery complete")), qPrintable(text));
+        QVERIFY(find(QStringLiteral("firstField"))->property("enabled").toBool());
+
+        submit(QStringLiteral("firstField"), QStringLiteral("key two"));
+        Q_EMIT m_app.recoveryStateChanged(QStringLiteral("nothing_restored"),
+                                        QString());
+        text = statusOf(QStringLiteral("firstField"));
+        QVERIFY2(text.contains(QStringLiteral("nothing was restored")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Recovery complete")), qPrintable(text));
+        // It was a real answer from the SDK: re-read what may have changed.
+        QCOMPARE(m_app.healthRefreshes, refreshesBefore + 2);
+    }
+
+    // A restore whose session ended never reports, and the panel stayed at
+    // "Restoring…" with the field disabled for good.
+    void aRestoreCutOffByTheSessionEndingDoesNotWedge()
+    {
+        submit(QStringLiteral("secondField"), QStringLiteral("key three"));
+        auto *button = find(QStringLiteral("secondFieldSubmit"));
+        QVERIFY(button);
+        QCOMPARE(button->property("text").toString(), QStringLiteral("Restoring…"));
+        QVERIFY(!find(QStringLiteral("secondField"))->property("enabled").toBool());
+
+        Q_EMIT m_app.loggedInChanged();
+        QVERIFY(find(QStringLiteral("secondField"))->property("enabled").toBool());
+        QVERIFY(button->property("text").toString() != QStringLiteral("Restoring…"));
+        const QString text = statusOf(QStringLiteral("secondField"));
+        QVERIFY2(text.contains(QStringLiteral("session ended")), qPrintable(text));
+        // The idle sibling is untouched, and a late answer from the dead
+        // session is not adopted.
+        const QString first = statusOf(QStringLiteral("firstField"));
+        Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok"), QString());
+        QCOMPARE(statusOf(QStringLiteral("secondField")), text);
+        QCOMPARE(statusOf(QStringLiteral("firstField")), first);
+    }
+
+    // Review L7: a restore cut off by a switch to ANOTHER account is cleared
+    // without a word; that account never asked for it.
+    void aRestoreCutOffByAnAccountSwitchIsClearedSilently()
+    {
+        m_app.accountsFake.userId = QStringLiteral("@a:example.org");
+        submit(QStringLiteral("firstField"), QStringLiteral("key four"));
+        QCOMPARE(statusOf(QStringLiteral("firstField")),
+                 QStringLiteral("Recovery started"));
+        m_app.accountsFake.userId = QStringLiteral("@b:example.org");
+        Q_EMIT m_app.loggedInChanged();
+        QCOMPARE(statusOf(QStringLiteral("firstField")), QString());
+        QVERIFY(find(QStringLiteral("firstField"))->property("enabled").toBool());
+        // A late answer from the old account is not adopted either.
+        Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok"), QString());
+        QCOMPARE(statusOf(QStringLiteral("firstField")), QString());
+        m_app.accountsFake.userId.clear();
+    }
+
+    // Review M2: a failure can follow the session being verified, so the
+    // panel re-reads trust and health on failure too.
+    void aFailureRereadsTrustAndHealth()
+    {
+        const int health = m_app.healthRefreshes;
+        const int trust = m_app.trustRefreshes;
+        submit(QStringLiteral("secondField"), QStringLiteral("key five"));
+        Q_EMIT m_app.recoveryStateChanged(QStringLiteral("failed"),
+                                        QStringLiteral("Not this time."));
+        QCOMPARE(m_app.healthRefreshes, health + 1);
+        QCOMPARE(m_app.trustRefreshes, trust + 1);
     }
 
     void theComponentNeverLogsOrStoresTheKey()

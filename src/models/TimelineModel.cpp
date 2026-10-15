@@ -180,6 +180,12 @@ void TimelineModel::refreshLatestCallEvent()
     Q_EMIT latestCallEventIdChanged();
 }
 
+bool TimelineModel::isThreadReplyAwaitingKeys(const TimelineEvent &e) const
+{
+    return e.undecryptable && !e.threadRootId.isEmpty()
+        && !MatrixClient::isThreadTimelineId(m_roomId);
+}
+
 bool TimelineModel::isVisualMessage(const TimelineEvent &event) const
 {
     // Call rows break sender groups like state rows: they carry no sender
@@ -193,7 +199,10 @@ int TimelineModel::previousMessageRowForGrouping(int row) const
 {
     for (int probe = row - 1; probe >= 0; --probe) {
         const auto &candidate = m_events.at(probe);
-        if (candidate.type == TimelineEvent::ReadMarker)
+        // A thread notice is not part of anyone's run: the messages around it
+        // stay one group, as they will once it decrypts and leaves.
+        if (candidate.type == TimelineEvent::ReadMarker
+            || isThreadReplyAwaitingKeys(candidate))
             continue;
         if (!isVisualMessage(candidate))
             return -1;
@@ -206,7 +215,8 @@ int TimelineModel::nextMessageRowForGrouping(int row) const
 {
     for (int probe = row + 1; probe < m_events.size(); ++probe) {
         const auto &candidate = m_events.at(probe);
-        if (candidate.type == TimelineEvent::ReadMarker)
+        if (candidate.type == TimelineEvent::ReadMarker
+            || isThreadReplyAwaitingKeys(candidate))
             continue;
         if (!isVisualMessage(candidate))
             return -1;
@@ -224,7 +234,10 @@ bool TimelineModel::groupingInputsDiffer(const TimelineEvent &before,
         || before.timestamp != after.timestamp
         || before.type != after.type
         || before.redacted != after.redacted
-        || before.stateKind != after.stateKind;
+        || before.stateKind != after.stateKind
+        // Entering or leaving the thread-notice shape (isThreadReplyAwaitingKeys).
+        || before.undecryptable != after.undecryptable
+        || before.threadRootId != after.threadRootId;
 }
 
 bool TimelineModel::continuesSenderGroup(int row) const
@@ -232,7 +245,8 @@ bool TimelineModel::continuesSenderGroup(int row) const
     if (row < 0 || row >= m_events.size())
         return false;
     const auto &event = m_events.at(row);
-    if (!isVisualMessage(event) || event.redacted)
+    if (!isVisualMessage(event) || event.redacted
+        || isThreadReplyAwaitingKeys(event))
         return false;
     const int previousRow = previousMessageRowForGrouping(row);
     if (previousRow < 0)
@@ -834,6 +848,10 @@ bool TimelineModel::rowHostsReceipts(int row) const
         return false;
     const auto &e = m_events.at(row);
     if (e.isVirtual() || e.type == TimelineEvent::DateDivider)
+        return false;
+    // A thread notice is not a message of the room timeline; its readers show
+    // on the row above, as for a bodiless row.
+    if (isThreadReplyAwaitingKeys(e))
         return false;
     // A call card is content with a body of its own.
     if (isCallEventRow(e))
@@ -1552,6 +1570,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         return e.type == TimelineEvent::Poll && !e.pollEnded
             && e.sender == m_selfUserId;
     case ThreadRootIdRole:       return e.threadRootId;
+    case ThreadReplyAwaitingKeysRole:
+        return isThreadReplyAwaitingKeys(e);
     case IsThreadRootRole: {
         // The SDK's bundled thread summary is authoritative when present;
         // otherwise use the loaded-reply index (mock/HTTP, or an SDK row
@@ -1729,6 +1749,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ThreadRootIdRole,        "threadRootId" },
         { IsThreadRootRole,        "isThreadRoot" },
         { ThreadReplyCountRole,    "threadReplyCount" },
+        { ThreadReplyAwaitingKeysRole, "threadReplyAwaitingKeys" },
         { ThreadLatestPreviewRole,   "threadLatestPreview" },
         { ThreadLatestKindRole,      "threadLatestKind" },
         { ThreadLatestSenderRole,    "threadLatestSender" },
