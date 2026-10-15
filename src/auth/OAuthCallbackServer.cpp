@@ -25,6 +25,20 @@ qsizetype endOfRequestHead(const QByteArray &bytes)
     return lf >= 0 ? lf + 2 : -1;
 }
 
+// Stops a connection's own "speak in time" deadline. Every path that ends a
+// connection stops it first: the timer lives as long as the socket, which
+// deleteLater() keeps until the next event-loop pass, and a deadline firing in
+// that window counted a connection already counted elsewhere as silent too, or,
+// after stop() and a new listen(), as one of the next attempt's.
+void stopDeadline(QTcpSocket *socket)
+{
+    if (!socket)
+        return;
+    if (auto *deadline = socket->findChild<QTimer *>(QLatin1String(kDeadlineName),
+                                                     Qt::FindDirectChildrenOnly))
+        deadline->stop();
+}
+
 // An OAuth error code is a fixed protocol token, but it arrives in a URL
 // anyone can send, so only a token-shaped value reaches the log.
 QString loggableErrorCode(const QString &error)
@@ -123,6 +137,7 @@ void OAuthCallbackServer::stop()
     for (const QPointer<QTcpSocket> &socket : pending) {
         if (!socket)
             continue;
+        stopDeadline(socket);
         socket->disconnect(this);
         socket->abort();
         socket->deleteLater();
@@ -202,6 +217,7 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
     if (socket->bytesAvailable() > kMaxRequestBytes) {
         // Not a redirect callback; drop it unread.
         ++m_strangers;
+        stopDeadline(socket);
         forget(socket);
         socket->abort();
         socket->deleteLater();
@@ -215,9 +231,7 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
         return;
     const QByteArray head = socket->read(headEnd);
     // It spoke in time; from here the answer decides what happens to it.
-    if (auto *deadline = socket->findChild<QTimer *>(QLatin1String(kDeadlineName),
-                                                     Qt::FindDirectChildrenOnly))
-        deadline->stop();
+    stopDeadline(socket);
     const qsizetype lineEnd = head.indexOf('\n');
     const QList<QByteArray> parts = head.left(lineEnd).simplified().split(' ');
     if (parts.size() < 2 || parts.at(0) != "GET") {

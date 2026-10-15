@@ -148,6 +148,9 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
 {
     m_pollTimer.setInterval(100);
     connect(&m_pollTimer, &QTimer::timeout, this, &RustSdkMatrixClient::pollRustEvents);
+    m_tokenWriteRetry.setSingleShot(true);
+    connect(&m_tokenWriteRetry, &QTimer::timeout, this,
+            &RustSdkMatrixClient::retryRotatedTokenWrite);
 
     qCInfo(lcRust) << "Rust SDK backend loaded:"
                    << rustBackendName()
@@ -166,6 +169,9 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
     // which owns a tokio runtime, a crypto store and this attempt's tokens.
     endOAuthAttempt();
     releaseAuthHandle();
+    releaseProvidersHandle();
+    releaseRevokeHandle();
+    releaseWhoamiHandle();
     releaseRustHandle();
     // Process exit is the one place waiting is right: tearing down around a
     // half-closed SQLite store can leave it mid-write. This is the single
@@ -733,6 +739,58 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
     }
 }
 
+void RustSdkMatrixClient::scheduleRotatedTokenWrite()
+{
+    // 30 s, doubling, at most ten minutes apart.
+    const int shift = std::min(m_tokenWriteAttempts, 5);
+    m_tokenWriteRetry.start(std::min(m_tokenWriteRetryMs << shift, 600000));
+}
+
+void RustSdkMatrixClient::retryRotatedTokenWrite()
+{
+    // A sign-out deletes the tokens; nothing may write them back.
+    if (!m_rustHandle || !m_settings || m_lifecycle.signingOut())
+        return;
+    const QString owner = tokenOwnerForRunningSession();
+    if (owner.isEmpty())
+        return;
+    // SENSITIVE: never log `json`. The session's tokens now, which are newer
+    // than any the refused write carried.
+    const QString json = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
+    const QJsonObject tokens = json.isEmpty() || json.startsWith(QLatin1String("error: "))
+        ? QJsonObject()
+        : QJsonDocument::fromJson(json.toUtf8()).object();
+    const QString access = tokens.value(QStringLiteral("access_token")).toString();
+    if (access.isEmpty() || accessTokenDigest(access) == m_persistedAccessDigest)
+        return;
+    ++m_tokenWriteAttempts;
+    if (m_settings->updateSessionTokens(
+            owner, access, tokens.value(QStringLiteral("refresh_token")).toString())) {
+        m_persistedAccessDigest = accessTokenDigest(access);
+        m_tokenWriteFailingFor.invalidate();
+        qCInfo(lcRust) << "a rotated sign-in the keyring refused earlier is saved now"
+                       << "attempts=" << m_tokenWriteAttempts
+                       << "slug=" << matrix::app_data::safeUserSlug(owner);
+        return;
+    }
+    if (m_tokenWriteFailingFor.isValid()
+        && m_tokenWriteFailingFor.elapsed() >= m_tokenWriteGiveUpMs) {
+        // Said once per spell; the next rotation starts retrying again.
+        m_tokenWriteFailingFor.invalidate();
+        qCWarning(lcRust) << "a rotated sign-in is still not saved after an hour "
+                             "of retries; the keyring holds a used one, and the "
+                             "next rotation tries again"
+                          << "attempts=" << m_tokenWriteAttempts
+                          << "slug=" << matrix::app_data::safeUserSlug(owner);
+        return;
+    }
+    qCWarning(lcRust) << "a rotated sign-in is still not saved; the keyring holds "
+                         "a used one until this succeeds"
+                      << "attempts=" << m_tokenWriteAttempts
+                      << "slug=" << matrix::app_data::safeUserSlug(owner);
+    scheduleRotatedTokenWrite();
+}
+
 bool RustSdkMatrixClient::settleRetiringSignIn(const QString &userId)
 {
     bool retiring = false;
@@ -809,6 +867,9 @@ void RustSdkMatrixClient::releaseRustHandle()
     signIn.persist = !signIn.userId.isEmpty() && !m_lifecycle.signingOut()
         && !m_retireAsSignOut;
     m_persistedAccessDigest.clear();
+    // The retiring worker writes whatever this was waiting to.
+    m_tokenWriteRetry.stop();
+    m_tokenWriteFailingFor.invalidate();
     // Detached before the hand-off so nothing on this thread can reach the
     // client the worker now owns.
     m_rustHandle = nullptr;
@@ -1058,9 +1119,14 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // explains and nothing changes. A resumed device is checked against the
     // server's published keys after it signs in, as a soft-logout resume is.
     bool resumeLostSignIn = false;
+    // A sign-in this install's adoption check declined (its copied token was
+    // another install's device) is the same case: this store is the recorded
+    // device's own and whole, only its sign-in is gone from the keyring. Its
+    // card asks for a sign-in; never the reset that deletes the store.
     if (block == matrix::rust_session::StoreBlockReason::MissingSessionMetadata
         && m_settings && storeExists && targetHasRecord && !targetTokenReadable
-        && m_settings->secretsWrittenHereForRecordedDevice(recordUserId)) {
+        && (m_settings->secretsWrittenHereForRecordedDevice(recordUserId)
+            || m_settings->keyringItemsDeclinedForOtherInstall(recordUserId))) {
         resumeLostSignIn = recordResolved
             && matrix::rust_session::lostSignInDeviceMayResume(
                 identity.userId, identity.homeserver, recordUserId,
@@ -1187,6 +1253,7 @@ bool RustSdkMatrixClient::ensureOAuthBootstrapHandle()
 {
     releaseAuthHandle();
     m_authHandle = mx_rust_oauth_bootstrap_create();
+    ++m_authHandleGeneration;
     if (!m_authHandle) {
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
         return false;
@@ -1204,6 +1271,7 @@ void RustSdkMatrixClient::releaseAuthHandle()
         return;
     mx_rust_destroy(m_authHandle);
     m_authHandle = nullptr;
+    ++m_authHandleGeneration;
 }
 
 void RustSdkMatrixClient::endOAuthAttempt()
@@ -1354,15 +1422,69 @@ void RustSdkMatrixClient::cancelOAuthLogin()
 
 void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
 {
-    // Asking would replace the handle a running browser sign-in holds (its
-    // PKCE/CSRF state or SSO client), as for discovery.
-    if (m_oauthInFlight || m_ssoInFlight)
-        return;
+    // On a handle of its own (m_providersHandle): it never replaces the one a
+    // running browser sign-in holds, and a sign-in started before the answer
+    // no longer takes the question with it.
     const QString hs = homeserver.trimmed();
-    if (hs.isEmpty() || !ensureOAuthBootstrapHandle())
+    if (hs.isEmpty())
         return;
+    releaseProvidersHandle();
+    m_providersHandle = mx_rust_oauth_bootstrap_create();
+    if (!m_providersHandle)
+        return;
+    // From the login screen there is no session handle, so the poll timer may
+    // be stopped.
+    if (!m_pollTimer.isActive())
+        m_pollTimer.start();
     const QByteArray hsBytes = hs.toUtf8();
-    takeRustString(mx_rust_sso_providers(m_authHandle, hsBytes.constData()));
+    takeRustString(mx_rust_sso_providers(m_providersHandle, hsBytes.constData()));
+}
+
+void RustSdkMatrixClient::releaseProvidersHandle()
+{
+    if (!m_providersHandle)
+        return;
+    mx_rust_destroy(m_providersHandle);
+    m_providersHandle = nullptr;
+}
+
+void RustSdkMatrixClient::drainProvidersEvents()
+{
+    if (!m_providersHandle)
+        return;
+    // One question, one answer: whatever else the handle says is dropped.
+    for (int i = 0; i < 16 && m_providersHandle; ++i) {
+        const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_providersHandle));
+        if (raw.isEmpty())
+            return;
+        const QJsonObject event = QJsonDocument::fromJson(raw).object();
+        if (event.value(QStringLiteral("type")).toString()
+            != QLatin1String("sso_providers"))
+            continue;
+        const QJsonArray rows = event.value(QStringLiteral("providers")).toArray();
+        QVariantList providers;
+        providers.reserve(rows.size());
+        for (const QJsonValue &value : rows) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("id"),
+                         row.value(QStringLiteral("id")).toString());
+            entry.insert(QStringLiteral("name"),
+                         row.value(QStringLiteral("name")).toString());
+            entry.insert(QStringLiteral("icon"),
+                         row.value(QStringLiteral("icon")).toString());
+            // MSC2858 brand token; the login screen picks a bundled logo.
+            entry.insert(QStringLiteral("brand"),
+                         row.value(QStringLiteral("brand")).toString());
+            providers.append(entry);
+        }
+        // Released before emitting: a slot may ask again, on a new handle.
+        releaseProvidersHandle();
+        Q_EMIT ssoProvidersReceived(
+            event.value(QStringLiteral("homeserver")).toString(),
+            event.value(QStringLiteral("sso")).toBool(), providers);
+        return;
+    }
 }
 
 void RustSdkMatrixClient::beginSsoLogin(const QString &homeserver,
@@ -1481,7 +1603,14 @@ void RustSdkMatrixClient::drainAuthEvents()
     if (!m_authHandle)
         return;
 
+    // Every emit below can reach a slot that releases this handle or starts
+    // the next request on a new one. Each branch that releases does so BEFORE
+    // it emits, and the drain ends once the handle it started on is gone, so
+    // nothing here can poll or release a handle it does not own.
+    const quint64 generation = m_authHandleGeneration;
     for (int i = 0; i < 64; ++i) {
+        if (!m_authHandle || m_authHandleGeneration != generation)
+            return;
         const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_authHandle));
         if (raw.isEmpty())
             break;
@@ -1504,20 +1633,17 @@ void RustSdkMatrixClient::drainAuthEvents()
                            event.value(QStringLiteral("oauth_can_create")).toBool());
             details.insert(QStringLiteral("accountManagementUrl"),
                            event.value(QStringLiteral("account_management_uri")).toString());
+            // Discovery is one-shot; drop the handle unless a sign-in is using
+            // it. Before emitting: a slot may start the next request, and a
+            // release after the emit destroyed THAT request's new handle.
+            if (!m_oauthInFlight && !m_ssoInFlight)
+                releaseAuthHandle();
             Q_EMIT authDiscoveryDetails(homeserver, details);
-            // A slot must not start the next request from inside this signal:
-            // the release below would destroy the new handle, and comparing
-            // addresses cannot tell, because a new handle can reuse the freed
-            // one's. AuthManager asks for SSO providers a turn later.
             Q_EMIT authMethodsDiscovered(
                 event.value(QStringLiteral("homeserver")).toString(),
                 event.value(QStringLiteral("password")).toBool(),
                 event.value(QStringLiteral("oauth")).toBool(),
                 event.value(QStringLiteral("sso")).toBool());
-            // Discovery is one-shot; drop the handle unless a sign-in is using
-            // it.
-            if (!m_oauthInFlight && !m_ssoInFlight)
-                releaseAuthHandle();
             continue;
         }
 
@@ -1584,34 +1710,6 @@ void RustSdkMatrixClient::drainAuthEvents()
             continue;
         }
 
-        if (type == QLatin1String("sso_providers")) {
-            const QJsonArray rows = event.value(QStringLiteral("providers")).toArray();
-            QVariantList providers;
-            providers.reserve(rows.size());
-            for (const QJsonValue &value : rows) {
-                const QJsonObject row = value.toObject();
-                QVariantMap entry;
-                entry.insert(QStringLiteral("id"),
-                             row.value(QStringLiteral("id")).toString());
-                entry.insert(QStringLiteral("name"),
-                             row.value(QStringLiteral("name")).toString());
-                entry.insert(QStringLiteral("icon"),
-                             row.value(QStringLiteral("icon")).toString());
-                // MSC2858 brand token; the login screen picks a bundled logo.
-                entry.insert(QStringLiteral("brand"),
-                             row.value(QStringLiteral("brand")).toString());
-                providers.append(entry);
-            }
-            Q_EMIT ssoProvidersReceived(
-                event.value(QStringLiteral("homeserver")).toString(),
-                event.value(QStringLiteral("sso")).toBool(), providers);
-            // The bootstrap handle was taken only for this question; release it
-            // if no sign-in is running.
-            if (!m_ssoInFlight && !m_oauthInFlight)
-                releaseAuthHandle();
-            continue;
-        }
-
         if (type == QLatin1String("sso_url")) {
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
@@ -1667,15 +1765,17 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
                                              const QString &refreshToken)
 {
     const QString homeserver = m_oauthHomeserver;
-    // Phase A is over either way: release the store-less handle (and the tokens
-    // it holds) before the checks below can refuse.
+    // Phase A is over either way. Its handle is taken, not destroyed: if the
+    // checks below refuse this sign-in, it ends the session the server just
+    // issued (revokeRefusedSignIn).
     endOAuthAttempt();
-    releaseAuthHandle();
+    void *signInHandle = takeAuthHandle();
 
+    bool restored = false;
     adoptBrowserSession(
         homeserver, userId, deviceId, clientId, accessToken, refreshToken,
         QStringLiteral("oauth"),
-        [this, clientId, accessToken, refreshToken](
+        [this, clientId, accessToken, refreshToken, &restored](
             const matrix::app_data::AccountIdentity &identity,
             const QString &deviceId) {
             const QByteArray hsBytes = identity.homeserver.toUtf8();
@@ -1684,14 +1784,20 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
             const QByteArray clientBytes = clientId.toUtf8();
             const QByteArray tokenBytes = accessToken.toUtf8();
             const QByteArray refreshBytes = refreshToken.toUtf8();
-            return takeRustString(mx_rust_oauth_restore(m_rustHandle,
-                                                        hsBytes.constData(),
-                                                        userBytes.constData(),
-                                                        deviceBytes.constData(),
-                                                        clientBytes.constData(),
-                                                        tokenBytes.constData(),
-                                                        refreshBytes.constData()));
+            const QString result = takeRustString(mx_rust_oauth_restore(
+                m_rustHandle, hsBytes.constData(), userBytes.constData(),
+                deviceBytes.constData(), clientBytes.constData(),
+                tokenBytes.constData(), refreshBytes.constData()));
+            restored = result.isEmpty();
+            return result;
         });
+    if (restored) {
+        if (signInHandle)
+            mx_rust_destroy(signInHandle);
+        return;
+    }
+    revokeRefusedSignIn(signInHandle, homeserver, "oauth", clientId, userId,
+                        deviceId, accessToken, refreshToken);
 }
 
 // Legacy SSO Phase B. Same account/store handling as adoptBrowserSession;
@@ -1704,12 +1810,13 @@ void RustSdkMatrixClient::completeSsoLogin(const QString &userId,
 {
     const QString homeserver = m_ssoHomeserver;
     endSsoAttempt();
-    releaseAuthHandle();
+    void *signInHandle = takeAuthHandle();
 
+    bool restored = false;
     adoptBrowserSession(
         homeserver, userId, deviceId, QString(), accessToken, refreshToken,
         QStringLiteral("sso"),
-        [this, accessToken, refreshToken](
+        [this, accessToken, refreshToken, &restored](
             const matrix::app_data::AccountIdentity &identity,
             const QString &deviceId) {
             const QByteArray hsBytes = identity.homeserver.toUtf8();
@@ -1717,13 +1824,206 @@ void RustSdkMatrixClient::completeSsoLogin(const QString &userId,
             const QByteArray deviceBytes = deviceId.toUtf8();
             const QByteArray tokenBytes = accessToken.toUtf8();
             const QByteArray refreshBytes = refreshToken.toUtf8();
-            return takeRustString(mx_rust_restore(m_rustHandle,
-                                                         hsBytes.constData(),
-                                                         userBytes.constData(),
-                                                         deviceBytes.constData(),
-                                                         tokenBytes.constData(),
-                                                         refreshBytes.constData()));
+            const QString result = takeRustString(mx_rust_restore(
+                m_rustHandle, hsBytes.constData(), userBytes.constData(),
+                deviceBytes.constData(), tokenBytes.constData(),
+                refreshBytes.constData()));
+            restored = result.isEmpty();
+            return result;
         });
+    if (restored) {
+        if (signInHandle)
+            mx_rust_destroy(signInHandle);
+        return;
+    }
+    revokeRefusedSignIn(signInHandle, homeserver, "sso", QString(), userId,
+                        deviceId, accessToken, refreshToken);
+}
+
+void *RustSdkMatrixClient::takeAuthHandle()
+{
+    void *handle = m_authHandle;
+    m_authHandle = nullptr;
+    // drainAuthEvents() stops at the generation change, so the drain that
+    // delivered oauth_ok/sso_ok never polls the handle taken here.
+    ++m_authHandleGeneration;
+    return handle;
+}
+
+void RustSdkMatrixClient::revokeRefusedSignIn(void *signInHandle,
+                                              const QString &homeserver,
+                                              const char *flow,
+                                              const QString &clientId,
+                                              const QString &userId,
+                                              const QString &deviceId,
+                                              const QString &accessToken,
+                                              const QString &refreshToken)
+{
+    if (!signInHandle)
+        return;
+    if (accessToken.isEmpty() || homeserver.trimmed().isEmpty()) {
+        mx_rust_destroy(signInHandle);
+        return;
+    }
+    // One at a time: an older refusal still waiting is given up.
+    releaseRevokeHandle();
+    // Flow word and nothing else: no account, device or server.
+    qCInfo(lcRust) << "browser sign-in not kept on this device; ending the "
+                      "session the server issued for it"
+                   << "flow=" << flow;
+    const QByteArray hsBytes = homeserver.toUtf8();
+    const QByteArray clientBytes = clientId.toUtf8();
+    const QByteArray userBytes = userId.toUtf8();
+    const QByteArray deviceBytes = deviceId.toUtf8();
+    const QByteArray tokenBytes = accessToken.toUtf8();
+    const QByteArray refreshBytes = refreshToken.toUtf8();
+    const QString result = takeRustString(mx_rust_revoke_refused_sign_in(
+        signInHandle, hsBytes.constData(), flow, clientBytes.constData(),
+        userBytes.constData(), deviceBytes.constData(), tokenBytes.constData(),
+        refreshBytes.constData()));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "the refused sign-in's session could not be ended"
+                          << "category=start_failed";
+        mx_rust_destroy(signInHandle);
+        return;
+    }
+    m_revokeHandle = signInHandle;
+    if (!m_pollTimer.isActive())
+        m_pollTimer.start();
+}
+
+void RustSdkMatrixClient::releaseRevokeHandle()
+{
+    if (!m_revokeHandle)
+        return;
+    mx_rust_destroy(m_revokeHandle);
+    m_revokeHandle = nullptr;
+}
+
+void RustSdkMatrixClient::drainRevokeEvents()
+{
+    for (int i = 0; i < 16 && m_revokeHandle; ++i) {
+        const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_revokeHandle));
+        if (raw.isEmpty())
+            return;
+        const QJsonObject event = QJsonDocument::fromJson(raw).object();
+        if (event.value(QStringLiteral("type")).toString()
+            != QLatin1String("refused_sign_in_revoked"))
+            continue;
+        // A fixed word from rust/src/oauth.rs, never server text.
+        qCInfo(lcRust) << "the refused sign-in's session at the server"
+                       << "category="
+                       << event.value(QStringLiteral("category")).toString();
+        releaseRevokeHandle();
+        return;
+    }
+}
+
+bool RustSdkMatrixClient::startAdoptedSessionCheck(
+    const matrix::app_data::AccountIdentity &identity, const QString &userId,
+    const QString &deviceId, const QString &accessToken)
+{
+    releaseWhoamiHandle();
+    m_whoamiHandle = mx_rust_oauth_bootstrap_create();
+    if (!m_whoamiHandle) {
+        // Cannot ask: proceed as before the check existed.
+        m_adoptedSessionsChecked.insert(userId);
+        return restoreSession();
+    }
+    m_adoptedSessionCheck = {userId, deviceId, identity.homeserver};
+    qCInfo(lcRust) << "checking an adopted sign-in with the server before using it"
+                   << "slug=" << identity.slug;
+    setState(Connecting);
+    if (!m_pollTimer.isActive())
+        m_pollTimer.start();
+    const QByteArray hsBytes = identity.homeserver.toUtf8();
+    const QByteArray tokenBytes = accessToken.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_whoami_probe(m_whoamiHandle, hsBytes.constData(), tokenBytes.constData()));
+    if (!result.isEmpty()) {
+        releaseWhoamiHandle();
+        m_adoptedSessionCheck = {};
+        m_adoptedSessionsChecked.insert(userId);
+        return restoreSession();
+    }
+    return true;
+}
+
+void RustSdkMatrixClient::releaseWhoamiHandle()
+{
+    if (!m_whoamiHandle)
+        return;
+    mx_rust_destroy(m_whoamiHandle);
+    m_whoamiHandle = nullptr;
+}
+
+void RustSdkMatrixClient::drainWhoamiEvents()
+{
+    for (int i = 0; i < 16 && m_whoamiHandle; ++i) {
+        const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_whoamiHandle));
+        if (raw.isEmpty())
+            return;
+        const QJsonObject event = QJsonDocument::fromJson(raw).object();
+        if (event.value(QStringLiteral("type")).toString()
+            != QLatin1String("whoami_probe"))
+            continue;
+        releaseWhoamiHandle();
+        const AdoptedSessionCheck check = std::exchange(m_adoptedSessionCheck, {});
+        // The account the user is opening may have changed meanwhile.
+        if (!m_settings || check.userId.isEmpty()
+            || m_settings->userId() != check.userId)
+            return;
+        const QString result = event.value(QStringLiteral("result")).toString();
+        // Not a secret, and only compared.
+        const QString answeredDevice = event.value(QStringLiteral("device_id")).toString();
+        const QString slug = matrix::app_data::safeUserSlug(check.userId);
+        if (result == QLatin1String("device") && answeredDevice == check.deviceId) {
+            m_settings->confirmAdoptedKeyringItems(check.userId);
+            qCInfo(lcRust) << "the adopted sign-in is this device's; it is this "
+                              "install's own now"
+                           << "slug=" << slug;
+        } else if (result == QLatin1String("device")) {
+            // The token is another install's device. Using it would run this
+            // store on that device, and this install's sign-out would end it.
+            // Only while nothing newer has happened to this account during the
+            // check (up to its 15 s bound): a session of it running or opening
+            // owns it now, and a newer sign-in is no longer the adopted copy
+            // (declineAdoptedKeyringItems() checks that and the device).
+            const bool sessionOfIt = m_userId == check.userId
+                && (m_loggedIn || m_rustHandle || m_oauthInFlight || m_ssoInFlight);
+            if (sessionOfIt
+                || !m_settings->declineAdoptedKeyringItems(check.userId,
+                                                           check.deviceId)) {
+                qCInfo(lcRust) << "the adoption check's answer came after the "
+                                  "account moved on; nothing changed"
+                               << "slug=" << slug;
+                return;
+            }
+            qCWarning(lcRust) << "the adopted sign-in belongs to another install's "
+                                 "device; this install's copy is removed and the "
+                                 "shared item kept"
+                              << "slug=" << slug;
+            Q_EMIT localSessionBlocked(QStringLiteral("keyring_other_install"),
+                                       check.userId, check.homeserver);
+            setState(Error);
+            Q_EMIT loginFailed(tr("This sign-in belongs to another copy of "
+                                  "Lightning on this computer. Sign in again."));
+            return;
+        } else {
+            // 401 (expired or ended) or no answer decides nothing: as before
+            // the check existed, once per account and process. A restore must
+            // never need a live server.
+            m_adoptedSessionsChecked.insert(check.userId);
+            qCInfo(lcRust) << "the adopted sign-in could not be checked; "
+                              "restoring it unverified"
+                           << "result=" << result << "slug=" << slug;
+        }
+        if (!restoreSession()) {
+            setState(Error);
+            Q_EMIT loginFailed(tr("Lightning could not open this account."));
+        }
+        return;
+    }
 }
 
 void RustSdkMatrixClient::adoptBrowserSession(
@@ -2124,7 +2424,54 @@ bool RustSdkMatrixClient::restoreSession()
     // A session of this account still closing may have rotated its tokens
     // since they were last written; those are the ones to present.
     settleRetiringSignIn(userId);
-    QString accessToken = m_settings->accessToken();
+
+    // The whole sign-in, read before anything changes, and above all before
+    // the running handle is released below: a switch to an account whose
+    // keyring cannot answer must not tear down the one that works. Each read
+    // can fail on its own after the access token's succeeded (a locked
+    // collection, a D-Bus timeout), and an empty answer from a read that
+    // FAILED is "cannot tell", never "this session has none" (CLAUDE.md §6).
+    // Taken for "none", the SDK got the access token alone; at the first 401
+    // (an OAuth access token lives minutes, so usually at once) it had no
+    // refresh token, broadcast UnknownToken, and the session was ended as
+    // signed out by the server: the repair card, over tokens that were fine.
+    const bool oauthAccount = m_settings->isOAuthAccount(userId);
+    QString accessToken;
+    QString refreshToken;
+    QString oauthClientId;
+    const auto readSignIn = [&]() -> const char * {
+        accessToken = m_settings->accessToken();
+        refreshToken.clear();
+        oauthClientId.clear();
+        if (accessToken.isEmpty())
+            return nullptr;
+        refreshToken = m_settings->refreshToken();
+        if (refreshToken.isEmpty() && m_settings->secretBackendUnavailable())
+            return "refresh_token";
+        if (oauthAccount) {
+            oauthClientId = m_settings->oauthClientIdFor(userId);
+            if (oauthClientId.isEmpty() && m_settings->secretBackendUnavailable())
+                return "oauth_client_id";
+        }
+        return nullptr;
+    };
+    const auto refuseUnreadable = [&](const char *secret) {
+        qCWarning(lcRust) << "restore stopped: the keyring did not answer for "
+                             "part of this sign-in; nothing was changed"
+                          << "secret=" << secret << "slug=" << identity.slug;
+        const auto reason =
+            matrix::rust_session::StoreBlockReason::SecretBackendUnavailable;
+        Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
+                                   identity.userId, identity.homeserver);
+        // A session still running (another account's) keeps its own state.
+        if (!m_loggedIn)
+            setState(Error);
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
+    };
+    if (const char *unreadable = readSignIn()) {
+        refuseUnreadable(unreadable);
+        return false;
+    }
     if (hs.isEmpty() || userId.isEmpty() || accessToken.isEmpty())
         return false;
 
@@ -2147,15 +2494,35 @@ bool RustSdkMatrixClient::restoreSession()
         return false;
     }
 
+    // A sign-in copied from an item saved before install scoping is checked
+    // against the server first (password sessions; see AdoptedSessionCheck).
+    if (m_settings->keyringItemsAdoptedUnverified(userId)
+        && !m_adoptedSessionsChecked.contains(userId)) {
+        if (!oauthAccount)
+            return startAdoptedSessionCheck(identity, userId, deviceId, accessToken);
+        m_adoptedSessionsChecked.insert(userId);
+        qCInfo(lcRust) << "an adopted OAuth sign-in is not checked: its access "
+                          "token has usually expired, so the server's answer "
+                          "would decide nothing; restoring it unverified"
+                       << "slug=" << identity.slug;
+    }
+
     if (!ensureRustHandleForIdentity(identity)) {
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return false;
     }
     // ensureRustHandleForIdentity() released the running handle; if it was
-    // this account's, its last tokens are the current ones.
-    if (settleRetiringSignIn(userId))
-        accessToken = m_settings->accessToken();
+    // this account's, its last tokens are the current ones: read them all
+    // again.
+    if (settleRetiringSignIn(userId)) {
+        if (const char *unreadable = readSignIn()) {
+            refuseUnreadable(unreadable);
+            return false;
+        }
+        if (accessToken.isEmpty())
+            return false;
+    }
     m_persistedAccessDigest = accessTokenDigest(accessToken);
 
     m_homeserver = hs;
@@ -2181,16 +2548,16 @@ bool RustSdkMatrixClient::restoreSession()
     const QByteArray deviceBytes = deviceId.toUtf8();
     const QByteArray tokenBytes = accessToken.toUtf8();
     // Carry the refresh token when there is one, so an expired access token can
-    // be renewed. Empty is normal for servers that issue none.
-    const QByteArray refreshBytes = m_settings->refreshToken().toUtf8();
+    // be renewed. Empty is normal for servers that issue none (read above).
+    const QByteArray refreshBytes = refreshToken.toUtf8();
 
     // A restart without logout must restore the existing device through the SDK
     // API that owns this session type; routing OAuth through matrix_auth()
     // would fail and lose refresh handling. The discriminator lives in
     // QSettings so it stays readable when the keyring is not.
     QString result;
-    if (m_settings->isOAuthAccount(userId)) {
-        const QByteArray clientBytes = m_settings->oauthClientIdFor(userId).toUtf8();
+    if (oauthAccount) {
+        const QByteArray clientBytes = oauthClientId.toUtf8();
         if (clientBytes.isEmpty()) {
             // An OAuth account without a registration id cannot be restored;
             // say so instead of falling back to the password path.
@@ -4982,6 +5349,9 @@ void RustSdkMatrixClient::pollRustEvents()
     // Phase A events first, unconditionally: a browser sign-in runs from the
     // login screen, where there is no session handle.
     drainAuthEvents();
+    drainProvidersEvents();
+    drainRevokeEvents();
+    drainWhoamiEvents();
 
     if (!m_rustHandle)
         return;
@@ -5235,11 +5605,41 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // account.
         const QString tokenOwner = tokenOwnerForRunningSession();
         const QString access = event.value(QStringLiteral("access_token")).toString();
+        // Only the pair the session holds NOW is written: two rotations can
+        // wait in one drain, and the older one must never land over the newer
+        // (its refresh token is already used up). An event older than the
+        // session's tokens is skipped; the newer one follows it.
+        if (m_rustHandle) {
+            // SENSITIVE: never log `current`.
+            const QString current = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
+            const QString currentAccess = current.isEmpty()
+                    || current.startsWith(QLatin1String("error: "))
+                ? QString()
+                : QJsonDocument::fromJson(current.toUtf8()).object()
+                      .value(QStringLiteral("access_token")).toString();
+            if (!currentAccess.isEmpty()
+                && accessTokenDigest(currentAccess) != accessTokenDigest(access)) {
+                qCInfo(lcRust) << "skipped a rotation the session has already "
+                                  "rotated past"
+                               << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+                return;
+            }
+        }
         if (m_settings && !tokenOwner.isEmpty()) {
             if (m_settings->updateSessionTokens(
                     tokenOwner, access,
                     event.value(QStringLiteral("refresh_token")).toString())) {
                 m_persistedAccessDigest = accessTokenDigest(access);
+                m_tokenWriteRetry.stop();
+                m_tokenWriteFailingFor.invalidate();
+            } else {
+                // Not left to the next rotation (minutes away) or to the
+                // retirement write (only a clean quit reaches it). A new
+                // rotation restarts the retries even after a give-up.
+                m_tokenWriteAttempts = 0;
+                if (!m_tokenWriteFailingFor.isValid())
+                    m_tokenWriteFailingFor.start();
+                scheduleRotatedTokenWrite();
             }
         } else {
             qCWarning(lcRust) << "a rotated sign-in matches no saved account "
@@ -5259,14 +5659,58 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // device gone. A missing field proves neither: the old card, no proof.
         const QJsonValue softValue = event.value(QStringLiteral("soft_logout"));
         const bool softLogoutReported = softValue.isBool() && softValue.toBool();
-        // An OAuth session cannot be continued from here: the authorization
-        // server refused the refresh, and Lightning's browser sign-in never
-        // asks for this device again. So it counts as ended, and the next
-        // sign-in moves the store aside for a new device (never deletes it).
         const bool oauthSession = m_settings && !m_userId.isEmpty()
             && m_settings->isOAuthAccount(m_userId);
+        // had_refresh_token=false: matrix-sdk had no refresh token to try and
+        // gave up without asking the server (RefreshTokenRequired). If the
+        // keyring holds a refresh token for this OAuth sign-in, or cannot
+        // answer, the session simply never got it: the non-destructive
+        // keyring card, whose "Try again" restores with it, and no
+        // revocation. Absent from older events: unchanged below.
+        const QJsonValue hadRefresh = event.value(QStringLiteral("had_refresh_token"));
+        bool keyringHoldsOrCannotTell = false;
+        if (oauthSession && hadRefresh.isBool() && !hadRefresh.toBool()) {
+            // This account's own record, read now: the flag below is this
+            // read's answer and no earlier one's.
+            QString owner = tokenOwnerForRunningSession();
+            if (owner.isEmpty())
+                owner = m_openingIdentity.userId;
+            if (owner.isEmpty()) {
+                keyringHoldsOrCannotTell = true;
+            } else {
+                const QString stored = m_settings->refreshTokenFor(owner);
+                keyringHoldsOrCannotTell =
+                    !stored.isEmpty() || m_settings->secretBackendUnavailable();
+            }
+        }
+        // Conclusively none: an OAuth session without a refresh token can
+        // never be continued from here, so it ends as before (hard, below);
+        // its next sign-in moves the store aside for a new device rather than
+        // leave "Remove", which deletes it, as the only way on.
+        if (keyringHoldsOrCannotTell) {
+            const auto reason =
+                matrix::rust_session::StoreBlockReason::SecretBackendUnavailable;
+            const QString user = m_loggedIn ? m_userId : m_openingIdentity.userId;
+            const QString server =
+                m_loggedIn ? m_homeserver : m_openingIdentity.homeserver;
+            qCInfo(lcRust) << "session credential rejected and could not be renewed"
+                           << "slug=" << matrix::app_data::safeUserSlug(user)
+                           << "oauth=" << true << "had_refresh_token=false"
+                           << "keyring_holds_one_or_cannot_tell=" << true;
+            Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
+                                       user, server);
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
+            return;
+        }
+        // Otherwise an OAuth session either had its refresh refused by the
+        // authorization server or conclusively has no refresh token, and
+        // Lightning's browser sign-in never asks for this device again, so it
+        // counts as ended: the next sign-in moves the store aside for a new
+        // device (never deletes it).
+        const bool oauthWithoutRefreshToken =
+            oauthSession && hadRefresh.isBool() && !hadRefresh.toBool();
         const bool hardLogout = (softValue.isBool() && !softValue.toBool())
-            || (softLogoutReported && oauthSession);
+            || (softLogoutReported && oauthSession) || oauthWithoutRefreshToken;
         const bool softLogout = softLogoutReported && !oauthSession;
         if (hardLogout && !m_userId.isEmpty() && !m_deviceId.isEmpty()) {
             m_revokedUserId = m_userId;
@@ -5300,10 +5744,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString revokedUser = m_loggedIn ? m_userId : m_openingIdentity.userId;
         const QString revokedServer =
             m_loggedIn ? m_homeserver : m_openingIdentity.homeserver;
+        // had_refresh_token=false: the session held none, so matrix-sdk gave
+        // up without asking the server (a sign-in restored without one);
+        // true: the server refused the one it had. Absent from older events.
         qCInfo(lcRust) << "session credential rejected and could not be renewed"
                        << "slug=" << matrix::app_data::safeUserSlug(revokedUser)
                        << "soft_logout=" << softLogoutReported
-                       << "oauth=" << oauthSession;
+                       << "oauth=" << oauthSession
+                       << "had_refresh_token="
+                       << (hadRefresh.isBool()
+                               ? (hadRefresh.toBool() ? "true" : "false")
+                               : "unknown");
         Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
                                    revokedUser, revokedServer);
         Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));

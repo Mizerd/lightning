@@ -1252,6 +1252,30 @@ Item {
                                 showRemove: false,
                                 showRetryKeyring: true
                             }
+                        case "keyring_other_install":
+                            // The adoption check: the sign-in this install had
+                            // copied from before install scoping is another
+                            // copy's device. Using it would run this store on
+                            // that device and sign that copy out on a
+                            // sign-out here. This install's copy is removed;
+                            // the other copy's sign-in and this device's
+                            // local data are untouched. Not a rebuild prompt.
+                            return {
+                                headline: qsTr("This sign-in belongs to another copy of Lightning"),
+                                body: qsTr(
+                                    "Another copy of Lightning on this computer, "
+                                    + "for example a Flatpak or a different package, "
+                                    + "is using the saved sign-in for %1. Sharing it "
+                                    + "would sign that copy out too, so this copy "
+                                    + "will not use it. Sign in again above to give "
+                                    + "this copy a sign-in of its own. The other "
+                                    + "copy is not affected.")
+                                    .arg(repair.userId),
+                                primaryLabel: "",
+                                confirmTitle: "",
+                                confirmBody: "",
+                                showRemove: true
+                            }
                         case "keyring_lost_session":
                             // The keyring answers but no longer returns a
                             // sign-in this install saved for this device: it

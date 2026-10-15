@@ -1507,7 +1507,8 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                     &homeserver, &store_path, stored.session.clone(), &events)
                     .await
                 {
-                    Ok(client) => {
+                    // The smoke-session path persists no rotations.
+                    Ok((client, _changes)) => {
                         install_event_handlers(
                             &client,
                             Arc::clone(&events),
@@ -1605,7 +1606,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                 )
                 .await
                 {
-                    Ok(client) => {
+                    Ok((client, changes)) => {
                         install_event_handlers(
                             &client,
                             Arc::clone(&events),
@@ -1613,9 +1614,12 @@ pub unsafe extern "C" fn mx_rust_restore(
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
                         );
+                        // From the receiver taken before restore_session(), so a
+                        // rotation the restore itself caused is still persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
-                                oauth::spawn_token_persistence(&client, Arc::clone(&events)))
+                                oauth::spawn_token_persistence_with(
+                                    &client, changes, Arc::clone(&events)))
                             {
                                 previous.abort();
                             }
@@ -10885,7 +10889,7 @@ async fn restore_client(
     access_token: String,
     refresh_token: Option<String>,
     events: &Arc<Mutex<VecDeque<String>>>,
-) -> Result<Client, String> {
+) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String> {
     let user_id: OwnedUserId = UserId::parse(user_id)
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
         .to_owned();
@@ -10955,20 +10959,44 @@ async fn build_client_for_restore(
     Ok(client)
 }
 
+/// Also returns a session-change receiver subscribed BEFORE
+/// `restore_session()`, which starts matrix-sdk's E2EE initialization task and
+/// can already rotate the tokens; hand it to
+/// `oauth::spawn_token_persistence_with` so no rotation goes unannounced.
 async fn restore_client_with_session(
     homeserver: &str,
     store_path: &Path,
     session: MatrixSession,
     events: &Arc<Mutex<VecDeque<String>>>,
-) -> Result<Client, String> {
+) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String> {
+    restore_client_with_session_then(homeserver, store_path, session, events, |_| async {})
+        .await
+}
+
+/// `restore_client_with_session` with `after_restore` run right after
+/// `restore_session()`, standing for what that call set running, so a test
+/// can rotate the tokens at exactly that point. Production passes nothing.
+pub(crate) async fn restore_client_with_session_then<F, Fut>(
+    homeserver: &str,
+    store_path: &Path,
+    session: MatrixSession,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    after_restore: F,
+) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String>
+where
+    F: FnOnce(Client) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
     let client = build_client_for_restore(homeserver, store_path, events).await?;
+    let changes = client.subscribe_to_session_changes();
     client
         .matrix_auth()
         .restore_session(session, RoomLoadSettings::default())
         .await
         .map_err(|err| format_matrix_error("Matrix Rust SDK session restore failed", err))?;
+    after_restore(client.clone()).await;
     resume_unsent_requests(&client).await;
-    Ok(client)
+    Ok((client, changes))
 }
 
 fn configured_session_file(slot: &Arc<Mutex<Option<PathBuf>>>) -> Option<PathBuf> {

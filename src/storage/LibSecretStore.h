@@ -45,9 +45,11 @@ public:
 
     QString lastError() const override { return m_lastError; }
     bool lastReadFailed() const override { return m_lastReadFailed; }
+    QString backendKind() const override { return m_backendKind; }
 
 private:
     void probe();
+    void detectBackendKind();
     void setError(const QString &err) const { m_lastError = err; }
 
     bool m_available = false;
@@ -56,4 +58,7 @@ private:
     // anything. Mutable because readSecret() is const.
     mutable bool m_lastReadFailed = false;
     mutable QString m_lastError;
+    // "file" or "service" (see SecretStore::backendKind()); empty when it
+    // could not be told.
+    QString m_backendKind;
 };

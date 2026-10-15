@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QObject>
 #include <QRect>
+#include <QSet>
 #include <QSettings>
 #include <QSize>
 #include <QString>
@@ -989,6 +990,23 @@ public:
     /// install scoping (whose device may be another install's). Reads the
     /// settings file only, never the secret store.
     bool secretsWrittenHereForRecordedDevice(const QString &userId) const;
+    // The keyring backend (SecretStore::backendKind()) this account's sign-in
+    // was last written in; empty when never recorded. keyringBackendChanged()
+    // is true when this launch's store reads a different one. Diagnostic.
+    QString keyringBackendFor(const QString &userId) const;
+    // The adoption check (RustSdkMatrixClient::AdoptedSessionCheck) on a
+    // sign-in copied from an item saved before install scoping:
+    // adopted-unverified until the server says whose device it is, then
+    // confirmed as this install's own, or declined (this install's copy
+    // removed, the shared item kept and never adopted again).
+    bool keyringItemsAdoptedUnverified(const QString &userId) const;
+    bool keyringItemsDeclinedForOtherInstall(const QString &userId) const;
+    void confirmAdoptedKeyringItems(const QString &userId);
+    // False, and nothing removed, unless the account is still
+    // adopted-unverified for `checkedDeviceId`.
+    bool declineAdoptedKeyringItems(const QString &userId,
+                                    const QString &checkedDeviceId);
+    bool keyringBackendChanged(const QString &userId) const;
     void setStoreSlugFor(const QString &userId, const QString &storeSlug);
     // Resolve a saved account into an identity whose paths point at the
     // recorded store. Use wherever an account's files are read, deleted or
@@ -1169,6 +1187,10 @@ private:
     // Records how this install's items for the account came to be, and for
     // which device. Flushed at once.
     void markKeyringItems(const QString &slug, const char *how) const;
+    // Records SecretStore::backendKind() for the account (see
+    // kAccountKeyringBackend). Const: called from the const adoption path.
+    void noteKeyringBackend(const QString &userId) const;
+    mutable QSet<QString> m_keyringBackendChangeLogged;
     enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };
     // Copies an account's items saved before install scoping into this
     // install's, leaving the shared ones untouched. Only for an account this

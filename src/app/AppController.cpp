@@ -2087,6 +2087,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // background, since the attempt released the shared client's session.
     connect(m_auth.get(), &AuthManager::loginFailed, this,
             [this](const QString &reason) {
+        // showMain() cancelling a browser sign-in left behind: it restores the
+        // account to return to itself, so this must not start a second one.
+        if (m_abandoningBrowserSignIn)
+            return;
         if (m_accountSwitching) {
             if (!m_switchFallbackUserId.isEmpty()) {
                 failAccountSwitch(tr("Could not switch accounts — returning "
@@ -2737,6 +2741,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                         endRevokedSession(userId);
                     }, Qt::QueuedConnection);
                 }
+            } else if (reasonCode == QLatin1String("secret_backend_unavailable")
+                       && m_client->isLoggedIn()
+                       && userId == m_client->currentUserId()) {
+                // The RUNNING session lost its credential without the server
+                // refusing anything (it never held its refresh token): ended
+                // here, locally and without marking the account revoked, so
+                // the card's "Try again" restores it with the keyring's.
+                // endRevokedSession() ends only that account's session; a
+                // restore of ANOTHER account refused this way leaves the
+                // running one alone.
+                QMetaObject::invokeMethod(this, [this, userId] {
+                    endRevokedSession(userId);
+                }, Qt::QueuedConnection);
             }
         });
         connect(rust, &RustSdkMatrixClient::localSessionCleanupFinished,
@@ -3774,6 +3791,18 @@ void AppController::showLogin()
 }
 void AppController::showMain()
 {
+    // An add-account browser sign-in left behind: its loopback listener and
+    // the server's page stay live for up to fifteen minutes, and finishing it
+    // later would replace the session the user went back to. Cancelled first;
+    // the backend answers synchronously with loginFailed, whose handler is
+    // told not to start the return-to restore this function makes below.
+    if (m_auth && m_auth->browserLoginInProgress()) {
+        qCInfo(lcApp) << "leaving the sign-in screen: cancelling the browser "
+                         "sign-in still waiting";
+        m_abandoningBrowserSignIn = true;
+        m_auth->cancelBrowserLogin();
+        m_abandoningBrowserSignIn = false;
+    }
     // Returning from add-account: a failed attempt released the shared
     // client's session, so restore the active account first.
     if (!m_client->isLoggedIn() && !m_accountSwitching) {
@@ -5038,6 +5067,14 @@ void AppController::explainUnrestoredLaunch()
 
 void AppController::noteKeyringLostSession(const QString &userId)
 {
+    // The adoption check found this install's copied sign-in to be another
+    // install's device and removed it: say that, not "the keyring lost it".
+    if (m_settings->keyringItemsDeclinedForOtherInstall(userId)) {
+        setLocalSessionFailure(
+            QStringLiteral("keyring_other_install"), userId,
+            m_settings->accountRecord(userId).value(QStringLiteral("homeserver")).toString());
+        return;
+    }
     // Only a sign-in this install saved for the recorded device, and never
     // removed: anything else missing may be a real sign-out, or someone
     // else's, and keeps the card it had.

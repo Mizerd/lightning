@@ -13,6 +13,7 @@
 #include <QPair>
 #include <QSet>
 #include <QStringList>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QVariantList>
 #include <functional>
@@ -1070,6 +1071,55 @@ private:
 
     // Phase A handle. Never carries a session and never syncs.
     void *m_authHandle = nullptr;
+    // Bumped whenever m_authHandle is created or released. drainAuthEvents()
+    // stops as soon as it moves: a slot it emitted to may have released the
+    // handle being drained or started a new request on a new one, and a new
+    // handle can reuse the freed one's address, so the pointer cannot tell.
+    quint64 m_authHandleGeneration = 0;
+    // The SSO providers question has a store-less handle of its own: on the
+    // shared one, a browser sign-in started before the answer replaced the
+    // handle and the named providers never came. Drained by
+    // drainProvidersEvents(); never carries a session.
+    void *m_providersHandle = nullptr;
+    void drainProvidersEvents();
+    // A browser sign-in Phase B refused (or could not restore) leaves a
+    // device and a live session on the server that nobody holds. Its Phase A
+    // handle is kept here, not destroyed, while mx_rust_revoke_refused_sign_in
+    // ends that session (bounded, best effort); drainRevokeEvents() logs the
+    // outcome word and releases it. One at a time: a newer refusal releases
+    // an older handle still waiting.
+    void *m_revokeHandle = nullptr;
+    void *takeAuthHandle();
+    void revokeRefusedSignIn(void *signInHandle, const QString &homeserver,
+                             const char *flow, const QString &clientId,
+                             const QString &userId, const QString &deviceId,
+                             const QString &accessToken,
+                             const QString &refreshToken);
+    void drainRevokeEvents();
+    void releaseRevokeHandle();
+    // Phase 2 of adopting a sign-in saved before install scoping, password
+    // sessions only: GET /account/whoami with the stored token, BEFORE any
+    // restore, on a store-less handle of its own. The same device confirms
+    // the adoption; another device declines it (this install's copy goes, the
+    // shared item stays) and asks for a sign-in; 401 or no answer proceeds
+    // unverified, once per account and process. OAuth is skipped: its access
+    // token has usually expired by the next start, so the answer is a 401 and
+    // decides nothing, and refreshing a possibly shared token family is the
+    // very hazard this guards against.
+    struct AdoptedSessionCheck {
+        QString userId;
+        QString deviceId;
+        QString homeserver;
+    };
+    void *m_whoamiHandle = nullptr;
+    AdoptedSessionCheck m_adoptedSessionCheck;
+    QSet<QString> m_adoptedSessionsChecked;
+    bool startAdoptedSessionCheck(const matrix::app_data::AccountIdentity &identity,
+                                  const QString &userId, const QString &deviceId,
+                                  const QString &accessToken);
+    void drainWhoamiEvents();
+    void releaseWhoamiHandle();
+    void releaseProvidersHandle();
     class OAuthCallbackServer *m_oauthCallback = nullptr;
     // The homeserver this OAuth attempt targets; phase B derives the identity
     // from the server's answer plus this URL.
@@ -1270,6 +1320,27 @@ private:
     matrix::app_data::AccountIdentity m_signOutIdentity;
     QString m_signOutDeviceId;
     QTimer m_pollTimer;
+    // A rotated sign-in the keyring would not store (locked, a denied prompt,
+    // a dropped bus) is retried while the session runs, from the session's
+    // CURRENT tokens: until it lands the keyring holds a refresh token the
+    // server has consumed, and a start from it is refused as signed out.
+    // Backs off from m_tokenWriteRetryMs; stopped when the handle is released
+    // (retirement writes the final tokens) or a later write succeeds.
+    QTimer m_tokenWriteRetry;
+    int m_tokenWriteRetryMs = 30000;
+    int m_tokenWriteAttempts = 0;
+    // Retries stop after this long of failures (a locked libsecret collection
+    // would otherwise raise an unlock prompt every ten minutes for ever), said
+    // once, and start again at the next rotation.
+    int m_tokenWriteGiveUpMs = 3600000;
+    QElapsedTimer m_tokenWriteFailingFor;
+    void retryRotatedTokenWrite();
+    void scheduleRotatedTokenWrite();
+    // The test knobs above (m_tokenWriteRetryMs, m_tokenWriteGiveUpMs) are
+    // private and reached by these friends only: no public setter exists.
+    friend class RustRetirementTest;
+    friend class BrowserSignInEdgeTest;
+    friend class SessionCredentialTest;
     // Every room this session knows, including Spaces and, on classic sync,
     // rooms no index space names.
     QHash<QString, RoomInfo> m_rooms;

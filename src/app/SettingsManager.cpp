@@ -166,8 +166,17 @@ constexpr auto kKeyringInstallId    = "keyring/installId";
 // Both absent: recorded before scoping; adopted on first use.
 constexpr auto kAccountKeyringItems  = "keyringItems";
 constexpr auto kAccountKeyringDevice = "keyringDevice";
+// Per account: SecretStore::backendKind() when its sign-in was last written
+// ("file" or "service"), for a store with more than one backend. Diagnostic:
+// a launch reading the other one says so (keyringBackendChanged()).
+constexpr auto kAccountKeyringBackend = "keyringBackend";
 constexpr auto kKeyringItemsOwn      = "own";
 constexpr auto kKeyringItemsAdopted  = "adopted-unverified";
+//                 "declined-other-install" - the adoption check found the copied
+//                                        token is another install's device:
+//                                        this install's copy is gone and the
+//                                        shared item is never adopted again.
+constexpr auto kKeyringItemsDeclined = "declined-other-install";
 
 // Mirrors InsecureFallbackSecretStore::settingsKey()'s group-name folding.
 // Duplicated because including that Q_OBJECT header would pull its vtable
@@ -712,6 +721,81 @@ void SettingsManager::markKeyringItems(const QString &slug,
     m_store->sync();
 }
 
+void SettingsManager::noteKeyringBackend(const QString &userId) const
+{
+    const QString kind = m_secretStore ? m_secretStore->backendKind() : QString();
+    const QString slug = slugForSavedAccount(userId);
+    if (kind.isEmpty() || slug.isEmpty())
+        return;
+    if (m_store->value(accountKey(slug, kAccountKeyringBackend)).toString() != kind)
+        m_store->setValue(accountKey(slug, kAccountKeyringBackend), kind);
+}
+
+bool SettingsManager::keyringItemsAdoptedUnverified(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId.trimmed());
+    return !slug.isEmpty() && m_secretStore && m_secretStore->isSharedBetweenInstalls()
+        && keyringItemsAreCurrent(slug)
+        && m_store->value(accountKey(slug, kAccountKeyringItems)).toString()
+               == QLatin1String(kKeyringItemsAdopted);
+}
+
+bool SettingsManager::keyringItemsDeclinedForOtherInstall(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId.trimmed());
+    return !slug.isEmpty() && keyringItemsAreCurrent(slug)
+        && m_store->value(accountKey(slug, kAccountKeyringItems)).toString()
+               == QLatin1String(kKeyringItemsDeclined);
+}
+
+void SettingsManager::confirmAdoptedKeyringItems(const QString &userId)
+{
+    const QString slug = slugForSavedAccount(userId.trimmed());
+    if (!slug.isEmpty() && keyringItemsAdoptedUnverified(userId))
+        markKeyringItems(slug, kKeyringItemsOwn);
+}
+
+bool SettingsManager::declineAdoptedKeyringItems(const QString &userId,
+                                                 const QString &checkedDeviceId)
+{
+    const QString uid = userId.trimmed();
+    const QString slug = slugForSavedAccount(uid);
+    if (slug.isEmpty() || !m_secretStore)
+        return false;
+    // Only the copy that was checked: a sign-in written since (marked "own",
+    // or for another device) is never removed by a late answer.
+    if (!keyringItemsAdoptedUnverified(uid) || checkedDeviceId.isEmpty()
+        || m_store->value(accountKey(slug, kAccountDeviceId)).toString()
+               != checkedDeviceId)
+        return false;
+    // Marked first, so a crash between the two never adopts it again.
+    markKeyringItems(slug, kKeyringItemsDeclined);
+    // This install's items only: in a store shared between installs that is
+    // what clearAccountSecrets() reaches. The shared item is another install's
+    // live sign-in and stays exactly as it is.
+    const bool cleared = m_secretStore->clearAccountSecrets(uid);
+    if (!cleared)
+        qCWarning(lcSettings) << "keyring: could not remove this install's copy "
+                                 "of another install's sign-in"
+                              << "slug=" << slug;
+    return cleared;
+}
+
+QString SettingsManager::keyringBackendFor(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId.trimmed());
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountKeyringBackend)).toString();
+}
+
+bool SettingsManager::keyringBackendChanged(const QString &userId) const
+{
+    const QString recorded = keyringBackendFor(userId);
+    const QString current = m_secretStore ? m_secretStore->backendKind() : QString();
+    return !recorded.isEmpty() && !current.isEmpty() && recorded != current;
+}
+
 void SettingsManager::adoptLegacyKeyringSessions()
 {
     if (!m_secretStore || !m_secretStore->isSharedBetweenInstalls())
@@ -740,7 +824,9 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
     const bool current = keyringItemsAreCurrent(slug);
     const QString how =
         m_store->value(accountKey(slug, kAccountKeyringItems)).toString();
-    if (current && how == QLatin1String(kKeyringItemsOwn))
+    if (current
+        && (how == QLatin1String(kKeyringItemsOwn)
+            || how == QLatin1String(kKeyringItemsDeclined)))
         return LegacyAdoption::NotAdoptable;
 
     // The access token is copied last, so its presence among this install's
@@ -796,6 +882,7 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
             << "slug=" << slug;
         return LegacyAdoption::CopyFailed;
     }
+    noteKeyringBackend(userId);
     qCInfo(lcSettings)
         << "keyring: adopted a sign-in saved before install scoping"
         << "(unverified: another install on this computer may use the same "
@@ -810,6 +897,19 @@ QString SettingsManager::readAccountSecret(const QString &userId,
     if (!m_secretStore)
         return {};
     const QLatin1String name(key);
+    // Said once per account and process: a miss, or an older token, read
+    // from a keyring other than the one that last held this sign-in is not
+    // what it looks like (a Flatpak or snap whose Secret portal came or went).
+    if (name == QLatin1String(kSecretAccessToken) && keyringBackendChanged(userId)
+        && !m_keyringBackendChangeLogged.contains(userId)) {
+        m_keyringBackendChangeLogged.insert(userId);
+        qCWarning(lcSettings)
+            << "keyring: this account's sign-in was last saved in another keyring"
+            << "than this launch reads"
+            << "slug=" << matrix::app_data::safeUserSlug(userId)
+            << "saved_in=" << keyringBackendFor(userId)
+            << "reading=" << m_secretStore->backendKind();
+    }
     if (!m_secretStore->isSharedBetweenInstalls())
         return m_secretStore->readSecret(userId, name);
     // No record here: nothing to restore, and no device to check against.
@@ -3615,15 +3715,23 @@ bool SettingsManager::updateSessionTokens(const QString &userId,
                 legacy.value(QLatin1String(kSecretOAuthClientId)));
         }
     }
-    bool ok = m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken),
-                                         accessToken);
+    // The refresh token first, the access token last and only after it: the
+    // access token names the pair (the retiring handle's write-back compares
+    // against it), so it must never be newer than the refresh token beside
+    // it. In the old order a refused refresh write left the NEW access token
+    // over the consumed refresh token, and the write-back then took that
+    // keyring for "a different sign-in" and kept the consumed one for good.
     // Written even when empty so a stale refresh token cannot be replayed.
-    ok = m_secretStore->storeSecret(uid, QLatin1String(kSecretRefreshToken),
-                                    refreshToken)
-         && ok;
+    bool ok = m_secretStore->storeSecret(uid, QLatin1String(kSecretRefreshToken),
+                                         refreshToken);
+    ok = ok
+         && m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken),
+                                       accessToken);
     if (!ok) {
         // Never echoes either value.
         qCWarning(lcSettings) << "failed to persist refreshed session tokens";
+    } else {
+        noteKeyringBackend(uid);
     }
     return ok;
 }
@@ -3755,6 +3863,8 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
             qCWarning(lcSettings)
                 << "failed to persist access token to SecretStore:"
                 << m_secretStore->lastError();
+        } else {
+            noteKeyringBackend(uidCanonical);
         }
         // Rewritten on every save, even when empty, so a previous session's
         // refresh token cannot be replayed.

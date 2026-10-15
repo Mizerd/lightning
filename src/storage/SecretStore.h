@@ -77,6 +77,16 @@ public:
     // Stores that live inside one install (Credential Manager, portable file,
     // QSettings fallback) ignore it.
     virtual bool isSharedBetweenInstalls() const { return false; }
+
+    // Which of its storage backends answers in this process, for a store that
+    // has more than one: libsecret keeps a Flatpak's or snap's items in a
+    // sandbox-private FILE keyring whenever the Secret portal answers, and in
+    // the Secret Service when it does not, and the choice is made per process.
+    // "file" or "service"; empty for a store with one backend (every other
+    // store), which is never recorded or compared. Diagnostic only: an account
+    // records the kind its sign-in was last written under, so a launch can say
+    // when it is reading a different keyring than the one that holds it.
+    virtual QString backendKind() const { return {}; }
     void setInstallScope(const QString &scope) { m_installScope = scope; }
     QString installScope() const { return m_installScope; }
 

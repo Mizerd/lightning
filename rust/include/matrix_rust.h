@@ -118,6 +118,28 @@ char *mx_rust_oauth_restore(void *client,
 /* Revokes the tokens at the authorization server. Store deletion stays in
  * C++, which is the only layer that knows which store belongs to whom. */
 char *mx_rust_oauth_logout(void *client);
+/* Ends at the server a session a browser sign-in created and Phase B refused
+ * to keep: flow "oauth" revokes at the authorization server, "sso" calls
+ * /logout. In-memory client, bounded, best effort; enqueues
+ * {"type":"refused_sign_in_revoked","category":"revoked"|<failure word>} on
+ * `client`, which must stay alive until then. Tokens are CREDENTIALS;
+ * client_id and refresh_token may be "". */
+char *mx_rust_revoke_refused_sign_in(void *client,
+                                     const char *homeserver,
+                                     const char *flow,
+                                     const char *client_id,
+                                     const char *user_id,
+                                     const char *device_id,
+                                     const char *access_token,
+                                     const char *refresh_token);
+/* Adoption check for a sign-in copied from before install scoping (password
+ * sessions): GET /account/whoami with access_token and no client session.
+ * Enqueues {"type":"whoami_probe","result":"device"|"unauthorized"|
+ * "unreachable"|"other","device_id":...} on `client` (a store-less handle).
+ * access_token is a CREDENTIAL. */
+char *mx_rust_whoami_probe(void *client,
+                           const char *homeserver,
+                           const char *access_token);
 
 /* --- Legacy Matrix SSO (m.login.sso) -------------------------------------
  * A DIFFERENT flow from OAuth above, deliberately kept apart: the homeserver

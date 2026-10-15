@@ -2,6 +2,10 @@
 
 #include <QLoggingCategory>
 
+#ifdef HAVE_LIBSECRET
+#include <dlfcn.h>
+#endif
+
 Q_LOGGING_CATEGORY(lcLibSecret, "matrix.secret.libsecret")
 
 #ifdef HAVE_LIBSECRET
@@ -111,7 +115,86 @@ void LibSecretStore::probe()
     }
 
     m_available = true;
-    qCInfo(lcLibSecret) << "libsecret backend ready";
+    detectBackendKind();
+    qCInfo(lcLibSecret) << "libsecret backend ready"
+                        << "items_in=" << (m_backendKind.isEmpty()
+                                               ? QStringLiteral("unknown")
+                                               : m_backendKind);
+}
+
+namespace {
+struct BackendAnswer {
+    GMainLoop *loop = nullptr;
+    QByteArray typeName;
+    bool done = false;
+};
+} // namespace
+
+void LibSecretStore::detectBackendKind()
+{
+    // The password API's own choice, asked the way it asks it: libsecret picks
+    // the file backend inside a Flatpak or snap whose Secret portal answers,
+    // and the Secret Service otherwise, once per process. On a private
+    // context, so nothing else is dispatched while waiting, and bounded: a
+    // portal that never answers leaves the kind unknown, never the start hung.
+    // On a timeout the answer is abandoned (its context is never iterated
+    // again, so its callback never runs) and the small struct is leaked.
+    //
+    // secret_backend_get() is exported since libsecret 0.20 but declared only
+    // in a header libsecret keeps out of <libsecret/secret.h> as "subject to
+    // change", so it is looked up at run time: an older or changed libsecret
+    // leaves the kind unknown instead of failing to link or start.
+    using BackendGet = void (*)(int, GCancellable *, GAsyncReadyCallback, gpointer);
+    using BackendGetFinish = GObject *(*)(GAsyncResult *, GError **);
+    static const auto backendGet =
+        reinterpret_cast<BackendGet>(dlsym(RTLD_DEFAULT, "secret_backend_get"));
+    static const auto backendGetFinish = reinterpret_cast<BackendGetFinish>(
+        dlsym(RTLD_DEFAULT, "secret_backend_get_finish"));
+    if (!backendGet || !backendGetFinish)
+        return;
+    GMainContext *context = g_main_context_new();
+    g_main_context_push_thread_default(context);
+    auto *answer = new BackendAnswer;
+    answer->loop = g_main_loop_new(context, FALSE);
+    backendGet(
+        0 /* SECRET_BACKEND_NONE */, nullptr,
+        [](GObject *, GAsyncResult *result, gpointer data) {
+            auto *answer = static_cast<BackendAnswer *>(data);
+            GObject *backend = backendGetFinish(result, nullptr);
+            if (backend) {
+                answer->typeName = G_OBJECT_TYPE_NAME(backend);
+                g_object_unref(backend);
+            }
+            answer->done = true;
+            g_main_loop_quit(answer->loop);
+        },
+        answer);
+    GSource *timeout = g_timeout_source_new(3000);
+    g_source_set_callback(
+        timeout,
+        [](gpointer loop) -> gboolean {
+            g_main_loop_quit(static_cast<GMainLoop *>(loop));
+            return G_SOURCE_REMOVE;
+        },
+        answer->loop, nullptr);
+    g_source_attach(timeout, context);
+    // A backend libsecret already holds may answer before the loop runs.
+    if (!answer->done)
+        g_main_loop_run(answer->loop);
+    g_source_destroy(timeout);
+    g_source_unref(timeout);
+    g_main_context_pop_thread_default(context);
+    const bool done = answer->done;
+    const QByteArray typeName = answer->typeName;
+    if (done) {
+        g_main_loop_unref(answer->loop);
+        delete answer;
+    }
+    g_main_context_unref(context);
+    if (typeName == "SecretFileBackend")
+        m_backendKind = QStringLiteral("file");
+    else if (!typeName.isEmpty())
+        m_backendKind = QStringLiteral("service");
 }
 
 bool LibSecretStore::isAvailable() const

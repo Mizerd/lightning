@@ -4365,6 +4365,31 @@ if(BUILD_TESTING)
         set_tests_properties(browser-sign-in-rollback PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+        # Browser sign-in edge cases: the loopback listener's per-connection
+        # deadline across attempts, and a discovery started from the answer
+        # to the last one. A real bootstrap handle against a loopback server.
+        qt_add_executable(browser-sign-in-edge-test
+            tests/BrowserSignInEdgeTest.cpp
+        )
+        lightning_configure_qml_test(browser-sign-in-edge-test)
+        target_include_directories(browser-sign-in-edge-test PRIVATE src)
+        add_test(NAME browser-sign-in-edge COMMAND browser-sign-in-edge-test)
+        set_tests_properties(browser-sign-in-edge PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # Credentials a session cannot fully use: an unreadable OAuth client
+        # id, an OAuth session ended without a refresh token to try, and a
+        # sign-in copied from before install scoping, checked with the server
+        # (whoami) before use. Fixture keyrings, a loopback homeserver.
+        qt_add_executable(session-credential-test
+            tests/SessionCredentialTest.cpp
+        )
+        lightning_configure_qml_test(session-credential-test)
+        target_include_directories(session-credential-test PRIVATE src)
+        add_test(NAME session-credential COMMAND session-credential-test)
+        set_tests_properties(session-credential PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
         # The context-view handlers: a closed for the replaced view must not
         # reject the reopen's reset. Real dispatcher, no FFI handle.
         qt_add_executable(context-handlers-test

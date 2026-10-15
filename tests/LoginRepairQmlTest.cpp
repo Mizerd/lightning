@@ -327,6 +327,7 @@ private slots:
             QStringLiteral("invalid_saved_account_identity"),
             QStringLiteral("secret_backend_unavailable"),
             QStringLiteral("keyring_lost_session"),
+            QStringLiteral("keyring_other_install"),
             QStringLiteral("cleanup_incomplete"),
         };
         for (const QString &code : codes) {
@@ -353,6 +354,28 @@ private slots:
                      qPrintable(QStringLiteral("reason '%1' renders no card")
                                     .arg(code)));
         }
+    }
+
+    // The adoption check found the sign-in this install had copied from an
+    // older build to be another copy's device: the card says so, asks for a
+    // sign-in, and never offers a rebuild (the store is not the problem).
+    void aSignInOfAnotherCopyAsksForASignInAndNoRebuild()
+    {
+        injectFailure(QStringLiteral("keyring_other_install"),
+                      QStringLiteral("@gus:example.org"),
+                      QStringLiteral("https://example.org"));
+        auto *card = item("loginRepairCard");
+        QTRY_VERIFY(card && card->isVisible());
+        QVERIFY(!m_controller->localResetHelpsFor(QStringLiteral("keyring_other_install")));
+        for (const char *name : {"loginRepairPrimaryAction", "loginRepairRetry",
+                                 "loginRepairRetryKeyring"}) {
+            auto *button = item(name);
+            QVERIFY2(!button || !button->isVisible(), name);
+        }
+        const QString body = item("loginRepairBody")->property("text").toString();
+        QVERIFY2(body.contains(QStringLiteral("@gus:example.org")), qPrintable(body));
+        QVERIFY2(body.contains(QStringLiteral("another copy of Lightning"),
+                               Qt::CaseInsensitive), qPrintable(body));
     }
 
     // The keyring answers but no longer returns a sign-in this install saved

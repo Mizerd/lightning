@@ -12,12 +12,16 @@
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
+#include <QDir>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutex>
+#include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSemaphore>
+#include <QSet>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -54,13 +58,42 @@ public:
     bool storeSecret(const QString &u, const QString &k, const QString &v) override
     {
         QMutexLocker lock(&m_mutex);
+        // A keyring refusing this one write (locked, a denied prompt).
+        if (m_failingWrites.contains(k))
+            return false;
         m_values.insert(u + QLatin1Char('/') + k, v);
         return true;
+    }
+    void failWritesOf(const QString &key, bool fail)
+    {
+        QMutexLocker lock(&m_mutex);
+        if (fail)
+            m_failingWrites.insert(key);
+        else
+            m_failingWrites.remove(key);
     }
     QString readSecret(const QString &u, const QString &k) const override
     {
         QMutexLocker lock(&m_mutex);
+        // A keyring that cannot answer this one read (a locked collection, a
+        // D-Bus timeout): nothing comes back and the store says so.
+        m_lastReadFailed = m_failingReads.contains(k);
+        if (m_lastReadFailed)
+            return {};
         return m_values.value(u + QLatin1Char('/') + k);
+    }
+    bool lastReadFailed() const override
+    {
+        QMutexLocker lock(&m_mutex);
+        return m_lastReadFailed;
+    }
+    void failReadsOf(const QString &key, bool fail)
+    {
+        QMutexLocker lock(&m_mutex);
+        if (fail)
+            m_failingReads.insert(key);
+        else
+            m_failingReads.remove(key);
     }
     bool deleteSecret(const QString &u, const QString &k) override
     {
@@ -81,6 +114,9 @@ public:
 private:
     mutable QMutex m_mutex;
     QHash<QString, QString> m_values;
+    QSet<QString> m_failingReads;
+    QSet<QString> m_failingWrites;
+    mutable bool m_lastReadFailed = false;
 };
 
 // A homeserver with MAS's rotation rules: the first access token has expired
@@ -97,6 +133,7 @@ class RotatingHomeserver : public QObject
     Q_OBJECT
 public:
     std::atomic<int> logouts{0};
+    std::atomic<int> refreshesAsked{0};
     QSemaphore refreshServed;
 
     // The pair the server last issued: what the client must end up with.
@@ -187,6 +224,7 @@ private:
             return;
         }
         if (path.endsWith("/refresh")) {
+            ++refreshesAsked;
             const QString asked = QJsonDocument::fromJson(body).object()
                                       .value(QStringLiteral("refresh_token")).toString();
             if (!m_gateOpen && rotations() == 0 && asked == kRefresh0) {
@@ -509,6 +547,232 @@ private Q_SLOTS:
         QVERIFY(!session.settings.hasSavedAccount(kUser));
         QCOMPARE(session.stored("accessToken"), QString());
         QCOMPARE(session.stored("refreshToken"), QString());
+    }
+
+    // The keyring refuses the rotated sign-in (a locked collection, a denied
+    // prompt) while the session runs on. The refused write was tried again
+    // only by the NEXT rotation, minutes away, or by a clean quit; a crash or
+    // a session ending in between left the consumed refresh token for the
+    // next start, which MAS refuses as signed out. Retried while running now.
+    void aRotationTheKeyringRefusedIsSavedOnceItAnswers()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        session.client->m_tokenWriteRetryMs = 200;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), true);
+        // The rotation is drained and its write refused.
+        QTest::qWait(600);
+        QCOMPARE(session.stored("refreshToken"), kRefresh0);
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), false);
+        const auto latest = session.server->latest();
+        QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 10000);
+        QCOMPARE(session.stored("accessToken"), latest.first);
+    }
+
+    // The same refusal for the refresh token alone, then a session end: the
+    // retiring handle's write-back compares the keyring's access token with
+    // the one it last wrote. updateSessionTokens() wrote the access token
+    // FIRST, so the keyring held the new access token over the consumed
+    // refresh token, the write-back took that for a newer sign-in and stood
+    // aside, and the consumed refresh token stayed for good.
+    void aRefusedRefreshTokenIsStillWrittenBackWhenTheSessionEnds()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        // Only the retirement path: no live retry in this window.
+        session.client->m_tokenWriteRetryMs = 600000;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
+        QTest::qWait(600);
+        QCOMPARE(session.stored("refreshToken"), kRefresh0);
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
+
+        QVERIFY(session.client->detachSession());
+        QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
+        const auto latest = session.server->latest();
+        QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
+        QCOMPARE(session.stored("accessToken"), latest.first);
+    }
+
+    // Retrying a refused write stops after a spell of failures (an hour in
+    // production: a locked libsecret collection would otherwise prompt every
+    // ten minutes for ever), says so once, and starts again at the next
+    // rotation.
+    void aRefusedWriteIsRetriedForABoundedSpellAndAgainAtTheNextRotation()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        auto *client = session.client.get();
+        client->m_tokenWriteRetryMs = 100;
+        client->m_tokenWriteGiveUpMs = 700;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), true);
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("still not saved after an hour")));
+        QTRY_VERIFY_WITH_TIMEOUT(client->m_tokenWriteAttempts > 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!client->m_tokenWriteRetry.isActive(), 10000);
+        const int attempts = client->m_tokenWriteAttempts;
+        QTest::qWait(600);
+        QCOMPARE(client->m_tokenWriteAttempts, attempts);
+        QCOMPARE(session.stored("refreshToken"), kRefresh0);
+
+        // The next rotation (its event, for the pair the session holds now).
+        const auto latest = session.server->latest();
+        client->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("session_tokens_refreshed")},
+            {QStringLiteral("access_token"), latest.first},
+            {QStringLiteral("refresh_token"), latest.second},
+        });
+        QVERIFY(client->m_tokenWriteRetry.isActive());
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), false);
+        QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
+    }
+
+    // Two rotations can wait in one drain. The older pair must never land
+    // over the newer one: its refresh token is already used up.
+    void anOlderRotationNeverOverwritesTheSessionsCurrentPair()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        const auto latest = session.server->latest();
+        QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
+        session.client->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("session_tokens_refreshed")},
+            {QStringLiteral("access_token"), kAccess0},
+            {QStringLiteral("refresh_token"), kRefresh0},
+        });
+        QCOMPARE(session.stored("refreshToken"), latest.second);
+        QCOMPARE(session.stored("accessToken"), latest.first);
+    }
+
+    // A retry pending when the user signs out never writes the sign-in back.
+    void aRetryNeverWritesAfterASignOut()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        session.client->m_tokenWriteRetryMs = 300;
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), true);
+        QTRY_VERIFY_WITH_TIMEOUT(session.client->m_tokenWriteRetry.isActive(), 5000);
+        QSignalSpy loggedOut(session.client.get(), &MatrixClient::loggedOut);
+        session.client->logout();
+        QVERIFY(loggedOut.wait(30000));
+        session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
+        session.secrets.failWritesOf(QStringLiteral("accessToken"), false);
+        QTest::qWait(1500);
+        QVERIFY(!session.settings.hasSavedAccount(kUser));
+        QCOMPARE(session.stored("accessToken"), QString());
+        QCOMPARE(session.stored("refreshToken"), QString());
+    }
+
+    // Opening another account whose keyring cannot answer must not tear down
+    // the running one: its sign-in is read before the running handle goes.
+    void anUnreadableAccountNeverTearsDownTheRunningOne()
+    {
+        RotatedSession session;
+        QVERIFY2(session.start(), "the fixture session did not reach a refresh");
+        auto *client = session.client.get();
+        void *running = client->m_rustHandle;
+        QVERIFY(running);
+        const QString other = QStringLiteral("@other:localhost");
+        session.settings.saveSession(session.homeserver, other, QStringLiteral("OTHERDEV"),
+                                     QStringLiteral("other-access"),
+                                     QStringLiteral("other-refresh"));
+        matrix::app_data::AccountIdentity identity;
+        QVERIFY(matrix::app_data::resolveAccountIdentity(session.homeserver, other,
+                                                         &identity));
+        QDir().mkpath(identity.rustStorePath);
+        session.secrets.failReadsOf(QStringLiteral("refreshToken"), true);
+        QSignalSpy blocked(client, &RustSdkMatrixClient::localSessionBlocked);
+        QVERIFY(!client->restoreSession());
+        session.secrets.failReadsOf(QStringLiteral("refreshToken"), false);
+        QCOMPARE(blocked.size(), 1);
+        QCOMPARE(blocked.first().at(1).toString(), other);
+        QCOMPARE(client->m_rustHandle, running);
+        QVERIFY(client->isLoggedIn());
+        QCOMPARE(client->currentUserId(), kUser);
+    }
+
+    // A keyring that answers the access token and then fails the refresh
+    // token's read must not restore a session WITHOUT its refresh token. It
+    // did: the read's failure was taken for "this session has none", the SDK
+    // was handed the access token alone, and at the first 401 (an OAuth
+    // access token lives five minutes, so a restore usually meets one at
+    // once) matrix-sdk had nothing to refresh with, broadcast
+    // `SessionChange::UnknownToken`, and the session was ended as signed out
+    // by the server: the "fix this account" card, for an OAuth account the
+    // hard kind whose next sign-in starts a new device. The tokens in the
+    // keyring were fine the whole time (CLAUDE.md §6: an unreadable secret is
+    // "cannot tell", never "none").
+    void anUnreadableRefreshTokenNeverRestoresASessionWithoutOne()
+    {
+        RotatingHomeserver *server = new RotatingHomeserver;
+        QThread serverThread;
+        server->moveToThread(&serverThread);
+        serverThread.start();
+        const auto stopServer = qScopeGuard([&] {
+            QMetaObject::invokeMethod(server, &QObject::deleteLater);
+            serverThread.quit();
+            serverThread.wait(5000);
+        });
+        quint16 port = 0;
+        QMetaObject::invokeMethod(server, "listen", Qt::BlockingQueuedConnection,
+                                  Q_RETURN_ARG(quint16, port));
+        QVERIFY(port != 0);
+        const QString homeserver = QStringLiteral("http://127.0.0.1:%1").arg(port);
+
+        FixtureSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(homeserver, kUser, kDevice, kAccess0, kRefresh0);
+        matrix::app_data::AccountIdentity identity;
+        QVERIFY(matrix::app_data::resolveAccountIdentity(homeserver, kUser, &identity));
+        QDir().mkpath(identity.rustStorePath);
+
+        secrets.failReadsOf(QStringLiteral("refreshToken"), true);
+        auto client = std::make_unique<RustSdkMatrixClient>(&settings);
+        const auto retire = qScopeGuard([&] {
+            client.reset();
+            RustSdkMatrixClient::waitForRustRetirement(30000);
+        });
+        QSignalSpy blocked(client.get(), &RustSdkMatrixClient::localSessionBlocked);
+        QSignalSpy restoredSpy(client.get(), &MatrixClient::loginSucceeded);
+
+        const bool restored = client->restoreSession();
+        if (restored) {
+            // The defect, observed to its end: say what the session became.
+            if (restoredSpy.isEmpty())
+                restoredSpy.wait(30000);
+            client->startSync();
+            QTRY_VERIFY_WITH_TIMEOUT(!blocked.isEmpty(), 30000);
+            QFAIL(qPrintable(QStringLiteral(
+                "restored without its refresh token; the session ended as "
+                "'%1' after %2 refresh request(s)")
+                .arg(blocked.first().at(0).toString())
+                .arg(server->refreshesAsked.load())));
+        }
+        // "Cannot tell", said as such: the non-destructive keyring card.
+        QCOMPARE(blocked.size(), 1);
+        QCOMPARE(blocked.first().at(0).toString(),
+                 QStringLiteral("secret_backend_unavailable"));
+        QCOMPARE(blocked.first().at(1).toString(), kUser);
+        // Nothing was changed: the sign-in, its device and its store stay.
+        secrets.failReadsOf(QStringLiteral("refreshToken"), false);
+        QCOMPARE(secrets.readSecret(kUser, QStringLiteral("refreshToken")), kRefresh0);
+        QCOMPARE(settings.accountRecord(kUser).value(QStringLiteral("deviceId")).toString(),
+                 kDevice);
+        QVERIFY(QFileInfo::exists(identity.rustStorePath));
+
+        // "Try again" once the keyring answers: the same session, refreshable.
+        QVERIFY(client->restoreSession());
+        QVERIFY(restoredSpy.wait(30000));
+        client->startSync();
+        QMetaObject::invokeMethod(server, "openRefreshGate", Qt::QueuedConnection);
+        QTRY_COMPARE_WITH_TIMEOUT(secrets.readSecret(kUser, QStringLiteral("refreshToken")),
+                                  server->latest().second, 30000);
+        QCOMPARE(blocked.size(), 1);
     }
 
 private:

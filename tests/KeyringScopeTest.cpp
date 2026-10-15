@@ -21,6 +21,7 @@
 #include <QList>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QRegularExpression>
 #include <QtTest>
 
 #include <memory>
@@ -206,8 +207,11 @@ public:
     }
     QString lastError() const override { return m_error; }
     bool lastReadFailed() const override { return m_lastReadFailed; }
+    QString backendKind() const override { return kind; }
 
     bool failStores = false;
+    // Which of libsecret's backends answers this "process".
+    QString kind;
     // Refuse writes of this one key only.
     QString failKey;
 
@@ -298,6 +302,13 @@ private Q_SLOTS:
     void anOlderBuildSigningInAgainIsNeverHandedTheStaleToken();
     void signingOutLeavesASharedItemHoldingAnotherToken();
     void aStoreInsideOneInstallIsNotScoped();
+
+    // A refused rotation write never leaves a newer access token over an
+    // older refresh token.
+    void aRefusedRefreshTokenWriteLeavesTheWholeOldPair();
+
+    // Instrumentation: which keyring holds a sign-in.
+    void aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnotherSaysSo();
 
 private:
     // Each install has its own settings file, as the Flatpak and a native
@@ -809,6 +820,79 @@ void KeyringScopeTest::aStoreInsideOneInstallIsNotScoped()
     QCOMPARE(install->accessTokenFor(kUser), QStringLiteral("deb-access"));
     QVERIFY(store.installScope().isEmpty());
     QVERIFY(installIdOf(QStringLiteral("keyring-deb")).isEmpty());
+}
+
+// The access token names the stored pair: the retiring handle writes its
+// last rotation back only over the access token it last wrote itself
+// (RustSdkMatrixClient::persistRetiredSessionTokens). updateSessionTokens()
+// wrote the access token first, so a keyring that took it and then refused
+// the refresh token held the NEW access token over the CONSUMED refresh token;
+// the write-back took that for someone else's newer sign-in and stood aside,
+// and the next start presented the consumed refresh token, which an OAuth
+// server refuses as signed out. Fails on the old order.
+void KeyringScopeTest::aRefusedRefreshTokenWriteLeavesTheWholeOldPair()
+{
+    FakeKeyring keyring;
+    SharedKeyringStore store(&keyring);
+    auto install = openInstall(QStringLiteral("keyring-flatpak"), &store);
+    install->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                         QStringLiteral("access-0"), QStringLiteral("refresh-0"),
+                         QStringLiteral("oauth"), QStringLiteral("client"));
+
+    store.failKey = QStringLiteral("refreshToken");
+    QVERIFY(!install->updateSessionTokens(kUser, QStringLiteral("access-1"),
+                                          QStringLiteral("refresh-1")));
+    QCOMPARE(install->accessTokenFor(kUser), QStringLiteral("access-0"));
+    QCOMPARE(install->refreshTokenFor(kUser), QStringLiteral("refresh-0"));
+
+    // Once the keyring takes it, the pair moves together.
+    store.failKey.clear();
+    QVERIFY(install->updateSessionTokens(kUser, QStringLiteral("access-1"),
+                                         QStringLiteral("refresh-1")));
+    QCOMPARE(install->accessTokenFor(kUser), QStringLiteral("access-1"));
+    QCOMPARE(install->refreshTokenFor(kUser), QStringLiteral("refresh-1"));
+}
+
+// libsecret keeps a sandbox's items in a FILE keyring while the Secret portal
+// answers and in the Secret Service when it does not, chosen per process. A
+// sign-in written under one and looked for under the other reads as lost
+// (docs/open-items.md, "Record which libsecret backend holds each account's
+// items"). This records the kind on every write and says, once, when a launch
+// reads the other one, so a report can tell that from a keyring that really
+// lost the sign-in. It changes no decision.
+void KeyringScopeTest::aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnotherSaysSo()
+{
+    FakeKeyring keyring;
+    SharedKeyringStore store(&keyring);
+    store.kind = QStringLiteral("file");
+    auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
+    flatpak->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                         QStringLiteral("flatpak-access"));
+    QCOMPARE(flatpak->keyringBackendFor(kUser), QStringLiteral("file"));
+    QVERIFY(!flatpak->keyringBackendChanged(kUser));
+
+    // The next launch's portal did not answer.
+    store.kind = QStringLiteral("service");
+    QVERIFY(flatpak->keyringBackendChanged(kUser));
+    QTest::ignoreMessage(
+        QtWarningMsg,
+        QRegularExpression(QStringLiteral(
+            "sign-in was last saved in another keyring.*saved_in= \"?file\"? "
+            "reading= \"?service\"?")));
+    flatpak->accessTokenFor(kUser);
+    // Once per account and process, however often it is read.
+    flatpak->accessTokenFor(kUser);
+
+    // A rotation written under the new one records it.
+    QVERIFY(flatpak->updateSessionTokens(kUser, QStringLiteral("rotated"), QString()));
+    QCOMPARE(flatpak->keyringBackendFor(kUser), QStringLiteral("service"));
+    QVERIFY(!flatpak->keyringBackendChanged(kUser));
+
+    // A store with one backend records nothing.
+    PerInstallStore single;
+    auto deb = openInstall(QStringLiteral("keyring-deb"), &single);
+    deb->saveSession(kHs, kUser, QStringLiteral("DEBDEV"), QStringLiteral("deb-access"));
+    QVERIFY(deb->keyringBackendFor(kUser).isEmpty());
 }
 
 QTEST_GUILESS_MAIN(KeyringScopeTest)

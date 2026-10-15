@@ -1402,6 +1402,9 @@ private:
     // Add-account mode: the account to return to when the login fails or
     // the user presses Back.
     QString m_addAccountReturnTo;
+    // Set only while showMain() cancels a browser sign-in left behind; see
+    // the AuthManager::loginFailed handler.
+    bool m_abandoningBrowserSignIn = false;
     // True while the previous account restores after a failed add-account
     // attempt, so its loginSucceeded does not leave the login screen.
     bool m_backgroundRestore = false;
