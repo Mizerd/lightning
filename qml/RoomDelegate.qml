@@ -284,7 +284,7 @@ Item {
                 }
                 Label {
                     objectName: "roomActivityLabel"
-                    visible: model.lastActivity
+                    visible: !!model.lastActivity
                              && model.lastActivity.toString() !== ""
                              && text.length > 0
                     text: root.activityLabel(model.lastActivity)
