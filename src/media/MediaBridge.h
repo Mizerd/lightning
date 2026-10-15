@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QPair>
 #include <QImage>
 #include <QMutex>
 #include <QObject>
@@ -250,6 +251,10 @@ public:
     // or "" (not an animation, or refused).
     Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
                                               const QString &mimetype);
+    /// How many times previewAnimatedSource() had to base64-decode and hash a
+    /// payload (a repeat of the same data: URL is answered from a memo). For
+    /// tests.
+    int previewDecodeCount() const { return m_previewDecodes; }
     // Validated client-preview bytes exposed only through the bounded
     // in-memory image provider. The remote URL is never an image source.
     Q_INVOKABLE QString previewImageSource(const QString &dataSource,
@@ -594,6 +599,16 @@ private:
     QHash<QString, QString> m_stagedKeys;   // token -> motion cache key
     std::unique_ptr<QTemporaryDir> m_animatedDir;
     QHash<QString, QString> m_animatedFiles;
+    // previewAnimatedSource(): data: URL (length, hash) -> file URL, or "" for
+    // a payload that is not an animation (a write failure is never memoised). The binding that calls it re-runs on
+    // every tick; without this each run decoded and hashed the whole payload
+    // on the GUI thread and a still WebP was never remembered.
+    // value: (file URL or "", animated-cache key)
+    // key: (payload length, per-process-seeded hash). Pins no payload text:
+    // the data: URL itself is NOT kept alive by the memo.
+    QHash<QPair<qsizetype, size_t>, QPair<QString, QString>> m_previewAnimMemo;
+    static constexpr qsizetype kMaxAnimatedBytes = 20 * 1024 * 1024;
+    int m_previewDecodes = 0;
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
     struct AnimationHold {

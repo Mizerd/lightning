@@ -348,6 +348,12 @@ void AboutController::finishReset(bool timedOut)
                                   m_resetFailed.join(QStringLiteral(", ")));
     }
     Q_EMIT resetChanged();
+    // After the state change, so a listener reads the finished reset. A
+    // refused or failed clear step is not in m_resetDone: nothing to reload.
+    // A watchdog on ANOTHER step does not undo an event-cache clear that
+    // already succeeded.
+    if (m_resetDone.contains(tr("event cache")))
+        Q_EMIT eventCacheWasCleared();
 }
 
 void AboutController::loadAccountData(const QString &roomId)

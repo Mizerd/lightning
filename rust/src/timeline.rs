@@ -2064,7 +2064,6 @@ impl TimelineRegistry {
             .map_err(|_| "Unsupported attachment MIME type.".to_owned())?;
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
-        let thread_gen = self.thread_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         runtime.spawn(async move {
@@ -2090,7 +2089,13 @@ impl TimelineRegistry {
             } else {
                 false
             };
-            if registry.thread_current(thread_gen, lifecycle) {
+            // Gated on the LIFECYCLE alone, like the room attachment path. The
+            // C++ side owns the op (chip, stripped copy, voice file) and has
+            // to hear how it ended even when the thread timeline was
+            // re-subscribed (the event cache was cleared) or the panel moved
+            // on: it releases them unconditionally and only reports a failure
+            // for the thread still open. Gating on thread_gen orphaned them.
+            if registry.lifecycle_current(lifecycle) {
                 enqueue(
                     &events,
                     json!({
@@ -6382,6 +6387,33 @@ mod tests {
             !body.contains("let Some((timeline, room_gen, lifecycle))"),
             "edit() binds the resolved generation as `room_gen`, which is a \
              thread generation in the thread branch"
+        );
+    }
+
+    /// A thread attachment/voice result is the C++ side's only word that an op
+    /// ended: it frees the chip, the stripped image copy and the voice file.
+    /// Gating it on `thread_gen` dropped it whenever the thread timeline was
+    /// re-subscribed (the generation bumps in `open_thread`), orphaning all
+    /// three. It is gated on the lifecycle alone, like the room path.
+    #[test]
+    fn a_thread_attachment_result_is_gated_on_the_lifecycle_not_the_thread() {
+        let source = include_str!("timeline.rs");
+        let start = source
+            .find(concat!("pub fn send_thread", "_attachment("))
+            .expect("send_thread_attachment is gone");
+        let end = start
+            + source[start..]
+                .find("\"type\": \"attachment_send_result\"")
+                .expect("the thread attachment result is gone");
+        let body = &source[start..end];
+        assert!(
+            body.contains("registry.lifecycle_current(lifecycle)"),
+            "the thread attachment result is not gated on the lifecycle"
+        );
+        assert!(
+            !body.contains("thread_current("),
+            "the thread attachment result is gated on the THREAD generation: \
+             a re-subscribed thread orphans its chip, image prep and voice file"
         );
     }
 

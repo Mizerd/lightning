@@ -875,6 +875,44 @@ private Q_SLOTS:
                      .arg(bubbleRight).arg(pileLeft)));
     }
 
+    // O:2370: in Bubbles the hover bar sat at the row's top-right, exactly
+    // where a short own bubble is right-aligned, and hid it. Fails on the old
+    // code: the bar's rect and the bubble's rect intersect.
+    void theActionBarDoesNotCoverAShortOwnBubble()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("body"), QStringLiteral("ok"));
+
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        QQmlProperty::write(d.root, QStringLiteral("isDirectRoom"), true);
+        QCoreApplication::processEvents();
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        QQuickItem *bar = forceActionBar(d.root);
+        QVERIFY2(bar && bar->width() > 0, "the action bar measured empty");
+        const QPointF bt = bubble->mapToItem(d.root, QPointF(0, 0));
+        const QPointF at = bar->mapToItem(d.root, QPointF(0, 0));
+        const QRectF bubbleRect(bt, QSizeF(bubble->width(), bubble->height()));
+        const QRectF barRect(at, QSizeF(bar->width(), bar->height()));
+        QVERIFY2(!bubbleRect.intersects(barRect),
+                 qPrintable(QStringLiteral("action bar %1,%2 %3x%4 covers the "
+                                           "own bubble %5,%6 %7x%8")
+                                .arg(barRect.x()).arg(barRect.y())
+                                .arg(barRect.width()).arg(barRect.height())
+                                .arg(bubbleRect.x()).arg(bubbleRect.y())
+                                .arg(bubbleRect.width()).arg(bubbleRect.height())));
+        QVERIFY(barRect.left() >= 0);
+    }
+
     // ── Bubbles geometry ─────────────────────────────────────────────────
 
     /// The union of every reaction pill and the add chip, in row coords.

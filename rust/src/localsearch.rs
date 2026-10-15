@@ -1039,6 +1039,37 @@ pub(crate) const SWEEP_ROOM_BATCH: usize = 40;
 /// bounded.
 pub(crate) const DEEP_MAX_PAGES: u16 = 50;
 
+/// Where the next sweep's window starts, over the sorted joined rooms, PER
+/// ACCOUNT: two signed-in accounts (or a sign-out and a different sign-in in
+/// one process) have unrelated room lists and must not advance each other's
+/// window.
+static SWEEP_CURSORS: std::sync::Mutex<Option<std::collections::HashMap<String, usize>>> =
+    std::sync::Mutex::new(None);
+
+fn sweep_cursor(account: &str) -> usize {
+    SWEEP_CURSORS
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(account).copied()))
+        .unwrap_or(0)
+}
+
+fn set_sweep_cursor(account: &str, value: usize) {
+    if let Ok(mut g) = SWEEP_CURSORS.lock() {
+        g.get_or_insert_with(Default::default).insert(account.to_owned(), value);
+    }
+}
+
+/// The `batch` items starting at `start` (wrapping), or all of them when they
+/// fit in one batch.
+pub(crate) fn sweep_window<T: Clone>(all: Vec<T>, start: usize, batch: usize) -> Vec<T> {
+    if all.len() <= batch {
+        return all;
+    }
+    let from = start % all.len();
+    all.iter().cycle().skip(from).take(batch).cloned().collect()
+}
+
 /// Sweep every joined room's cached events into the index. Returns (rooms
 /// visited, rows written). `stop` is checked between rooms.
 pub(crate) async fn sweep(
@@ -1051,11 +1082,16 @@ pub(crate) async fn sweep(
     // Captured before the first await, like the deep walk: a clear during the
     // sweep ends it rather than being refilled from batches collected before.
     let generation = current_generation(index);
-    for room in client.joined_rooms() {
+    // A batch of SWEEP_ROOM_BATCH rooms per wake that always started at the
+    // same place meant an account with more joined rooms than that never had
+    // the rest swept at all. The window now moves on by what it visited, over
+    // a stable order, so every room is met within ceil(rooms / batch) wakes.
+    let mut joined = client.joined_rooms();
+    joined.sort_by(|a, b| a.room_id().cmp(b.room_id()));
+    let account = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let start = sweep_cursor(&account);
+    for room in sweep_window(joined, start, SWEEP_ROOM_BATCH) {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
-            break;
-        }
-        if rooms_done >= SWEEP_ROOM_BATCH {
             break;
         }
         rooms_done += 1;
@@ -1069,6 +1105,7 @@ pub(crate) async fn sweep(
             None => break,
         }
     }
+    set_sweep_cursor(&account, start.wrapping_add(rooms_done));
     (rooms_done, written)
 }
 
@@ -2274,5 +2311,32 @@ mod tests {
             })
             .unwrap();
         assert_eq!(hits, 0, "unicode61 segmented CJK after all");
+    }
+
+    // A sweep that always began at room 0 never reached room 41 onward.
+    #[test]
+    fn theSweepWindowMovesOnAndCoversEveryRoom() {
+        let rooms: Vec<usize> = (0..100).collect();
+        assert_eq!(sweep_window(rooms.clone(), 0, 40).len(), 40);
+        assert_eq!(sweep_window(rooms.clone(), 0, 40)[0], 0);
+        assert_eq!(sweep_window(rooms.clone(), 40, 40)[0], 40);
+        let mut seen = std::collections::HashSet::new();
+        let mut start = 0;
+        for _ in 0..3 {
+            let w = sweep_window(rooms.clone(), start, 40);
+            start += w.len();
+            seen.extend(w);
+        }
+        assert_eq!(seen.len(), 100);
+        // Wraps instead of stopping short.
+        assert_eq!(sweep_window(rooms.clone(), 90, 40)[10], 0);
+        // Each account has its own cursor.
+        set_sweep_cursor("@a:x", 40);
+        assert_eq!(sweep_cursor("@a:x"), 40);
+        assert_eq!(sweep_cursor("@b:x"), 0);
+        set_sweep_cursor("@b:x", 7);
+        assert_eq!(sweep_cursor("@a:x"), 40);
+        // Few rooms: all of them, whatever the cursor.
+        assert_eq!(sweep_window(vec![1, 2, 3], 7, 40), vec![1, 2, 3]);
     }
 }

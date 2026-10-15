@@ -774,6 +774,22 @@ async fn server_preview(
     server_preview_fields(&data)
 }
 
+/// Synapse's description for a direct image is the Content-Disposition
+/// filename, and a filename may contain spaces ("my holiday photo.jpg"). A
+/// body summary of a titleless page also has spaces, so a name qualifies by
+/// how it ENDS: a raster image extension, on a single line.
+fn looks_like_image_file_name(description: &str) -> bool {
+    if description.len() > 255 || description.chars().any(char::is_control) {
+        return false;
+    }
+    let plain = !description.chars().any(char::is_whitespace) && description.contains('.');
+    let lower = description.to_ascii_lowercase();
+    let image_ext = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+        .iter()
+        .any(|ext| lower.ends_with(ext) && lower.len() > ext.len());
+    plain || image_ext
+}
+
 /// Reshape a server's OpenGraph object into our field set, or None when it
 /// says nothing. Separate so a test can drive it.
 pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_json::Value> {
@@ -796,9 +812,7 @@ pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_js
     // not fall back to contacting the site. Raster types only: SVG stays out.
     // A page without a title still has a body summary (spaces) or a site name,
     // so neither is read as a bare image.
-    let file_name_only = description.is_empty()
-        || (description.len() <= 255 && description.contains('.')
-            && !description.chars().any(char::is_whitespace));
+    let file_name_only = description.is_empty() || looks_like_image_file_name(&description);
     let direct_image = title.is_empty()
         && file_name_only
         && text("og:site_name").is_empty()
@@ -5607,6 +5621,22 @@ mod tests {
                             "og:image:type": "image/svg+xml" })).is_none());
         assert!(f(&json!({ "og:image": "https://example.org/a.png",
                             "og:image:type": "image/png" })).is_none());
+        // A filename with spaces is still a filename.
+        let spaced = f(&json!({
+            "og:description": "my holiday photo.JPG",
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/jpeg"
+        }))
+        .expect("usable");
+        assert_eq!(spaced["preview_kind"], "direct_media");
+        // A sentence that merely ends in a full stop is a page summary.
+        let sentence = f(&json!({
+            "og:description": "A few words about the page.",
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/jpeg"
+        }))
+        .expect("usable");
+        assert_eq!(sentence["preview_kind"], "metadata");
         // A titleless PAGE keeps its card: a body summary has spaces, and a
         // site name marks a page.
         let page = f(&json!({

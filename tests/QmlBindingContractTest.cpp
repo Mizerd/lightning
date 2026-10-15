@@ -1252,6 +1252,21 @@ private Q_SLOTS:
         QVERIFY(settledBlock.contains(QStringLiteral("timeline.captureViewAnchor()")));
     }
 
+    // Reset local cache empties the event cache under the open room and the
+    // open thread; the pane must reopen both. A source contract (the offscreen
+    // suites do not load TimelinePane against a real AboutController).
+    void theTimelinePaneReopensTimelinesWhenTheEventCacheIsCleared()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int at = pane.indexOf(QStringLiteral("function onEventCacheWasCleared()"));
+        QVERIFY(at > 0);
+        const QString block = pane.mid(at, 500);
+        QVERIFY(block.contains(QStringLiteral("app.reloadCurrentRoomTimeline()")));
+        QVERIFY(block.contains(QStringLiteral("app.thread.reopen()")));
+        QVERIFY(pane.mid(pane.lastIndexOf(QStringLiteral("target:"), at), 40)
+                    .contains(QStringLiteral("app.about")));
+    }
+
     void directPreviewUsesControlledSourceAndOriginalUrlActivation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

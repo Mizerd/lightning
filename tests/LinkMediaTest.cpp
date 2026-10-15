@@ -676,6 +676,51 @@ private Q_SLOTS:
                  QString());
     }
 
+    // The call sits in a binding that re-runs on every tick: a repeat of the
+    // same payload must not decode and hash it again, and a still WebP
+    // (which has no file) must be remembered too. Fails on the old code: the
+    // decode counter rose on every call.
+    void aRepeatedPreviewPayloadIsDecodedOnce()
+    {
+        MediaBridge bridge;
+        const QString still = dataUrl(webpBytes(false),
+                                      QStringLiteral("image/webp"));
+        const QString animated = dataUrl(webpBytes(true),
+                                         QStringLiteral("image/webp"));
+        for (int i = 0; i < 5; ++i) {
+            QCOMPARE(bridge.previewAnimatedSource(still,
+                                                  QStringLiteral("image/webp")),
+                     QString());
+        }
+        QCOMPARE(bridge.previewDecodeCount(), 1);
+        const QString first = bridge.previewAnimatedSource(
+            animated, QStringLiteral("image/webp"));
+        QVERIFY(first.startsWith(QStringLiteral("file:")));
+        QCOMPARE(bridge.previewAnimatedSource(animated,
+                                              QStringLiteral("image/webp")),
+                 first);
+        QCOMPARE(bridge.previewDecodeCount(), 2);
+    }
+
+    // Session isolation: the memo is dropped with the other memos, so a new
+    // account decodes (and is not handed) the previous account's file URL.
+    void theClearedBridgeForgetsMemoisedPreviews()
+    {
+        MediaBridge bridge;
+        const QString animated = dataUrl(webpBytes(true),
+                                         QStringLiteral("image/webp"));
+        const QString first = bridge.previewAnimatedSource(
+            animated, QStringLiteral("image/webp"));
+        QVERIFY(first.startsWith(QStringLiteral("file:")));
+        QCOMPARE(bridge.previewDecodeCount(), 1);
+        bridge.clear();
+        const QString second = bridge.previewAnimatedSource(
+            animated, QStringLiteral("image/webp"));
+        QCOMPARE(bridge.previewDecodeCount(), 2);
+        QVERIFY(second.startsWith(QStringLiteral("file:")));
+        QVERIFY(second != first);
+    }
+
     // ---- Settings -------------------------------------------------------
 
     void theSettingDefaultsOnAndPersists()

@@ -104,6 +104,10 @@ Q_SIGNALS:
     void versionSummaryChanged();
     void homeserverChanged();
     void resetChanged();
+    /// The SDK's event cache was emptied (the clear step succeeded). Every
+    /// timeline built on it is now empty and will not refill by itself, so
+    /// whoever shows one must reopen it.
+    void eventCacheWasCleared();
     void accountDataChanged();
 
 private:

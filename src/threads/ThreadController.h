@@ -165,6 +165,10 @@ public:
     // composite-id identity.
     Q_INVOKABLE void openThread(const QString &roomId,
                                 const QString &rootEventId);
+    /// Re-subscribe the open thread's SDK timeline in place (the composer,
+    /// draft and reply state are kept). For the moment the SDK's event cache
+    /// was emptied under it; a no-op when no thread is open.
+    Q_INVOKABLE void reopen();
     Q_INVOKABLE void close();
     // Send a text reply into the open thread through the backend's SDK
     // thread path (never as an ordinary room message). An active reply

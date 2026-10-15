@@ -2626,8 +2626,23 @@ Item {
                 anchors.topMargin: -3
                 // Top-right corner of the full-width row, as in Element. The
                 // margin clears the overlaid scrollbar.
-                anchors.rightMargin: AppTheme.scrollbarWidth + AppTheme.spacing2
-                                     + root.actionBarReceiptReserve
+                //
+                // An OWN bubble is right-aligned to that same corner, so a
+                // short one disappeared under the bar while hovered. In
+                // Bubbles the bar sits LEFT of an own bubble whenever the
+                // room to its left holds the bar; otherwise it keeps the
+                // corner. bubble.x depends on the bubble's width, never on
+                // this Loader, so there is no loop.
+                readonly property real barWidth:
+                    item ? item.implicitWidth : 200
+                readonly property bool leftOfOwnBubble:
+                    root.bubbleMode && model.isOwn === true
+                    && bubble.x - barWidth - AppTheme.spacingXS
+                       >= root.avatarGutterWidth
+                anchors.rightMargin: leftOfOwnBubble
+                    ? bubbleRow.width - bubble.x + AppTheme.spacingXS
+                    : AppTheme.scrollbarWidth + AppTheme.spacing2
+                      + root.actionBarReceiptReserve
                 z: 3
                 // Created on first need, then kept for the delegate's lifetime.
                 // The latch write is deferred: onLoaded runs inside the

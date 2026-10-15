@@ -1142,6 +1142,28 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
         || !dataSource.startsWith(QStringLiteral("data:") + mimetype
                                   + QStringLiteral(";base64,")))
         return {};
+    // Keyed on (length, hash with the per-process random seed): the memo must
+    // not pin the payload text (LinkPreviewController budgets those bytes),
+    // and an attacker cannot craft a collision against an unknown seed.
+    const QPair<qsizetype, size_t> memoKey(
+        dataSource.size(), qHash(dataSource, QHashSeed::globalSeed()));
+    const auto memo = m_previewAnimMemo.constFind(memoKey);
+    if (memo != m_previewAnimMemo.constEnd()) {
+        const QString &url = memo->first;
+        // "" is a remembered "not an animation"; a file the bridge has since
+        // evicted falls through and is written again.
+        if (url.isEmpty())
+            return url;
+        if (QFileInfo::exists(QUrl(url).toLocalFile())) {
+            m_animatedLru.removeOne(memo->second);
+            m_animatedLru.prepend(memo->second);
+            return url;
+        }
+    }
+    ++m_previewDecodes;
+    // Bounded: a long scroll through link previews must not grow it for ever.
+    if (m_previewAnimMemo.size() >= 256)
+        m_previewAnimMemo.clear();
     const QByteArray bytes = QByteArray::fromBase64(
         dataSource.mid(dataSource.indexOf(QLatin1Char(',')) + 1).toLatin1(),
         QByteArray::AbortOnBase64DecodingErrors);
@@ -1149,14 +1171,25 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
         return {};
     const QString cacheKey = QStringLiteral("preview:") + QString::fromLatin1(
         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    QString result;
     const QString existing = m_animatedFiles.value(cacheKey);
     if (!existing.isEmpty() && QFileInfo::exists(existing)) {
         m_animatedLru.removeOne(cacheKey);
         m_animatedLru.prepend(cacheKey);
-        return QUrl::fromLocalFile(existing).toString();
+        result = QUrl::fromLocalFile(existing).toString();
+    } else {
+        const QString path = writeAnimatedFile(cacheKey, bytes);
+        if (!path.isEmpty()) {
+            result = QUrl::fromLocalFile(path).toString();
+        } else if (!animatedExtensionFor(bytes).isEmpty()
+                   && bytes.size() <= kMaxAnimatedBytes) {
+            // An animation that could not be written (no directory, disk
+            // error) is transient: the next call tries again.
+            return {};
+        }
     }
-    const QString path = writeAnimatedFile(cacheKey, bytes);
-    return path.isEmpty() ? QString{} : QUrl::fromLocalFile(path).toString();
+    m_previewAnimMemo.insert(memoKey, {result, cacheKey});
+    return result;
 }
 
 QString MediaBridge::previewImageSource(const QString &dataSource,
@@ -1891,7 +1924,7 @@ QString MediaBridge::animatedExtensionFor(const QByteArray &bytes)
 QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
                                        const QByteArray &bytes)
 {
-    constexpr qsizetype maxAnimatedBytes = 20 * 1024 * 1024;
+    constexpr qsizetype maxAnimatedBytes = kMaxAnimatedBytes;
     const QString extension = animatedExtensionFor(bytes);
     if (extension.isEmpty() || bytes.size() > maxAnimatedBytes
         || !m_animatedDir || !m_animatedDir->isValid())
@@ -2439,6 +2472,7 @@ void MediaBridge::clear()
     m_animatedFiles.clear();
     m_animatedSizes.clear();
     m_animatedLru.clear();
+    m_previewAnimMemo.clear();
     // The files are going with the directory below; a hold names nothing now.
     for (const AnimationHold &hold : std::as_const(m_animationHolds))
         disconnect(hold.destroyed);

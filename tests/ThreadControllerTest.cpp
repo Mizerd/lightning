@@ -28,6 +28,20 @@ const QString kDevs = QStringLiteral("!devs:mock.local");
 const QString kDm = QStringLiteral("!dm-bob:mock.local");
 } // namespace
 
+/// A mock that accepts a thread voice message and reports how it ended only
+/// when the test says so.
+class VoiceHoldingClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    quint64 sendThreadVoiceMessage(const QString &, const QString &,
+                                   const QString &, const QString &, qint64,
+                                   const QList<int> &, const QString &) override
+    {
+        return 777;
+    }
+};
+
 class ThreadControllerTest : public QObject
 {
     Q_OBJECT
@@ -331,6 +345,49 @@ private Q_SLOTS:
 
     // Opening a fixture thread goes Closed -> Opening -> Ready and loads
     // exactly the root (pinned first, never duplicated) plus its replies.
+    // After the event cache is cleared the open thread's timeline is empty;
+    // reopen() re-subscribes it in place and does not leave the thread.
+    void reopenResubscribesTheOpenThreadInPlace()
+    {
+        VoiceHoldingClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        controller.reopen();   // nothing open: a no-op
+        QCOMPARE(controller.state(), ThreadController::Closed);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        // A half-typed reply and an in-flight voice message.
+        controller.setText(QStringLiteral("half a reply"));
+        QTemporaryFile voice;
+        voice.setAutoRemove(false);
+        QVERIFY(voice.open());
+        voice.write("x");
+        voice.close();
+        controller.sendVoiceMessage(voice.fileName(),
+                                    QStringLiteral("audio/ogg"), 1500, {});
+        QVERIFY(QFileInfo::exists(voice.fileName()));
+
+        QSignalSpy stateSpy(&controller, &ThreadController::stateChanged);
+        controller.reopen();
+        QVERIFY(stateSpy.count() >= 1);
+        QCOMPARE(controller.rootEventId(), rootId);
+        QCOMPARE(controller.text(), QStringLiteral("half a reply"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        // The controller did not forget the op across the reopen: a result
+        // that reaches it still reclaims the recording. Whether the BACKEND
+        // delivers that result after a re-subscribe is pinned in Rust
+        // (a_thread_attachment_result_is_gated_on_the_lifecycle_not_the_thread);
+        // this case cannot see the gate.
+        QVERIFY(QFileInfo::exists(voice.fileName()));
+        Q_EMIT client.attachmentQueueFinished(777, kGeneral, true, QString());
+        QVERIFY(!QFileInfo::exists(voice.fileName()));
+    }
+
     void openThreadLoadsRootFirstAndRepliesOnly()
     {
         MockMatrixClient client;

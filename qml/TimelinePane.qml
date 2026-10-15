@@ -731,6 +731,20 @@ Rectangle {
             }
         }
     }
+    // About -> Reset local cache empties the SDK event cache under the OPEN
+    // room. Its timeline then holds nothing and nothing asks it to refill, so
+    // it stayed blank until the user left the room and came back (~25 s
+    // measured). Reopen it in place.
+    Connections {
+        target: app.about
+        function onEventCacheWasCleared() {
+            if (app.currentRoomId !== "")
+                app.reloadCurrentRoomTimeline()
+            // The open thread's timeline is cut from the same cache.
+            if (app.thread.active)
+                app.thread.reopen()
+        }
+    }
     // Screenshot-demo hooks. Inert in a non-demo build (null target).
     Connections {
         target: app.demo

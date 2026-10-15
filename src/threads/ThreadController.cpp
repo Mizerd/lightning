@@ -379,6 +379,15 @@ void ThreadController::openThread(const QString &roomId,
     m_client->queryThreadSubscription(roomId, rootEventId);
 }
 
+void ThreadController::reopen()
+{
+    if (!supported() || m_state == Closed || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty())
+        return;
+    setState(Opening);
+    m_client->openThread(m_roomId, m_rootEventId);
+}
+
 void ThreadController::close()
 {
     // Closing keeps the draft; it restores when the thread is reopened.

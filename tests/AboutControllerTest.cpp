@@ -169,6 +169,53 @@ private Q_SLOTS:
         QVERIFY(about.resetSummary().contains(QStringLiteral("not touched")));
     }
 
+    // The open room's timeline is empty after the event cache is cleared and
+    // does not refill by itself; the pane reopens it on this signal. Fails on
+    // the old code: the signal does not exist / is never emitted.
+    void clearingTheEventCacheTellsTheOpenTimelineToReload()
+    {
+        MockMatrixClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        QSignalSpy cleared(&about, &AboutController::eventCacheWasCleared);
+
+        about.resetLocalCache();
+        QTRY_COMPARE(about.resetState(), QStringLiteral("done"));
+        QCOMPARE(cleared.count(), 1);
+    }
+
+    void aResetThatClearedNothingDoesNotAskForAReload()
+    {
+        AboutController about;   // no client: nothing was cleared
+        QSignalSpy cleared(&about, &AboutController::eventCacheWasCleared);
+        about.resetLocalCache();
+        QCOMPARE(about.resetState(), QStringLiteral("failed"));
+        QCOMPARE(cleared.count(), 0);
+    }
+
+    // The event cache was emptied; only the media step hit the watchdog. The
+    // open timelines are still empty and still need the reload.
+    void aWatchdogOnAnotherStepStillReloadsTheTimelines()
+    {
+        ManualClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        about.setWaitsForTest(50, 60000);
+        QSignalSpy cleared(&about, &AboutController::eventCacheWasCleared);
+
+        about.resetLocalCache();
+        Q_EMIT client.eventCacheCleared(client.eventOp, true);
+        QCOMPARE(cleared.count(), 0);   // media still outstanding
+        QTRY_COMPARE(about.resetState(), QStringLiteral("failed"));
+        QCOMPARE(cleared.count(), 1);
+    }
+
     void resetWaitsForTheMediaCacheToo()
     {
         ResetClient client;
