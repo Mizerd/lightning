@@ -156,7 +156,7 @@ private:
     QHash<QString, RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QSet<QString> m_paginating;
-    QHash<QString, QString> m_lastReceiptSent;  // roomId → last eventId we sent a receipt for
+    QHash<QString, QString> m_lastReceiptSent;  // roomId → last eventId the server ACCEPTED a receipt for
 
     // txn_id -> (roomId, currentEventId). currentEventId starts as
     // "local:<txn>" and becomes the real event_id from the PUT response, so

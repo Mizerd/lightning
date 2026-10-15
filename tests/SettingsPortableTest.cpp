@@ -130,14 +130,20 @@ private Q_SLOTS:
                                "roomListWidth", "microphoneGain", "callSoundVolume", "shareMaxHeight",
                                "closeToTray", "startInTray", "smoothScrolling",
                                // what the homeserver must not be able to switch on a client
-                               "autoLoadLinkPreviews", "storeRecentGifs", "gifPreferredProvider" }) {
+                               "autoLoadLinkPreviews", "storeRecentGifs", "gifPreferredProvider",
+                               // whether THIS machine notifies and chimes
+                               // (2026-10-15, finding 101): a muted work
+                               // laptop must not silence the phone
+                               "notificationsEnabled", "notificationSound" }) {
             const Field *f = find(QString::fromLatin1(n));
             QVERIFY2(f, n);
             QVERIFY2(!(f->flags & Sync), n);
             QVERIFY2(f->flags & Export, n);
         }
         QVERIFY(names(Sync).contains(QStringLiteral("theme")));
-        QVERIFY(names(Sync).size() >= 40);
+        // A floor against an emptied table; 38 since the two notification
+        // switches became device-only.
+        QVERIFY(names(Sync).size() >= 38);
     }
 
     // The default column is what SettingsManager really answers when nothing

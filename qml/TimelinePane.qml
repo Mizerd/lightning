@@ -47,6 +47,50 @@ Rectangle {
     signal discoverRoomsRequested()
 
     property var currentRoom: ({})
+    // Whether the room had unread messages when it was OPENED. A snapshot:
+    // the read receipt clears the live count about a second later, while the
+    // reader's place (m.fully_read) stays where it was for the visit. With no
+    // read-marker row in the loaded rows it means the marker lies further
+    // back, which the first-unread pill can still reach.
+    property bool openedWithUnread: false
+    // A bounded hunt for the marker ran out without finding it this visit.
+    property bool firstUnreadHuntFailed: false
+    function snapshotOpenedUnread() {
+        openedWithUnread = app.currentRoomId !== ""
+                           && (currentRoom.unreadCount || 0) > 0
+        firstUnreadHuntFailed = false
+        noteLoadedReadMarker()
+    }
+    // The snapshot only stands in for a marker the reader has not SEEN
+    // loaded. Once the read-marker row has been in the loaded rows this visit
+    // the pill follows that row alone: when it goes away (m.fully_read moved
+    // on window deactivation, room leave, or from another device) the pill
+    // goes with it, instead of promising a jump the hunt cannot land.
+    // Checked against the model's own room, so rows still belonging to the
+    // previous room cannot clear the new room's snapshot.
+    function noteLoadedReadMarker() {
+        if (openedWithUnread && app.timeline
+                && app.timeline.roomId === app.currentRoomId
+                && app.timeline.firstUnreadRow >= 0)
+            openedWithUnread = false
+    }
+    Connections {
+        target: app.timeline
+        // firstUnreadRow NOTIFYs on countChanged; roomId covers a model that
+        // loads its rows before it names the room.
+        function onCountChanged() { root.noteLoadedReadMarker() }
+        function onRoomIdChanged() { root.noteLoadedReadMarker() }
+    }
+    // Lightning wrote m.fully_read for this room (the window lost focus with
+    // the reader at the bottom): nothing unread is left above the loaded rows,
+    // so the deep-marker pill would only start a hunt that cannot land.
+    Connections {
+        target: app.readReceipts
+        function onFullyReadMarkerMoved(roomId) {
+            if (roomId === app.currentRoomId)
+                root.openedWithUnread = false
+        }
+    }
     property bool infoOpen: false
     property bool searchOpen: false
     // The thread side surface is open when a thread panel or the room's Threads
@@ -296,6 +340,7 @@ Rectangle {
         }
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
+            snapshotOpenedUnread()
             // A find session belongs to the room it was opened in.
             if (root.findOpen) {
                 root.findOpen = false
@@ -444,6 +489,7 @@ Rectangle {
     // Read state on focus change is handled by the timeline's maybeMarkRead().
     Component.onCompleted: {
         refreshCurrentRoom()
+        snapshotOpenedUnread()
         root.restoreMemberPanel()
     }
 
@@ -3904,7 +3950,10 @@ Rectangle {
                     if (firstUnreadPagesLeft <= 0
                             || !app.pagination
                             || app.pagination.reachedStart) {
+                        // Bounded and not found: stop offering a jump that
+                        // cannot land (the pill's deep-marker case).
                         firstUnreadPagesLeft = 0
+                        root.firstUnreadHuntFailed = true
                         return
                     }
                     --firstUnreadPagesLeft
@@ -5001,9 +5050,11 @@ Rectangle {
             }
 
             // Jump to first unread, at the top (mirror of the jump-to-latest
-            // pill). Offered only when the marker row is loaded, so the jump is
-            // exact; deeper unread is reached via goToFirstUnread() from the
-            // room list.
+            // pill). Offered when the marker row is loaded (the jump is exact)
+            // and also when the room was opened with unread messages but the
+            // marker lies above the loaded rows: goToFirstUnread() then pages
+            // back for it, bounded, and the pill withdraws if that runs out or
+            // the start of the room is reached. (Shift+PgUp is the same jump.)
             AbstractButton {
                 id: jumpToFirstUnreadButton
                 objectName: "jumpToFirstUnreadButton"
@@ -5011,7 +5062,11 @@ Rectangle {
                 anchors.top: parent.top
                 anchors.topMargin: AppTheme.spacingM
                 visible: app.currentRoomId !== "" && app.timeline
-                         && app.timeline.firstUnreadRow >= 0
+                         && (app.timeline.firstUnreadRow >= 0
+                             || (root.openedWithUnread
+                                 && !root.firstUnreadHuntFailed
+                                 && !!app.pagination
+                                 && app.pagination.moreHistory))
                 z: 20
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true

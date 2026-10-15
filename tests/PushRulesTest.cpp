@@ -46,6 +46,14 @@ class RecordingClient : public MockMatrixClient
 public:
     struct Write { QString kind, key, value; };
     QList<Write> writes;
+    int requests = 0;
+    bool syncDone = true;
+    bool initialSyncDone() const override { return syncDone; }
+    quint64 requestPushRules() override
+    {
+        ++requests;
+        return MockMatrixClient::requestPushRules();
+    }
     quint64 writePushRule(const QString &kind, const QString &key,
                           const QString &value) override
     {
@@ -70,6 +78,45 @@ public:
             return MockMatrixClient::writePushRule(kind, QStringLiteral("\x01none"), value);
         }
         return RecordingClient::writePushRule(kind, key, value);
+    }
+};
+
+// A server whose snapshots lag the write, as the SDK's store does until the
+// next sync: the master-mute write is accepted but changes nothing a
+// snapshot shows.
+class LaggingMuteClient final : public RecordingClient
+{
+    Q_OBJECT
+public:
+    quint64 writePushRule(const QString &kind, const QString &key,
+                          const QString &value) override
+    {
+        if (kind == QLatin1String("master_mute")) {
+            writes.append({kind, key, value});
+            return MockMatrixClient::writePushRule(
+                QStringLiteral("lagging-noop"), key, value);
+        }
+        return RecordingClient::writePushRule(kind, key, value);
+    }
+};
+
+// Accepts the first master-mute write normally (its snapshot never agrees),
+// then leaves every later write in flight for ever.
+class HangingWriteClient final : public RecordingClient
+{
+    Q_OBJECT
+public:
+    bool hang = false;
+    quint64 writePushRule(const QString &kind, const QString &key,
+                          const QString &value) override
+    {
+        if (hang) {
+            writes.append({kind, key, value});
+            return 777;
+        }
+        writes.append({kind, key, value});
+        return MockMatrixClient::writePushRule(
+            QStringLiteral("lagging-noop"), key, value);
     }
 };
 
@@ -301,7 +348,12 @@ private Q_SLOTS:
         QVERIFY(failed.wait(kWaitMs));
         QCOMPARE(ctl.mentionUserId(), 2); // and put back
         QVERIFY(!ctl.errorText().isEmpty());
-        QVERIFY(!ctl.busy());
+        // A refused write re-reads the server's rules (finding 94), so the
+        // controller is briefly busy again; the truth and the error both
+        // survive that refresh.
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QCOMPARE(ctl.mentionUserId(), 2);
+        QVERIFY(!ctl.errorText().isEmpty());
     }
 
     void aRowTheServerLacksCannotBeWritten()
@@ -451,6 +503,7 @@ private Q_SLOTS:
         // Mentions-only is a warning, not a failure; an unloaded account is
         // unknown, never a pass.
         in.delivery = NotificationTroubleshooter::TrayBalloon;
+        in.trayIconShown = true;
         in.appEnabled = true;
         in.rulesKnown = false;
         in.masterMute = false;
@@ -490,6 +543,254 @@ private Q_SLOTS:
         QVERIFY(!shoot.checks().isEmpty());
         shoot.sendTest();
         QCOMPARE(sent, 1);
+    }
+
+    // ---- Settling, refresh and keyword edge cases ------------------------
+
+    // A snapshot read before the sync that carries the write is the state from
+    // BEFORE the write. Fails on the old code, which applied any snapshot once
+    // no write was pending (and also reverted at the blind 2 s refresh).
+    void aSnapshotArrivingBeforeTheWriteSettlesDoesNotRevertIt()
+    {
+        LaggingMuteClient client;
+        QVERIFY(login(client));
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+
+        ctl.setMasterMute(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QVERIFY(ctl.masterMute());
+
+        const QVariantMap stale = serverRules(); // masterMute still false
+        Q_EMIT client.pushRulesReceived(9001, true, stale, QString());
+        QVERIFY(ctl.masterMute());
+
+        // The sync lands: a snapshot that agrees releases the hold...
+        QVariantMap agreed = serverRules();
+        agreed.insert(QStringLiteral("masterMute"), true);
+        Q_EMIT client.pushRulesReceived(9002, true, agreed, QString());
+        QVERIFY(ctl.masterMute());
+        // ...so another device unmuting afterwards is shown.
+        Q_EMIT client.pushRulesReceived(9003, true, stale, QString());
+        QVERIFY(!ctl.masterMute());
+    }
+
+    // An expired hold must not keep the timer at 20 ms while a later write is
+    // still pending. Fails on the old code: every tick re-armed with wait 0
+    // and refreshed again, so requests grew by dozens within the window.
+    void anExpiredHoldDoesNotSpinWhileAWriteIsPending()
+    {
+        HangingWriteClient client;
+        QVERIFY(login(client));
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        ctl.setHoldMsForTest(100);
+
+        ctl.setMasterMute(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs); // accepted, held
+        client.hang = true;
+        ctl.setMention(QStringLiteral("userId"), 0);      // stays pending
+        QVERIFY(ctl.busy());
+
+        QTest::qWait(150); // the first hold expires while the write hangs
+        const int mark = client.requests;
+        QTest::qWait(600);
+        QVERIFY2(client.requests - mark <= 2,
+                 qPrintable(QStringLiteral("requests grew by %1")
+                                .arg(client.requests - mark)));
+    }
+
+    void aPushRulesChangedFromTheSdkRefreshesThePage()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        const int before = client.requests;
+        QVariantMap other = serverRules();
+        other.insert(QStringLiteral("masterMute"), true); // another device
+        client.mockPushRules = other;
+        Q_EMIT client.pushRulesChanged();
+        QCOMPARE(client.requests, before + 1);
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.masterMute(), kWaitMs);
+    }
+
+    void aFailedWriteReReadsWhatTheAccountHolds()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        const int before = client.requests;
+        client.mockPushRuleFailCategory = QStringLiteral("network");
+        QSignalSpy failed(&ctl, &PushRulesController::writeFailed);
+        ctl.setMention(QStringLiteral("userId"), 0);
+        QVERIFY(failed.wait(kWaitMs));
+        QCOMPARE(client.requests, before + 1);
+        // The refresh must not wipe the explanation.
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QVERIFY(!ctl.errorText().isEmpty());
+    }
+
+    void thePageIsNotLoadedFromASnapshotTakenBeforeTheInitialSync()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        client.syncDone = false;
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QSignalSpy changed(&ctl, &PushRulesController::stateChanged);
+        ctl.refresh();
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QVERIFY(!ctl.loaded());
+        client.syncDone = true;
+        Q_EMIT client.initialSyncDoneChanged();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.loaded(), kWaitMs);
+    }
+
+    // Fails on the old code: keywordProblem() blocked both, silently.
+    void aKeywordAnotherClientCreatedCanStillBeRemovedAndRelevelled()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        QVariantMap rules = serverRules();
+        QVariantMap kw;
+        kw.insert(QStringLiteral("keyword"), QStringLiteral("a/b"));
+        kw.insert(QStringLiteral("level"), 1);
+        rules.insert(QStringLiteral("keywords"), QVariantList{kw});
+        client.mockPushRules = rules;
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+
+        ctl.setKeywordLevel(QStringLiteral("a/b"), 2);
+        QCOMPARE(client.writes.size(), 1);
+        QCOMPARE(client.writes.last().kind, QStringLiteral("keyword_set"));
+        QCOMPARE(client.writes.last().key, QStringLiteral("a/b"));
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        ctl.removeKeyword(QStringLiteral("a/b"));
+        QCOMPARE(client.writes.size(), 2);
+        QCOMPARE(client.writes.last().kind, QStringLiteral("keyword_remove"));
+        QCOMPARE(client.writes.last().key, QStringLiteral("a/b"));
+        QCOMPARE(ctl.keywords().size(), 0);
+
+        // A NEW keyword with the same text is still refused, and says so.
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QVERIFY(!ctl.addKeyword(QStringLiteral("a/b"), 1));
+        QVERIFY(!ctl.errorText().isEmpty());
+    }
+
+    void aRefusedKeywordEditSaysWhy()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        QSignalSpy changed(&ctl, &PushRulesController::stateChanged);
+        ctl.removeKeyword(QStringLiteral(".bad")); // not listed, not valid
+        QCOMPARE(client.writes.size(), 0);
+        QVERIFY(!ctl.errorText().isEmpty());
+        QVERIFY(changed.count() >= 1);
+    }
+
+    // Fails on the old code: it rewrote the level to the add combo's value.
+    void addingAKeywordThatIsListedDoesNotRewriteItsLevel()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        QVariantMap rules = serverRules();
+        QVariantMap kw;
+        kw.insert(QStringLiteral("keyword"), QStringLiteral("deploy"));
+        kw.insert(QStringLiteral("level"), 2);
+        rules.insert(QStringLiteral("keywords"), QVariantList{kw});
+        client.mockPushRules = rules;
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        QVERIFY(!ctl.addKeyword(QStringLiteral("deploy"), 1));
+        QVERIFY(!ctl.addKeyword(QStringLiteral("  Deploy "), 1));
+        QCOMPARE(client.writes.size(), 0);
+        QVERIFY(!ctl.errorText().isEmpty());
+        QCOMPARE(ctl.keywords().at(0).toMap().value("level").toInt(), 2);
+    }
+
+    void theTroubleshooterResolvesAnUnconfiguredRoomAgainstTheAccountDefault()
+    {
+        NotificationTroubleshooter::Inputs in;
+        in.delivery = NotificationTroubleshooter::DesktopService;
+        in.rulesKnown = true;
+        in.roomId = QStringLiteral("!r:mock.local");
+        in.roomMode = -1; // nothing stored
+        in.platform = QStringLiteral("linux");
+        in.accountDefaultLevel = 1;
+        QVariantList checks = NotificationTroubleshooter::evaluate(in);
+        QCOMPARE(checkById(checks, "room").value("status").toInt(),
+                 int(NotificationTroubleshooter::Warn));
+        QCOMPARE(checkById(checks, "account").value("status").toInt(),
+                 int(NotificationTroubleshooter::Warn));
+        in.roomMode = 3; // follows the default explicitly
+        QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
+                     .value("status").toInt(),
+                 int(NotificationTroubleshooter::Warn));
+        // An explicit all-messages room is not made worse by the default.
+        in.roomMode = 0;
+        checks = NotificationTroubleshooter::evaluate(in);
+        QCOMPARE(checkById(checks, "room").value("status").toInt(),
+                 int(NotificationTroubleshooter::Pass));
+        QCOMPARE(checkById(checks, "account").value("status").toInt(),
+                 int(NotificationTroubleshooter::Pass));
+        in.roomMode = -1;
+        in.accountDefaultLevel = 0;
+        QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
+                     .value("status").toInt(),
+                 int(NotificationTroubleshooter::Pass));
+        in.accountDefaultLevel = -1; // cannot tell: never a pass
+        QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
+                     .value("status").toInt(),
+                 int(NotificationTroubleshooter::Unknown));
+    }
+
+    void theTrayPathPassesOnlyWhileTheIconIsShowing()
+    {
+        NotificationTroubleshooter::Inputs in;
+        in.delivery = NotificationTroubleshooter::TrayBalloon;
+        in.platform = QStringLiteral("linux");
+        in.trayIconShown = false;
+        QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "delivery")
+                     .value("status").toInt(),
+                 int(NotificationTroubleshooter::Fail));
+        in.trayIconShown = true;
+        QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "delivery")
+                     .value("status").toInt(),
+                 int(NotificationTroubleshooter::Pass));
+    }
+
+    void resetForgetsTheLastResults()
+    {
+        NotificationTroubleshooter shoot;
+        shoot.setInputsProvider([](const QString &) {
+            NotificationTroubleshooter::Inputs in;
+            in.delivery = NotificationTroubleshooter::DesktopService;
+            in.platform = QStringLiteral("linux");
+            return in;
+        });
+        shoot.run(QString());
+        QVERIFY(shoot.hasRun());
+        QSignalSpy changed(&shoot, &NotificationTroubleshooter::checksChanged);
+        shoot.reset();
+        QVERIFY(!shoot.hasRun());
+        QVERIFY(shoot.checks().isEmpty());
+        QCOMPARE(changed.count(), 1);
     }
 
     // ---- The real QML ---------------------------------------------------

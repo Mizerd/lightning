@@ -156,8 +156,14 @@ AppMenu {
                      ? qsTr("Couldn't save to the server — "
                             + "kept on this device. "
                             + "Retried when you reconnect.")
-                     : qsTr("Saved to your account's notification "
-                            + "settings (server push rules)."))
+                     : (notificationsFlyout.currentMode === 3
+                        // Mode 3 deletes the room's rules, so nothing was
+                        // saved: say what Room Information says.
+                        ? qsTr("This room has no override — your "
+                               + "account's notification settings "
+                               + "apply.")
+                        : qsTr("Saved to your account's notification "
+                               + "settings (server push rules).")))
                   : qsTr("Local setting: it does not change this "
                          + "room's server push rules.")
             color: AppTheme.stormTextFaint

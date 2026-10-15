@@ -42,6 +42,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QLoggingCategory>
+#include <QScopeGuard>
 #include <QSet>
 #include <QTimeZone>
 #include <QCoreApplication>
@@ -121,17 +122,6 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
-TimelineEvent::Type typeFromString(const QString &msgtype)
-{
-    // Shares the bridge-wide mapping in rowTypeForMsgtype so sync-delivered
-    // media rows are typed like live-timeline ones.
-    const TimelineEvent::Type type =
-        matrix::rust_timeline::rowTypeForMsgtype(msgtype);
-    // Unlike the live-timeline ingest, a side-surface summary falls back to a
-    // plain message rather than an Unknown row.
-    return type == TimelineEvent::Unknown ? TimelineEvent::TextMessage : type;
-}
-
 QString previewFor(const TimelineEvent &event,
                    const QString &actorLabel = QString())
 {
@@ -151,6 +141,9 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
     m_tokenWriteRetry.setSingleShot(true);
     connect(&m_tokenWriteRetry, &QTimer::timeout, this,
             &RustSdkMatrixClient::retryRotatedTokenWrite);
+    m_highlightGapTimer.setSingleShot(true);
+    connect(&m_highlightGapTimer, &QTimer::timeout, this,
+            &RustSdkMatrixClient::flushHighlightGaps);
 
     qCInfo(lcRust) << "Rust SDK backend loaded:"
                    << rustBackendName()
@@ -299,6 +292,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_lastSyncState.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
+    resetNotificationProducerState();
     m_pendingSends.clear();
     m_pendingProbes.clear();
     m_timelineTracker.reset();
@@ -1181,6 +1175,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
+    resetNotificationProducerState();
     m_pendingSends.clear();
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
@@ -2199,6 +2194,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
+    resetNotificationProducerState();
     m_pendingSends.clear();
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
@@ -2538,6 +2534,7 @@ bool RustSdkMatrixClient::restoreSession()
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
+    resetNotificationProducerState();
     m_pendingSends.clear();
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
@@ -2621,6 +2618,7 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
+    resetNotificationProducerState();
     m_pendingSends.clear();
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
@@ -3581,9 +3579,21 @@ void RustSdkMatrixClient::setReadReceiptPrivacy(int mode)
 
 void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)
 {
-    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty()
+    if (roomId.isEmpty() || eventId.isEmpty()
         || m_lastReceiptSent.value(roomId) == eventId)
         return;
+    // Queued, never direct: the caller is usually the coordinator that would
+    // react to the failure by scheduling a retry, and must not be re-entered
+    // from inside its own send.
+    const auto reportFailed = [this, roomId, eventId] {
+        QMetaObject::invokeMethod(this, [this, roomId, eventId] {
+            Q_EMIT readReceiptFailed(roomId, eventId);
+        }, Qt::QueuedConnection);
+    };
+    if (!m_rustHandle) {
+        reportFailed();
+        return;
+    }
     m_lastReceiptSent.insert(roomId, eventId);
     const QByteArray room = roomId.toUtf8();
     const QByteArray event = eventId.toUtf8();
@@ -3592,7 +3602,21 @@ void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &
     if (!result.isEmpty()) {
         m_lastReceiptSent.remove(roomId);
         qCWarning(lcRust) << "read receipt command rejected";
+        reportFailed();
     }
+}
+
+void RustSdkMatrixClient::setFullyReadMarker(const QString &roomId,
+                                             const QString &eventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray event = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_fully_read_marker(
+        m_rustHandle, room.constData(), event.constData()));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "fully-read marker command rejected";
 }
 
 void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread)
@@ -4999,6 +5023,11 @@ void RustSdkMatrixClient::handleThreadDiff(const QJsonObject &event)
     auto &mirror = m_timelines[timelineId];
     const DiffOutcome outcome =
         matrix::rust_timeline::applyTimelineDiff(mirror, event, timelineId);
+    // After the model signals; see handleTimelineDiff. The real room and the
+    // thread root, never the composite id.
+    const auto notificationFacts = qScopeGuard([this, roomId, rootId, outcome] {
+        emitDiffNotificationFacts(roomId, rootId, outcome);
+    });
 
     switch (outcome.kind) {
     case DiffOutcome::Appended:
@@ -6248,7 +6277,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("read_marker_advanced")) {
-        Q_EMIT readMarkerAdvanced(event.value(QStringLiteral("room_id")).toString());
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        // The receipt this room has outstanding, if any. The bridge names the
+        // event it sent when it can; without that (an older bridge, or the
+        // mark-as-read path, which receipts the newest event and so covers any
+        // earlier one) the outstanding receipt is the one that landed.
+        const QString accepted =
+            event.value(QStringLiteral("event_id")).toString(
+                m_lastReceiptSent.value(roomId));
+        Q_EMIT readMarkerAdvanced(roomId);
+        if (!roomId.isEmpty() && !accepted.isEmpty())
+            Q_EMIT readReceiptAccepted(roomId, accepted);
         return;
     }
 
@@ -6275,8 +6314,20 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString action = event.value(QStringLiteral("action")).toString();
         if (action == QLatin1String("mark_read"))
             Q_EMIT markRoomReadFailed(event.value(QStringLiteral("room_id")).toString());
-        if (action == QLatin1String("read_receipt"))
-            m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
+        if (action == QLatin1String("read_receipt")) {
+            // Forget it so the same event can be sent again, and say so: the
+            // backend does not retry, so the caller must.
+            const QString roomId = event.value(QStringLiteral("room_id")).toString();
+            const QString outstanding = m_lastReceiptSent.value(roomId);
+            const QString failed =
+                event.value(QStringLiteral("event_id")).toString(outstanding);
+            // Only the receipt that failed is forgotten: a newer one already
+            // in flight keeps its debounce entry.
+            if (!outstanding.isEmpty() && outstanding == failed)
+                m_lastReceiptSent.remove(roomId);
+            if (!roomId.isEmpty() && !failed.isEmpty())
+                Q_EMIT readReceiptFailed(roomId, failed);
+        }
         // reason: a fixed token from rust/src/roomaction.rs (status + errcode,
         // or the transport class), never server prose; the room only redacted.
         const QString reason = event.value(QStringLiteral("reason")).toString();
@@ -6338,6 +6389,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("timeline_event")) {
         handleTimelineEvent(event);
+        return;
+    }
+    if (type == QLatin1String("event_redacted")) {
+        handleEventRedacted(event);
+        return;
+    }
+    if (type == QLatin1String("event_decrypted")) {
+        handleEventDecrypted(event);
         return;
     }
 
@@ -6908,6 +6967,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms)
 {
     matrix::rust_rooms::applyIndexReset({m_rooms, m_roomOrder}, rooms);
+    // The reset is the whole list: a room absent from it has left it.
+    m_highlightGaps.forgetRoomsNotIn(
+        QSet<QString>(m_roomOrder.cbegin(), m_roomOrder.cend()));
+    observeHighlightCounts(rooms);
     Q_EMIT roomsChanged();
 }
 
@@ -6919,7 +6982,58 @@ void RustSdkMatrixClient::handleRoomSnapshotEvent(const QJsonArray &rooms)
     // Set{index}. On classic sync there are no diffs and m_roomOrder is empty,
     // so applySnapshot() defines the room set. See matrix::rust_rooms.
     matrix::rust_rooms::applySnapshot({m_rooms, m_roomOrder}, rooms);
+    observeHighlightCounts(rooms);
     Q_EMIT roomsChanged();
+}
+
+void RustSdkMatrixClient::observeHighlightCounts(const QJsonArray &rooms)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // Before the initial sync every count is history: it only sets baselines.
+    const bool live = m_initialSyncDone;
+    for (const QJsonValue &value : rooms) {
+        const QJsonObject obj = value.toObject();
+        const QString id = obj.value(QStringLiteral("id")).toString();
+        if (id.isEmpty() || !obj.contains(QStringLiteral("highlight_count")))
+            continue;
+        const QString membership = obj.value(QStringLiteral("membership"))
+                                       .toString(QStringLiteral("joined"));
+        if (membership != QLatin1String("joined")
+            || obj.value(QStringLiteral("is_space")).toBool(false)) {
+            m_highlightGaps.forgetRoom(id);
+            continue;
+        }
+        m_highlightGaps.observeCount(
+            id, obj.value(QStringLiteral("highlight_count")).toInt(0), now, live);
+    }
+    const qint64 due = m_highlightGaps.nextDueMs();
+    if (due > 0 && !m_highlightGapTimer.isActive())
+        m_highlightGapTimer.start(static_cast<int>(std::clamp<qint64>(
+            due - now, 0, matrix::notification_producer::HighlightGapTracker::kWindowMs)));
+}
+
+void RustSdkMatrixClient::flushHighlightGaps()
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const auto gaps = m_highlightGaps.takeDue(now);
+    for (const auto &gap : gaps) {
+        // Counts only in the log; the room as a non-reversible hash.
+        qCInfo(lcRust) << "highlights not delivered as events room="
+                       << matrix::e2ee::redactId(gap.first)
+                       << "count=" << gap.second;
+        Q_EMIT roomHighlightsUnnotified(gap.first, gap.second);
+    }
+    const qint64 due = m_highlightGaps.nextDueMs();
+    if (due > 0)
+        m_highlightGapTimer.start(static_cast<int>(std::clamp<qint64>(
+            due - now, 0, matrix::notification_producer::HighlightGapTracker::kWindowMs)));
+}
+
+void RustSdkMatrixClient::resetNotificationProducerState()
+{
+    m_undecryptableSeen.clear();
+    m_highlightGaps.reset();
+    m_highlightGapTimer.stop();
 }
 
 RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
@@ -6933,7 +7047,34 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
 void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
+    // A room leaving the list loses its highlight baseline (see
+    // HighlightGapTracker::forgetRoom). Removal ops name no room, so what they
+    // removed is read off the index space; a Set may replace a slot's room.
+    const bool removes = type == QLatin1String("room_list_remove")
+        || type == QLatin1String("room_list_pop_front")
+        || type == QLatin1String("room_list_pop_back")
+        || type == QLatin1String("room_list_truncate")
+        || type == QLatin1String("room_list_clear");
+    const QStringList orderBefore = removes ? m_roomOrder : QStringList();
+    const QString slotBefore = type == QLatin1String("room_list_set")
+        ? m_roomOrder.value(event.value(QStringLiteral("index")).toInt(-1))
+        : QString();
     if (matrix::rust_rooms::applyRoomListDiff({m_rooms, m_roomOrder}, event)) {
+        if (removes) {
+            const QSet<QString> after(m_roomOrder.cbegin(), m_roomOrder.cend());
+            for (const QString &id : orderBefore) {
+                if (!after.contains(id))
+                    m_highlightGaps.forgetRoom(id);
+            }
+        }
+        if (!slotBefore.isEmpty()
+            && slotBefore != event.value(QStringLiteral("room")).toObject()
+                                 .value(QStringLiteral("id")).toString())
+            m_highlightGaps.forgetRoom(slotBefore);
+        QJsonArray payloads = event.value(QStringLiteral("rooms")).toArray();
+        if (event.value(QStringLiteral("room")).isObject())
+            payloads.append(event.value(QStringLiteral("room")));
+        observeHighlightCounts(payloads);
         Q_EMIT roomsChanged();
         return;
     }
@@ -7018,31 +7159,59 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
 {
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const QJsonObject obj = event.value(QStringLiteral("event")).toObject();
-    const QString eventId = obj.value(QStringLiteral("event_id")).toString();
+    TimelineEvent timelineEvent =
+        matrix::rust_timeline::syncEventFromPayload(obj, roomId);
+    const QString eventId = timelineEvent.eventId;
     if (roomId.isEmpty() || eventId.isEmpty())
         return;
     // An edit is not a new message: its body is the "* " fallback. It never
     // becomes the preview, moves the room or enters the mirror; the room
     // list's latest event carries the new content.
-    const bool isEdit =
-        !obj.value(QStringLiteral("replaces_event_id")).toString().isEmpty();
+    const bool isEdit = timelineEvent.isEdit;
+
+    using matrix::rust_timeline::SyncRoute;
+    const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
+        || m_timelineTracker.requestedRoom() == roomId;
+    const SyncRoute route =
+        matrix::rust_timeline::syncRouteFor(liveTimeline, timelineEvent);
 
     // Rooms with a live SDK timeline are fed only through timeline_reset /
     // timeline_diff; appending here would duplicate rows. Keep only the
-    // room-list preview update.
-    if (m_timelineTracker.activeRoom() == roomId
-        || m_timelineTracker.requestedRoom() == roomId) {
+    // room-list preview update, and two notification-path facts the live
+    // timeline cannot supply.
+    if (route == SyncRoute::PreviewOnly || route == SyncRoute::ObserveOnly) {
+        // The SDK timeline announces an undecryptable event too, but only
+        // this path is sure to see it arrive.
+        if (timelineEvent.undecryptable)
+            m_undecryptableSeen.insert(eventId, timelineEvent.backlog);
         auto roomIt = m_rooms.find(roomId);
         if (roomIt != m_rooms.end() && !isEdit) {
             // Raw sync bodies can be multi-line; this writer must be one-line
             // too.
-            const QString body = matrix::preview::normalizePreviewText(
-                obj.value(QStringLiteral("body")).toString());
+            const QString body =
+                matrix::preview::normalizePreviewText(timelineEvent.body);
             if (!body.isEmpty())
                 roomIt->lastMessagePreview = body;
+            // The payload's own stamp: an event without one must not move the
+            // room to "now" (timelineEvent.timestamp falls back to it).
             roomIt->raiseActivity(timestampFromMs(static_cast<qint64>(
                 obj.value(QStringLiteral("timestamp_ms")).toDouble(0))));
             Q_EMIT roomUpdated(roomId);
+        }
+        if (route == SyncRoute::ObserveOnly) {
+            // The open room's live timeline hides threaded events, so nothing
+            // else announces a thread reply here unless that exact thread is
+            // open in the panel (whose copy consumers de-duplicate by id).
+            // Never eventAppended: TimelineModel would show it as a
+            // main-timeline row (CLAUDE.md section 8).
+            timelineEvent.senderDisplayName =
+                displayNameFor(roomId, timelineEvent.sender);
+            if (timelineEvent.undecryptable && timelineEvent.body.isEmpty()) {
+                timelineEvent.body = tr("[unable to decrypt yet]");
+                timelineEvent.type = TimelineEvent::Notice;
+            }
+            noteNotifiedEvent(roomId, timelineEvent);
+            Q_EMIT liveEventObserved(roomId, timelineEvent);
         }
         return;
     }
@@ -7055,10 +7224,13 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         if (existing.eventId == eventId)
             return;
     }
-    // An edit is never mirrored, so the scan cannot see it again: a second
-    // delivery (a sliding-sync reset, a room re-entering the window) would
-    // notify twice.
-    if (isEdit) {
+    // An unmirrored row (edit, poll start; a thread reply is in neither the
+    // scan nor this set, see below) cannot be found by the scan again: a
+    // second delivery (a sliding-sync reset, a room re-entering the window)
+    // would notify twice.
+    const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
+        && timelineEvent.threadRootId != eventId;
+    if (route == SyncRoute::AppendUnmirrored && !threadedReply) {
         if (m_forwardedEditIds.contains(eventId))
             return;
         // Only needs to outlive a redelivery.
@@ -7067,74 +7239,34 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         m_forwardedEditIds.insert(eventId);
     }
 
-    TimelineEvent timelineEvent;
-    timelineEvent.eventId = eventId;
-    timelineEvent.roomId = roomId;
-    timelineEvent.sender = obj.value(QStringLiteral("sender")).toString();
+    // The replied-to sender, when the mirror holds the target: lets the
+    // Activity Center tell a reply to the user's own message from any other.
+    if (!timelineEvent.replyToEventId.isEmpty()) {
+        for (const auto &existing : std::as_const(timeline)) {
+            if (existing.eventId == timelineEvent.replyToEventId) {
+                timelineEvent.replyToSenderId = existing.sender;
+                break;
+            }
+        }
+    }
     timelineEvent.senderDisplayName = displayNameFor(roomId, timelineEvent.sender);
-    timelineEvent.body = obj.value(QStringLiteral("body")).toString();
-    // Untrusted sender HTML, passed through as-is; TimelineModel sanitizes it
-    // before QML sees it.
-    timelineEvent.formattedBody =
-        obj.value(QStringLiteral("formatted_body")).toString();
-    timelineEvent.timestamp = timestampFromMs(static_cast<qint64>(
-        obj.value(QStringLiteral("timestamp_ms")).toDouble(0)));
-    if (!timelineEvent.timestamp.isValid())
-        timelineEvent.timestamp = QDateTime::currentDateTimeUtc();
-    timelineEvent.type = typeFromString(obj.value(QStringLiteral("msgtype")).toString());
-    // Media rows carry both body and filename, as the live payload does:
-    // oneLineSummary reads mediaFilename for files and falls back to body for a
-    // location. An older bridge leaves it empty and the preview degrades to the
-    // media kind.
-    timelineEvent.mediaFilename =
-        obj.value(QStringLiteral("media_filename")).toString();
-    // MSC3245: lets a notification for a room with no open timeline say
-    // "voice message" rather than "audio file".
-    timelineEvent.mediaIsVoice =
-        obj.value(QStringLiteral("media_voice")).toBool(false);
-    timelineEvent.status = TimelineEvent::Sent;
-
-    // Encryption metadata from the bridge, falling back to the older
-    // `decrypted` flag. Metadata only; never derive plaintext from these
-    // fields.
-    const bool undecryptable =
-        obj.value(QStringLiteral("undecryptable")).toBool(false);
-    const bool isDecrypted =
-        obj.value(QStringLiteral("is_decrypted"))
-           .toBool(obj.value(QStringLiteral("decrypted")).toBool(false));
-    const bool isEncrypted =
-        obj.value(QStringLiteral("is_encrypted"))
-           .toBool(undecryptable || isDecrypted);
-    timelineEvent.isEncrypted   = isEncrypted;
-    timelineEvent.isDecrypted   = isDecrypted;
-    timelineEvent.undecryptable = undecryptable;
-    timelineEvent.errorKind     =
-        obj.value(QStringLiteral("error_kind")).toString();
-    // Mention/thread metadata and the push-rule verdict for notification
-    // policy in rooms without a live timeline.
-    timelineEvent.mentionsMe =
-        obj.value(QStringLiteral("mentions_me")).toBool(false);
-    timelineEvent.mentionsRoom =
-        obj.value(QStringLiteral("mentions_room")).toBool(false);
-    matrix::rust_timeline::readPushVerdict(obj, timelineEvent);
-    timelineEvent.threadRootId =
-        obj.value(QStringLiteral("thread_root_id")).toString();
 
     // Undecryptable events arrive with an empty body; show an honest
-    // placeholder. The SDK replaces the event (`event_replaced`) if keys
-    // arrive.
-    if (undecryptable && timelineEvent.body.isEmpty()) {
+    // placeholder. Nothing rewrites it here when keys arrive later: the bridge
+    // reports the decryption as `event_decrypted` (handleEventDecrypted), and
+    // an open timeline as a `set` diff.
+    if (timelineEvent.undecryptable && timelineEvent.body.isEmpty()) {
         timelineEvent.body = tr("[unable to decrypt yet]");
         timelineEvent.type = TimelineEvent::Notice;
     }
 
     // Recovery-lifecycle diagnostics for encrypted events only: redacted ids
     // and error category, never bodies or ciphertext.
-    if (isEncrypted) {
+    if (timelineEvent.isEncrypted) {
         qCDebug(lcE2ee) << "encrypted-event"
                         << "room=" << matrix::e2ee::redactId(roomId)
                         << "event=" << matrix::e2ee::redactId(timelineEvent.eventId)
-                        << (undecryptable ? "state=utd" : "state=decryptable")
+                        << (timelineEvent.undecryptable ? "state=utd" : "state=decryptable")
                         << "error=" << (timelineEvent.errorKind.isEmpty()
                                             ? QStringLiteral("none")
                                             : timelineEvent.errorKind);
@@ -7147,11 +7279,15 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     // derives thread roots and reply counts by counting replies in its own
     // list. The signal is still emitted: it feeds notifications and the
     // Activity Center, and a thread mention must still reach the user. An
-    // edit is kept out the same way (it would flash as a "* " row).
-    const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
-        && timelineEvent.threadRootId != timelineEvent.eventId;
-    if (!threadedReply && !isEdit)
+    // edit is kept out the same way (it would flash as a "* " row), and so is
+    // a poll start, which would render with no answers until the SDK timeline
+    // aggregates it.
+    //
+    // A thread reply is de-duplicated by its consumers (by event id), not
+    // here, exactly as before.
+    if (route == SyncRoute::MirrorAndAppend)
         matrix::rust_timeline::appendBounded(timeline, timelineEvent);
+    noteNotifiedEvent(roomId, timelineEvent);
     Q_EMIT eventAppended(roomId, timelineEvent);
 
     auto roomIt = m_rooms.find(roomId);
@@ -7175,6 +7311,163 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
             roomIt->raiseActivity(timelineEvent.timestamp);
             Q_EMIT roomUpdated(roomId);
         }
+    }
+}
+
+void RustSdkMatrixClient::noteNotifiedEvent(const QString &roomId,
+                                            const TimelineEvent &event)
+{
+    if (roomId.isEmpty() || event.eventId.isEmpty())
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (event.undecryptable)
+        m_undecryptableSeen.insert(event.eventId, event.backlog);
+    if (event.backlog) {
+        m_highlightGaps.noteBacklog(roomId, now);
+        return;
+    }
+    // A highlight the user is (or could be) told about. Without a verdict the
+    // client treats an intentional mention the same way.
+    const bool highlighted = event.pushHighlight
+        || (event.pushVerdict == TimelineEvent::PushVerdict::Unknown
+            && (event.mentionsMe || event.mentionsRoom));
+    if (highlighted)
+        m_highlightGaps.creditHighlight(roomId, now);
+}
+
+void RustSdkMatrixClient::emitDecryptedOnce(const QString &roomId,
+                                            TimelineEvent event)
+{
+    bool wasBacklog = false;
+    if (roomId.isEmpty() || !m_undecryptableSeen.take(event.eventId, &wasBacklog))
+        return;
+    event.roomId = roomId;
+    // History seen undecryptable is still history once readable.
+    event.backlog = event.backlog || wasBacklog;
+    noteNotifiedEvent(roomId, event);
+    qCDebug(lcE2ee) << "late-decryption announced"
+                    << "room=" << matrix::e2ee::redactId(roomId)
+                    << "event=" << matrix::e2ee::redactId(event.eventId)
+                    << "backlog=" << event.backlog;
+    Q_EMIT eventDecrypted(roomId, event);
+}
+
+void RustSdkMatrixClient::handleEventDecrypted(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    TimelineEvent decrypted = matrix::rust_timeline::syncEventFromPayload(
+        event.value(QStringLiteral("event")).toObject(), roomId);
+    // Only a readable result is a decryption.
+    if (roomId.isEmpty() || decrypted.eventId.isEmpty() || decrypted.undecryptable)
+        return;
+    decrypted.senderDisplayName = displayNameFor(roomId, decrypted.sender);
+
+    // A room with no open timeline: the background mirror still holds the
+    // placeholder row, which TimelineModel::reload() would show on the next
+    // open. Rewrite it in place (same id, same slot). An open timeline is
+    // owned by its own diffs.
+    const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
+        || m_timelineTracker.requestedRoom() == roomId;
+    if (!liveTimeline) {
+        auto mirrorIt = m_timelines.find(roomId);
+        if (mirrorIt != m_timelines.end()) {
+            for (auto &row : *mirrorIt) {
+                if (row.eventId == decrypted.eventId) {
+                    if (row.undecryptable && !row.redacted)
+                        row = decrypted;
+                    break;
+                }
+            }
+        }
+    }
+    emitDecryptedOnce(roomId, decrypted);
+}
+
+void RustSdkMatrixClient::handleEventRedacted(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString redacts = event.value(QStringLiteral("redacts")).toString();
+    if (roomId.isEmpty() || redacts.isEmpty())
+        return;
+    // A late decryption of something already deleted must not announce it.
+    m_undecryptableSeen.take(redacts);
+
+    const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
+        || m_timelineTracker.requestedRoom() == roomId;
+    if (liveTimeline) {
+        // A row of the open timeline is redacted by the SDK's own `set` diff,
+        // which emitDiffNotificationFacts reports; reporting it from here too
+        // would rewrite TimelineModel's row ahead of the SDK's view of it.
+        // Anything else (a reaction, an event outside the loaded window) has
+        // no row to rewrite.
+        const auto mirrorIt = m_timelines.constFind(roomId);
+        if (mirrorIt != m_timelines.cend()) {
+            for (const auto &row : *mirrorIt) {
+                if (row.eventId == redacts)
+                    return;
+            }
+        }
+    } else {
+        // The background mirror must not show the deleted content on the next
+        // open either.
+        auto mirrorIt = m_timelines.find(roomId);
+        if (mirrorIt != m_timelines.end()) {
+            for (auto &row : *mirrorIt) {
+                if (row.eventId == redacts) {
+                    row.redacted = true;
+                    row.body.clear();
+                    row.formattedBody.clear();
+                    break;
+                }
+            }
+        }
+    }
+    Q_EMIT eventRedacted(roomId, redacts);
+}
+
+void RustSdkMatrixClient::emitDiffNotificationFacts(
+    const QString &roomId, const QString &threadRootId,
+    const matrix::rust_timeline::DiffOutcome &outcome)
+{
+    using matrix::rust_timeline::DiffOutcome;
+    if (roomId.isEmpty())
+        return;
+    // A thread timeline's rows carry the composite timeline id; consumers get
+    // the real room and the thread root.
+    const auto forConsumers = [&](TimelineEvent item) {
+        item.roomId = roomId;
+        if (!threadRootId.isEmpty() && item.threadRootId.isEmpty()
+            && item.eventId != threadRootId)
+            item.threadRootId = threadRootId;
+        return item;
+    };
+    switch (outcome.kind) {
+    case DiffOutcome::Appended:
+        // Already announced on eventAppended; only the bookkeeping is owed.
+        for (const auto &item : outcome.items) {
+            if (!item.isLocalEcho && !item.isVirtual())
+                noteNotifiedEvent(roomId, item);
+        }
+        break;
+    case DiffOutcome::Inserted:
+        if (outcome.liveRemoteInsert && !outcome.items.isEmpty()) {
+            const TimelineEvent item = forConsumers(outcome.items.first());
+            noteNotifiedEvent(roomId, item);
+            Q_EMIT liveEventObserved(roomId, item);
+        }
+        break;
+    case DiffOutcome::Changed:
+        if (outcome.items.isEmpty())
+            break;
+        if (outcome.becameRedacted) {
+            m_undecryptableSeen.take(outcome.items.first().eventId);
+            Q_EMIT eventRedacted(roomId, outcome.items.first().eventId);
+        } else if (outcome.becameDecrypted) {
+            emitDecryptedOnce(roomId, forConsumers(outcome.items.first()));
+        }
+        break;
+    default:
+        break;
     }
 }
 
@@ -7394,6 +7687,12 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
     auto &mirror = m_timelines[roomId];
     const DiffOutcome outcome =
         matrix::rust_timeline::applyTimelineDiff(mirror, event, roomId);
+    // The notification-path facts this diff implies go out after the model
+    // signals, on every path below including the batched ones: batching
+    // changes when the model hears about a row, not whether a message arrived.
+    const auto notificationFacts = qScopeGuard([this, roomId, outcome] {
+        emitDiffNotificationFacts(roomId, QString(), outcome);
+    });
 
     if (canBatchInsertion
         && (outcome.kind == DiffOutcome::Prepended
@@ -10757,6 +11056,32 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("call_intent")).toString();
         signal.targetEventId =
             event.value(QStringLiteral("target_event_id")).toString();
+        if (signal.kind == CallSignal::Kind::RtcNotification) {
+            // Closed set: anything else is "not stated", which never rings
+            // more than a stated "notification" would.
+            const QString notificationType =
+                event.value(QStringLiteral("notification_type")).toString();
+            if (notificationType == QLatin1String("ring")
+                || notificationType == QLatin1String("notification"))
+                signal.notificationType = notificationType;
+            // Bounded here as well as in Rust; ids are only compared.
+            constexpr int kMaxMentionIds = 256;
+            const QJsonArray mentioned =
+                event.value(QStringLiteral("mentions_user_ids")).toArray();
+            for (const QJsonValue &value : mentioned) {
+                if (signal.mentionUserIds.size() >= kMaxMentionIds)
+                    break;
+                const QString userId = value.toString();
+                if (userId.startsWith(QLatin1Char('@')))
+                    signal.mentionUserIds.append(userId);
+            }
+            signal.mentionsRoom =
+                event.value(QStringLiteral("mentions_room")).toBool(false);
+            // Decided in Rust against the WHOLE m.mentions list, which the
+            // bounded mentionUserIds may not hold.
+            signal.mentionsMe =
+                event.value(QStringLiteral("mentions_me")).toBool(false);
+        }
         if (signal.roomId.isEmpty() || signal.eventId.isEmpty())
             return true; // malformed: drop, never dispatch a partial signal
         // Media-capable mode only: the remote SDP goes into the bounded
@@ -11648,7 +11973,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("target_event_id")).toString(),
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
-            static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+            static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()),
+            // True only when Rust found the target in its own store and it is
+            // ours; absent (an older bridge) is "not known".
+            event.value(QStringLiteral("target_is_own")).toBool(false),
+            event.value(QStringLiteral("backlog")).toBool(false));
         return true;
     }
     if (type == QLatin1String("room_profile_result")) {
@@ -11954,6 +12283,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("activity_seed")) {
+        // A failed fetch is not "no highlights": say so, so the caller can try
+        // again instead of treating the session as seeded.
+        if (!event.value(QStringLiteral("ok")).toBool(true)) {
+            qCWarning(lcRust) << "activity seed failed";
+            Q_EMIT activitySeedFailed();
+            return true;
+        }
         QVariantList entries;
         const QJsonArray rows = event.value(QStringLiteral("entries")).toArray();
         for (const QJsonValue &v : rows) {
@@ -11969,6 +12305,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("preview"), o.value(QStringLiteral("body")).toString() },
                 { QStringLiteral("threadRootId"),
                   o.value(QStringLiteral("thread_root_id")).toString() },
+                // The event's msgtype as sent ("m.text", "m.image", ...;
+                // empty for one the server could not show decrypted), so the
+                // preview can name media the way live rows do.
+                { QStringLiteral("msgtype"),
+                  o.value(QStringLiteral("msgtype")).toString() },
                 // Not "mention": the seed is GET /notifications?only=highlight,
                 // which covers @room, keywords and server rules as well as
                 // personal mentions.

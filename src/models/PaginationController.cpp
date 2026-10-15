@@ -30,7 +30,7 @@ PaginationController::PaginationController(QObject *parent)
             return;
         if (!m_client->paginationFailed(m_roomId)
             || !m_client->paginationFailureTransient(m_roomId)) {
-            Q_EMIT stateChanged();
+            emitStateChanged();
             return;
         }
         request(Reason::AutomaticRetry);
@@ -66,7 +66,7 @@ void PaginationController::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::loggedOut,
                 this, &PaginationController::onLoggedOut);
     }
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::setRoomId(const QString &roomId)
@@ -81,8 +81,11 @@ void PaginationController::setRoomId(const QString &roomId)
     // generation is adopted.
     m_initialHistoryRequested = !roomId.isEmpty();
     m_deferredFill = m_initialHistoryRequested;
+    // What the backend already knows about the new room's history.
+    if (m_client && !roomId.isEmpty() && !m_client->paginating(roomId))
+        m_moreHistoryKnown = m_client->canPaginate(roomId);
     Q_EMIT roomIdChanged();
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::resetPerRoomState()
@@ -110,6 +113,7 @@ void PaginationController::resetPerRoomState()
     m_fillStopped = false;
     m_emptyFillPages = 0;
     m_nearTopEmptyStrikes = 0;
+    m_moreHistoryKnown = false;
 }
 
 bool PaginationController::busy() const
@@ -134,6 +138,25 @@ bool PaginationController::reachedStart() const
     return m_client->paginationReady(m_roomId)
         && !m_client->canPaginate(m_roomId) && !m_client->paginating(m_roomId)
         && !m_client->paginationFailed(m_roomId);
+}
+
+bool PaginationController::moreHistory() const
+{
+    if (!m_client || m_roomId.isEmpty())
+        return false;
+    if (m_client->canPaginate(m_roomId))
+        return true;
+    // Fetching says nothing about "more" by itself (a viewport fill runs on
+    // every open, including a room whose history is all loaded), so while a
+    // page loads the answer is the one known before it started.
+    return m_client->paginating(m_roomId) && m_moreHistoryKnown;
+}
+
+void PaginationController::emitStateChanged()
+{
+    m_announcedReachedStart = reachedStart();
+    m_announcedMoreHistory = moreHistory();
+    Q_EMIT stateChanged();
 }
 
 bool PaginationController::failed() const
@@ -206,7 +229,7 @@ void PaginationController::requestViewportFill()
         qCInfo(lcPagination)
             << "timeline pagination fill budget exhausted requests="
             << m_fillRequests << "generation=" << m_generation;
-        Q_EMIT stateChanged();
+        emitStateChanged();
         return;
     }
     // A persistent/exhausted failure stays a user gesture. A backend-marked
@@ -445,7 +468,7 @@ void PaginationController::request(Reason reason)
         m_requestWatchdogGeneration = m_generation;
         m_requestWatchdogTimer.start(m_requestWatchdogMs);
     }
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::onEventsPrepended(const QString &roomId,
@@ -502,6 +525,20 @@ void PaginationController::onEventsInsertedAt(
 
 void PaginationController::onPaginationStateChanged(const QString &roomId)
 {
+    if (roomId == m_roomId && m_client && !m_client->paginating(m_roomId))
+        m_moreHistoryKnown = m_client->canPaginate(m_roomId);
+    handlePaginationStateChanged(roomId);
+    if (roomId != m_roomId || !m_client)
+        return;
+    // A backend change that settled neither a batch nor a failure (a reset,
+    // a readiness note) still NOTIFYs these two when they moved.
+    if (reachedStart() != m_announcedReachedStart
+        || moreHistory() != m_announcedMoreHistory)
+        emitStateChanged();
+}
+
+void PaginationController::handlePaginationStateChanged(const QString &roomId)
+{
     if (roomId != m_roomId || !m_client)
         return;
 
@@ -524,7 +561,7 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
             m_batchStartRows = m_timelineModel ? m_timelineModel->eventCount() : 0;
         }
         m_seenLoading = true;
-        Q_EMIT stateChanged();
+        emitStateChanged();
         return;
     }
 
@@ -553,7 +590,7 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
             scheduleAutomaticRetry();
             return;
         }
-        Q_EMIT stateChanged();
+        emitStateChanged();
         return;
     }
 
@@ -582,7 +619,7 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
                 ? 0 : m_completionSettleDelayMs;
         m_completionSettleTimer.start(settleDelay);
     }
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 int PaginationController::batchRowGrowth() const
@@ -632,7 +669,7 @@ void PaginationController::abandonStalledRequest()
             << "timeline pagination fill stopped no_progress_strikes="
             << m_noProgressStrikes << "generation=" << m_generation;
     }
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::finishBatch(bool hitStart)
@@ -731,7 +768,7 @@ void PaginationController::finishBatch(bool hitStart)
 
     // busy() and presentationState() just changed; QML bindings on them only
     // re-evaluate on this signal and would otherwise stay on "Loading".
-    Q_EMIT stateChanged();
+    emitStateChanged();
     Q_EMIT paginationCompleted(inserted, hitStart, willContinue);
     if (m_navigationPurpose != NavigationPurpose::None)
         continueNavigation(hitStart);
@@ -764,7 +801,7 @@ void PaginationController::scheduleNearTopContinuation()
         // Notify unconditionally: busy() changed, and request() has silent
         // early returns that would leave the overlay latched on Loading. A
         // duplicate notify only re-evaluates bindings.
-        Q_EMIT stateChanged();
+        emitStateChanged();
         if (m_requestActive || m_roomId.isEmpty())
             return;
         if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
@@ -798,7 +835,7 @@ void PaginationController::onTimelineReset(const QString &roomId)
     // initial fill pending for the following state notification.
     m_initialHistoryRequested = !m_roomId.isEmpty();
     m_deferredFill = m_initialHistoryRequested;
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::onLoggedOut()
@@ -808,7 +845,7 @@ void PaginationController::onLoggedOut()
     resetPerRoomState();
     clearNavigation();
     m_scrollAnchors.clear();
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }
 
 void PaginationController::continueNavigation(bool hitStart)
@@ -897,5 +934,5 @@ void PaginationController::scheduleAutomaticRetry()
         << m_autoRetryAttempts << "delay_ms=" << delay
         << "generation=" << m_generation;
     m_autoRetryTimer.start(delay);
-    Q_EMIT stateChanged();
+    emitStateChanged();
 }

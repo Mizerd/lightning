@@ -490,6 +490,7 @@ set(APP_SOURCES
     src/app/AccountAvatarStore.h
     src/app/AccountAvatarStore.cpp
     src/app/AppController.h
+    src/app/NotificationNotices.h
     src/app/AppController.cpp
     src/app/ConversationController.h
     src/app/ConversationController.cpp
@@ -915,6 +916,7 @@ if(ENABLE_RUST_SDK_BACKEND)
         src/matrix/RustRoomRegistry.h
         src/matrix/RustRoomRegistry.cpp
         src/matrix/RustTimelineMirror.h
+        src/matrix/NotificationProducerState.h
         src/smoke/RustSdkSmokeTest.h
         src/smoke/RustSdkSmokeTest.cpp
     )
@@ -4478,6 +4480,18 @@ if(BUILD_TESTING)
         set_tests_properties(sync-message-row PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+        # The Rust backend's notification-path signals (live observations,
+        # late decryptions, redactions, receipt outcomes, highlight gaps).
+        # Drives the real dispatcher.
+        qt_add_executable(notification-producer-test
+            tests/NotificationProducerTest.cpp
+        )
+        lightning_configure_qml_test(notification-producer-test)
+        target_include_directories(notification-producer-test PRIVATE src)
+        add_test(NAME notification-producer COMMAND notification-producer-test)
+        set_tests_properties(notification-producer PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
         # A call must never downgrade an encrypted room to cleartext on a stale
         # room-list read. Pure unit test.
         qt_add_executable(call-encryption-state-test
@@ -4615,6 +4629,43 @@ if(BUILD_TESTING)
     # caches per thread, so this must be the environment.
     set_tests_properties(notification-manager PROPERTIES
         ENVIRONMENT "DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
+
+    # Wording and gating of Lightning's own non-message notices (calls,
+    # invites, verification, missed mentions), the ring limiter, the event-id
+    # LRU and the Space mark-read filter. Pure.
+    qt_add_executable(notification-notices-test
+        tests/NotificationNoticesTest.cpp
+        src/app/NotificationNotices.h
+    )
+    target_include_directories(notification-notices-test PRIVATE src)
+    target_link_libraries(notification-notices-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME notification-notices COMMAND notification-notices-test)
+
+    # AppController's notification glue on a full controller (mock backend):
+    # redial, ring vs message sound, card dismissal, refusal of non-joined
+    # rooms, add-account bell reset, main-window receipts.
+    qt_add_executable(notification-glue-test
+        tests/NotificationGlueTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(notification-glue-test)
+    target_link_libraries(notification-glue-test PRIVATE Qt6::Test)
+    add_test(NAME notification-glue COMMAND notification-glue-test)
+    set_tests_properties(notification-glue PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The Activity Center panel: keyboard and accessible opening, the
+    # bidi-isolated accessible name, custom-emoji reactions, and the keyword
+    # editor's move to Settings.
+    qt_add_executable(activity-center-panel-qml-test
+        tests/ActivityCenterPanelQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(activity-center-panel-qml-test)
+    target_link_libraries(activity-center-panel-qml-test PRIVATE Qt6::Test)
+    add_test(NAME activity-center-panel-qml COMMAND activity-center-panel-qml-test)
+    set_tests_properties(activity-center-panel-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Link previews: URL extraction with a scheme allow-list, GIF MIME, encrypted
     # room gating, bounded cache, stale rejection, settings defaults.
@@ -6037,6 +6088,25 @@ if(BUILD_TESTING)
     target_link_libraries(settings-portable-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME settings-portable COMMAND settings-portable-test)
+
+    # The notification settings page: device-only flags, the room-mode
+    # change signal, search-index entries and the wording contracts.
+    qt_add_executable(notification-settings-contract-test
+        tests/NotificationSettingsContractTest.cpp
+        src/settings/SettingsPortable.h
+        src/settings/SettingsPortable.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(notification-settings-contract-test PRIVATE src)
+    target_compile_definitions(notification-settings-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(notification-settings-contract-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME notification-settings-contract COMMAND notification-settings-contract-test)
 
     # When a rail folder exists: an empty folder is deleted, decided from the
     # store rather than the rendered rail. Also pins that a reorder does not

@@ -4,6 +4,7 @@
 // rejection, undecryptable -> decrypted replacement, and stale room/lifecycle
 // generation rejection.
 
+#include "matrix/NotificationProducerState.h"
 #include "matrix/RustTimelineIngest.h"
 
 #include <QJsonArray>
@@ -145,6 +146,21 @@ private Q_SLOTS:
     // avatarMxcFor).
     void membersFromPayloadBuildsCacheEntries();
     void aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers();
+
+    // 2026-10-15 notification sweep (package P3): what the sync-handler and
+    // diff producers hand the notification path.
+    void readsThePushSoundTweakOnlyWithAVerdict();
+    void aSyncPayloadCarriesBacklogReplyAndEditFacts();
+    void anUndecryptableSyncPayloadKeepsItsThreadRoot();
+    void aSyncPollStartIsAPollRow();
+    void theOpenRoomsThreadReplyIsObservedNeverAppended();
+    void aRemoteInsertAboveAPendingSendIsALiveArrival();
+    void aPaginationInsertIsNeverALiveArrival();
+    void aSetReportsDecryptionAndRedactionOfTheSameEventOnly();
+    void theUndecryptableSightingsAreBoundedAndTakenOnce();
+    void aHighlightRiseNobodyWasToldAboutIsReported();
+    void aHighlightRiseExplainedByADeliveredEventIsNot();
+    void aHighlightRiseIsNeverReportedForHistoryOrAFirstCount();
 };
 
 namespace {
@@ -1701,6 +1717,412 @@ void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers
     lone.append(item(QStringLiteral("$mine"), QStringLiteral("txn3"), true,
                      QStringLiteral("sent, not yet synced")));
     QCOMPARE(matrix::rust_timeline::eventsFromItemArray(lone, room).size(), 2);
+}
+
+namespace {
+
+// A sync-handler `timeline_event` payload's inner `event` object, as
+// rust/src/lib.rs builds it (hand-maintained; it cannot see a rename there).
+QJsonObject syncPayload(const QString &eventId, const QString &body)
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("event_id"), eventId);
+    obj.insert(QStringLiteral("sender"), QStringLiteral("@bob:example.org"));
+    obj.insert(QStringLiteral("body"), body);
+    obj.insert(QStringLiteral("msgtype"), QStringLiteral("text"));
+    obj.insert(QStringLiteral("timestamp_ms"), 1700000000000.0);
+    obj.insert(QStringLiteral("is_encrypted"), false);
+    obj.insert(QStringLiteral("is_decrypted"), false);
+    obj.insert(QStringLiteral("undecryptable"), false);
+    obj.insert(QStringLiteral("mentions_me"), false);
+    obj.insert(QStringLiteral("mentions_room"), false);
+    obj.insert(QStringLiteral("thread_root_id"), QString());
+    return obj;
+}
+
+QJsonObject echoItemJson(const QString &itemId, const QString &body)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("item_id"), itemId);
+    item.insert(QStringLiteral("kind"), QStringLiteral("event"));
+    item.insert(QStringLiteral("transaction_id"), itemId);
+    item.insert(QStringLiteral("sender"), QStringLiteral("@me:example.org"));
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("text"));
+    item.insert(QStringLiteral("body"), body);
+    item.insert(QStringLiteral("is_local_echo"), true);
+    item.insert(QStringLiteral("send_state"), QStringLiteral("failed"));
+    item.insert(QStringLiteral("timestamp_ms"), 1700000000500.0);
+    return item;
+}
+
+QJsonObject insertDiff(int index, const QJsonObject &item)
+{
+    QJsonObject diff = diffJson(QStringLiteral("insert"));
+    diff.insert(QStringLiteral("index"), index);
+    diff.insert(QStringLiteral("item"), item);
+    return diff;
+}
+
+} // namespace
+
+// Findings 48/105: the "Loud" sound tweak rides beside the verdict, and only
+// with one.
+void RustTimelineIngestTest::readsThePushSoundTweakOnlyWithAVerdict()
+{
+    TimelineEvent loud;
+    readPushVerdict(QJsonObject{ { QStringLiteral("push_notify"), true },
+                                 { QStringLiteral("push_highlight"), false },
+                                 { QStringLiteral("push_sound"), true } },
+                    loud);
+    QVERIFY2(loud.pushSound, "a Loud verdict lost its sound tweak");
+
+    TimelineEvent notifyOnly;
+    readPushVerdict(QJsonObject{ { QStringLiteral("push_notify"), true } },
+                    notifyOnly);
+    QVERIFY(!notifyOnly.pushSound);
+
+    // No verdict: a stray tweak means nothing.
+    TimelineEvent none;
+    readPushVerdict(QJsonObject{ { QStringLiteral("push_sound"), true } }, none);
+    QCOMPARE(none.pushVerdict, TimelineEvent::PushVerdict::Unknown);
+    QVERIFY(!none.pushSound);
+}
+
+// Findings 44/120/51/122 (backlog), 8 (in_reply_to), 9/52 (edits): the sync
+// payload's facts reach the TimelineEvent instead of being computed and
+// dropped.
+void RustTimelineIngestTest::aSyncPayloadCarriesBacklogReplyAndEditFacts()
+{
+    QJsonObject obj = syncPayload(QStringLiteral("$edit"), QStringLiteral("* fixed"));
+    obj.insert(QStringLiteral("backlog"), true);
+    obj.insert(QStringLiteral("in_reply_to"), QStringLiteral("$parent"));
+    obj.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$orig"));
+    obj.insert(QStringLiteral("new_body"), QStringLiteral("fixed"));
+    obj.insert(QStringLiteral("push_notify"), true);
+    obj.insert(QStringLiteral("push_highlight"), true);
+    obj.insert(QStringLiteral("push_sound"), true);
+
+    const TimelineEvent e = matrix::rust_timeline::syncEventFromPayload(obj, kRoom);
+    QCOMPARE(e.eventId, QStringLiteral("$edit"));
+    QCOMPARE(e.roomId, kRoom);
+    QVERIFY(e.backlog);
+    QCOMPARE(e.replyToEventId, QStringLiteral("$parent"));
+    QVERIFY(e.isEdit);
+    QCOMPARE(e.replacesEventId, QStringLiteral("$orig"));
+    QCOMPARE(e.editNewBody, QStringLiteral("fixed"));
+    // The fallback stays the body; consumers choose.
+    QCOMPARE(e.body, QStringLiteral("* fixed"));
+    QCOMPARE(e.pushVerdict, TimelineEvent::PushVerdict::Notify);
+    QVERIFY(e.pushHighlight);
+    QVERIFY(e.pushSound);
+
+    // A plain message: none of those.
+    const TimelineEvent plain = matrix::rust_timeline::syncEventFromPayload(
+        syncPayload(QStringLiteral("$plain"), QStringLiteral("hi")), kRoom);
+    QVERIFY(!plain.backlog);
+    QVERIFY(!plain.isEdit);
+    QVERIFY(plain.replacesEventId.isEmpty());
+    QVERIFY(plain.editNewBody.isEmpty());
+    QVERIFY(plain.replyToEventId.isEmpty());
+    QCOMPARE(plain.type, TimelineEvent::TextMessage);
+    // An unknown msgtype on this path is a text row, never Unknown.
+    QJsonObject custom = syncPayload(QStringLiteral("$c"), QStringLiteral("x"));
+    custom.insert(QStringLiteral("msgtype"), QStringLiteral("org.example.custom"));
+    QCOMPARE(matrix::rust_timeline::syncEventFromPayload(custom, kRoom).type,
+             TimelineEvent::TextMessage);
+}
+
+// Finding 130: an undecryptable thread reply keeps its thread, so it never
+// becomes a standalone main-timeline row (CLAUDE.md section 8). The C++ half
+// already read thread_root_id; this pins it now that Rust sends it for
+// encrypted events too.
+void RustTimelineIngestTest::anUndecryptableSyncPayloadKeepsItsThreadRoot()
+{
+    QJsonObject obj = syncPayload(QStringLiteral("$utd"), QString());
+    obj.insert(QStringLiteral("undecryptable"), true);
+    obj.insert(QStringLiteral("is_encrypted"), true);
+    obj.insert(QStringLiteral("msgtype"), QStringLiteral("encrypted"));
+    obj.insert(QStringLiteral("thread_root_id"), QStringLiteral("$root"));
+    const TimelineEvent e = matrix::rust_timeline::syncEventFromPayload(obj, kRoom);
+    QVERIFY(e.undecryptable);
+    QVERIFY(e.isEncrypted);
+    QCOMPARE(e.threadRootId, QStringLiteral("$root"));
+    QCOMPARE(matrix::rust_timeline::syncRouteFor(false, e),
+             matrix::rust_timeline::SyncRoute::AppendUnmirrored);
+}
+
+// Finding 53: a forwarded poll start is a poll row with its question, and it
+// stays out of the mirror (it has no answers until the SDK aggregates it).
+void RustTimelineIngestTest::aSyncPollStartIsAPollRow()
+{
+    QJsonObject obj = syncPayload(QStringLiteral("$poll"),
+                                  QStringLiteral("Lunch?\n1. Pizza\n2. Soup"));
+    obj.insert(QStringLiteral("msgtype"), QStringLiteral("poll"));
+    obj.insert(QStringLiteral("poll_question"), QStringLiteral("Lunch?"));
+    const TimelineEvent e = matrix::rust_timeline::syncEventFromPayload(obj, kRoom);
+    QCOMPARE(e.type, TimelineEvent::Poll);
+    QCOMPARE(e.pollQuestion, QStringLiteral("Lunch?"));
+    QCOMPARE(matrix::rust_timeline::syncRouteFor(false, e),
+             matrix::rust_timeline::SyncRoute::AppendUnmirrored);
+}
+
+// Findings 45/127: in the open room a thread reply is observed (for
+// notifications) and never appended; everything else there is preview-only.
+void RustTimelineIngestTest::theOpenRoomsThreadReplyIsObservedNeverAppended()
+{
+    using matrix::rust_timeline::SyncRoute;
+    using matrix::rust_timeline::syncRouteFor;
+    QJsonObject reply = syncPayload(QStringLiteral("$reply"), QStringLiteral("hi"));
+    reply.insert(QStringLiteral("thread_root_id"), QStringLiteral("$root"));
+    const TimelineEvent threaded =
+        matrix::rust_timeline::syncEventFromPayload(reply, kRoom);
+    QCOMPARE(syncRouteFor(true, threaded), SyncRoute::ObserveOnly);
+    QCOMPARE(syncRouteFor(false, threaded), SyncRoute::AppendUnmirrored);
+
+    // The root itself (thread_root_id == its own id) is a main-timeline row.
+    QJsonObject root = syncPayload(QStringLiteral("$root"), QStringLiteral("root"));
+    root.insert(QStringLiteral("thread_root_id"), QStringLiteral("$root"));
+    const TimelineEvent rootEvent =
+        matrix::rust_timeline::syncEventFromPayload(root, kRoom);
+    QCOMPARE(syncRouteFor(true, rootEvent), SyncRoute::PreviewOnly);
+    QCOMPARE(syncRouteFor(false, rootEvent), SyncRoute::MirrorAndAppend);
+
+    // An edit of a thread reply tells nobody anything.
+    reply.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$older"));
+    const TimelineEvent threadedEdit =
+        matrix::rust_timeline::syncEventFromPayload(reply, kRoom);
+    QCOMPARE(syncRouteFor(true, threadedEdit), SyncRoute::PreviewOnly);
+
+    const TimelineEvent plain = matrix::rust_timeline::syncEventFromPayload(
+        syncPayload(QStringLiteral("$p"), QStringLiteral("p")), kRoom);
+    QCOMPARE(syncRouteFor(true, plain), SyncRoute::PreviewOnly);
+}
+
+// Finding 151: with a failed send at the bottom, matrix-sdk-ui INSERTS a new
+// remote event above it instead of pushing it back. That insert is a live
+// arrival. On the old code an insert carried no such fact, and only
+// eventInsertedAt (a model signal) followed.
+void RustTimelineIngestTest::aRemoteInsertAboveAPendingSendIsALiveArrival()
+{
+    QJsonArray items;
+    items.append(itemJson(QStringLiteral("i0"), QStringLiteral("$a"), QStringLiteral("a")));
+    items.append(itemJson(QStringLiteral("i1"), QStringLiteral("$b"), QStringLiteral("b")));
+    items.append(echoItemJson(QStringLiteral("txn1"), QStringLiteral("mine")));
+    QList<TimelineEvent> mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.size(), 3);
+
+    const DiffOutcome out = applyTimelineDiff(
+        mirror,
+        insertDiff(2, itemJson(QStringLiteral("i2"), QStringLiteral("$c"),
+                               QStringLiteral("new"))),
+        kRoom);
+    QCOMPARE(out.kind, DiffOutcome::Inserted);
+    QCOMPARE(out.index, 2);
+    QVERIFY2(out.liveRemoteInsert,
+             "a message landing above a failed send was not a live arrival");
+    // The mirror is exactly what it always was.
+    QCOMPARE(mirror.at(2).eventId, QStringLiteral("$c"));
+    QVERIFY(mirror.at(3).isLocalEcho);
+
+    // A local echo inserted there is not a remote arrival.
+    const DiffOutcome echo = applyTimelineDiff(
+        mirror, insertDiff(3, echoItemJson(QStringLiteral("txn2"), QStringLiteral("x"))),
+        kRoom);
+    QCOMPARE(echo.kind, DiffOutcome::Inserted);
+    QVERIFY(!echo.liveRemoteInsert);
+}
+
+void RustTimelineIngestTest::aPaginationInsertIsNeverALiveArrival()
+{
+    // A page lands before every remote item already loaded.
+    QJsonArray items;
+    QJsonObject start;
+    start.insert(QStringLiteral("item_id"), QStringLiteral("start"));
+    start.insert(QStringLiteral("kind"), QStringLiteral("timeline_start"));
+    items.append(start);
+    items.append(itemJson(QStringLiteral("i0"), QStringLiteral("$a"), QStringLiteral("a")));
+    items.append(echoItemJson(QStringLiteral("txn1"), QStringLiteral("mine")));
+    QList<TimelineEvent> mirror = eventsFromItemArray(items, kRoom);
+    const DiffOutcome page = applyTimelineDiff(
+        mirror,
+        insertDiff(1, itemJson(QStringLiteral("old"), QStringLiteral("$old"),
+                               QStringLiteral("old"))),
+        kRoom);
+    QCOMPARE(page.kind, DiffOutcome::Inserted);
+    QVERIFY(!page.liveRemoteInsert);
+
+    // A timeline holding nothing but an echo: the first page has no remote
+    // item before it, so it is not live either.
+    QJsonArray echoOnly;
+    echoOnly.append(start);
+    echoOnly.append(echoItemJson(QStringLiteral("txn1"), QStringLiteral("mine")));
+    QList<TimelineEvent> lonely = eventsFromItemArray(echoOnly, kRoom);
+    const DiffOutcome first = applyTimelineDiff(
+        lonely,
+        insertDiff(1, itemJson(QStringLiteral("old"), QStringLiteral("$old"),
+                               QStringLiteral("old"))),
+        kRoom);
+    QVERIFY(!first.liveRemoteInsert);
+
+    // Unless the bridge, which knows when the timeline opened, says it is a
+    // live arrival (the room's first message, above the user's failed send).
+    QList<TimelineEvent> fresh = eventsFromItemArray(echoOnly, kRoom);
+    QJsonObject marked = insertDiff(
+        1, itemJson(QStringLiteral("new"), QStringLiteral("$new"), QStringLiteral("hi")));
+    marked.insert(QStringLiteral("live_append"), true);
+    QVERIFY(applyTimelineDiff(fresh, marked, kRoom).liveRemoteInsert);
+    // The mark never makes a local echo an arrival.
+    QJsonObject markedEcho =
+        insertDiff(1, echoItemJson(QStringLiteral("txn9"), QStringLiteral("x")));
+    markedEcho.insert(QStringLiteral("live_append"), true);
+    QVERIFY(!applyTimelineDiff(fresh, markedEcho, kRoom).liveRemoteInsert);
+}
+
+// Findings 6/46/124 and 1: a Set that turns the SAME event readable, or
+// redacted, says so; a Set that reuses a slot for another event does not.
+void RustTimelineIngestTest::aSetReportsDecryptionAndRedactionOfTheSameEventOnly()
+{
+    QJsonObject utd = itemJson(QStringLiteral("i0"), QStringLiteral("$e"), QString());
+    utd.insert(QStringLiteral("undecryptable"), true);
+    utd.insert(QStringLiteral("is_encrypted"), true);
+    QList<TimelineEvent> mirror = eventsFromItemArray(QJsonArray{ utd }, kRoom);
+
+    QJsonObject setDiff = diffJson(QStringLiteral("set"));
+    setDiff.insert(QStringLiteral("index"), 0);
+    QJsonObject readable = itemJson(QStringLiteral("i0"), QStringLiteral("$e"),
+                                    QStringLiteral("now readable"));
+    readable.insert(QStringLiteral("is_encrypted"), true);
+    readable.insert(QStringLiteral("is_decrypted"), true);
+    setDiff.insert(QStringLiteral("item"), readable);
+    const DiffOutcome decrypted = applyTimelineDiff(mirror, setDiff, kRoom);
+    QCOMPARE(decrypted.kind, DiffOutcome::Changed);
+    QVERIFY2(decrypted.becameDecrypted, "a late decryption was not reported");
+    QVERIFY(!decrypted.becameRedacted);
+
+    // The same Set again (a receipt moving, say) is not a second decryption.
+    const DiffOutcome again = applyTimelineDiff(mirror, setDiff, kRoom);
+    QVERIFY(!again.becameDecrypted);
+
+    QJsonObject redacted = readable;
+    redacted.insert(QStringLiteral("redacted"), true);
+    redacted.insert(QStringLiteral("body"), QString());
+    setDiff.insert(QStringLiteral("item"), redacted);
+    const DiffOutcome gone = applyTimelineDiff(mirror, setDiff, kRoom);
+    QVERIFY(gone.becameRedacted);
+    QVERIFY(!gone.becameDecrypted);
+
+    // Another event in the slot: neither.
+    QList<TimelineEvent> other = eventsFromItemArray(QJsonArray{ utd }, kRoom);
+    QJsonObject swapped = redacted;
+    swapped.insert(QStringLiteral("event_id"), QStringLiteral("$other"));
+    setDiff.insert(QStringLiteral("item"), swapped);
+    const DiffOutcome reused = applyTimelineDiff(other, setDiff, kRoom);
+    QVERIFY(!reused.becameDecrypted);
+    QVERIFY(!reused.becameRedacted);
+}
+
+void RustTimelineIngestTest::theUndecryptableSightingsAreBoundedAndTakenOnce()
+{
+    matrix::notification_producer::BoundedIdMap seen(2);
+    seen.insert(QStringLiteral("$a"), false);
+    seen.insert(QStringLiteral("$a"), true); // history seen once stays history
+    seen.insert(QStringLiteral("$b"), false);
+    seen.insert(QStringLiteral("$c"), false); // evicts the oldest, $a
+    QCOMPARE(seen.size(), 2);
+    QVERIFY(!seen.contains(QStringLiteral("$a")));
+    bool backlog = true;
+    QVERIFY(seen.take(QStringLiteral("$b"), &backlog));
+    QVERIFY(!backlog);
+    QVERIFY2(!seen.take(QStringLiteral("$b")), "a decryption was announceable twice");
+
+    matrix::notification_producer::BoundedIdMap flags(4);
+    flags.insert(QStringLiteral("$x"), true);
+    flags.insert(QStringLiteral("$x"), false);
+    QVERIFY(flags.take(QStringLiteral("$x"), &backlog));
+    QVERIFY(backlog);
+}
+
+// Finding 121: one event per room per response means a mention followed by
+// another message is never delivered; its count still rises.
+void RustTimelineIngestTest::aHighlightRiseNobodyWasToldAboutIsReported()
+{
+    using matrix::notification_producer::HighlightGapTracker;
+    HighlightGapTracker tracker;
+    const QString room = QStringLiteral("!r:example.org");
+    tracker.observeCount(room, 0, 1000, true); // baseline
+    tracker.observeCount(room, 2, 5000, true); // two mentions, none delivered
+    // Not before the window closes: the event may still be on its way.
+    QVERIFY(tracker.takeDue(5000 + HighlightGapTracker::kWindowMs - 1).isEmpty());
+    QCOMPARE(tracker.nextDueMs(), 5000 + HighlightGapTracker::kWindowMs);
+    const auto due = tracker.takeDue(5000 + HighlightGapTracker::kWindowMs);
+    QCOMPARE(due.size(), 1);
+    QCOMPARE(due.first().first, room);
+    QCOMPARE(due.first().second, 2);
+    // Judged once.
+    QVERIFY(tracker.takeDue(99999).isEmpty());
+    QCOMPARE(tracker.nextDueMs(), qint64(0));
+
+    // Three more, one of them delivered: two owed.
+    tracker.observeCount(room, 5, 20000, true);
+    tracker.creditHighlight(room, 20500);
+    const auto partly = tracker.takeDue(20000 + HighlightGapTracker::kWindowMs);
+    QCOMPARE(partly.size(), 1);
+    QCOMPARE(partly.first().second, 2);
+}
+
+void RustTimelineIngestTest::aHighlightRiseExplainedByADeliveredEventIsNot()
+{
+    using matrix::notification_producer::HighlightGapTracker;
+    HighlightGapTracker tracker;
+    const QString room = QStringLiteral("!r:example.org");
+    tracker.observeCount(room, 0, 1000, true);
+    // The event first, then the count (the usual order) ...
+    tracker.creditHighlight(room, 4000);
+    tracker.observeCount(room, 1, 5000, true);
+    QVERIFY(tracker.takeDue(10000).isEmpty());
+    // ... or the count first, then the event within the window.
+    tracker.observeCount(room, 2, 20000, true);
+    tracker.creditHighlight(room, 21000);
+    QVERIFY(tracker.takeDue(30000).isEmpty());
+    // A read in between: nothing is owed.
+    tracker.observeCount(room, 3, 40000, true);
+    tracker.observeCount(room, 0, 40500, true);
+    QVERIFY(tracker.takeDue(50000).isEmpty());
+}
+
+void RustTimelineIngestTest::aHighlightRiseIsNeverReportedForHistoryOrAFirstCount()
+{
+    using matrix::notification_producer::HighlightGapTracker;
+    HighlightGapTracker tracker;
+    const QString room = QStringLiteral("!r:example.org");
+    // A room's first count (a room past the first room-list batch, say) only
+    // sets the baseline, whatever it is.
+    tracker.observeCount(room, 4, 1000, true);
+    QVERIFY(tracker.takeDue(10000).isEmpty());
+    // Before the initial sync: baselines only.
+    const QString early = QStringLiteral("!early:example.org");
+    tracker.observeCount(early, 0, 1000, false);
+    tracker.observeCount(early, 3, 2000, false);
+    QVERIFY(tracker.takeDue(10000).isEmpty());
+    // A rise that came with history (the catch-up after a reconnect).
+    tracker.observeCount(room, 6, 20000, true);
+    tracker.noteBacklog(room, 20100);
+    QVERIFY(tracker.takeDue(30000).isEmpty());
+    // reset() forgets baselines: the next count is a first count again.
+    tracker.reset();
+    tracker.observeCount(room, 9, 40000, true);
+    QVERIFY(tracker.takeDue(50000).isEmpty());
+    // So does leaving the room list: a room that comes back after an hour is
+    // not owed every highlight it gathered meanwhile.
+    tracker.forgetRoomsNotIn(QSet<QString>{ QStringLiteral("!other:example.org") });
+    tracker.observeCount(room, 15, 60000, true);
+    QVERIFY(tracker.takeDue(70000).isEmpty());
+    tracker.forgetRoom(room);
+    tracker.observeCount(room, 20, 80000, true);
+    QVERIFY(tracker.takeDue(90000).isEmpty());
+    // Control: without forgetting, the same rise is owed.
+    tracker.observeCount(room, 21, 100000, true);
+    QCOMPARE(tracker.takeDue(110000).size(), 1);
 }
 
 QTEST_GUILESS_MAIN(RustTimelineIngestTest)

@@ -189,6 +189,136 @@ private Q_SLOTS:
         }
     }
 
+    // CLAUDE.md section 8: a room unread only in threads carries the server's
+    // THREAD-event count, which the main timeline does not show. It is still
+    // unread (a dot / glyph) but no surface may print the number.
+    void aThreadOnlyRoomIsUnreadButShowsNoNumber()
+    {
+        RoomInfo r = room(QStringLiteral("!t:x"), 5);
+        r.unreadThreadsOnly = true;
+        QVERIFY(roomunread::countsAsUnread(r, roomunread::kModeAllMessages));
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeAllMessages), 0);
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeMentions), 0);
+        r.unreadThreadsOnly = false;
+        QCOMPARE(roomunread::visibleUnreadCount(r, roomunread::kModeAllMessages), 5);
+
+        r.unreadThreadsOnly = true;
+        r.highlightCount = 2;
+        r.encryptionKnown = true;
+        const roomunread::Summary s = roomunread::summarize(
+            QList<RoomInfo>{ r },
+            [](const QString &) { return roomunread::kModeAllMessages; },
+            [](const RoomInfo &, bool) {});
+        QVERIFY(s.any);
+        QCOMPARE(s.total, 2); // the mentions, never the 5
+    }
+
+    // A Space room is not a conversation: no other surface counts it, and the
+    // user has no row to open to clear it. It is still reported to onRoom (as
+    // not unread) so a notification raised for it is withdrawn.
+    void aSpaceRoomIsNotCountedButStillReported()
+    {
+        RoomInfo space = room(QStringLiteral("!space:x"), 4, true);
+        space.isSpace = true;
+        space.markedUnread = true;
+        QStringList seen;
+        QList<bool> flags;
+        const roomunread::Summary s = roomunread::summarize(
+            QList<RoomInfo>{ space },
+            [](const QString &) { return roomunread::kModeAllMessages; },
+            [&](const RoomInfo &r, bool unread) {
+                seen.append(r.id);
+                flags.append(unread);
+            });
+        QVERIFY(!s.any);
+        QCOMPARE(s.total, 0);
+        QCOMPARE(seen, (QStringList{ QStringLiteral("!space:x") }));
+        QCOMPARE(flags, (QList<bool>{ false }));
+    }
+
+    // A pending invitation needs action: it counts one and lights the badge,
+    // but is not an unread room and gets no onRoom call.
+    void aPendingInviteCountsOnceAndIsNotReported()
+    {
+        RoomInfo invite = room(QStringLiteral("!inv:x"), 0);
+        invite.membership = RoomInfo::Invited;
+        int reported = 0;
+        const roomunread::Summary s = roomunread::summarize(
+            QList<RoomInfo>{ invite, room(QStringLiteral("!a:x"), 3, true) },
+            [](const QString &) { return roomunread::kModeAllMessages; },
+            [&](const RoomInfo &, bool) { ++reported; });
+        QVERIFY(s.any);
+        QCOMPARE(s.total, 1 + 3);
+        QCOMPARE(reported, 1);
+    }
+
+    // The surfaces that cannot be built without a backend read the shared rule;
+    // each of these failed on the code that re-derived it.
+    void everyUnreadSurfaceReadsTheSharedRule()
+    {
+        const auto read = [](const char *path) {
+            QFile f(QStringLiteral(SOURCE_DIR "/") + QLatin1String(path));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll())
+                                               : QString();
+        };
+        const QString lists = read("src/models/RoomListModel.cpp");
+        QVERIFY(!lists.isEmpty());
+        // Classic's Unreads chip: the rule alone, no receipt pre-filter.
+        const int chip = lists.indexOf(QStringLiteral("case 3: // Unreads"));
+        QVERIFY(chip >= 0);
+        const QString chipBody = lists.mid(chip, 500);
+        QVERIFY2(!chipBody.contains(QStringLiteral("r.hasUnreadMessages")),
+                 "the Unreads chip pre-filters on the receipt flag");
+        QVERIFY(chipBody.contains(QStringLiteral("countsAsUnread")));
+        // Home's recent strip.
+        const int recent = lists.indexOf(QStringLiteral("QVariantList RoomListModel::recentRooms"));
+        QVERIFY(recent >= 0);
+        QVERIFY2(!lists.mid(recent, 1800).contains(
+                     QStringLiteral("r.hasUnreadMessages }")),
+                 "recentRooms derives hasUnread from the receipt flag alone");
+        // The window title does not wait for a visible row to change.
+        const int rec = lists.indexOf(QStringLiteral("void RoomListModel::reconcileRooms()"));
+        const int end = lists.indexOf(QStringLiteral("\nvoid RoomListModel::resetRooms"), rec);
+        QVERIFY(rec >= 0 && end > rec);
+        QVERIFY2(lists.mid(rec, end - rec).contains(QStringLiteral("updateUnreadTotals()")),
+                 "reconcileRooms never refreshes the account-wide totals");
+
+        const QString spaces = read("src/spaces/SpaceManager.cpp");
+        const int lobby = spaces.indexOf(QStringLiteral("QVariantMap lobbyRow("));
+        QVERIFY(lobby >= 0);
+        QVERIFY2(!spaces.mid(lobby).contains(QStringLiteral("it->unreadCount > 0")),
+                 "the lobby row re-derives hasUnread from the raw count");
+        const int direct = spaces.indexOf(QStringLiteral("SpaceManager::directChildRoomsDetailed"));
+        QVERIFY(direct >= 0);
+        QVERIFY2(!spaces.mid(direct, 2200).contains(QStringLiteral("it->highlightCount")),
+                 "the rail reveal returns the raw highlight count");
+    }
+
+    // Row labels: unread state reaches a screen reader, counts are plural-aware
+    // (a %2 placeholder cannot select a plural form), one dot per marked room,
+    // and the two Notifications disclaimers agree on "no override".
+    void rowLabelsAndDisclaimersFollowTheContract()
+    {
+        const auto read = [](const char *path) {
+            QFile f(QStringLiteral(SOURCE_DIR "/") + QLatin1String(path));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll())
+                                               : QString();
+        };
+        const QString row = read("qml/RoomDelegate.qml");
+        QVERIFY(row.contains(QStringLiteral("%n mention(s)")));
+        QVERIFY(row.contains(QStringLiteral("%n unread message(s)")));
+        QVERIFY(row.contains(QStringLiteral("marked as unread")));
+        QVERIFY(!row.contains(QStringLiteral("%2 mentions")));
+        QVERIFY2(row.contains(QStringLiteral("!roomUnreadDot.visible")),
+                 "a marked-unread room can draw two dots");
+        QVERIFY(!read("qml/ChannelDelegate.qml").contains(QStringLiteral("%2 mentions")));
+        QVERIFY(!read("qml/ChannelCategoryHeader.qml").contains(QStringLiteral("%2 mentions")));
+        const QString menu = read("qml/RoomActionsMenu.qml");
+        QVERIFY2(menu.contains(QStringLiteral("currentMode === 3"))
+                     && menu.contains(QStringLiteral("has no override")),
+                 "the flyout claims a saved rule for 'follow account default'");
+    }
+
     void refreshTrayUnreadUsesTheSharedRule()
     {
         QFile f(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));

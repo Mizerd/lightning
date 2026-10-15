@@ -4094,10 +4094,7 @@ pub(crate) fn schedule_message(
         return Err("a scheduled send needs a delay".to_owned());
     }
     let spec = crate::timeline::parse_body_spec(&spec_json)?;
-    let mut content = crate::timeline::composed_content(&body, &spec);
-    if let Some(mentions) = crate::timeline::mentions_from_ids(mention_user_ids) {
-        content = content.add_mentions(mentions);
-    }
+    let content = crate::timeline::outgoing_content(&body, &spec, mention_user_ids);
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
@@ -6672,10 +6669,7 @@ pub(crate) fn send_room_message(
     let root_id = thread_root
         .map(|id| EventId::parse(id).map_err(|_| "invalid thread root".to_owned()))
         .transpose()?;
-    let mut content = crate::timeline::composed_content(&body, &spec);
-    if let Some(mentions) = crate::timeline::mentions_from_ids(mention_user_ids) {
-        content = content.add_mentions(mentions);
-    }
+    let mut content = crate::timeline::outgoing_content(&body, &spec, mention_user_ids);
     content.relates_to = match (root_id, reply_id) {
         // In a thread: an explicit in-thread reply target if given, otherwise the
         // spec fallback (in_reply_to = root, marked falling-back so thread-aware
@@ -6717,6 +6711,65 @@ pub(crate) fn send_room_message(
 // event id is enough to navigate.
 // ---------------------------------------------------------------------------
 
+/// One Activity seed row from a `/notifications` event, or `None` for one the
+/// bell does not show (no id, no sender, our own).
+///
+/// `body` is what a live row's preview is built from, so it gets the same
+/// treatment (finding 17): the legacy reply fallback is stripped — a reply
+/// read "> <@alice:…> what Alice said" after a restart — and an edit shows
+/// its `m.new_content` rather than the "* …" fallback. `msgtype` lets C++ map
+/// media to the same glyphs a live row gets instead of showing a filename:
+/// the `m.room.message` msgtype, `m.sticker` for a sticker, else empty.
+pub(crate) fn activity_seed_entry(
+    value: &serde_json::Value,
+    room_id: &str,
+    timestamp_ms: u64,
+    read: bool,
+    own: &str,
+) -> Option<serde_json::Value> {
+    let event_id = value["event_id"].as_str().unwrap_or_default();
+    let sender = value["sender"].as_str().unwrap_or_default();
+    if event_id.is_empty() || sender.is_empty() || sender == own {
+        return None;
+    }
+    let event_type = value["type"].as_str().unwrap_or_default();
+    let encrypted = event_type == "m.room.encrypted";
+    let content = &value["content"];
+    let relates = &content["m.relates_to"];
+    let shown = if relates["rel_type"] == "m.replace" && content["m.new_content"].is_object() {
+        &content["m.new_content"]
+    } else {
+        content
+    };
+    let (body, msgtype): (String, &str) = match event_type {
+        "m.room.message" => (
+            crate::timeline::strip_reply_fallback(shown["body"].as_str().unwrap_or_default())
+                .chars()
+                .take(200)
+                .collect(),
+            shown["msgtype"].as_str().unwrap_or_default(),
+        ),
+        "m.sticker" => (String::new(), "m.sticker"),
+        _ => (String::new(), ""),
+    };
+    let thread_root = if relates["rel_type"] == "m.thread" {
+        relates["event_id"].as_str().unwrap_or_default()
+    } else {
+        ""
+    };
+    Some(json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "sender": sender,
+        "timestamp_ms": timestamp_ms,
+        "read": read,
+        "encrypted": encrypted,
+        "body": body,
+        "msgtype": msgtype,
+        "thread_root_id": thread_root,
+    }))
+}
+
 pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(), String> {
     use matrix_sdk::ruma::api::client::push::get_notifications;
     use matrix_sdk::ruma::UInt;
@@ -6744,43 +6797,97 @@ pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(
         for notification in response.notifications {
             let value: serde_json::Value =
                 notification.event.deserialize_as().unwrap_or(serde_json::Value::Null);
-            let event_id = value["event_id"].as_str().unwrap_or_default().to_owned();
-            let sender = value["sender"].as_str().unwrap_or_default().to_owned();
-            if event_id.is_empty() || sender.is_empty() || sender == own {
-                continue;
+            if let Some(entry) = activity_seed_entry(
+                &value,
+                notification.room_id.as_str(),
+                u64::from(notification.ts.get()),
+                notification.read,
+                &own,
+            ) {
+                entries.push(entry);
             }
-            let event_type = value["type"].as_str().unwrap_or_default();
-            let encrypted = event_type == "m.room.encrypted";
-            let body: String = if event_type == "m.room.message" {
-                value["content"]["body"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .chars()
-                    .take(200)
-                    .collect()
-            } else {
-                String::new()
-            };
-            let relates = &value["content"]["m.relates_to"];
-            let thread_root = if relates["rel_type"] == "m.thread" {
-                relates["event_id"].as_str().unwrap_or_default().to_owned()
-            } else {
-                String::new()
-            };
-            entries.push(json!({
-                "event_id": event_id,
-                "room_id": notification.room_id.to_string(),
-                "sender": sender,
-                "timestamp_ms": u64::from(notification.ts.get()),
-                "read": notification.read,
-                "encrypted": encrypted,
-                "body": body,
-                "thread_root_id": thread_root,
-            }));
         }
         enqueue(&events, json!({
             "type": "activity_seed", "lifecycle": lifecycle, "ok": true, "entries": entries,
         }));
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod activity_seed_tests {
+    //! Finding 17: seeded Activity rows took `content.body` raw, so after a
+    //! restart a reply showed the quoted text it replied to and a media
+    //! highlight showed a filename where a live row shows a glyph.
+    use super::activity_seed_entry;
+    use serde_json::json;
+
+    fn seed(content: serde_json::Value, event_type: &str) -> serde_json::Value {
+        activity_seed_entry(
+            &json!({
+                "event_id": "$e:x", "sender": "@bob:x", "type": event_type,
+                "content": content,
+            }),
+            "!r:x",
+            5,
+            false,
+            "@me:x",
+        )
+        .expect("a row")
+    }
+
+    #[test]
+    fn a_seeded_reply_shows_the_reply_not_the_quote() {
+        let row = seed(
+            json!({
+                "msgtype": "m.text",
+                "body": "> <@alice:x> what Alice said\n> more\n\n@me look at this",
+                "m.relates_to": { "m.in_reply_to": { "event_id": "$q:x" } },
+            }),
+            "m.room.message",
+        );
+        assert_eq!(row["body"], "@me look at this");
+        assert_eq!(row["msgtype"], "m.text");
+    }
+
+    #[test]
+    fn a_seeded_row_carries_its_msgtype_and_an_edit_its_new_text() {
+        let image = seed(json!({ "msgtype": "m.image", "body": "IMG_2041.jpg" }), "m.room.message");
+        assert_eq!(image["msgtype"], "m.image");
+        let edit = seed(
+            json!({
+                "msgtype": "m.text", "body": "* hi @me",
+                "m.new_content": { "msgtype": "m.text", "body": "hi @me" },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": "$o:x" },
+            }),
+            "m.room.message",
+        );
+        assert_eq!(edit["body"], "hi @me");
+        let sticker = seed(json!({ "body": "a cat", "url": "mxc://x/y" }), "m.sticker");
+        assert_eq!(sticker["msgtype"], "m.sticker");
+        assert_eq!(sticker["body"], "");
+        let encrypted = seed(json!({ "algorithm": "m.megolm.v1.aes-sha2" }), "m.room.encrypted");
+        assert_eq!(encrypted["encrypted"], true);
+        assert_eq!(encrypted["msgtype"], "");
+    }
+
+    #[test]
+    fn a_plain_quote_and_the_thread_root_survive_and_our_own_rows_are_skipped() {
+        let quote = seed(json!({ "msgtype": "m.text", "body": "> not a reply" }), "m.room.message");
+        assert_eq!(quote["body"], "> not a reply");
+        let threaded = seed(
+            json!({
+                "msgtype": "m.text", "body": "in thread",
+                "m.relates_to": { "rel_type": "m.thread", "event_id": "$root:x" },
+            }),
+            "m.room.message",
+        );
+        assert_eq!(threaded["thread_root_id"], "$root:x");
+        assert!(activity_seed_entry(
+            &json!({ "event_id": "$e:x", "sender": "@me:x", "type": "m.room.message",
+                     "content": { "body": "mine" } }),
+            "!r:x", 5, false, "@me:x",
+        )
+        .is_none());
+    }
 }

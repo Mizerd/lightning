@@ -16,8 +16,15 @@ Item {
                       ? qsTr("%1, mention in a thread", "room row")
                       : qsTr("%1, unread in a thread", "room row")).arg(model.name)
                    : (model.highlightCount > 0 && !root.muted)
-                   ? qsTr("%1, %2 mentions").arg(model.name)
-                                            .arg(model.highlightCount)
+                   ? qsTr("%1, %n mention(s)", "", model.highlightCount)
+                         .arg(model.name)
+                   : (model.unreadCount > 0 && !root.muted)
+                   ? qsTr("%1, %n unread message(s)", "", model.unreadCount)
+                         .arg(model.name)
+                   : (model.hasUnread && !root.muted)
+                   ? qsTr("%1, unread", "room row").arg(model.name)
+                   : (model.markedUnread && !root.muted)
+                   ? qsTr("%1, marked as unread", "room row").arg(model.name)
                    : model.name
         // The mute glyph is decorative, so the accessible name says it.
         return root.muted ? qsTr("%1, muted").arg(base) : base
@@ -328,6 +335,7 @@ Item {
                 // genuinely unread room (counts follow push rules), so show a
                 // dot.
                 Rectangle {
+                    id: roomUnreadDot
                     objectName: "roomUnreadDot"
                     visible: root.isUnread && !root.hasCountBadge && !root.muted
                              && !root.threadOnly
@@ -374,8 +382,12 @@ Item {
 
                 // Marked-unread dot, shown only without a numeric badge, in the
                 // unreadBadge colour, inline next to where the pill would be.
+                // Never beside the ordinary dot: a room that is both unread and
+                // marked would draw two.
                 Rectangle {
+                    objectName: "roomMarkedUnreadDot"
                     visible: model.markedUnread && !root.hasCountBadge
+                             && !roomUnreadDot.visible
                     Layout.preferredWidth: 8
                     Layout.preferredHeight: 8
                     Layout.alignment: Qt.AlignVCenter

@@ -36,7 +36,9 @@ public:
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
-    bool isLoggedIn() const override { return true; }
+    // One case signs in late (an offline restore that never reaches Syncing).
+    bool loggedIn = true;
+    bool isLoggedIn() const override { return loggedIn; }
     QString currentUserId() const override { return self; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
@@ -91,15 +93,37 @@ struct Harness {
     ActivityModel model;
     QVariantMap stored;
     int saves = 0;
+    // The model's local clock: the real one, moved forward on demand so an
+    // arrival and a counter write are strictly ordered.
+    qint64 skew = 0;
 
     Harness()
     {
+        model.setClock([this] { return clockMs(); });
         model.setStore({ [this] { return stored; },
                          [this](const QVariantMap &m) { stored = m; ++saves; } });
         model.setClient(&client);
         Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     }
+    qint64 clockMs() const { return QDateTime::currentMSecsSinceEpoch() + skew; }
+    void advance(qint64 ms) { skew += ms; }
+    // A room payload written NOW, after every row so far arrived: the only
+    // kind whose counters may speak for those rows.
+    RoomInfo fresh(RoomInfo r)
+    {
+        advance(5);
+        r.countsWrittenAtMs = clockMs();
+        advance(5);
+        return r;
+    }
     QVariantMap row(int i) const { return model.entryAt(i); }
+    QString kindOf(const QString &id) const
+    {
+        for (int i = 0; i < model.count(); ++i)
+            if (model.entryAt(i).value(QStringLiteral("entryId")).toString() == id)
+                return model.entryAt(i).value(QStringLiteral("kind")).toString();
+        return {};
+    }
 };
 
 } // namespace
@@ -184,7 +208,7 @@ private Q_SLOTS:
         RoomInfo read = half;
         read.hasUnreadMessages = false;
         read.unreadCount = 0;
-        h.client.roomSet = { read };
+        h.client.roomSet = { h.fresh(read) };
         Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 0);
         // History, not a queue: the rows survive, marked seen.
@@ -242,7 +266,7 @@ private Q_SLOTS:
         silent.id = kRoom;
         silent.name = QStringLiteral("Lounge");
         silent.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
-        h.client.roomSet = { silent };
+        h.client.roomSet = { h.fresh(silent) };
         Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 1);
 
@@ -283,7 +307,7 @@ private Q_SLOTS:
         // A genuinely read room does clear it, so the case above is a refusal.
         RoomInfo clear = flagged;
         clear.markedUnread = false;
-        h.client.roomSet = { clear };
+        h.client.roomSet = { h.fresh(clear) };
         Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 0);
     }
@@ -310,7 +334,7 @@ private Q_SLOTS:
         QCOMPARE(h.model.unseenCount(), 2);
 
         invited.raiseActivity(QDateTime::currentDateTime().addSecs(60));
-        h.client.roomSet = { invited };
+        h.client.roomSet = { h.fresh(invited) };
         Q_EMIT h.client.roomsChanged();
         // The ordinary row cleared; the invite did not.
         QCOMPARE(h.model.unseenCount(), 1);
@@ -432,9 +456,12 @@ private Q_SLOTS:
         QVERIFY(!h.model.ingest(other, QStringLiteral("Lounge")));
 
         // A thread rooted at my message: replies are "thread" activity.
+        // As it really arrives: an own message is not a thread root when it is
+        // sent; it becomes one only when somebody replies in a thread on it.
+        // Old code required isThreadRoot here and listed nothing.
         TimelineEvent root = text(QStringLiteral("$root"), h.client.self,
                                   QStringLiteral("thread start"), 3000);
-        root.isThreadRoot = true;
+        root.isThreadRoot = false;
         QVERIFY(!h.model.ingest(root, QStringLiteral("Lounge")));
         TimelineEvent inThread = text(QStringLiteral("$t1"), QStringLiteral("@bob:mock.local"),
                                       QStringLiteral("in your thread"), 3100);
@@ -571,7 +598,11 @@ private Q_SLOTS:
             QVERIFY2(!it.value().toString().contains(QStringLiteral("secret")),
                      qPrintable(it.key()));
         QVERIFY(!h.stored.contains(QStringLiteral("entries")));
-        // A newer entry is unseen again; an older straggler is covered.
+        // A newer entry is unseen again, and so is an older one that ARRIVES
+        // after the click (a federation delay, a skewed sender clock): the
+        // click covered what was listed then, not an origin_server_ts. Old
+        // code compared the timestamp and marked the straggler seen on
+        // arrival.
         TimelineEvent newer = text(QStringLiteral("$m9"), QStringLiteral("@bob:mock.local"),
                                    QStringLiteral("later"), 9000);
         newer.mentionsMe = true;
@@ -580,11 +611,25 @@ private Q_SLOTS:
                                    QStringLiteral("earlier"), 500);
         older.mentionsMe = true;
         h.model.ingest(older, QStringLiteral("Lounge"));
-        QCOMPARE(h.model.unseenCount(), 1);
+        QCOMPARE(h.model.unseenCount(), 2);
         // Newest first regardless of arrival order.
         QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(), QStringLiteral("$m9"));
         QCOMPARE(h.row(h.model.count() - 1).value(QStringLiteral("entryId")).toString(),
                  QStringLiteral("$m0"));
+
+        // Across a restart the persisted marker still covers history the
+        // previous session showed: the same rows re-delivered are seen.
+        QVariantMap stored = h.stored;
+        FakeClient client;
+        ActivityModel next;
+        next.setStore({ [&] { return stored; }, [&](const QVariantMap &m) { stored = m; } });
+        next.setClient(&client);
+        Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+        TimelineEvent again = text(QStringLiteral("$m2"), QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("secret body 2"), 2000);
+        again.mentionsMe = true;
+        QVERIFY(next.ingest(again, QStringLiteral("Lounge")));
+        QCOMPARE(next.unseenCount(), 0);
     }
 
     void theMarkerIsLoadedForTheAccountOnConnect()
@@ -1080,6 +1125,754 @@ private Q_SLOTS:
         Q_EMIT h.client.membersChanged(kRoom);
         QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
                  QStringLiteral("Bob"));
+    }
+
+    // ---- 2026-10-15 notification sweep (package P4) ----
+    // Each case names the finding and why it fails on the old model.
+
+    // Findings 0/128. In an encrypted room the SDK's client counts skip thread
+    // events and there is no server count, so a thread mention leaves the room
+    // "clear" while lastActivity has moved past it. Old code marked the row
+    // seen on the next roomsChanged; a thread row there now waits for a
+    // receipt.
+    void anEncryptedThreadMentionSurvivesAClearRoomPayload()
+    {
+        Harness h;
+        TimelineEvent reply = text(QStringLiteral("$te1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me in a thread"), 5000);
+        reply.mentionsMe = true;
+        reply.threadRootId = QStringLiteral("$root");
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+
+        RoomInfo room;
+        room.id = kRoom;
+        room.name = QStringLiteral("Lounge");
+        room.encrypted = true;
+        room.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        h.client.roomSet = { h.fresh(room) };   // counts 0, written after it
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Encryption not yet known fails closed the same way.
+        room.encrypted = false;
+        room.encryptionKnown = false;
+        h.client.roomSet = { h.fresh(room) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // The thread's own receipt clears it.
+        h.model.markRoomReadUpTo(kRoom, 5000, QStringLiteral("$root"));
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // The exemption is for encrypted rooms only: an unencrypted room's server
+    // count includes thread events, so its clear state still speaks.
+    void anUnencryptedClearRoomStillClearsItsThreadRows()
+    {
+        Harness h;
+        TimelineEvent reply = text(QStringLiteral("$tu1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me in a thread"), 5000);
+        reply.mentionsMe = true;
+        reply.threadRootId = QStringLiteral("$root");
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+        RoomInfo room;
+        room.id = kRoom;
+        room.name = QStringLiteral("Lounge");
+        room.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        h.client.roomSet = { h.fresh(room) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // Finding 4. roomsChanged is not per room: a payload for ANOTHER room
+    // re-runs the sweep over this one, whose counters were written before the
+    // mention arrived and still read 0. Old code marked the mention seen on
+    // arrival.
+    void aMentionBeforeAStaleCounterPayloadStaysUnseen()
+    {
+        Harness h;
+        RoomInfo stale;
+        stale.id = kRoom;
+        stale.name = QStringLiteral("Lounge");
+        stale.countsWrittenAtMs = h.clockMs();          // before the mention
+        stale.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        h.client.roomSet = { stale };
+        h.advance(5);
+
+        TimelineEvent fresh = text(QStringLiteral("$st1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me"), 5000);
+        fresh.mentionsMe = true;
+        QVERIFY(h.model.ingest(fresh, QStringLiteral("Lounge")));
+        h.advance(5);
+        Q_EMIT h.client.roomsChanged();                 // another room's diff
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // The same clear state written AFTER the row does clear it, so the
+        // case above is the gate and not some other refusal.
+        h.client.roomSet = { h.fresh(stale) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // Finding 3. A reaction is not a timeline row: the receipt lands on the
+    // newest message and the reaction (to an older one) is newer than it.
+    // Old code compared the reaction's own timestamp and never cleared it.
+    void aReactionRowIsClearedByReadingTheRoom()
+    {
+        Harness h;
+        QVERIFY(!h.model.ingest(text(QStringLiteral("$mine"), h.client.self,
+                                     QStringLiteral("joke"), 1000),
+                                QStringLiteral("Lounge")));
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$react1"), QStringLiteral("$mine"),
+                                     QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("bob"), QStringLiteral("🎉"), 5000));
+        QCOMPARE(h.model.unseenCount(), 1);
+        // A threaded receipt says nothing about it.
+        h.advance(10);
+        h.model.markRoomReadUpTo(kRoom, 2000, QStringLiteral("$someroot"));
+        QCOMPARE(h.model.unseenCount(), 1);
+        // The room's own receipt, on a message older than the reaction.
+        h.model.markRoomReadUpTo(kRoom, 2000);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // A reaction arriving AFTER that read is still news.
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$react2"), QStringLiteral("$mine"),
+                                     QStringLiteral("@carol:mock.local"),
+                                     QStringLiteral("carol"), QStringLiteral("👍"), 6000));
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
+    // Finding 1. A deleted message or a withdrawn reaction leaves the list,
+    // preview and all; a late copy cannot bring it back. Old code had no
+    // removal path at all.
+    void aRedactionRemovesTheRow()
+    {
+        Harness h;
+        TimelineEvent m = text(QStringLiteral("$del1"), QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("something private @me"), 1000);
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        QVERIFY(!h.model.ingest(text(QStringLiteral("$mine"), h.client.self,
+                                     QStringLiteral("joke"), 900),
+                                QStringLiteral("Lounge")));
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$re1"), QStringLiteral("$mine"),
+                                     QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("bob"), QStringLiteral("👍"), 2000));
+        QCOMPARE(h.model.count(), 2);
+
+        // Through the client's signal, as the backend emits it.
+        Q_EMIT h.client.eventRedacted(kRoom, QStringLiteral("$del1"));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("reaction"));
+        // A redaction in another room with the same id is not this one.
+        Q_EMIT h.client.eventRedacted(QStringLiteral("!other:mock.local"),
+                                      QStringLiteral("$re1"));
+        QCOMPARE(h.model.count(), 1);
+        // The reaction, by its own id.
+        Q_EMIT h.client.eventRedacted(kRoom, QStringLiteral("$re1"));
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+        // A late copy of the deleted message is refused.
+        QVERIFY(!h.model.ingest(m, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 0);
+    }
+
+    // Finding 2. A left, kicked or banned room drops out of the room list;
+    // its rows used to stay unseen for the session.
+    void aLeftRoomsRowsAreDropped()
+    {
+        Harness h;
+        RoomInfo room;
+        room.id = kRoom;
+        room.name = QStringLiteral("Lounge");
+        room.highlightCount = 1;
+        room.hasUnreadMessages = true;
+        h.client.roomSet = { room };
+        TimelineEvent m = text(QStringLiteral("$lf1"), QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 1000);
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+
+        // Gone from the list. A reset can do that for a moment; that is not
+        // a leave.
+        h.client.roomSet = {};
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        h.advance(ActivityModel::kLeftRoomGraceMs - 1000);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        // Back within the grace: nothing happened.
+        h.client.roomSet = { room };
+        Q_EMIT h.client.roomsChanged();
+        h.client.roomSet = {};
+        Q_EMIT h.client.roomsChanged();
+        h.advance(ActivityModel::kLeftRoomGraceMs - 1000);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        // Gone for longer than the grace: the rows go.
+        h.advance(2000);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // A room the client reports as Left goes at once.
+        TimelineEvent m2 = m;
+        m2.eventId = QStringLiteral("$lf2");
+        QVERIFY(h.model.ingest(m2, QStringLiteral("Lounge")));
+        RoomInfo left = room;
+        left.membership = RoomInfo::Left;
+        h.client.roomSet = { left };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 0);
+    }
+
+    // Finding 2, seed half: a seeded row from a room this client has never
+    // known (left long ago) was deferred for ever and stayed unseen after
+    // every restart.
+    void aSeededRowFromARoomNeverKnownGoesOnceTheListHasLoaded()
+    {
+        Harness h;
+        h.client.roomSet = {};
+        h.model.seed({ QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$gone1") },
+            { QStringLiteral("roomId"), QStringLiteral("!longgone:mock.local") },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("timestampMs"), 100 },
+            { QStringLiteral("read"), false } } });
+        QCOMPARE(h.model.unseenCount(), 1);
+        Q_EMIT h.client.roomsChanged();
+        h.advance(ActivityModel::kUnknownRoomGraceMs + 1000);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 0);
+    }
+
+    // Finding 10. Every row restored after a restart is kind "highlight", and
+    // the Mentions tab used to hide all of them.
+    void aHighlightRowIsVisibleUnderMentions()
+    {
+        Harness h;
+        h.model.seed({ QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$hl1") },
+            { QStringLiteral("roomId"), kRoom },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("timestampMs"), 100 },
+            { QStringLiteral("read"), false } } });
+        h.model.setFilter(QStringLiteral("mentions"));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("highlight"));
+    }
+
+    // Finding 11. The room's one unread highlight is already listed from the
+    // initial-sync window; the seed skips its id. Old code still spent the
+    // budget of 1 on a seeded row, so the bell said 2 and the room list 1.
+    void theSeedBudgetCountsARowAlreadyListedLive()
+    {
+        Harness h;
+        RoomInfo room;
+        room.id = kRoom;
+        room.name = QStringLiteral("Lounge");
+        room.highlightCount = 1;
+        room.hasUnreadMessages = true;
+        h.client.roomSet = { room };
+        TimelineEvent live = text(QStringLiteral("$E"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("hey @me"), 500);
+        live.mentionsMe = true;
+        QVERIFY(h.model.ingest(live, QStringLiteral("Lounge")));
+        QVariantList rows;
+        for (const auto &[id, ts] : { std::pair{ "$E", 500 }, std::pair{ "$D", 400 },
+                                      std::pair{ "$C", 300 } }) {
+            rows.append(QVariantMap{
+                { QStringLiteral("eventId"), QString::fromLatin1(id) },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), ts },
+                { QStringLiteral("read"), false } });
+        }
+        h.model.seed(rows);
+        QCOMPARE(h.model.count(), 3);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
+    // Finding 14. Room modes are per account; the cache keyed by room id
+    // survived a switch and hid the next account's rows in a shared room.
+    void theMuteCacheDoesNotOutliveTheAccount()
+    {
+        Harness h;
+        int mode = 2;   // account A muted the room
+        h.model.setNotificationModeSource([&mode](const QString &) { return mode; });
+        TimelineEvent m = text(QStringLiteral("$mu1"), QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 1000);
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 0);       // cached as muted
+
+        Q_EMIT h.client.loggedOut();              // switch to account B
+        mode = 0;                                 // B has the room unmuted
+        TimelineEvent b = m;
+        b.eventId = QStringLiteral("$mu2");
+        QVERIFY(h.model.ingest(b, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
+    // Finding 131. The open thread's copy carries the composite timeline id;
+    // old code stored it as the row's room, so no read path matched and the
+    // composite reached QML through RoomIdRole.
+    void aThreadCopysCompositeIdIsReducedToTheRoom()
+    {
+        Harness h;
+        TimelineEvent m = text(QStringLiteral("$cp1"), QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 1000);
+        m.mentionsMe = true;
+        m.roomId = MatrixClient::threadTimelineId(kRoom, QStringLiteral("$root"));
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        QCOMPARE(h.row(0).value(QStringLiteral("roomId")).toString(), kRoom);
+        QCOMPARE(h.row(0).value(QStringLiteral("threadRootId")).toString(),
+                 QStringLiteral("$root"));
+        QVERIFY(!MatrixClient::isThreadTimelineId(
+            h.row(0).value(QStringLiteral("roomId")).toString()));
+        // The thread's receipt, named by the real room, clears it.
+        h.model.markRoomReadUpTo(kRoom, 1000, QStringLiteral("$root"));
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // Findings 5/15/154. With a push verdict the rules decide: a highlight
+    // without a direct mention lists (old code ignored it), a raw
+    // m.mentions.room the rules did not highlight does not (old code listed
+    // it for any member), and the bell's local keyword list no longer
+    // classifies over the rules.
+    void thePushVerdictDecidesHighlights()
+    {
+        Harness h;
+        h.model.setKeywords({ QStringLiteral("deploy") });
+        TimelineEvent kw = text(QStringLiteral("$pv1"), QStringLiteral("@bob:mock.local"),
+                                QStringLiteral("server keyword hit"), 1000);
+        kw.pushVerdict = TimelineEvent::PushVerdict::Notify;
+        kw.pushHighlight = true;
+        QVERIFY(h.model.ingest(kw, QStringLiteral("Ops")));
+        QCOMPARE(h.kindOf(QStringLiteral("$pv1")), QStringLiteral("highlight"));
+
+        TimelineEvent room = text(QStringLiteral("$pv2"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("@room everyone"), 1100);
+        room.mentionsRoom = true;
+        room.pushVerdict = TimelineEvent::PushVerdict::Notify;   // no power
+        QVERIFY(!h.model.ingest(room, QStringLiteral("Ops")));
+        room.eventId = QStringLiteral("$pv3");
+        room.pushHighlight = true;                               // allowed
+        QVERIFY(h.model.ingest(room, QStringLiteral("Ops")));
+        QCOMPARE(h.kindOf(QStringLiteral("$pv3")), QStringLiteral("room_mention"));
+
+        TimelineEvent local = text(QStringLiteral("$pv4"), QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("deploy at noon"), 1200);
+        local.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+        QVERIFY(!h.model.ingest(local, QStringLiteral("Ops")));
+        // Without a verdict (no rule evaluation) the legacy list still works.
+        local.eventId = QStringLiteral("$pv5");
+        local.pushVerdict = TimelineEvent::PushVerdict::Unknown;
+        QVERIFY(h.model.ingest(local, QStringLiteral("Ops")));
+        QCOMPARE(h.kindOf(QStringLiteral("$pv5")), QStringLiteral("keyword"));
+    }
+
+    // Finding 8. Element puts the replied-to user in m.mentions; old code
+    // checked mentionsMe first and every reply landed under Mentions.
+    void aReplyThatAlsoMentionsMeIsAReply()
+    {
+        Harness h;
+        QVERIFY(!h.model.ingest(text(QStringLiteral("$mine"), h.client.self,
+                                     QStringLiteral("question?"), 1000),
+                                QStringLiteral("Lounge")));
+        TimelineEvent reply = text(QStringLiteral("$rm1"), QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("answer"), 2000);
+        reply.replyToEventId = QStringLiteral("$mine");
+        reply.mentionsMe = true;
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+        QCOMPARE(h.kindOf(QStringLiteral("$rm1")), QStringLiteral("reply"));
+        // A mention in a reply to someone else stays a mention.
+        TimelineEvent other = text(QStringLiteral("$rm2"), QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("cc @me"), 2100);
+        other.replyToEventId = QStringLiteral("$carols");
+        other.replyToSenderId = QStringLiteral("@carol:mock.local");
+        other.mentionsMe = true;
+        QVERIFY(h.model.ingest(other, QStringLiteral("Lounge")));
+        QCOMPARE(h.kindOf(QStringLiteral("$rm2")), QStringLiteral("mention"));
+    }
+
+    // Finding 9. Each edit has a fresh id; old code listed every edit as a new
+    // row with the "* " fallback as its text.
+    void anEditUpdatesItsRowAndNeverAddsOne()
+    {
+        Harness h;
+        h.model.setKeywords({ QStringLiteral("deploy") });
+        TimelineEvent orig = text(QStringLiteral("$o1"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("hey @me deplyo"), 1000);
+        orig.mentionsMe = true;
+        QVERIFY(h.model.ingest(orig, QStringLiteral("Ops")));
+        TimelineEvent edit = text(QStringLiteral("$e1"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("* hey @me deploy"), 1100);
+        edit.isEdit = true;
+        edit.replacesEventId = QStringLiteral("$o1");
+        edit.editNewBody = QStringLiteral("hey @me deploy");
+        QVERIFY(!h.model.ingest(edit, QStringLiteral("Ops")));
+        TimelineEvent edit2 = edit;
+        edit2.eventId = QStringLiteral("$e2");
+        edit2.editNewBody = QStringLiteral("hey @me, deploy now");
+        QVERIFY(!h.model.ingest(edit2, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("hey @me, deploy now"));
+
+        // An edit of a message never listed lists only for a NEW mention, and
+        // once, as the original message.
+        TimelineEvent quiet = text(QStringLiteral("$e3"), QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("* deploy"), 1200);
+        quiet.isEdit = true;
+        quiet.replacesEventId = QStringLiteral("$o2");
+        quiet.editNewBody = QStringLiteral("deploy");
+        QVERIFY(!h.model.ingest(quiet, QStringLiteral("Ops")));
+        TimelineEvent newly = quiet;
+        newly.eventId = QStringLiteral("$e4");
+        newly.mentionsMe = true;
+        newly.editNewBody = QStringLiteral("deploy, @me");
+        QVERIFY(h.model.ingest(newly, QStringLiteral("Ops")));
+        newly.eventId = QStringLiteral("$e5");
+        QVERIFY(!h.model.ingest(newly, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.kindOf(QStringLiteral("$o2")), QStringLiteral("mention"));
+        QCOMPARE(h.row(0).value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$o2"));
+        // The original confirms the row an edit listed: still one row, and it
+        // keeps the edit's (newer) text.
+        TimelineEvent o2 = text(QStringLiteral("$o2"), QStringLiteral("@bob:mock.local"),
+                                QStringLiteral("deploy"), 1150);
+        o2.mentionsMe = true;
+        QVERIFY(!h.model.ingest(o2, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("deploy, @me"));
+    }
+
+    // Review of finding 9. An m.replace is valid only from the original's own
+    // sender (spec), and the unopened-room path takes replaces_event_id as
+    // sent. Matching the row on the event id alone let any member rewrite
+    // Bob's listed mention, so the bell read "bob: <their text>", and promote
+    // a keyword row to a mention.
+    void anEditFromAnotherSenderOrRoomChangesNothing()
+    {
+        Harness h;
+        h.model.setKeywords({ QStringLiteral("deploy") });
+        TimelineEvent orig = text(QStringLiteral("$o1"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("hey @me"), 1000);
+        orig.mentionsMe = true;
+        QVERIFY(h.model.ingest(orig, QStringLiteral("Ops")));
+        QVERIFY(h.model.ingest(text(QStringLiteral("$k1"), QStringLiteral("@bob:mock.local"),
+                                    QStringLiteral("deploy at five"), 900),
+                               QStringLiteral("Ops")));
+        QCOMPARE(h.kindOf(QStringLiteral("$k1")), QStringLiteral("keyword"));
+        QCOMPARE(h.model.count(), 2);
+
+        auto forged = [](const QString &id, const QString &target, const QString &sender) {
+            TimelineEvent e = text(id, sender, QStringLiteral("* send me your password"), 1100);
+            e.isEdit = true;
+            e.replacesEventId = target;
+            e.editNewBody = QStringLiteral("send me your password");
+            e.mentionsMe = true;
+            return e;
+        };
+        QVERIFY(!h.model.ingest(forged(QStringLiteral("$m1"), QStringLiteral("$o1"),
+                                       QStringLiteral("@mallory:mock.local")),
+                                QStringLiteral("Ops")));
+        QVERIFY(!h.model.ingest(forged(QStringLiteral("$m2"), QStringLiteral("$k1"),
+                                       QStringLiteral("@mallory:mock.local")),
+                                QStringLiteral("Ops")));
+        // Same sender, another room: not a replacement of this event either.
+        TimelineEvent elsewhere = forged(QStringLiteral("$m3"), QStringLiteral("$o1"),
+                                         QStringLiteral("@bob:mock.local"));
+        elsewhere.roomId = QStringLiteral("!other:mock.local");
+        QVERIFY(!h.model.ingest(elsewhere, QStringLiteral("Other")));
+        // The same through the late-decryption path.
+        Q_EMIT h.client.eventDecrypted(kRoom, forged(QStringLiteral("$m4"), QStringLiteral("$k1"),
+                                                     QStringLiteral("@mallory:mock.local")));
+
+        QCOMPARE(h.model.count(), 2);
+        for (int i = 0; i < h.model.count(); ++i) {
+            const QVariantMap r = h.row(i);
+            QCOMPARE(r.value(QStringLiteral("senderId")).toString(),
+                     QStringLiteral("@bob:mock.local"));
+            QVERIFY(!r.value(QStringLiteral("preview")).toString().contains(
+                QStringLiteral("password")));
+        }
+        QCOMPARE(h.kindOf(QStringLiteral("$o1")), QStringLiteral("mention"));
+        QCOMPARE(h.kindOf(QStringLiteral("$k1")), QStringLiteral("keyword"));
+    }
+
+    // Review of finding 9 (optional half). An edit of a message never listed
+    // lists ONE row under the original's id, before the original is seen. A
+    // forged edit holding that id must not keep the real original out.
+    void aForgedEditCannotHoldTheOriginalsRow()
+    {
+        Harness h;
+        auto forged = [](const QString &id, const QString &target) {
+            TimelineEvent e = text(id, QStringLiteral("@mallory:mock.local"),
+                                   QStringLiteral("* fake"), 1100);
+            e.isEdit = true;
+            e.replacesEventId = target;
+            e.editNewBody = QStringLiteral("fake");
+            e.mentionsMe = true;
+            return e;
+        };
+        // Live original.
+        QVERIFY(h.model.ingest(forged(QStringLiteral("$m1"), QStringLiteral("$r1")),
+                               QStringLiteral("Ops")));
+        TimelineEvent real = text(QStringLiteral("$r1"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("hey @me, real"), 1000);
+        real.mentionsMe = true;
+        QVERIFY(h.model.ingest(real, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("senderId")).toString(),
+                 QStringLiteral("@bob:mock.local"));
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("hey @me, real"));
+
+        // Late-decrypted original.
+        QVERIFY(h.model.ingest(forged(QStringLiteral("$m2"), QStringLiteral("$r2")),
+                               QStringLiteral("Ops")));
+        TimelineEvent dec = text(QStringLiteral("$r2"), QStringLiteral("@bob:mock.local"),
+                                 QStringLiteral("decrypted @me"), 1200);
+        dec.mentionsMe = true;
+        Q_EMIT h.client.eventDecrypted(kRoom, dec);
+        QCOMPARE(h.model.count(), 2);
+        for (int i = 0; i < h.model.count(); ++i)
+            QCOMPARE(h.row(i).value(QStringLiteral("senderId")).toString(),
+                     QStringLiteral("@bob:mock.local"));
+
+        // Seeded original.
+        QVERIFY(h.model.ingest(forged(QStringLiteral("$m3"), QStringLiteral("$r3")),
+                               QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 3);
+        h.model.seed({ QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$r3") },
+            { QStringLiteral("roomId"), kRoom },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("senderName"), QStringLiteral("bob") },
+            { QStringLiteral("kind"), QStringLiteral("mention") },
+            { QStringLiteral("preview"), QStringLiteral("seeded @me") },
+            { QStringLiteral("timestampMs"), 1300 },
+        } });
+        QCOMPARE(h.model.count(), 3);
+        for (int i = 0; i < h.model.count(); ++i)
+            QCOMPARE(h.row(i).value(QStringLiteral("senderId")).toString(),
+                     QStringLiteral("@bob:mock.local"));
+    }
+
+    // Finding 6. A mention that decrypts late was never classified: the first
+    // ingest saw no body and no m.mentions, and nothing re-ran it.
+    void aLateDecryptedMentionIsListedOnce()
+    {
+        Harness h;
+        TimelineEvent enc = text(QStringLiteral("$ld1"), QStringLiteral("@bob:mock.local"),
+                                 QString(), 1000);
+        enc.undecryptable = true;
+        QVERIFY(!h.model.ingest(enc, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 0);
+
+        TimelineEvent dec = enc;
+        dec.undecryptable = false;
+        dec.body = QStringLiteral("hey @me, the secret");
+        dec.mentionsMe = true;
+        Q_EMIT h.client.eventDecrypted(kRoom, dec);
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("mention"));
+        QCOMPARE(h.row(0).value(QStringLiteral("encrypted")).toBool(), false);
+        // Again (a second producer): still one row, same id.
+        Q_EMIT h.client.eventDecrypted(kRoom, dec);
+        QCOMPARE(h.model.count(), 1);
+
+        // An already-listed undecryptable row (its thread relation is in the
+        // clear) is replaced in place, keeping its seen state.
+        QVERIFY(!h.model.ingest(text(QStringLiteral("$myroot"), h.client.self,
+                                     QStringLiteral("root"), 900),
+                                QStringLiteral("Lounge")));
+        TimelineEvent t = enc;
+        t.eventId = QStringLiteral("$ld2");
+        t.threadRootId = QStringLiteral("$myroot");
+        QVERIFY(h.model.ingest(t, QStringLiteral("Lounge")));
+        h.model.markSeen(QStringLiteral("$ld2"));
+        TimelineEvent td = t;
+        td.undecryptable = false;
+        td.body = QStringLiteral("now readable");
+        Q_EMIT h.client.eventDecrypted(kRoom, td);
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.kindOf(QStringLiteral("$ld2")), QStringLiteral("thread"));
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("now readable"));
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+    }
+
+    // Finding 12. Stripped invite state has no timestamp; old code stamped
+    // "now" on every launch, so a seen two-week-old invite came back as the
+    // newest unseen row after each restart.
+    void aPendingInviteKeepsItsTimeAndSeenStateAcrossARestart()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Secret club");
+        r.membership = RoomInfo::Invited;
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        h.advance(-14LL * 24 * 3600 * 1000);   // noted two weeks ago
+        QVERIFY(h.model.noteInvite(r));
+        const qint64 firstNoted = h.row(0).value(QStringLiteral("timestampMs")).toLongLong();
+        h.model.markSeen(QStringLiteral("invite:") + r.id);
+        QCOMPARE(h.model.unseenCount(), 0);
+        const QVariantMap invites = h.stored.value(QStringLiteral("invites")).toMap();
+        QVERIFY(invites.contains(r.id));
+        // Only the room id persists: nothing a user typed or a name.
+        QVERIFY(!QVariant(invites).toString().contains(QStringLiteral("Secret")));
+
+        // A restart: a fresh model on the same store.
+        QVariantMap stored = h.stored;
+        FakeClient client;
+        ActivityModel next;
+        next.setStore({ [&] { return stored; }, [&](const QVariantMap &m) { stored = m; } });
+        next.setClient(&client);
+        Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+        QVERIFY(next.noteInvite(r));
+        QCOMPARE(next.entryAt(0).value(QStringLiteral("timestampMs")).toLongLong(),
+                 firstNoted);
+        QCOMPARE(next.unseenCount(), 0);
+        // Answered: forgotten.
+        next.inviteResolved(r.id);
+        QVERIFY(!stored.value(QStringLiteral("invites")).toMap().contains(r.id));
+    }
+
+    // Finding 13. The store loaded only on the first Syncing, which an offline
+    // restore never reaches; a keyword or marker written before then replaced
+    // the account's real state, and clear() kept the last account's keywords.
+    void theStoreLoadsWithTheAccountAndNothingIsSavedBeforeIt()
+    {
+        QVariantMap stored{ { QStringLiteral("seenUpToMs"), 5000 },
+                            { QStringLiteral("keywords"), QStringList{ QStringLiteral("ops") } } };
+        int saves = 0;
+        FakeClient client;
+        client.loggedIn = false;
+        ActivityModel model;
+        model.setStore({ [&] { return stored; },
+                         [&](const QVariantMap &m) { stored = m; ++saves; } });
+        model.setClient(&client);
+        QCoreApplication::processEvents();
+        QVERIFY(model.keywords().isEmpty());
+        // Before the load nothing is written over the account's state.
+        model.setKeywords({ QStringLiteral("other") });
+        QCOMPARE(saves, 0);
+        QCOMPARE(stored.value(QStringLiteral("keywords")).toStringList(),
+                 QStringList{ QStringLiteral("ops") });
+        // Signed in, never Syncing (an offline restore): the store loads.
+        client.loggedIn = true;
+        Q_EMIT client.loginSucceeded(client.self);
+        QTRY_COMPARE(model.keywords(), QStringList{ QStringLiteral("ops") });
+        // Sign-out forgets the keywords with everything else.
+        Q_EMIT client.loggedOut();
+        QVERIFY(model.keywords().isEmpty());
+    }
+
+    // Finding 16. An ignored user's in-flight mention, reaction or invite is
+    // not activity, and ignoring someone drops what they already have listed.
+    void anIgnoredUserIsNotActivity()
+    {
+        Harness h;
+        QSet<QString> ignored;
+        h.model.setIgnoredCheck([&ignored](const QString &id) { return ignored.contains(id); });
+        QVERIFY(!h.model.ingest(text(QStringLiteral("$mine"), h.client.self,
+                                     QStringLiteral("joke"), 900),
+                                QStringLiteral("Lounge")));
+        TimelineEvent m = text(QStringLiteral("$ig1"), QStringLiteral("@troll:mock.local"),
+                               QStringLiteral("@me hello"), 1000);
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$igr"), QStringLiteral("$mine"),
+                                     QStringLiteral("@troll:mock.local"), QString(),
+                                     QStringLiteral("💩"), 1100));
+        TimelineEvent keep = text(QStringLiteral("$ok1"), QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("@me hi"), 1200);
+        keep.mentionsMe = true;
+        QVERIFY(h.model.ingest(keep, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 3);
+
+        ignored.insert(QStringLiteral("@troll:mock.local"));
+        h.model.dropSender(QStringLiteral("@troll:mock.local"));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(),
+                 QStringLiteral("$ok1"));
+        TimelineEvent again = m;
+        again.eventId = QStringLiteral("$ig2");
+        QVERIFY(!h.model.ingest(again, QStringLiteral("Lounge")));
+        QVERIFY(!h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                      QStringLiteral("$igr2"), QStringLiteral("$mine"),
+                                      QStringLiteral("@troll:mock.local"), QString(),
+                                      QStringLiteral("💩"), 1300));
+        RoomInfo inv;
+        inv.id = QStringLiteral("!trap:mock.local");
+        inv.membership = RoomInfo::Invited;
+        inv.inviterUserId = QStringLiteral("@troll:mock.local");
+        QVERIFY(!h.model.noteInvite(inv));
+        QCOMPARE(h.model.count(), 1);
+    }
+
+    // Finding 17. A seeded preview was the raw body: a reply's fallback
+    // quote, a media message's filename.
+    void aSeededPreviewReadsLikeALiveOne()
+    {
+        Harness h;
+        h.model.seed({
+            QVariantMap{ { QStringLiteral("eventId"), QStringLiteral("$sp1") },
+                         { QStringLiteral("roomId"), kRoom },
+                         { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                         { QStringLiteral("preview"),
+                           QStringLiteral("> <@alice:mock.local> what alice said\n\n"
+                                          "bob's actual reply @me") },
+                         { QStringLiteral("msgtype"), QStringLiteral("m.text") },
+                         { QStringLiteral("timestampMs"), 200 } },
+            QVariantMap{ { QStringLiteral("eventId"), QStringLiteral("$sp2") },
+                         { QStringLiteral("roomId"), kRoom },
+                         { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                         { QStringLiteral("preview"), QStringLiteral("IMG_2041.jpg") },
+                         { QStringLiteral("msgtype"), QStringLiteral("m.image") },
+                         { QStringLiteral("timestampMs"), 100 } },
+        });
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("bob's actual reply @me"));
+        QCOMPARE(h.row(1).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("📷"));
+    }
+
+    // Finding 156. The own-event memory is this session's only; a reaction to
+    // a message sent before this launch (or from a phone) was dropped. The
+    // backend's confirmation now counts.
+    void aReactionTheBackendConfirmsAsOwnIsListed()
+    {
+        Harness h;
+        QVERIFY(!h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                      QStringLiteral("$x1"), QStringLiteral("$yesterday"),
+                                      QStringLiteral("@bob:mock.local"),
+                                      QStringLiteral("bob"), QStringLiteral("👍"), 2000));
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$x2"), QStringLiteral("$yesterday"),
+                                     QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("bob"), QStringLiteral("👍"), 2000,
+                                     /*targetIsOwn*/ true));
+        QCOMPARE(h.model.count(), 1);
     }
 };
 

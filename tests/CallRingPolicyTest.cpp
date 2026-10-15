@@ -277,8 +277,9 @@ private Q_SLOTS:
         QCOMPARE(notices->genericNoticeCountForTest(), muted);
     }
 
-    // The per-sender ring cooldown bounds OS announcements: a quick re-ring
-    // still produces call state but no second notification or missed notice.
+    // Bounded per sender: past the cap, a fresh call id rings in state but is
+    // not announced, so no missed notice either. A redial below the cap IS
+    // announced (NotificationGlueTest).
     void senderRingCooldownBoundsAnnouncements()
     {
         AppController controller(AppController::MockBackend);
@@ -286,22 +287,19 @@ private Q_SLOTS:
         auto *client = mock(controller);
         QVERIFY(client);
         auto *notices = controller.notificationsForTest();
-
-        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
-        QVERIFY(controller.calls()->rejectIncoming());
+        for (int i = 1; i <= 3; ++i) {
+            client->emitCallSignalForTest(invite(QStringLiteral("call-%1").arg(i)));
+            QVERIFY(controller.calls()->rejectIncoming());
+        }
+        client->emitCallSignalForTest(invite(QStringLiteral("call-4")));
+        QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
         const int before = notices->genericNoticeCountForTest();
-
-        // Same sender again: state rings, the announcement is suppressed, so
-        // no missed notice either.
-        client->emitCallSignalForTest(invite(QStringLiteral("call-2")));
-        QCOMPARE(controller.calls()->state(),
-                 CallController::State::Ringing);
         CallSignal hangup;
         hangup.kind = CallSignal::Kind::Hangup;
         hangup.roomId = kRoom;
         hangup.eventId = QStringLiteral("$hangup-x");
         hangup.sender = QStringLiteral("@peer:mock.local");
-        hangup.callId = QStringLiteral("call-2");
+        hangup.callId = QStringLiteral("call-4");
         hangup.partyId = QStringLiteral("peer-party");
         hangup.reason = QStringLiteral("user_hangup");
         client->emitCallSignalForTest(hangup);

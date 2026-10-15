@@ -53,6 +53,11 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
         obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
     room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
+    // Stamped only by a payload that carries the counters, so a consumer can
+    // ask whether they were written after a row it holds arrived.
+    if (obj.contains(QStringLiteral("unread_count"))
+        || obj.contains(QStringLiteral("highlight_count")))
+        room.countsWrittenAtMs = QDateTime::currentMSecsSinceEpoch();
     room.markedUnread = obj.value(QStringLiteral("marked_unread")).toBool(room.markedUnread);
     room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
                                  .toBool(room.hasUnreadMessages || room.unreadCount > 0);
@@ -71,11 +76,19 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     // Defaults to false, not the previous value (as is_direct does), so
     // un-favouriting clears the flag instead of latching it.
     room.isFavourite = obj.value(QStringLiteral("is_favourite")).toBool(false);
+    // The m.lowpriority tag; false when absent, as is_favourite, so removing
+    // the tag clears it.
+    room.lowPriority = obj.value(QStringLiteral("is_low_priority")).toBool(false);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
     room.directUserIds.clear();
     for (const auto &value : obj.value(QStringLiteral("direct_user_ids")).toArray())
         room.directUserIds.append(value.toString());
+    // Joined + invited (an older bridge sends only the joined count). An
+    // absent field keeps what we knew.
+    room.activeMemberCount = obj.value(QStringLiteral("active_member_count"))
+                                 .toInt(obj.value(QStringLiteral("member_count"))
+                                            .toInt(room.activeMemberCount));
     room.roomType = obj.value(QStringLiteral("room_type")).toString();
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();

@@ -183,10 +183,24 @@ struct TimelineEvent {
     // The rules' highlight tweak: a mention, a keyword, or @room from someone
     // allowed to use it. False without a verdict.
     bool pushHighlight = false;
-    // Re-delivered history rather than a new arrival: the open room's timeline
-    // was reset and re-filled after a limited sync (a room's first
-    // subscription, or a gap). Never notifies, whatever the verdict.
+    // The rules' sound tweak (`set_tweak: sound`, what "Loud" writes). False
+    // without a verdict.
+    bool pushSound = false;
+    // Re-delivered history rather than a new arrival. Never notifies, whatever
+    // the verdict. Set by the open timeline after a limited sync (a room's
+    // first subscription, or a gap) and by the sync-handler path for events
+    // that predate this session or a reconnect (the room list still loading
+    // its first pass, or a catch-up after being offline).
     bool backlog = false;
+
+    // An edit (`m.relates_to.rel_type: m.replace`) delivered as its own event
+    // by the sync-handler path, for a room with no open timeline. `body` stays
+    // the sender's "* " fallback; `editNewBody` is `m.new_content.body` (empty
+    // when the bridge did not send one). The live timeline aggregates edits
+    // into the original row and never sets these.
+    bool isEdit = false;
+    QString replacesEventId;
+    QString editNewBody;
 
     // Media. Non-empty only for media rows (Image/File/Video/Audio/Sticker).
     QString mediaMxcUrl;

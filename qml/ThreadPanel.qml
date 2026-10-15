@@ -98,6 +98,7 @@ Rectangle {
     function restoreThreadScrollPosition() {
         var key = app.thread.model.roomId
         var saved = savedScrollPositions[key]
+        replyList.landedSinceRestore = false
         if (saved === undefined) {
             replyList.followLatest = true
             replyList.scrollToEndDeferredIfFollowing()
@@ -108,6 +109,10 @@ Rectangle {
             replyList.scrollToEndDeferredIfFollowing()
         } else {
             Qt.callLater(function() {
+                // A notification landing on a reply (openThreadAt) runs
+                // after this restore and wins over the saved position.
+                if (replyList.landedSinceRestore)
+                    return
                 var lo = replyList.originY
                 var hi = Math.max(lo, replyList.originY
                                       + replyList.contentHeight
@@ -144,6 +149,17 @@ Rectangle {
             panel.refreshRoot()
             replyList.scrollToEndDeferredIfFollowing()
         }
+    }
+    // What the reader can actually see: following the newest reply, with the
+    // panel shown and the window focused. ThreadController gates the thread's
+    // read receipt on it (a panel left open behind another window, minimised
+    // or in the tray reads nothing), marks the newest reply read when it turns
+    // true again, and notification suppression for this thread reads it.
+    Binding {
+        target: app.thread
+        property: "viewerAtLatest"
+        value: app.thread.active && panel.visible
+               && panel.Window.active === true && replyList.followLatest
     }
     // Replying to a message inside the thread gives the thread composer the
     // keyboard, as Reply does for the room composer. Thread reply targets are
@@ -783,9 +799,13 @@ Rectangle {
                 property var navigateToEvent: function(eventId) {
                     app.thread.navigateToEvent(eventId || "")
                 }
+                // Set by a landing; a pending restore of a saved position
+                // must not undo it.
+                property bool landedSinceRestore: false
                 function positionAtNavigationRow(row) {
                     if (row < 0 || row >= count)
                         return
+                    landedSinceRestore = true
                     followLatest = false
                     // A programmatic landing must not be undone by a lingering
                     // wheel animation or by a pagination anchor armed for where
@@ -794,6 +814,10 @@ Rectangle {
                     app.threadScroll.cancel()
                     anchorStableId = ""
                     positionViewAtIndex(row, ListView.Center)
+                    // Landing on the newest reply (a notification for it)
+                    // keeps following, as the room timeline's landing does,
+                    // so it is read; an older reply stops following.
+                    followLatest = atBottomEdge()
                     panel.saveThreadScrollPosition()
                 }
 
@@ -954,7 +978,12 @@ Rectangle {
                 }
                 function scrollToEndDeferredIfFollowing() {
                     if (followLatest && count > 0) {
-                        Qt.callLater(function() { replyList.positionViewAtEnd() })
+                        // Re-checked when it runs: a landing on an older reply
+                        // in between (openThreadAt) stopped following.
+                        Qt.callLater(function() {
+                            if (replyList.followLatest)
+                                replyList.positionViewAtEnd()
+                        })
                         // Reading the latest reply sends one deduplicated
                         // threaded receipt (never room-wide).
                         app.thread.markRead()

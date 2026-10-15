@@ -19,6 +19,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QTimer>
 #include <QUrl>
 #include <QtTest/QtTest>
 
@@ -41,6 +42,20 @@ public:
                                    const QList<int> &, const QString &) override
     {
         return 777;
+    }
+};
+
+/// A mock whose thread timeline arrives on the next event-loop turn, as the
+/// Rust backend's does, so "before Ready" is observable.
+class DeferredThreadClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    void openThread(const QString &roomId, const QString &rootEventId) override
+    {
+        QTimer::singleShot(0, this, [this, roomId, rootEventId] {
+            MockMatrixClient::openThread(roomId, rootEventId);
+        });
     }
 };
 
@@ -130,6 +145,8 @@ private Q_SLOTS:
         QString root;
         QVERIFY(openFixtureThread(client, controller, kGeneral, &root));
         QTRY_COMPARE(controller.state(), ThreadController::Ready);
+        // The panel reports the reader at the newest reply (focused window).
+        controller.setViewerAtLatest(true);
         controller.markRead();
         QTRY_COMPARE(controller.roomThreadUnread(), 0);
     }
@@ -840,6 +857,7 @@ private Q_SLOTS:
 
         // Repeated calls with an unchanged latest reply send one receipt; a new
         // reply re-arms one more.
+        controller.setViewerAtLatest(true);
         controller.markRead();
         controller.markRead();
         controller.markRead();
@@ -873,6 +891,7 @@ private Q_SLOTS:
         QSignalSpy sent(&controller, &ThreadController::threadReadSent);
 
         // Requested, not yet answered: nothing is announced.
+        controller.setViewerAtLatest(true);
         controller.markRead();
         QCOMPARE(client.markThreadReadCallsForTest(), 1);
         QCOMPARE(sent.count(), 0);
@@ -918,6 +937,7 @@ private Q_SLOTS:
 
         qint64 ms1 = 0;
         controller.model()->latestReadableEventId(&ms1);
+        controller.setViewerAtLatest(true);
         controller.markRead();                                   // request A
         controller.sendText(QStringLiteral("second"));
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -955,6 +975,7 @@ private Q_SLOTS:
                                   kSignalTimeoutMs);
         QSignalSpy sent(&controller, &ThreadController::threadReadSent);
 
+        controller.setViewerAtLatest(true);
         controller.markRead();                                   // A
         controller.sendText(QStringLiteral("second"));
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -999,8 +1020,161 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
                                   kSignalTimeoutMs);
         QSignalSpy sent(&controller, &ThreadController::threadReadSent);
+        controller.setViewerAtLatest(true);
         controller.markRead();
         QCOMPARE(sent.count(), 1);
+    }
+
+    // A thread panel left open behind another window, minimised or in the
+    // tray (or scrolled up) must not mark replies read: the panel's own
+    // onCountChanged calls markRead() for every new reply.
+    void markReadIsANoOpWhileTheViewerIsNotAtTheLatestReply()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QVERIFY(!controller.viewerAtLatest());
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 0);
+
+        controller.setViewerAtLatest(true);
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+
+        // Window deactivated; a reply arrives and the panel asks again.
+        controller.setViewerAtLatest(false);
+        controller.sendText(QStringLiteral("while away"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 4, kSignalTimeoutMs);
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+
+        // Back at the newest reply: that reply is read now, once.
+        controller.setViewerAtLatest(true);
+        QCOMPARE(client.markThreadReadCallsForTest(), 2);
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 2);
+    }
+
+    // viewerAtLatest is what notification suppression reads: it is never true
+    // for a thread that is not Ready, whatever the panel last wrote.
+    void viewerAtLatestHoldsOnlyWhileTheThreadIsReady()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QSignalSpy changed(&controller, &ThreadController::viewerAtLatestChanged);
+        controller.setViewerAtLatest(true);
+        QVERIFY(!controller.viewerAtLatest());
+        QCOMPARE(changed.count(), 0);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QVERIFY(controller.viewerAtLatest());
+        QCOMPARE(changed.count(), 1);
+        // Reaching Ready with the reader already at the bottom reads it.
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+
+        controller.close();
+        QVERIFY(!controller.viewerAtLatest());
+        QCOMPARE(changed.count(), 2);
+    }
+
+    // A notification or Activity row for a thread reply opens the thread AND
+    // lands on that reply, after the thread is Ready.
+    void openThreadAtLocatesTheReplyOnceReady()
+    {
+        DeferredThreadClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        QString replyId;
+        for (const auto &e : client.timeline(kGeneral)) {
+            if (e.threadRootId == rootId && e.eventId != rootId) {
+                replyId = e.eventId;
+                break;
+            }
+        }
+        QVERIFY2(!replyId.isEmpty(), "the fixture thread has a reply");
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+
+        controller.openThreadAt(kGeneral, rootId, replyId);
+        QCOMPARE(located.count(), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.at(0).at(0).toInt(),
+                 controller.model()->rowForStableId(replyId));
+        QCOMPARE(controller.navigationHighlightEventId(), replyId);
+
+        // Already open and Ready: lands at once.
+        controller.openThreadAt(kGeneral, rootId, replyId);
+        QCOMPARE(located.count(), 2);
+    }
+
+    // A backend that opens the thread synchronously is Ready before
+    // openThreadAt() returns; the landing must not wait for a Ready edge that
+    // has already passed.
+    void openThreadAtLandsWhenTheBackendOpensSynchronously()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        QString replyId;
+        for (const auto &e : client.timeline(kGeneral)) {
+            if (e.threadRootId == rootId && e.eventId != rootId) {
+                replyId = e.eventId;
+                break;
+            }
+        }
+        QVERIFY(!replyId.isEmpty());
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.openThreadAt(kGeneral, rootId, replyId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTRY_COMPARE(located.count(), 1);
+        QCOMPARE(controller.navigationHighlightEventId(), replyId);
+    }
+
+    // The landing belongs to the thread it was asked for: closing (or opening
+    // another thread) first drops it.
+    void openThreadAtDropsTheLandingWhenTheThreadIsReplaced()
+    {
+        DeferredThreadClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        QString replyId;
+        for (const auto &e : client.timeline(kGeneral)) {
+            if (e.threadRootId == rootId && e.eventId != rootId) {
+                replyId = e.eventId;
+                break;
+            }
+        }
+        QVERIFY(!replyId.isEmpty());
+        QSignalSpy located(&controller,
+                           &ThreadController::navigationTargetLocated);
+        controller.openThreadAt(kGeneral, rootId, replyId);
+        controller.close();
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QTest::qWait(20);
+        QCOMPARE(located.count(), 0);
+        QVERIFY(controller.navigationHighlightEventId().isEmpty());
     }
 
     // Manual decryption retry: both the room and thread models dispatch

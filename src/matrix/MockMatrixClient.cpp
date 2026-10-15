@@ -1022,9 +1022,17 @@ void MockMatrixClient::sendTyping(const QString &roomId, bool isTyping, int)
 
 void MockMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)
 {
-    Q_UNUSED(roomId);
-    Q_UNUSED(eventId);
-    // Mock: no-op.
+    if (roomId.isEmpty() || eventId.isEmpty())
+        return;
+    // Answer like a homeserver that accepted it: later, through the event
+    // loop, never inside the call. ReadReceiptCoordinator announces a receipt
+    // (receiptSent: the Activity bell, notification withdrawal) only on this
+    // answer, so a mock that stays silent would leave every room it reads
+    // looking unread to everything downstream.
+    QMetaObject::invokeMethod(
+        this,
+        [this, roomId, eventId] { Q_EMIT readReceiptAccepted(roomId, eventId); },
+        Qt::QueuedConnection);
 }
 
 void MockMatrixClient::sendImage(const QString &roomId, const QString &localPath)

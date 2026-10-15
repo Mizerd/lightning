@@ -65,6 +65,34 @@ QString boundedMimetype(const QString &mime)
     return boundedCodePoints(mime, 127);
 }
 
+// A remote event: not a local echo, not a virtual row, with an id.
+bool isRemoteEvent(const TimelineEvent &e)
+{
+    return !e.isLocalEcho && !e.isVirtual() && !e.eventId.isEmpty();
+}
+
+// See DiffOutcome::liveRemoteInsert. `mirror` already holds the item at
+// `index`.
+bool isLiveRemoteInsert(const QList<TimelineEvent> &mirror, int index)
+{
+    if (!isRemoteEvent(mirror.at(index)))
+        return false;
+    // Only local echoes or virtual rows may follow it. Anything remote after it
+    // makes this an insert into history.
+    for (int row = index + 1; row < mirror.size(); ++row) {
+        const TimelineEvent &after = mirror.at(row);
+        if (!after.isLocalEcho && !after.isVirtual())
+            return false;
+    }
+    // And a remote item must precede it: a back-pagination insert into a
+    // timeline holding nothing but echoes would otherwise pass the test above.
+    for (int row = 0; row < index; ++row) {
+        if (isRemoteEvent(mirror.at(row)))
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype)
@@ -112,6 +140,88 @@ void readPushVerdict(const QJsonObject &payload, TimelineEvent &event)
                                         : TimelineEvent::PushVerdict::Quiet;
     event.pushHighlight =
         payload.value(QStringLiteral("push_highlight")).toBool(false);
+    // The rules' sound tweak ("Loud"). Meaningless without a verdict, so it is
+    // read only here.
+    event.pushSound = payload.value(QStringLiteral("push_sound")).toBool(false);
+}
+
+TimelineEvent syncEventFromPayload(const QJsonObject &obj, const QString &roomId)
+{
+    TimelineEvent e;
+    e.eventId = obj.value(QStringLiteral("event_id")).toString();
+    e.roomId = roomId;
+    e.sender = obj.value(QStringLiteral("sender")).toString();
+    e.body = obj.value(QStringLiteral("body")).toString();
+    // Untrusted sender HTML, passed through as-is; TimelineModel sanitizes it
+    // before QML sees it.
+    e.formattedBody = obj.value(QStringLiteral("formatted_body")).toString();
+    e.timestamp = timestampFromMs(static_cast<qint64>(
+        obj.value(QStringLiteral("timestamp_ms")).toDouble(0)));
+    if (!e.timestamp.isValid())
+        e.timestamp = QDateTime::currentDateTimeUtc();
+    const TimelineEvent::Type type =
+        rowTypeForMsgtype(obj.value(QStringLiteral("msgtype")).toString());
+    e.type = type == TimelineEvent::Unknown ? TimelineEvent::TextMessage : type;
+    // Media rows carry both body and filename, as the live payload does:
+    // oneLineSummary reads mediaFilename for files and falls back to body for a
+    // location. An older bridge leaves it empty and the preview degrades to the
+    // media kind.
+    e.mediaFilename =
+        boundedFilename(obj.value(QStringLiteral("media_filename")).toString());
+    // MSC3245: lets a notification for a room with no open timeline say
+    // "voice message" rather than "audio file".
+    e.mediaIsVoice = obj.value(QStringLiteral("media_voice")).toBool(false);
+    // A poll start: the typed question when the bridge sends one; the preview
+    // otherwise takes the fallback body's first line.
+    if (e.type == TimelineEvent::Poll)
+        e.pollQuestion = obj.value(QStringLiteral("poll_question")).toString();
+    e.status = TimelineEvent::Sent;
+
+    // Encryption metadata from the bridge, falling back to the older
+    // `decrypted` flag. Metadata only; never derive plaintext from these
+    // fields.
+    e.undecryptable = obj.value(QStringLiteral("undecryptable")).toBool(false);
+    e.isDecrypted = obj.value(QStringLiteral("is_decrypted"))
+                        .toBool(obj.value(QStringLiteral("decrypted")).toBool(false));
+    e.isEncrypted = obj.value(QStringLiteral("is_encrypted"))
+                        .toBool(e.undecryptable || e.isDecrypted);
+    e.errorKind = obj.value(QStringLiteral("error_kind")).toString();
+
+    // Mention/thread/reply metadata and the push-rule verdict for notification
+    // policy in rooms without a live timeline. The thread and reply relations
+    // sit outside the ciphertext, so the bridge sends them for an
+    // undecryptable event too.
+    e.mentionsMe = obj.value(QStringLiteral("mentions_me")).toBool(false);
+    e.mentionsRoom = obj.value(QStringLiteral("mentions_room")).toBool(false);
+    readPushVerdict(obj, e);
+    e.threadRootId = obj.value(QStringLiteral("thread_root_id")).toString();
+    e.replyToEventId = obj.value(QStringLiteral("in_reply_to")).toString();
+    // History rather than an arrival: the room list still loading its first
+    // pass, or the catch-up after a reconnect (decided in Rust).
+    e.backlog = obj.value(QStringLiteral("backlog")).toBool(false);
+
+    // An edit is its own event on this path. Its body is the "* " fallback;
+    // the new content travels beside it.
+    e.replacesEventId = obj.value(QStringLiteral("replaces_event_id")).toString();
+    e.isEdit = !e.replacesEventId.isEmpty();
+    if (e.isEdit)
+        e.editNewBody = obj.value(QStringLiteral("new_body")).toString();
+    return e;
+}
+
+SyncRoute syncRouteFor(bool roomHasLiveTimeline, const TimelineEvent &event)
+{
+    const bool threadedReply = !event.threadRootId.isEmpty()
+        && event.threadRootId != event.eventId;
+    if (roomHasLiveTimeline) {
+        // An edit of a thread reply changes nothing anyone is told about; the
+        // thread timeline (if open) aggregates it.
+        return threadedReply && !event.isEdit ? SyncRoute::ObserveOnly
+                                              : SyncRoute::PreviewOnly;
+    }
+    if (threadedReply || event.isEdit || event.type == TimelineEvent::Poll)
+        return SyncRoute::AppendUnmirrored;
+    return SyncRoute::MirrorAndAppend;
 }
 
 TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
@@ -520,6 +630,13 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
         mirror.insert(index, out.items.first());
         out.kind = DiffOutcome::Inserted;
         out.index = index;
+        // Rust marks the inserts it judged live (`live_append`), including a
+        // first message above an echo in a timeline with no remote event yet,
+        // which the structural test here refuses. Either is enough; neither
+        // ever marks a local echo.
+        out.liveRemoteInsert = isLiveRemoteInsert(mirror, index)
+            || (diff.value(QStringLiteral("live_append")).toBool(false)
+                && isRemoteEvent(mirror.at(index)));
         return out;
     }
     if (op == QLatin1String("set")) {
@@ -538,6 +655,15 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
                     << "totalBefore=" << mirror.at(index).readByTotal
                     << "totalAfter=" << out.items.first().readByTotal;
             }
+        }
+        {
+            const TimelineEvent &previous = mirror.at(index);
+            const TimelineEvent &next = out.items.first();
+            const bool sameEvent = !next.eventId.isEmpty()
+                && previous.eventId == next.eventId;
+            out.becameDecrypted = sameEvent && previous.undecryptable
+                && !next.undecryptable && !next.redacted;
+            out.becameRedacted = sameEvent && !previous.redacted && next.redacted;
         }
         mirror[index] = out.items.first();
         out.kind = DiffOutcome::Changed;

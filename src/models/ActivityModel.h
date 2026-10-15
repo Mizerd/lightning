@@ -24,13 +24,14 @@ class MatrixClient;
 // Fed incrementally from the same `eventAppended` tap NotificationManager
 // uses, plus the invite diff and a reaction lane; it never scans timelines.
 //
-// Seen state is its own: the badge counts entries newer than a per-account
-// "seen up to" marker (plus per-entry marks). Opening the list sends no
-// receipt.
+// Seen state is its own: per-entry marks, plus a per-account "seen up to"
+// marker that covers what earlier sessions already showed. Opening the list
+// sends no receipt.
 //
 // PRIVACY: previews can be decrypted plaintext. Entries are memory-only and
-// die with the session; only the seen marker and keyword list persist,
-// through the `Store` callbacks. Previews are never logged.
+// die with the session; only the seen marker, the legacy keyword list and the
+// ids (never names or text) of pending invites persist, through the `Store`
+// callbacks. Previews are never logged.
 class ActivityModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -64,7 +65,9 @@ public:
     Q_ENUM(Roles)
 
     struct Store {
-        std::function<QVariantMap()> load;             // {seenUpToMs, keywords}
+        // {seenUpToMs, keywords, invites}. `invites` maps a pending invite's
+        // room id to {t: first noted (ms), seen: bool}, bounded.
+        std::function<QVariantMap()> load;
         std::function<void(const QVariantMap &)> save;
     };
 
@@ -72,11 +75,28 @@ public:
     static constexpr int kMaxKeywords = 32;
     static constexpr int kMaxKeywordLength = 64;
     static constexpr int kPreviewChars = 140;
+    static constexpr int kMaxRememberedInvites = 64;
+    // How long a room that held rows must stay out of the joined/invited set
+    // before its rows are dropped. The room list can drop and re-add a room
+    // within one burst (a reset, a resync), and that is not a leave.
+    static constexpr qint64 kLeftRoomGraceMs = 15000;
+    // The same for a room the client has never known (a seeded row from a
+    // room left long ago), counted only once the initial sync is done, since
+    // a fresh login's room list fills in over time.
+    static constexpr qint64 kUnknownRoomGraceMs = 60000;
 
     explicit ActivityModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
     void setStore(Store store);
+    /// Who the user has ignored. Consulted for every new row (live, decrypted,
+    /// reaction, invite, seed); dropSender() removes what is already listed.
+    void setIgnoredCheck(std::function<bool(const QString &userId)> isIgnored);
+    /// The user ignored `userId`: drop every row they sent.
+    void dropSender(const QString &userId);
+    /// Tests only: the local clock used for arrival stamps and grace periods.
+    /// Defaults to the system clock.
+    void setClock(std::function<qint64()> now);
     /// A muted room is silent everywhere, the bell included (as Element): its
     /// rows are HIDDEN, not dropped, so unmuting brings them back, and they
     /// do not count toward the badge. `modeOf(roomId)` is the room's
@@ -96,17 +116,33 @@ public:
     QStringList keywords() const { return m_keywords; }
     void setKeywords(const QStringList &keywords);
 
-    // ---- Feeds (AppController). `event` must be the room copy
-    // (thread-timeline duplicates filtered by the caller). Returns true when an
-    // entry was added.
+    // ---- Feeds (AppController). A thread-timeline copy is accepted: its
+    // composite id is reduced to the real room and the thread root here, and
+    // duplicates collapse on event id. Returns true when an entry was added.
+    //
+    // An edit (isEdit) never adds a row of its own: it refreshes the preview
+    // of the row for the message it replaces, and only a user it newly
+    // mentions turns into activity (the edit's m.mentions lists exactly the
+    // newly mentioned users).
     bool ingest(const TimelineEvent &event, const QString &roomName);
+    // An event first seen undecryptable has decrypted: classify it again under
+    // the same id, replacing the row if there is one.
+    void eventDecrypted(const QString &roomId, const TimelineEvent &event);
+    // A message or reaction was redacted: its rows leave the list (a reaction
+    // row by its own id, and any row pointing at a redacted message).
+    void eventRedacted(const QString &roomId, const QString &eventId);
     // A reaction from any room; only reactions to the user's own messages
-    // become entries.
+    // become entries. `targetIsOwn` is the backend's confirmation that the
+    // target is the user's (for messages this session never saw sent).
     bool noteReaction(const QString &roomId, const QString &roomName,
                       const QString &reactionEventId, const QString &targetEventId,
                       const QString &senderId, const QString &senderName,
-                      const QString &key, qint64 timestampMs);
-    // A room the user has been invited to (idempotent per room).
+                      const QString &key, qint64 timestampMs,
+                      bool targetIsOwn = false);
+    // A room the user has been invited to (idempotent per room). Stripped
+    // invite state has no origin_server_ts, so the row's time is when this
+    // account first noted the invite, remembered across restarts with its
+    // seen state; a pending invite does not re-badge on every launch.
     bool noteInvite(const RoomInfo &room);
     // The invite was answered (accepted or declined): drop its entry.
     void inviteResolved(const QString &roomId);
@@ -136,6 +172,16 @@ public:
     /// receipt-derived unread state: num_unread_messages, the notification and
     /// highlight counts, and the mark-as-unread flag must all be clear.
     ///
+    /// Only counters written AFTER a row arrived speak for it
+    /// (RoomInfo::countsWrittenAtMs): roomsChanged is not per room, so a
+    /// payload from before the row would read as "read" the instant it lands.
+    ///
+    /// Thread rows in an encrypted room are exempt: with threading support the
+    /// SDK's client-side counts skip thread events and an encrypted room has
+    /// no server count, so "clear" there says nothing about threads. A
+    /// threaded receipt, an unthreaded one or an explicit mark-read clears
+    /// them.
+    ///
     /// There is deliberately no per-room public form: the obvious hook,
     /// MatrixClient::roomUpdated, never carries unread state and would mark a
     /// new mention seen as it arrives. Only roomsChanged follows a write of
@@ -144,13 +190,25 @@ public:
     /// Invite rows are exempt (nothing to read); inviteResolved() or the user
     /// clears them.
     void reconcileRoomsAgainstTheirReadState();
+    /// Rooms that held rows and have left the joined/invited set (a leave,
+    /// kick or ban) for longer than the grace lose their non-invite rows.
+    void pruneRoomsNoLongerJoined();
     // Navigate: emits openRequested with the exact target and marks it seen.
     Q_INVOKABLE void open(const QString &id);
+    // Account switch, sign-out, add-account: everything account-scoped goes,
+    // the keyword list and the mute cache included.
     Q_INVOKABLE void clear();
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
     // Pure classifier for tests: the kind an event would get, or "" when it is
     // not activity for `selfUserId`.
+    //
+    // Order: a reply to the user, a mention of the user, a reply in a thread
+    // they started or joined, then highlights. With a push verdict the rules
+    // decide highlights (a keyword or legacy mention is "highlight", @room is
+    // "room_mention" only when the rules highlighted it, which carries the
+    // sender's notification power). `keywords`, the bell's legacy local list,
+    // only applies without a verdict (a backend that evaluates no rules).
     static QString classify(const TimelineEvent &event, const QString &selfUserId,
                             const QSet<QString> &ownEventIds,
                             const QSet<QString> &ownThreadRoots,
@@ -168,6 +226,13 @@ Q_SIGNALS:
 private:
     struct Entry {
         QString id;
+        // Local clock when the row was added: what a counter write is compared
+        // with (see markRoomReadIfClear).
+        qint64 arrivedMs = 0;
+        // The row is one of the room's unread HIGHLIGHTS as the server counts
+        // them (a mention, keyword, push highlight, or anything seeded from
+        // /notifications?only=highlight), whatever kind it is listed as.
+        bool highlight = false;
         QString kind;
         QString roomId;
         QString roomName;
@@ -187,6 +252,11 @@ private:
         // isEmpty() alone.
         bool roomNamePending = false;
         bool senderNamePending = false;
+        // Listed from an EDIT of a message this list never saw. The edit's
+        // sender and room are all that names the original, and an m.replace is
+        // only valid from the original's own sender, which nothing here can
+        // check yet: the original, if it arrives, replaces the row outright.
+        bool provisional = false;
     };
 
     bool isSeen(const Entry &e) const;
@@ -209,8 +279,26 @@ private:
     void resolvePendingSeedNames(const QString &roomId = QString());
     void rememberOwn(const TimelineEvent &event);
     void loadStore();
+    void scheduleStoreLoad();
     void saveStore();
+    void rememberInvite(const QString &roomId, qint64 firstNotedMs, bool seen);
+    void forgetInvite(const QString &roomId);
+    bool persistSeenInvites();
+    bool ingestEdit(const TimelineEvent &event, const QString &roomName);
+    /// The original of a provisional row has arrived. A row listed from a
+    /// forged edit (another sender or room) is dropped so the original can be
+    /// listed; one the original confirms stays, with the edit's newer text.
+    /// True when a confirmed row now stands for the original.
+    bool settleProvisional(const QString &eventId, const QString &sender,
+                           const QString &roomId);
+    // Removes every entry matching `drop`; true when one went.
+    bool removeEntries(const std::function<bool(const Entry &)> &drop);
+    bool isIgnored(const QString &userId) const;
+    qint64 now() const;
+    static TimelineEvent normalised(const TimelineEvent &event);
+    static QString realRoomId(const QString &roomId);
     static QString previewOf(const TimelineEvent &event);
+    static QString glyphForMsgtype(const QString &msgtype);
 
     MatrixClient *m_client = nullptr;
     Store m_store;
@@ -221,11 +309,34 @@ private:
     QList<QString> m_ownEventOrder; // bounded LRU order for m_ownEventIds
     QSet<QString> m_ownThreadRoots;
     std::function<int(const QString &)> m_modeOf;
-    mutable QHash<QString, bool> m_muteCache; // cleared by notificationModesChanged()
+    std::function<bool(const QString &)> m_isIgnored;
+    std::function<qint64()> m_now;
+    // Cleared by notificationModesChanged() and by clear().
+    mutable QHash<QString, bool> m_muteCache;
     QString m_filter = QStringLiteral("all");
     QStringList m_keywords;
+    // The marker as persisted: the newest origin_server_ts "Mark all seen" has
+    // covered, in any session. Saved; never compared in-session.
     qint64 m_seenUpToMs = 0;
+    // The marker as LOADED, i.e. what earlier sessions showed. This is what
+    // isSeen() compares, so a row arriving in this session after a click is
+    // unseen even when its origin_server_ts is older than the click (a
+    // federation delay, a skewed clock); rows present at the click carry
+    // seenMark instead.
+    qint64 m_seenLoadedUpToMs = 0;
     bool m_storeLoaded = false;
+    // Bumped by clear(); a deferred store load from an earlier account dies.
+    quint64 m_generation = 0;
+    // room id -> {t, seen}, see Store.
+    QVariantMap m_invites;
+    // Rooms holding rows that are missing from the joined/invited set, and
+    // since when (local clock). Rooms ever seen joined or invited.
+    QHash<QString, qint64> m_roomMissingSince;
+    QSet<QString> m_roomsEverKnown;
+    // Redacted ids, so a late copy (decryption, a seed) cannot bring a row
+    // back. Bounded.
+    QSet<QString> m_redactedIds;
+    QList<QString> m_redactedOrder;
     // Seeded rows whose room was unknown when the seed landed, left on the
     // server's `read` flag. Retried on roomsChanged; a seed before any room
     // payload leaves every row here.

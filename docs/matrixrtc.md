@@ -41,7 +41,7 @@ this module against an MSC document.
 | Membership (deployed form) | `org.matrix.msc3401.call.member` (state) | read |
 | Membership (next form) | `org.matrix.msc4143.rtc.member` (sticky) | parsed, not observable |
 | Session slot | `org.matrix.msc4143.rtc.slot` (state) | read |
-| Ring / announce | `org.matrix.msc4075.rtc.notification` | read (send pipe built, no caller yet) |
+| Ring / announce | `org.matrix.msc4075.rtc.notification` | read (and the stable `m.rtc.notification`); sent on starting a call: `ring` in a 1:1 DM, `notification` elsewhere |
 | Decline | `org.matrix.msc4310.rtc.decline` | send (existing lane) |
 
 ### The notification type mattered, and ruma gets it wrong for interop
@@ -247,6 +247,89 @@ and answered with silence — no second ring and no wire event. Pinned by
 Adopting the legacy leg instead (which would make an otherwise unanswerable
 RTC ring answerable, since the legacy lane has media) is a deliberate
 follow-up, not done here: it would change session identity mid-ring.
+
+## Who an announcement rings, and how an RTC ring ends
+
+Until 2026-10-15 every MatrixRTC announcement rang: the stable
+`m.rtc.notification` handler forwarded neither `notification_type` nor
+`m.mentions`, the unstable one dropped the mentions, and
+`CallController::handleRtcNotification` went to Ringing for anything that was
+fresh. Every member of a group room got the critical card and the looping
+ringer whenever anyone started a call — from Element, or from another
+Lightning. Both Rust handlers now forward the type (a closed set: anything but
+`ring` is `notification`), `mentions_user_ids` (bounded) and `mentions_room`
+through one helper, `calls::rtc_notification_addressing`.
+
+**Receiving.** An announcement rings this account when:
+
+1. the room is an **unambiguous 1:1 DM** whose one `m.direct` target is the
+   sender, whatever the type says. Lightning 0.10.x and earlier announce DM
+   calls as `notification`, and those must keep ringing; or
+2. it is a `ring` that mentions the room (`m.mentions.room`); or
+3. it is a `ring` that names our own user id.
+
+Anything else — a group call's `notification`, an unstated type, a `ring` for
+somebody else — never enters Ringing, so no card, no ringer and no missed call.
+It emits `CallController::callStartedNotice(roomId, eventId, senderId,
+remainingMs)` once per event, for a surface to show as a quiet "call started"
+notice, which is what Element does with it. "1:1" is
+`calls::oneToOneDmPeer` (`src/calls/OneToOneDm.h`): exactly ONE `m.direct`
+target AND at most two active (joined or invited) members, which is
+matrix-sdk's `DmRoomDefinition::TwoMembers` (Element X's definition), because
+`isDirect` alone is not 1:1 (`docs/security-audit-2026-09-02.md`). The member
+count is the bridge's `active_member_count`; a backend that reports none is
+judged by the target alone.
+
+**Sending.** Our own announcement (`SfuCallController`, on the membership's
+acceptance) is `ring` in an unambiguous 1:1 DM — the same rule — and
+`notification` everywhere else, as Element Web and Element X send them. It
+still carries `m.mentions.room`, so push rules deliver it.
+
+**How an RTC ring ends.** MSC4075 has no answer or hangup events; besides a
+decline (`m.rtc.decline`, from us or another of our devices), this device
+joining, sign-out and the lifetime, only the room's memberships say anything.
+`CallController::noteRtcSession(roomId, ownMembershipJoinedAtMs, memberCount)`
+reads them for the ringing room, at the ring's own announcement and on every
+session change:
+
+* one of **our own** memberships from **another device**, CREATED AFTER THE
+  RING BEGAN (5 s of clock skew allowed), ends the ring as
+  `AnsweredElsewhere`, which is never a missed call. An older one — a device
+  that crashed in an earlier call, or our phone already in this room's call —
+  says nothing about this ring and must not silence it;
+* a session that showed at least one member during this ring and is now
+  **empty** ends it as `RemoteHangup` — the caller gave up, a missed call;
+* a session that has never shown a member ends nothing, because the ring can
+  arrive before the caller's membership does;
+* the count is used only from a read that can know it
+  (`RtcController::authoritativeParticipantCount`: a usable store view or the
+  server's answer). A failed, cooling or empty-store read reports -1, never
+  0, so it cannot end a live ring as missed.
+
+**Our own ring, declined.** When the one person our 1:1 `ring` was for sends
+an `m.rtc.decline` targeting it, and nobody else has joined, our call ends
+with "The call was declined." (`SfuCallController::onCallSignal`), as Element
+does. In a group room a decline is one member's and the call goes on.
+
+**The quiet notice** (`callStartedNotice`) passes the ring's own gates
+(`CallController::noticeAllowed`: backlog, ignored sender, muted room, the
+account's ring policy) before AppController shows it as one keyed,
+soundless "Call started" card per room, withdrawn when the announcement's
+lifetime runs out.
+
+A legacy `m.call.*` ring ignores these reports; it has its own answer and
+hangup events.
+
+**And a ring that arrived during the initial sync** reached Ringing with its
+announcement refused as backlog, and nothing asked again. Lowering the backlog
+gate now re-emits `incomingCallStarted` once, with the real remaining
+lifetime, for a ring still live that was never announced with the gate open.
+
+Pinned in `CallControllerTest` (the `aGroupCallNotificationDoesNotRing` …
+`anEndedRingIsNotAnnouncedWhenTheGateLowers` block and
+`aCallWeStartIsAnnouncedWithTheRoomsType`) and in the Rust tests
+`the_stable_notification_forwards_its_type_and_mentions` /
+`the_unstable_notification_forwards_its_type_and_mentions`.
 
 ## Mute and deafen are real
 

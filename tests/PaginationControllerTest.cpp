@@ -212,6 +212,104 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 1);
     }
 
+    // The deep-marker "First unread" pill shows while moreHistory holds.
+    // This backend answers canPaginate() false while a page loads (as Rust
+    // does), so the property must keep what it knew, or the pill blinks off
+    // during the very hunt its click started.
+    void moreHistoryHoldsWhileAPageLoads()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+        QVERIFY(controller.moreHistory());
+        QSignalSpy changed(&controller, &PaginationController::stateChanged);
+        client.beginLoading(kRoomA);
+        QVERIFY(!client.canPaginate(kRoomA)); // fixture: the backend says no
+        QVERIFY(controller.moreHistory());
+        client.completeBatch(kRoomA, 3, /*reachedStart=*/false);
+        QVERIFY(controller.moreHistory());
+        // The page that reaches the start ends it.
+        client.beginLoading(kRoomA);
+        QVERIFY(controller.moreHistory());
+        client.completeBatch(kRoomA, 2, /*reachedStart=*/true);
+        QVERIFY(!controller.moreHistory());
+        QVERIFY(controller.reachedStart());
+        QVERIFY(changed.count() > 0);
+        // A load that starts with nothing more known claims nothing.
+        client.beginLoading(kRoomA);
+        QVERIFY(!controller.moreHistory());
+    }
+
+    // What QML holds for reachedStart/moreHistory is what the last
+    // stateChanged told it. After every step it must equal the truth: a room
+    // switch, a reset or a readiness note that moves either flag without a
+    // batch must still NOTIFY. This pins the invariant behind the single
+    // emitStateChanged() choke point: no path this fake reaches could leave a
+    // stale "already announced" record on the old code either, so it guards
+    // the rule rather than reproducing a defect.
+    void whatQmlHoldsForTheHistoryFlagsIsNeverStale()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        bool seenStart = controller.reachedStart();
+        bool seenMore = controller.moreHistory();
+        connect(&controller, &PaginationController::stateChanged, &controller,
+                [&] {
+                    seenStart = controller.reachedStart();
+                    seenMore = controller.moreHistory();
+                });
+        const auto inSync = [&] {
+            return seenStart == controller.reachedStart()
+                && seenMore == controller.moreHistory();
+        };
+        const auto note = [&](const QString &room) {
+            Q_EMIT client.paginationStateChanged(room);
+            QCoreApplication::processEvents();
+        };
+
+        controller.setRoomId(kRoomA);
+        note(kRoomA);
+        QVERIFY(inSync());
+        QVERIFY(seenMore);
+
+        // B has nothing more, then learns otherwise with no batch, then
+        // reaches the start again, then is switched away from and back.
+        client.states[kRoomB].reachedStart = true;
+        controller.setRoomId(kRoomB);
+        QVERIFY(inSync());
+        note(kRoomB);
+        QVERIFY(inSync());
+        QVERIFY(seenStart);
+        // The backend stops knowing (its timeline went away): both flags
+        // fall to false with no batch. The room switch announced "at the
+        // start"; only a record resynced by that announcement can tell
+        // that this is a change.
+        client.timelineActive = false;
+        note(kRoomB);
+        QVERIFY2(inSync(), "B stopped knowing and QML still says at the start");
+        client.timelineActive = true;
+        note(kRoomB);
+        QVERIFY(inSync());
+        client.states[kRoomB].reachedStart = false;
+        note(kRoomB);
+        QVERIFY2(inSync(), "B gained history and QML was not told");
+        QVERIFY(seenMore);
+        controller.setRoomId(kRoomA);
+        QVERIFY(inSync());
+        client.states[kRoomB].reachedStart = true;
+        controller.setRoomId(kRoomB);
+        QVERIFY(inSync());
+        client.states[kRoomB].reachedStart = false;
+        note(kRoomB);
+        QVERIFY2(inSync(), "after a switch back, B gained history and QML was "
+                           "not told");
+        // Sign-out resets the record with everything else.
+        Q_EMIT client.loggedOut();
+        QVERIFY(inSync());
+    }
+
     void transientInitialFailureRetriesAutomatically()
     {
         FakeClient client;

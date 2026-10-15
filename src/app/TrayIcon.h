@@ -6,6 +6,8 @@
 
 #include <memory>
 
+class QAction;
+class QEvent;
 class QImage;
 class QMenu;
 class QSystemTrayIcon;
@@ -69,6 +71,9 @@ public:
     bool showMessage(const QString &title, const QString &body,
                      const QImage &image, bool platformSound);
 
+    // The timeout handed to QSystemTrayIcon::showMessage: 0 on macOS.
+    static int balloonTimeoutMs(bool isMac);
+
     // The Win32 NIIF_* values (shellapi.h) a balloon is composed from,
     // mirrored here so the composition is testable off Windows. TrayIcon.cpp
     // static_asserts them against the SDK on Windows.
@@ -93,6 +98,20 @@ public:
     // Whether this activation should have US pop the menu up (the platform
     // menu is not attached; see closebehavior::trayUsesNativeMenu).
     static bool activationOpensOwnMenu(int reason, bool nativeMenu);
+    // The reason the activated handler acts on. On macOS a Control-click is
+    // the standard secondary click, but Qt's cocoa backend reports it as
+    // Trigger (only a real RightMouseDown maps to Context), so Trigger with
+    // Control held (Qt::MetaModifier on macOS) becomes Context there.
+    static int effectiveActivationReason(int reason, bool isMac,
+                                         bool controlHeld);
+
+    // Re-sets the menu's action texts and the tooltip in the current
+    // language. Also run on QEvent::LanguageChange, which the application
+    // receives when a translator is installed or removed.
+    void retranslate();
+    // The tooltip text. Static so it is testable without a tray.
+    static QString tooltipText(const QString &account, int unread,
+                               bool anyUnread);
 
 Q_SIGNALS:
     void showRequested();
@@ -100,6 +119,9 @@ Q_SIGNALS:
     void quitRequested();
     // The balloon shown by showMessage() was clicked.
     void messageClicked();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void refreshTooltip();
@@ -118,6 +140,8 @@ private:
 
     QSystemTrayIcon *m_icon = nullptr;
     std::unique_ptr<QMenu> m_menu;
+    QAction *m_showAction = nullptr;
+    QAction *m_quitAction = nullptr;
     int m_unread = 0;
     bool m_anyUnread = false;
     QString m_account;

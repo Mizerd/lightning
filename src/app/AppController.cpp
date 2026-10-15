@@ -295,6 +295,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::refreshTrayState);
     connect(m_settings.get(), &SettingsManager::notificationsEnabledChanged,
             this, &AppController::refreshTrayState);
+    // The tooltip's account name follows the cached profile.
+    connect(m_accounts.get(), &AccountManager::accountsChanged,
+            this, &AppController::refreshTrayAccountLabel);
+    // A tray host that appears after launch (autostart racing the panel's
+    // StatusNotifierWatcher, a bar started later) gets its icon then, and one
+    // that goes away takes it with it.
+    connect(this, &AppController::trayAvailableChanged,
+            this, &AppController::applyTrayState);
     refreshTrayState();
 #ifdef Q_OS_MACOS
     if (QCoreApplication::instance())
@@ -432,8 +440,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             in.rulesKnown = m_pushRules && m_pushRules->loaded();
             in.masterMute = m_pushRules && m_pushRules->masterMute();
             in.roomId = roomId;
-            if (!roomId.isEmpty() && m_settings)
+            // Whether the balloon fallback has an icon to come from.
+            in.trayIconShown = m_tray.enabled();
+            // -1 when nothing is stored for the room on this device: a room
+            // never configured here follows the account default, which the
+            // check resolves below rather than reading "all messages".
+            if (!roomId.isEmpty() && m_settings
+                && m_settings->hasStoredRoomNotificationMode(roomId))
                 in.roomMode = m_settings->roomNotificationMode(roomId);
+            if (!roomId.isEmpty() && m_pushRules) {
+                const bool direct =
+                    m_client && m_client->roomInfo(roomId).isDirect;
+                in.accountDefaultLevel = notices::accountDefaultLevel(
+                    m_pushRules->loaded(), direct, m_pushRules->dmAll(),
+                    m_pushRules->roomsAll());
+            }
             return in;
         });
     m_notificationTroubleshooter->setTestSender([this] {
@@ -539,6 +560,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_notifications->setOwnSoundPlayer([this](bool mention) {
         return m_callSounds->playNotificationSound(mention);
     });
+    // The same call-state policy gates the platform's sound ("System
+    // default"): no desktop sound into a call, a ring, or a share capturing
+    // the output mix.
+    m_notifications->setSoundAllowedCheck([this] {
+        return !m_callSounds || m_callSounds->policy().allowsNotificationSound();
+    });
+    // A delivered message card while the main window is not in front asks for
+    // attention (taskbar flash, Dock bounce), as other clients do.
+    connect(m_notifications.get(), &NotificationManager::messageDelivered,
+            this, [this](const QString &, bool) { alertMainWindow(); });
     m_notifications->setAvatarProvider(
         [this](const QString &mxc, bool request) {
             if (request)
@@ -712,85 +743,80 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Native notifications: every appended remote event runs the pure
     // decision. Bodies are never logged or persisted.
     connect(m_client.get(), &MatrixClient::eventAppended, this,
+            &AppController::handleLiveEvent);
+    // Live events the main timeline never appends: a thread reply in the open
+    // room (its live timeline hides threaded events, and only the one thread
+    // open in the panel has a timeline of its own), and a remote event the
+    // SDK inserts before a local echo still at the bottom (a send pending,
+    // uploading or failed). For notifications and the Activity Center only.
+    connect(m_client.get(), &MatrixClient::liveEventObserved, this,
+            &AppController::handleLiveEvent);
+    // A MatrixRTC ring's declared intent ("video"), remembered per ring so the
+    // card and the missed-call notice say what kind of call it was. Connected
+    // before CallController attaches to the client, so it is recorded before
+    // incomingCallStarted is emitted from the same signal. Bounded: a ring
+    // that never ends here is forgotten once newer ones push it out.
+    connect(m_client.get(), &MatrixClient::callSignalReceived, this,
+            [this](const CallSignal &signal) {
+        if (signal.kind != CallSignal::Kind::RtcNotification || signal.own
+            || signal.eventId.isEmpty())
+            return;
+        if (m_callVideoIntent.size() >= 16)
+            m_callVideoIntent.clear();
+        m_callVideoIntent.insert(
+            signal.eventId,
+            signal.callIntent.compare(QLatin1String("video"),
+                                      Qt::CaseInsensitive) == 0);
+    });
+    // An event first seen undecryptable, now readable: the manager re-runs
+    // its decision on the plaintext (and replaces or withholds the earlier
+    // "Encrypted message" card itself).
+    connect(m_client.get(), &MatrixClient::eventDecrypted, this,
             [this](const QString &composedRoomId, const TimelineEvent &event) {
-        // The read-only context view shows history; what it appends is never
-        // news, so it must not notify or feed the Activity Center.
         if (MatrixClient::isContextTimelineId(composedRoomId))
             return;
-        // Map a thread copy to its real room rather than dropping it: the
-        // live room timeline hides threaded events, so for the open room the
-        // thread copy is the only producer. The composite id never leaves
-        // this scope; duplicates are prevented by event id.
         const bool fromThread = MatrixClient::isThreadTimelineId(composedRoomId);
         const QString roomId = fromThread
             ? MatrixClient::threadTimelineRoomId(composedRoomId)
             : composedRoomId;
-        if (roomId.isEmpty())
+        if (roomId.isEmpty() || event.eventId.isEmpty())
             return;
-        // Dedup on both branches: any event with a thread root may arrive
-        // from both producers.
-        if (fromThread || !event.threadRootId.isEmpty()) {
-            if (event.eventId.isEmpty()
-                || m_notifiedThreadEventIds.contains(event.eventId))
-                return;
-            m_notifiedThreadEventIds.insert(event.eventId);
-            // Only needs to outlive the window where two producers overlap.
-            if (m_notifiedThreadEventIds.size() > 512)
-                m_notifiedThreadEventIds.clear();
-        }
-        // Activity prompts a presence refresh; it is never evidence of
-        // "online".
-        if (m_presence && event.sender != m_client->currentUserId())
-            m_presence->noteActivity(event.sender);
-        NotificationManager::Context context;
-        context.selfUserId = m_client->currentUserId();
-        // Targeted lookup; rooms() deep-copies the whole list per event.
+        m_notifications->processDecrypted(
+            event, notificationContextFor(roomId, event, fromThread));
+    });
+    // A redacted message's card goes; its text must not outlive it on the
+    // desktop.
+    connect(m_client.get(), &MatrixClient::eventRedacted, this,
+            [this](const QString &, const QString &eventId) {
+        if (!eventId.isEmpty())
+            m_notifications->withdrawEvent(eventId);
+    });
+    // A mention the sync never delivered (an unopened room receives only its
+    // newest event per response) still deserves a card: one summary per
+    // room, replacing the previous one.
+    connect(m_client.get(), &MatrixClient::roomHighlightsUnnotified, this,
+            [this](const QString &roomId, int count) {
+        if (roomId.isEmpty() || MatrixClient::isThreadTimelineId(roomId))
+            return;
+        const bool muted = m_settings->roomNotificationMode(roomId)
+            == static_cast<int>(NotificationManager::Muted);
+        const bool visible = roomId == m_currentRoomId && m_activeRoomAtLatest;
+        if (!notices::highlightSummaryAllowed(
+                m_settings->notificationsEnabled(), m_client->initialSyncDone(),
+                muted, visible, masterMuteIsOn(), count))
+            return;
+        const int preview = noticePreviewFor(roomId);
         const RoomInfo info = m_client->roomInfo(roomId);
-        context.roomName = info.name.isEmpty() ? roomId : info.name;
-        context.roomIsDirect = info.isDirect;
-        const QVariantMap notifyRoomRow = m_roomList->findRoom(roomId);
-        context.avatarMxc =
-            notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
-        // Initials colour and theme from the same row the room list uses, so
-        // the two never disagree about an identity.
-        context.avatarColorKey =
-            notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
-        context.themeId = int(m_settings->theme());
-        context.roomMode = static_cast<NotificationManager::RoomMode>(
-            m_settings->roomNotificationMode(roomId));
-        // The server does not have this device's choice (a failed write, or a
-        // device-only legacy mode); the local mode then decides alone.
-        context.localModeUnsynced = roomNotificationModeDecidesLocally(roomId);
-        // Encrypted rooms may withhold more. `encryptionKnown` is a real third
-        // state during hydration; see effectiveNotificationPreview.
-        context.previewMode = static_cast<NotificationManager::PreviewMode>(
-            m_settings->effectiveNotificationPreview(
-                notifyRoomRow.value(QStringLiteral("encrypted")).toBool(),
-                notifyRoomRow.value(QStringLiteral("encryptionKnown")).toBool()));
-        context.notificationsEnabled = m_settings->notificationsEnabled();
-        // "On screen" is thread-aware: the room timeline hides threaded
-        // events, so a thread reply is visible only if its panel is open.
-        const bool threadPanelShowingThis =
-            fromThread && m_thread
-            && m_thread->rootEventId() == event.threadRootId;
-        context.roomVisibleAtLatest =
-            roomId == m_currentRoomId && m_activeRoomAtLatest
-            && (!fromThread || threadPanelShowingThis);
-        // The open room's backlog arrives as live appends while its view is
-        // still hydrating.
-        context.roomHydrating =
-            roomId == m_currentRoomId && m_activeRoomHydrating;
-        // Initial-sync backlog is history and must not re-notify each launch.
-        context.initialSyncComplete = m_client->initialSyncDone();
-        context.soundMode = static_cast<NotificationManager::SoundMode>(
-            m_settings->notificationSound());
-        // Events from an ignored user already in flight must not notify.
-        context.senderIsIgnored =
-            m_moderation && m_moderation->isIgnored(event.sender);
-        m_notifications->processEvent(event, context);
-        // The Activity Center classifies independently (a muted room's
-        // mention is still activity).
-        m_activity->ingest(event, context.roomName);
+        m_notifications->showGeneric(
+            tr("New mentions"),
+            notices::highlightSummaryBody(preview, count, info.name),
+            roomId,
+            notices::showsRoomAvatar(preview)
+                ? m_roomList->findRoom(roomId)
+                      .value(QStringLiteral("avatarUrl")).toString()
+                : QString(),
+            m_settings->notificationSound() != 0 /* SoundOff */,
+            notices::highlightSummaryKey(roomId));
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
@@ -954,11 +980,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_inviteNotices.clear();
                 m_inviteNoticeTimer.stop();
                 // Unsynced rooms are kept per account in settings and survive
-                // this; the session's reads and writes do not.
-                m_notificationModeRetryReads.clear();
-                m_notificationModeWritesInFlight.clear();
-                m_notificationModeServerSeen.clear();
-                m_retryNotificationModesWhenSynced = false;
+                // this; the session's reads and writes do not. Shared with
+                // the add-account path, which sees no loggedOut.
+                resetSessionNotificationState();
                 // A rename in flight must not lock renaming for the next
                 // account.
                 if (m_sessionDeviceRenameOp != 0
@@ -967,7 +991,6 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_sessionDeviceRenameError.clear();
                     Q_EMIT sessionDevicesChanged();
                 }
-                m_activitySeeded = false;
             });
     // Hydration marks a room before its fetch resolves; a failed fetch
     // un-marks it so the next open retries.
@@ -1027,17 +1050,39 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::roomsChanged, this, [this] {
         const auto rooms = m_client->rooms();
         QSet<QString> current;
+        QSet<QString> joined;
         for (const auto &room : rooms) {
+            if (room.membership == RoomInfo::Joined)
+                joined.insert(room.id);
             if (room.membership != RoomInfo::Invited) {
                 // Accepted, or left: settled now. Only a room missing from
-                // the list waits out the grace.
-                if (m_inviteNotices.forget(room.id))
+                // the list waits out the grace. Its card goes either way: a
+                // declined invite's card would open a room the user is no
+                // longer invited to, and an accepted one has been acted on.
+                if (m_inviteNotices.forget(room.id)) {
                     m_activity->inviteResolved(room.id);
+                    m_notifications->closeRoomNotifications(room.id);
+                }
+                // Left, kicked or banned (here or on another device): its
+                // cards are withdrawn. Only a room LISTED as left counts; one
+                // briefly missing from the list (a re-sort, a resync) has not
+                // gone anywhere.
+                if (room.membership == RoomInfo::Left
+                    && m_joinedRoomIds.contains(room.id)) {
+                    m_notifications->closeRoomNotifications(room.id);
+                }
                 continue;
             }
             current.insert(room.id);
             m_activity->noteInvite(room);
         }
+        // Keep the ids of rooms still joined or merely absent for now, so a
+        // room that reappears as left after a resync is still recognised.
+        for (const auto &room : rooms) {
+            if (room.membership != RoomInfo::Joined)
+                m_joinedRoomIds.remove(room.id);
+        }
+        m_joinedRoomIds.unite(joined);
         m_inviteNotices.observe(current, m_client->initialSyncDone(),
                                 QDateTime::currentMSecsSinceEpoch());
         processInviteNotices();
@@ -1192,6 +1237,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_calls->setSenderIgnoredCheck([this](const QString &userId) {
         return m_moderation && m_moderation->isIgnored(userId);
     });
+    // The account's master rule ("Mute all notifications", which promises to
+    // silence every room on every device) silences rings too. Unknown rules
+    // keep the ring.
+    m_calls->setRingPolicyCheck([this](const QString &) {
+        return !masterMuteIsOn();
+    });
     m_calls->setRoomMutedCheck([this](const QString &roomId) {
         return m_settings->roomNotificationMode(roomId)
             == static_cast<int>(NotificationManager::Muted);
@@ -1223,61 +1274,129 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_forward->cancelSelecting();
     });
 
+    // A MatrixRTC announcement that does not ring this account (a group
+    // call's `notification`, or a `ring` addressed to others): one quiet card
+    // per room, never a ringer, withdrawn when the announcement's lifetime
+    // runs out. Element shows the same quiet notice.
+    connect(m_calls.get(), &CallController::callStartedNotice, this,
+            [this](const QString &roomId, const QString &eventId,
+                   const QString &senderId, qint64 remainingMs) {
+        Q_UNUSED(eventId);
+        if (roomId.isEmpty() || remainingMs <= 0)
+            return;
+        const bool muted = m_settings->roomNotificationMode(roomId)
+            == static_cast<int>(NotificationManager::Muted);
+        const bool visible = roomId == m_currentRoomId && m_activeRoomAtLatest;
+        const bool ignored = m_moderation && m_moderation->isIgnored(senderId);
+        const bool own = !senderId.isEmpty()
+            && senderId == m_client->currentUserId();
+        // CallController's own gates first (backlog, ignored sender, muted
+        // room, the account's ring policy), so the notice can never speak
+        // where a ring would have been silent.
+        if (!m_calls->noticeAllowed(roomId, senderId))
+            return;
+        if (!notices::callStartedNoticeAllowed(
+                m_settings->notificationsEnabled(), m_client->initialSyncDone(),
+                muted, visible, masterMuteIsOn(), ignored, own))
+            return;
+        const int preview = noticePreviewFor(roomId);
+        const RoomInfo info = m_client->roomInfo(roomId);
+        const QString caller =
+            CallController::callerNameIn(m_client.get(), roomId, senderId);
+        const QString key = notices::callStartedKey(roomId);
+        m_notifications->showGeneric(
+            tr("Call started"),
+            notices::callStartedBody(preview, caller,
+                                     info.isDirect ? QString() : info.name),
+            roomId,
+            notices::showsRoomAvatar(preview)
+                ? m_roomList->findRoom(roomId)
+                      .value(QStringLiteral("avatarUrl")).toString()
+                : QString(),
+            false, key);
+        // The announcement says how long it stays valid; past that the call
+        // may be long over. Only the newest announcement's timer withdraws:
+        // a newer one replaced the card and owns it now.
+        // Never reset, so a timer from an earlier card or session can
+        // never match a later one.
+        const quint64 generation = ++m_callNoticeSerial;
+        m_callNoticeGeneration.insert(roomId, generation);
+        QTimer::singleShot(
+            int(qBound<qint64>(qint64(1000), remainingMs,
+                               qint64(10 * 60 * 1000))), this,
+            [this, roomId, key, generation] {
+                if (m_callNoticeGeneration.value(roomId) != generation)
+                    return;
+                m_callNoticeGeneration.remove(roomId);
+                if (m_notifications)
+                    m_notifications->withdrawGeneric(key);
+            });
+    });
+
     // ── Incoming-call notification + ring ──
     connect(m_calls.get(), &CallController::incomingCallStarted, this,
             [this](const QString &roomId, const QString &callId,
                    const QString &senderId, qint64 remainingMs) {
+                // An RTC ring may already be settled by the room's session:
+                // picked up on another of our devices, or a session known
+                // before the ring that the caller has left. Feeding what is
+                // known now lets CallController end it before it announces
+                // (shouldRing() is then false), and marks a non-empty
+                // session as seen so a later emptying ends the ring.
+                if (m_calls->rtcRing() && m_calls->activeRoomId() == roomId)
+                    noteRtcSessionForRing(roomId);
                 if (!m_settings->notificationsEnabled())
                     return;
                 if (!m_calls->shouldRing())
-                    return; // backlog, ignored sender, or muted room
-                // Per-sender cooldown so a room member cannot pump
-                // critical-urgency notifications with fresh call ids. Only
-                // the OS announcement is bounded.
-                const qint64 now = QDateTime::currentMSecsSinceEpoch();
-                const qint64 lastRing = m_lastCallRingBySender.value(
-                    senderId, 0);
-                if (now - lastRing < 30000)
+                    return; // backlog, ignored sender, muted room, master mute
+                // A room member must not be able to pump critical-urgency
+                // cards with fresh call ids, but a redial a few seconds after
+                // giving up is a real call and is announced in full (ring,
+                // card, and a missed-call notice if it is missed). Only a
+                // burst beyond the cap is refused.
+                const auto verdict = m_ringLimiter.admit(
+                    senderId, callId, QDateTime::currentMSecsSinceEpoch());
+                if (verdict == notices::RingAnnounceLimiter::Verdict::Refuse) {
+                    qCInfo(lcApp) << "incoming call announcement refused:"
+                                  << "sender over the per-sender ring cap";
                     return;
-                m_lastCallRingBySender.insert(senderId, now);
-                while (m_lastCallRingBySender.size() > 64) {
-                    // Bounded; the cooldown is a heuristic, so any entry goes.
-                    m_lastCallRingBySender.erase(
-                        m_lastCallRingBySender.begin());
                 }
-                const bool privatePreview =
-                    m_settings->notificationPreview() == 2;
-                const QVariantMap room = m_roomList->findRoom(roomId);
+                const int preview = noticePreviewFor(roomId);
+                const RoomInfo info = m_client->roomInfo(roomId);
                 // Not escaped here: NotificationManager escapes once, at the
                 // D-Bus call, only when the daemon advertises body-markup.
-                const QString roomName = room.value(QStringLiteral("name"))
-                                             .toString();
+                const QString roomName = info.name;
                 // The room member's display name when known (with the
                 // localpart when it could be mistaken for someone else), else
                 // the localpart; never the full MXID.
                 const QString caller =
                     CallController::callerNameIn(m_client.get(), roomId,
                                                  senderId);
-                const QString body = privatePreview
-                    ? tr("Incoming voice call")
-                    : (roomName.isEmpty()
-                           ? tr("%1 is calling").arg(caller)
-                           : tr("%1 is calling in %2")
-                                 .arg(caller, roomName));
-                // Ring as long as the invite stays valid; sound is gated on
-                // the user's switches.
-                const bool sound = m_settings->ringForCalls()
-                    && m_settings->notificationSound()
-                        != 0 /* SoundOff */;
-                // Lightning's own ringer when it has loaded, else the
-                // desktop's themed call sound, never both. A call the user
-                // silenced stays silenced on re-announcement; a new call id
-                // rings normally.
-                const bool ringing =
-                    sound && !m_callSounds->isRingSilenced(callId);
-                const bool ownRinger =
-                    ringing && m_callSounds->ringerAvailable();
+                const bool video = m_callVideoIntent.value(callId, false);
+                const QString title = notices::incomingCallTitle(video);
+                const QString body = notices::incomingCallBody(
+                    preview, caller, roomName, info.isDirect, video);
+                // The ring follows "Ring for incoming calls" alone; the
+                // message sound setting is about chat chimes. Lightning's own
+                // ringer when it has loaded, else the desktop's themed call
+                // sound, never both; without a notification daemon the
+                // desktop cannot loop one, so the own ringer always runs. A
+                // call the user silenced stays silenced on re-announcement; a
+                // new call id rings normally.
+#ifdef HAVE_QT_DBUS
+                constexpr bool kPlatformLoopsCallSound = true;
+#else
+                constexpr bool kPlatformLoopsCallSound = false;
+#endif
+                const notices::RingPlan plan = notices::ringPlan(
+                    m_settings->ringForCalls(),
+                    m_callSounds->isRingSilenced(callId),
+                    m_callSounds->ringerAvailable(), kPlatformLoopsCallSound);
                 m_announcedCallId = callId;
+                // Remembered for the missed-call notice, which is raised from
+                // a signal that no longer carries the caller.
+                m_announcedCaller = caller;
+                m_announcedVideo = video;
                 // Whether the card offers Answer is decided here, from the
                 // same sources IncomingCallPrompt reads.
                 const bool rtcLane = m_calls->rtcRing();
@@ -1288,23 +1407,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_rtc->refresh(roomId);
                 const bool acceptOffered = callAcceptOffered(roomId, rtcLane);
                 m_notifications->showIncomingCall(
-                    roomId, callId, tr("Incoming call"), body,
-                    ringing && !ownRinger,
+                    roomId, callId, title, body, plan.cardSound,
                     static_cast<int>(qBound<qint64>(
                         qint64(5), remainingMs / 1000, qint64(300))),
-                    acceptOffered, rtcLane, /*silenceOffered=*/ringing);
-                if (ownRinger) {
+                    acceptOffered, rtcLane, /*silenceOffered=*/plan.ring);
+                // A minimised or hidden window asks for attention (taskbar
+                // flash, Dock bounce) as other clients do.
+                alertMainWindow();
+                if (plan.ownRinger) {
                     m_callSounds->startIncomingRing(callId);
                     // Our ringer plays on a thread a stalled sound server can
                     // wedge (Qt < 6.10; CallSoundPlayer). Its loop is then
                     // never acknowledged and ringerAvailable() turns false
-                    // within ~2 s: re-announce the card with the desktop's
-                    // sound rather than ring silently.
+                    // within ~2 s.
                     const int ringSeconds = static_cast<int>(qBound<qint64>(
                         qint64(5), remainingMs / 1000 - 3, qint64(300)));
                     QTimer::singleShot(
                         2500, this,
-                        [this, roomId, callId, body, ringSeconds] {
+                        [this, roomId, callId, title, body, ringSeconds] {
                             if (m_announcedCallId != callId
                                 || m_callSounds->ringingCallId() != callId
                                 || m_callSounds->isRingSilenced(callId)
@@ -1316,15 +1436,35 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                             const bool rtcLane = m_calls->rtcRing();
                             const bool acceptOffered =
                                 callAcceptOffered(roomId, rtcLane);
+#ifdef HAVE_QT_DBUS
+                            // The desktop re-posts its call sound until the
+                            // call ends: hand the ring over.
                             qCWarning(lcApp)
                                 << "own ringer not playing (sound thread "
                                    "stuck); falling back to the desktop's "
                                    "call sound";
                             m_callSounds->stopIncomingRing();
                             m_notifications->showIncomingCall(
-                                roomId, callId, tr("Incoming call"), body,
+                                roomId, callId, title, body,
                                 /*sound=*/true, ringSeconds, acceptOffered,
                                 rtcLane, /*silenceOffered=*/true);
+#else
+                            // The tray balloon gives one cue at most and
+                            // cannot loop, so handing the ring over would
+                            // ring once (Windows) or not at all (macOS).
+                            // Restart our own ringer instead, and let the card
+                            // carry one cue meanwhile.
+                            qCWarning(lcApp)
+                                << "own ringer not playing (sound thread "
+                                   "stuck); restarting it (this platform "
+                                   "cannot loop a desktop call sound)";
+                            m_callSounds->stopIncomingRing();
+                            m_callSounds->startIncomingRing(callId);
+                            m_notifications->showIncomingCall(
+                                roomId, callId, title, body,
+                                /*sound=*/true, ringSeconds, acceptOffered,
+                                rtcLane, /*silenceOffered=*/true);
+#endif
                         });
                 }
             });
@@ -1346,6 +1486,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &callId) {
                 m_notifications->stopIncomingCall(callId);
             });
+    // The reverse: the user closed the desktop call card. Lightning's own
+    // ringer loops independently of the card, so it stops here exactly as
+    // the in-app Dismiss would (local only; the call itself is not declined
+    // and a missed-call notice still follows if it is missed).
+    connect(m_notifications.get(), &NotificationManager::callCardDismissed,
+            this, [this](const QString &callId) {
+                if (!callId.isEmpty())
+                    m_callSounds->dismissRing(callId);
+            });
     // Sign-out leaves a live group call FIRST, so its MatrixRTC membership is
     // retracted while the session can still send it. Live 2026-10-07 the
     // logout ran first: "retraction could not be dispatched", and the deleted
@@ -1366,6 +1515,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
     });
     m_auth->setBeforeLogout([this](std::function<void()> proceed) {
+        // The reader's place in the open room (m.fully_read) moves when they
+        // leave it; signing out is leaving it, and once loggedOut arrives the
+        // session can no longer write. Every sign-out path (menu, removal,
+        // local reset) passes through here.
+        if (m_readReceipts)
+            m_readReceipts->flushFullyReadMarker();
         SfuCallController *call = m_groupCall.get();
         if (call && call->active()) {
             qCInfo(lcApp) << "sign-out: leaving the call first";
@@ -1408,8 +1563,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 Q_UNUSED(reason);
                 m_notifications->stopIncomingCall(callId);
                 const bool wasAnnounced = m_announcedCallId == callId;
-                if (m_announcedCallId == callId)
+                const QString caller = wasAnnounced ? m_announcedCaller
+                                                    : QString();
+                const bool video = wasAnnounced && m_announcedVideo;
+                if (wasAnnounced) {
                     m_announcedCallId.clear();
+                    m_announcedCaller.clear();
+                    m_announcedVideo = false;
+                }
+                m_callVideoIntent.remove(callId);
                 // Missed-call notice only for a call classified missed from
                 // its pre-end state and actually announced; a ring the gates
                 // suppressed must not resurface as missed.
@@ -1417,21 +1579,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     return;
                 if (!m_settings->notificationsEnabled())
                     return;
-                const bool privatePreview =
-                    m_settings->notificationPreview() == 2;
-                const QVariantMap room = m_roomList->findRoom(roomId);
+                const int preview = noticePreviewFor(roomId);
+                const RoomInfo info = m_client->roomInfo(roomId);
                 // Escaping belongs to NotificationManager alone.
-                const QString roomName = room.value(QStringLiteral("name"))
-                                             .toString();
                 m_notifications->showGeneric(
                     tr("Missed call"),
-                    privatePreview || roomName.isEmpty()
-                        ? tr("You missed a voice call")
-                        : tr("You missed a voice call in %1").arg(roomName),
+                    notices::missedCallBody(preview, caller, info.name,
+                                            info.isDirect, video),
                     roomId,
-                    privatePreview
-                        ? QString()
-                        : room.value(QStringLiteral("avatarUrl")).toString());
+                    notices::showsRoomAvatar(preview)
+                        ? m_roomList->findRoom(roomId)
+                              .value(QStringLiteral("avatarUrl")).toString()
+                        : QString());
             });
     connect(m_notifications.get(),
             &NotificationManager::callDeclineRequested, this,
@@ -1442,6 +1601,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The join gate opens late, so redraw the still-ringing card when the
     // session read lands. setCallAcceptOffered never extends the ring
     // deadline.
+    // A MatrixRTC ring has no answer or hangup events (MSC4075): whether it
+    // was picked up on another of our devices, or abandoned by everyone, is
+    // read from the room's memberships. Announced or not, the ring state is
+    // CallController's to settle.
+    connect(m_rtc.get(), &RtcController::sessionChanged, this,
+            [this](const QString &roomId) { noteRtcSessionForRing(roomId); });
     connect(m_rtc.get(), &RtcController::sessionChanged, this,
             [this](const QString &roomId) {
                 const QString callId = m_calls->activeCallId();
@@ -1528,13 +1693,55 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::reactionEventReceived, this,
             [this](const QString &roomId, const QString &reactionEventId,
                    const QString &targetEventId, const QString &senderId,
-                   const QString &key, qint64 timestampMs) {
+                   const QString &key, qint64 timestampMs, bool targetIsOwn) {
+        // An ignored user's reaction in flight never becomes a row.
+        if (m_moderation && m_moderation->isIgnored(senderId))
+            return;
         const RoomInfo info = m_client->roomInfo(roomId);
+        // `targetIsOwn`: the backend confirmed the reacted-to message is ours,
+        // so a reaction to a message sent before this launch (or from another
+        // device) counts too.
         m_activity->noteReaction(roomId, info.name.isEmpty() ? roomId : info.name,
                                  reactionEventId, targetEventId, senderId,
                                  m_client->displayNameFor(roomId, senderId), key,
-                                 timestampMs);
+                                 timestampMs, targetIsOwn);
     });
+    // A thread read here or acknowledged by the server withdraws that
+    // thread's cards. Encrypted rooms' unread counters never count thread
+    // replies, so the room-level walk cannot be what withdraws them.
+    const auto closeThreadCards = [this](const QString &roomId,
+                                         const QString &rootEventId) {
+        const QString realRoom = MatrixClient::isThreadTimelineId(roomId)
+            ? MatrixClient::threadTimelineRoomId(roomId)
+            : roomId;
+        if (realRoom.isEmpty() || rootEventId.isEmpty())
+            return;
+        m_notifications->closeThreadNotifications(realRoom, rootEventId);
+    };
+    connect(m_thread.get(), &ThreadController::threadReadSent, this,
+            [closeThreadCards](const QString &roomId, const QString &rootEventId,
+                               qint64) { closeThreadCards(roomId, rootEventId); });
+    connect(m_client.get(), &MatrixClient::threadReadMarkerAdvanced, this,
+            [closeThreadCards](const QString &roomId, const QString &rootEventId,
+                               quint64) { closeThreadCards(roomId, rootEventId); });
+    // Ignoring someone removes what they already put in the bell, not only
+    // what they send next.
+    m_activity->setIgnoredCheck([this](const QString &userId) {
+        return m_moderation && m_moderation->isIgnored(userId);
+    });
+    connect(m_client.get(), &MatrixClient::ignoredUsersChanged, this,
+            [this](const QStringList &users) {
+        for (const QString &userId : users)
+            m_activity->dropSender(userId);
+    });
+    if (m_moderation) {
+        connect(m_moderation.get(), &ModerationController::ignoreActionFinished,
+                this, [this](const QString &userId, bool ignored, bool ok,
+                             const QString &) {
+            if (ignored && ok && !userId.isEmpty())
+                m_activity->dropSender(userId);
+        });
+    }
     connect(m_client.get(), &MatrixClient::eventAtTimestampReceived, this,
             [this](quint64 opId, const QString &roomId, bool ok,
                    const QString &eventId, qint64 timestampMs,
@@ -1558,8 +1765,31 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_pagination->jumpToEvent(eventId);
         Q_EMIT jumpToDateFinished(opId, true, QString());
     });
+    // A failed seed (a dropped connection, a timeout) is asked again with a
+    // bounded backoff, and on the next Syncing edge, instead of leaving the
+    // bell without history for the whole session.
+    m_activitySeedRetryTimer.setSingleShot(true);
+    connect(&m_activitySeedRetryTimer, &QTimer::timeout, this, [this] {
+        if (!m_client || m_activitySeeded
+            || m_client->connectionState() != MatrixClient::Syncing)
+            return;
+        m_activitySeeded = true;
+        m_client->requestActivitySeed(60);
+    });
+    connect(m_client.get(), &MatrixClient::activitySeedFailed, this, [this] {
+        m_activitySeeded = false;
+        const int delay =
+            notices::activitySeedRetryDelayMs(m_activitySeedAttempts);
+        qCInfo(lcApp) << "activity seed failed; retry in ms=" << delay;
+        if (delay < 0)
+            return;
+        ++m_activitySeedAttempts;
+        m_activitySeedRetryTimer.start(delay);
+    });
     connect(m_client.get(), &MatrixClient::activitySeedReceived, this,
             [this](const QVariantList &entries) {
+        m_activitySeedAttempts = 0;
+        m_activitySeedRetryTimer.stop();
         QVariantList named;
         for (const QVariant &v : entries) {
             QVariantMap m = v.toMap();
@@ -1841,28 +2071,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                    const QString &eventId) {
         if (roomId != m_currentRoomId || !m_thread)
             return;
-        m_thread->openThread(roomId, rootId);
-        if (m_thread->state() == ThreadController::Ready) {
-            m_thread->navigateToEvent(eventId);   // already open
-            return;
-        }
-        // The panel's rows arrive asynchronously; navigate once it is Ready,
-        // and give up if it fails, closes or is replaced first.
-        auto conn = std::make_shared<QMetaObject::Connection>();
-        *conn = connect(m_thread.get(), &ThreadController::stateChanged, this,
-                        [this, conn, roomId, rootId, eventId] {
-            if (!m_thread || m_thread->roomId() != roomId
-                || m_thread->rootEventId() != rootId
-                || m_thread->state() == ThreadController::Closed
-                || m_thread->state() == ThreadController::Failed) {
-                QObject::disconnect(*conn);
-                return;
-            }
-            if (m_thread->state() != ThreadController::Ready)
-                return;
-            QObject::disconnect(*conn);
-            m_thread->navigateToEvent(eventId);
-        });
+        // Opens (or reuses) the thread and lands on the reply once it is
+        // Ready, after the panel's own scroll restore; dropped if the thread
+        // fails, closes or is replaced first.
+        m_thread->openThreadAt(roomId, rootId, eventId);
     });
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
@@ -1951,16 +2163,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_threadScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
     });
 
-    // The read-receipt coordinator needs the real application activation
-    // state; QML reports only timeline visibility and scroll position.
+    // The read-receipt coordinator needs the MAIN window's own activation
+    // and exposure; QML reports only timeline visibility and scroll position.
+    // Application activation is not that: the picture-in-picture and the
+    // full-screen call windows are top-level windows of this application,
+    // and a focused one would mark the hidden room read. The main window is
+    // found when it first shows up (or registered by QML), and until then the
+    // application state stands in.
     if (auto *guiApp =
             qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
-        m_readReceipts->setWindowActive(guiApp->applicationState()
-                                        == Qt::ApplicationActive);
+        refreshMainWindowState();
         connect(guiApp, &QGuiApplication::applicationStateChanged, this,
-                [this](Qt::ApplicationState state) {
-            m_readReceipts->setWindowActive(state == Qt::ApplicationActive);
-        });
+                [this](Qt::ApplicationState) { refreshMainWindowState(); });
+        connect(guiApp, &QGuiApplication::focusWindowChanged, this,
+                [this](QWindow *) { refreshMainWindowState(); });
         // Orderly shutdown while the window and event dispatcher are still
         // valid, before the QML engine is destroyed.
         connect(guiApp, &QGuiApplication::aboutToQuit, this,
@@ -2379,18 +2595,42 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this] {
             m_cryptoHealth->setPendingVerificationCount(
                 verificationActive() ? 1 : 0);
+            // A request card stays only while the request does: once the
+            // flow leaves "requested" (accepted, cancelled or finished, here
+            // or on another device) or another flow replaces it, it goes.
+            const QString wantedKey =
+                (m_verificationState == QLatin1String("requested")
+                 && !m_verificationFlowId.isEmpty())
+                ? notices::verificationNoticeKey(m_verificationFlowId)
+                : QString();
+            if (!m_verificationNoticeKey.isEmpty()
+                && m_verificationNoticeKey != wantedKey) {
+                m_notifications->withdrawGeneric(m_verificationNoticeKey);
+                m_verificationNoticeKey.clear();
+            }
             // Surface incoming verification requests natively (identity only,
-            // never message content or SAS data).
-            static QString lastNotifiedFlow;
-            if (m_verificationState == QLatin1String("requested")
-                && !m_verificationFlowId.isEmpty()
-                && m_verificationFlowId != lastNotifiedFlow
-                && m_settings->notificationsEnabled()) {
-                lastNotifiedFlow = m_verificationFlowId;
-                m_notifications->showGeneric(
-                    tr("Verification request"),
-                    tr("%1 wants to verify a session. Open Lightning to "
-                       "review it.").arg(m_verificationOtherUser));
+            // never message content or SAS data), once per flow.
+            if (!wantedKey.isEmpty()
+                && m_verificationFlowId != m_verificationNotifiedFlow) {
+                m_verificationNotifiedFlow = m_verificationFlowId;
+                if (notices::verificationNoticeAllowed(
+                        m_settings->notificationsEnabled(),
+                        m_pushRules && m_pushRules->loaded(),
+                        m_pushRules && m_pushRules->masterMute())) {
+                    // A display name or localpart, never the full MXID: the
+                    // body sits in the desktop's history in plaintext. No
+                    // room, so the stricter preview level applies.
+                    const QString other = m_verificationIsSelf
+                        ? QString()
+                        : CallController::presentableCallerName(
+                              m_verificationOtherUser, QString());
+                    m_verificationNoticeKey = wantedKey;
+                    m_notifications->showGeneric(
+                        tr("Verification request"),
+                        notices::verificationBody(noticePreviewFor(QString()),
+                                                  m_verificationIsSelf, other),
+                        QString(), QString(), /*sound=*/false, wantedKey);
+                }
             }
         });
         connect(rust, &MatrixClient::loggedOut,
@@ -4085,6 +4325,234 @@ bool AppController::callAcceptOffered(const QString &roomId,
     return !(m_groupCall->active() && m_groupCall->roomId() == roomId);
 }
 
+void AppController::handleLiveEvent(const QString &composedRoomId,
+                                    const TimelineEvent &event)
+{
+    // The read-only context view shows history; what it appends is never
+    // news, so it must not notify or feed the Activity Center.
+    if (MatrixClient::isContextTimelineId(composedRoomId))
+        return;
+    // Map a thread copy to its real room rather than dropping it: the live
+    // room timeline hides threaded events. The composite id never leaves
+    // this scope.
+    const bool fromThread = MatrixClient::isThreadTimelineId(composedRoomId);
+    const QString roomId = fromThread
+        ? MatrixClient::threadTimelineRoomId(composedRoomId)
+        : composedRoomId;
+    if (roomId.isEmpty())
+        return;
+    // One event can reach here twice: a thread copy and the room's sync, an
+    // SDK insert observed live and a later append, a sliding-sync reset
+    // re-delivering. Deduplicated by event id, forgetting the oldest first.
+    if (!event.eventId.isEmpty() && !m_notifiedEventIds.insert(event.eventId))
+        return;
+    // Activity prompts a presence refresh; it is never evidence of "online".
+    if (m_presence && event.sender != m_client->currentUserId())
+        m_presence->noteActivity(event.sender);
+    const NotificationManager::Context context =
+        notificationContextFor(roomId, event, fromThread);
+    m_notifications->processEvent(event, context);
+    // The Activity Center classifies independently (a muted room's mention is
+    // still activity), but an ignored user's event in flight never becomes a
+    // row.
+    if (!context.senderIsIgnored)
+        m_activity->ingest(event, context.roomName);
+}
+
+NotificationManager::Context AppController::notificationContextFor(
+    const QString &roomId, const TimelineEvent &event, bool fromThread) const
+{
+    NotificationManager::Context context;
+    context.selfUserId = m_client->currentUserId();
+    // Targeted lookup; rooms() deep-copies the whole list per event.
+    const RoomInfo info = m_client->roomInfo(roomId);
+    context.roomName = info.name.isEmpty() ? roomId : info.name;
+    context.roomIsDirect = info.isDirect;
+    const QVariantMap notifyRoomRow = m_roomList->findRoom(roomId);
+    context.avatarMxc =
+        notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
+    // Initials colour and theme from the same row the room list uses, so the
+    // two never disagree about an identity.
+    context.avatarColorKey =
+        notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
+    context.themeId = int(m_settings->theme());
+    context.roomMode = static_cast<NotificationManager::RoomMode>(
+        m_settings->roomNotificationMode(roomId));
+    // The server does not have this device's choice (a failed write, or a
+    // device-only legacy mode); the local mode then decides alone.
+    context.localModeUnsynced = roomNotificationModeDecidesLocally(roomId);
+    // Encrypted rooms may withhold more; a room not listed yet resolves like
+    // unknown encryption (the stricter level).
+    context.previewMode =
+        static_cast<NotificationManager::PreviewMode>(noticePreviewFor(roomId));
+    context.notificationsEnabled = m_settings->notificationsEnabled();
+    // "On screen" is thread-aware. The room timeline hides threaded events,
+    // so a thread reply is on screen only while the panel shows its thread
+    // and the panel itself follows the latest reply in a focused window; the
+    // main timeline's own scroll position says nothing about it.
+    const bool threaded = fromThread
+        || (!event.threadRootId.isEmpty()
+            && event.threadRootId != event.eventId);
+    if (threaded) {
+        context.roomVisibleAtLatest = roomId == m_currentRoomId && m_thread
+            && m_thread->rootEventId() == event.threadRootId
+            && m_thread->viewerAtLatest();
+    } else {
+        context.roomVisibleAtLatest =
+            roomId == m_currentRoomId && m_activeRoomAtLatest;
+    }
+    // The open room's backlog arrives as live appends while its view is still
+    // hydrating.
+    context.roomHydrating = roomId == m_currentRoomId && m_activeRoomHydrating;
+    // Initial-sync backlog is history and must not re-notify each launch.
+    context.initialSyncComplete = m_client->initialSyncDone();
+    context.soundMode = static_cast<NotificationManager::SoundMode>(
+        m_settings->notificationSound());
+    // Events from an ignored user already in flight must not notify.
+    context.senderIsIgnored =
+        m_moderation && m_moderation->isIgnored(event.sender);
+    return context;
+}
+
+int AppController::noticePreviewFor(const QString &roomId) const
+{
+    if (!m_settings)
+        return notices::kPreviewPrivate;
+    // RoomInfo defaults encryptionKnown to true, so a room that is not listed
+    // yet (or no room at all, as for a verification request) must be passed
+    // as unknown explicitly: the stricter of the two levels then wins.
+    const RoomInfo info =
+        (m_client && !roomId.isEmpty()) ? m_client->roomInfo(roomId)
+                                        : RoomInfo{};
+    const bool known = !info.id.isEmpty();
+    return m_settings->effectiveNotificationPreview(
+        known && info.encrypted, known && info.encryptionKnown);
+}
+
+bool AppController::masterMuteIsOn() const
+{
+    return m_pushRules && m_pushRules->masterMuteKnown()
+        && m_pushRules->masterMute();
+}
+
+void AppController::registerMainWindow(QObject *window)
+{
+    auto *quick = qobject_cast<QQuickWindow *>(window);
+    if (!quick || quick == m_mainWindow)
+        return;
+    if (m_mainWindow)
+        disconnect(m_mainWindow, nullptr, this, nullptr);
+    m_mainWindow = quick;
+    connect(quick, &QWindow::activeChanged, this,
+            &AppController::refreshMainWindowState);
+    connect(quick, &QWindow::visibilityChanged, this,
+            [this](QWindow::Visibility) { refreshMainWindowState(); });
+    refreshMainWindowState();
+}
+
+QQuickWindow *AppController::mainWindow()
+{
+    if (!m_mainWindow) {
+        // Main.qml's ApplicationWindow is the only one in the application;
+        // the call windows are plain Windows.
+        const auto windows = QGuiApplication::topLevelWindows();
+        for (QWindow *candidate : windows) {
+            if (candidate->inherits("QQuickApplicationWindow")) {
+                registerMainWindow(candidate);
+                break;
+            }
+        }
+    }
+    return m_mainWindow.data();
+}
+
+bool AppController::focusBelongsToMainWindow(const QWindow *main,
+                                             const QWindow *focus)
+{
+    // Not QWindow::isActive(): for a window with no parent that is
+    // isAncestorOf(focusWindow, IncludeTransients), and Qt makes the main
+    // window the TRANSIENT PARENT of a QML Window declared inside it (the
+    // full-screen call window in CallStage.qml; only the picture-in-picture
+    // window opts out with transientParent: null). So a focused full-screen
+    // call counted as the user reading the room hidden behind it.
+    //
+    // Walk from the focus window towards its ancestors instead. Reaching the
+    // main window means focus is on it or on something it opened: a Popup or
+    // Menu with popupType Window (QQuickPopupWindow), a native dialog or
+    // menu. Meeting any other Qt Quick window first means focus is in a
+    // window of its own, transient child of the main window or not.
+    for (const QWindow *w = focus; w; w = w->parent(QWindow::IncludeTransients)) {
+        if (w == main)
+            return true;
+        if (qobject_cast<const QQuickWindow *>(w)
+            && !w->inherits("QQuickPopupWindow"))
+            return false;
+    }
+    return false;
+}
+
+void AppController::refreshMainWindowState()
+{
+    if (!m_readReceipts)
+        return;
+    QQuickWindow *window = mainWindow();
+    bool active = false;
+    if (window) {
+        const QWindow::Visibility visibility = window->visibility();
+        active = notices::mainWindowCountsAsActive(
+            focusBelongsToMainWindow(window, QGuiApplication::focusWindow()),
+            visibility == QWindow::Minimized,
+            visibility == QWindow::Hidden || !window->isVisible());
+    } else if (auto *guiApp =
+                   qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        active = guiApp->applicationState() == Qt::ApplicationActive;
+    }
+    m_readReceipts->setWindowActive(active);
+}
+
+void AppController::alertMainWindow()
+{
+    QQuickWindow *window = mainWindow();
+    // Only when the user is not already looking at it: a focused window
+    // flashing for every message would be noise.
+    if (!window
+        || (focusBelongsToMainWindow(window, QGuiApplication::focusWindow())
+            && window->visibility() != QWindow::Minimized))
+        return;
+    window->alert(0);
+}
+
+void AppController::noteRtcSessionForRing(const QString &roomId)
+{
+    if (!m_calls || !m_rtc || roomId.isEmpty())
+        return;
+    if (m_calls->state() != CallController::State::Ringing
+        || !m_calls->rtcRing() || m_calls->activeRoomId() != roomId)
+        return;
+    // The newest of OUR user's memberships from another device: answered
+    // there, if it appeared after the ring began (CallController judges
+    // that). This device's own membership is the local join, which the group
+    // call's stateChanged already reports (noteAnsweredByOtherLane).
+    qint64 ownElsewhereJoinedAtMs = 0;
+    const QVariantList participants = m_rtc->participants(roomId, 0);
+    for (const QVariant &entry : participants) {
+        const QVariantMap p = entry.toMap();
+        if (p.value(QStringLiteral("ownUser")).toBool()
+            && !p.value(QStringLiteral("ownDevice")).toBool()) {
+            // A membership with no creation time counts as old: it cannot
+            // show that it answered this ring.
+            ownElsewhereJoinedAtMs = std::max(
+                ownElsewhereJoinedAtMs,
+                std::max<qint64>(
+                    1, p.value(QStringLiteral("joinedAtMs")).toLongLong()));
+        }
+    }
+    // Never a 0 from a read that cannot know (failed, store-only, not read
+    // yet): that would end a live ring as missed.
+    m_calls->noteRtcSession(roomId, ownElsewhereJoinedAtMs,
+                            m_rtc->authoritativeParticipantCount(roomId));
+}
+
 void AppController::routeNotificationOpen(const QString &roomId,
                                           const QString &eventId,
                                           const QString &threadRootId)
@@ -4104,6 +4572,25 @@ void AppController::routeNotificationOpen(const QString &roomId,
         (composite && threadRootId.isEmpty())
             ? MatrixClient::threadTimelineRootId(roomId)
             : threadRootId;
+    // A card or row can outlive the membership it was raised under (left,
+    // kicked or banned, here or elsewhere; an invite declined elsewhere).
+    // Opening it would land on a room the user is no longer in, or on
+    // nothing at all for one the client no longer knows, so the window is
+    // raised and the user told instead. An invite still pending opens its
+    // preview as before.
+    if (!target.isEmpty() && m_client) {
+        const RoomInfo info = m_client->roomInfo(target);
+        if (info.id.isEmpty()
+            || (info.membership != RoomInfo::Joined
+                && info.membership != RoomInfo::Invited)) {
+            qCInfo(lcApp) << "notification open refused: not a joined room"
+                          << "known=" << !info.id.isEmpty();
+            Q_EMIT notificationOpenRequested(QString(), QString(), QString());
+            Q_EMIT errorReported(
+                tr("You are no longer in that room, so it cannot be opened."));
+            return;
+        }
+    }
     if (!target.isEmpty())
         openRoom(target);
     Q_EMIT notificationOpenRequested(target, eventId, root);
@@ -4188,10 +4675,21 @@ void AppController::markSpaceRead(const QString &spaceId)
         || !spaceId.startsWith(QLatin1Char('!'))) {
         return;
     }
+    // Home's filter (RoomListModel::markAllRoomsRead): a room the user marked
+    // unread stays unread, and a room with nothing unread gets no receipt.
+    // Collected first: marking read can republish the room list.
     const QStringList rooms = m_spaces->roomsInSpace(spaceId);
-    for (const QString &roomId : rooms)
+    QStringList targets;
+    if (m_client) {
+        for (const QString &roomId : rooms) {
+            if (notices::roomWantsMarkRead(m_client->roomInfo(roomId)))
+                targets.append(roomId);
+        }
+    }
+    for (const QString &roomId : targets)
         m_roomList->markRoomRead(roomId);
-    qCInfo(lcApp) << "space marked read rooms=" << rooms.size();
+    qCInfo(lcApp) << "space marked read rooms=" << targets.size()
+                  << "of" << rooms.size();
 }
 
 quint64 AppController::jumpToDate(qint64 timestampMs)
@@ -5365,6 +5863,7 @@ void AppController::onLoginSucceeded()
     const bool accountChanged =
         !m_lastSessionUserId.isEmpty() && m_lastSessionUserId != uid;
     m_lastSessionUserId = uid;
+    refreshTrayAccountLabel();
     if (accountChanged) {
         clearCrossAccountCaches();
         // Add-account never signs the previous account out, so nothing
@@ -5442,9 +5941,11 @@ void AppController::onLoginSucceeded()
 
 bool AppController::closeHidesWindow(bool quitIntended) const
 {
+    // The icon that exists, not the platform's word that one could: a window
+    // hidden into a tray icon that was never created has no way back.
     return closebehavior::closeHidesWindow(
         closebehavior::kIsMac, m_settings && m_settings->closeToTray(),
-        m_trayAvailable, quitIntended);
+        m_trayAvailable && m_tray.enabled(), quitIntended);
 }
 
 bool AppController::activationRestoresWindow(bool hiddenByClose,
@@ -5476,7 +5977,13 @@ void AppController::refreshTrayAvailability()
 
 void AppController::refreshTrayState()
 {
+    // A flip emits trayAvailableChanged, which applies the state itself.
     refreshTrayAvailability();
+    applyTrayState();
+}
+
+void AppController::applyTrayState()
+{
     // Without QtDBus (Windows, macOS) the tray balloon is the only notification
     // delivery and it needs a visible icon, so the icon also follows the
     // notifications setting there.
@@ -5490,25 +5997,42 @@ void AppController::refreshTrayState()
             || (kTrayCarriesNotifications && m_settings->notificationsEnabled()));
     m_tray.setEnabled(wanted && m_trayAvailable);
     if (m_tray.enabled()) {
-        m_tray.setAccountLabel(m_lastSessionUserId);
+        refreshTrayAccountLabel();
         // A tray turned on while messages are already waiting must open with
         // its badge, so the state is pushed here as well as on every change.
         refreshTrayUnread();
     }
 }
 
+void AppController::refreshTrayAccountLabel()
+{
+    // Follows sign-in, switch and sign-out; empty while signed out. A display
+    // name or localpart: the tooltip is on screen for anyone to read.
+    if (!m_tray.enabled())
+        return;
+    const QString displayName = m_accounts && !m_lastSessionUserId.isEmpty()
+        ? m_accounts->account(m_lastSessionUserId)
+              .value(QStringLiteral("displayName")).toString()
+        : QString();
+    m_tray.setAccountLabel(
+        notices::trayAccountLabel(m_lastSessionUserId, displayName));
+}
+
 void AppController::refreshTrayUnread()
 {
     // Not gated on the tray: this walk also withdraws notifications for rooms
-    // that are no longer unread. Only the badge write needs the icon.
+    // that are no longer unread, and feeds the Dock / taskbar badge. Only the
+    // icon write needs the icon.
     if (!m_client)
         return;
     // Derived from the local rooms() snapshot with the rail's rule (GitHub
-    // #18: a muted room is neither a dot nor a count).
+    // #18: a muted room is neither a dot nor a count), through the one
+    // function every unread surface reads (a "Mentions" mode this device
+    // cannot verify on the server is a dot, never a count).
     const roomunread::Summary unread = roomunread::summarize(
         m_client->rooms(),
         [this](const QString &id) {
-            return m_settings ? m_settings->roomNotificationMode(id)
+            return m_settings ? m_settings->roomUnreadMode(id)
                               : roomunread::kModeAllMessages;
         },
         [this](const RoomInfo &room, bool roomUnread) {
@@ -5524,6 +6048,14 @@ void AppController::refreshTrayUnread()
     const bool anyUnread = unread.any;
     if (m_tray.enabled())
         m_tray.setUnread(total, anyUnread);
+    // The Dock (macOS), taskbar (Windows) and launcher (KDE, Unity) badge,
+    // whether or not a tray icon exists. Written only on change.
+    if (total != m_lastBadgeNumber) {
+        m_lastBadgeNumber = total;
+        if (auto *guiApp =
+                qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
+            guiApp->setBadgeNumber(qint64(std::max(0, total)));
+    }
 }
 
 void AppController::onLoggedOut()
@@ -5646,6 +6178,7 @@ void AppController::onLoggedOut()
     }
     m_accounts->clearActiveUser();
     m_lastSessionUserId.clear();
+    refreshTrayAccountLabel();
     m_addAccountReturnTo.clear();
     m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
@@ -5696,6 +6229,28 @@ void AppController::setAccountSwitching(bool switching)
     Q_EMIT accountSwitchingChanged();
 }
 
+void AppController::resetSessionNotificationState()
+{
+    // Pending "call started" withdrawals of the old session do nothing now.
+    m_callNoticeGeneration.clear();
+    m_notificationModeRetryReads.clear();
+    m_notificationModeWritesInFlight.clear();
+    m_notificationModeServerSeen.clear();
+    m_retryNotificationModesWhenSynced = false;
+    m_notifiedEventIds.clear();
+    m_ringLimiter.clear();
+    m_joinedRoomIds.clear();
+    m_callVideoIntent.clear();
+    m_verificationNoticeKey.clear();
+    m_verificationNotifiedFlow.clear();
+    m_activitySeeded = false;
+    m_activitySeedAttempts = 0;
+    m_activitySeedRetryTimer.stop();
+    // Checks run for the previous account must not read as this one's.
+    if (m_notificationTroubleshooter)
+        m_notificationTroubleshooter->reset();
+}
+
 void AppController::clearCrossAccountCaches()
 {
     // Playback stops before the decrypted media files are wiped, so no
@@ -5712,6 +6267,13 @@ void AppController::clearCrossAccountCaches()
     m_notifications->setAccountUserId(QString());
     m_inviteNotices.clear();
     m_inviteNoticeTimer.stop();
+    // The bell, its seed and the notification-mode bookkeeping are the
+    // previous account's. A switch also clears the bell through loggedOut;
+    // an add-account sign-in sees no loggedOut, so it is cleared here, or the
+    // new account would show (and later save) the previous one's mentions,
+    // seen marker and keywords, and never be seeded.
+    m_activity->clear();
+    resetSessionNotificationState();
     // Encrypted-room drafts are memory-only and account-scoped.
     if (m_draftStore)
         m_draftStore->clearMemoryDrafts();
@@ -5985,27 +6547,44 @@ void AppController::endRevokedSession(const QString &userId)
 void AppController::processInviteNotices()
 {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    for (const QString &roomId : m_inviteNotices.takeResolved(now))
+    for (const QString &roomId : m_inviteNotices.takeResolved(now)) {
         m_activity->inviteResolved(roomId);
+        // Declined, rescinded or rejected elsewhere: the card must not stay
+        // behind to open a room the user is no longer invited to.
+        m_notifications->closeRoomNotifications(roomId);
+    }
+    // The account's push rules: master mute and "Invitations to you: Off"
+    // silence this card as they do on every other client. Unknown rules keep
+    // the local behaviour.
+    const bool rulesKnown = m_pushRules && m_pushRules->loaded();
+    const int inviteRule = m_pushRules ? m_pushRules->eventInvites() : -1;
+    const bool allowed = notices::inviteNoticeAllowed(
+        m_settings->notificationsEnabled(), rulesKnown,
+        m_pushRules && m_pushRules->masterMute(), inviteRule);
     for (const QString &roomId : m_inviteNotices.takeDue(now)) {
         // Read now, not when first seen: the settle is what lets the room's
         // real name replace the SDK's "Empty Room".
         const RoomInfo room = m_client->roomInfo(roomId);
         if (room.membership != RoomInfo::Invited
-            || !NotificationManager::shouldNotifyInvite(
-                   true, false, m_settings->notificationsEnabled()))
+            || !NotificationManager::shouldNotifyInvite(true, false, allowed))
             continue;
+        const int preview = noticePreviewFor(room.id);
+        // Sender-chosen text, flattened and bounded like a caller's name; the
+        // localpart when no name is known, never the full MXID.
+        const QString inviter = room.inviterUserId.isEmpty()
+            ? QString()
+            : CallController::presentableCallerName(room.inviterUserId,
+                                                    room.inviterDisplayName);
         m_notifications->showGeneric(
             tr("Room invitation"),
-            m_settings->notificationPreview() == 2
-                ? tr("New Matrix notification")
-                : tr("You were invited to %1")
-                      .arg(room.name.isEmpty() ? room.id : room.name),
+            notices::inviteBody(preview, inviter, room.name, room.isDirect),
             room.id,
-            m_settings->notificationPreview() == 2
-                ? QString()
-                : m_roomList->findRoom(room.id)
-                      .value(QStringLiteral("avatarUrl")).toString());
+            notices::showsRoomAvatar(preview)
+                ? m_roomList->findRoom(room.id)
+                      .value(QStringLiteral("avatarUrl")).toString()
+                : QString(),
+            notices::inviteSound(m_settings->notificationSound(), rulesKnown,
+                                 inviteRule));
     }
     const qint64 wait = m_inviteNotices.nextDueInMs(now);
     if (wait < 0)
@@ -6364,6 +6943,7 @@ void AppController::removeAccount(const QString &userId)
     m_accounts->removeAccount(target); // record + secrets
     if (isActive) {
         m_lastSessionUserId.clear();
+        refreshTrayAccountLabel();
         // This account was never actually connected this session (a failed
         // restore is exactly how it ends up here, from the login screen's
         // repair card) but connectionStatus() can still read a stale

@@ -632,7 +632,13 @@ backend capability checks and honest live-test status.
 - SDK `TimelineFocus::Thread` timelines and `ThreadListService`
 - Thread panel and per-room Threads view, real `m.thread` text/rich replies,
   follow/unfollow where MSC4306 is supported, threaded read receipts, and
-  pagination
+  pagination. Replying in a thread (text, attachment, poll, sticker)
+  subscribes automatically once the server has accepted the reply, with that
+  reply as the MSC4306 `automatic` event, as Element does; only on a server
+  that advertises `org.matrix.msc4306`, and a later unsubscription is
+  honoured by the server. `with_subscriptions` stays false (§8 of CLAUDE.md),
+  so being mentioned in a thread does not subscribe, and the subscription
+  does not change this device's push verdicts (2026-10-15)
 - Thread image/file/clipboard attachments through the SDK including
   encrypted rooms, with local echoes, send state, retry/failure handling.
   Thread video sends carry the same locally extracted poster
@@ -908,8 +914,11 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   withdrawal. A build without it (Windows, macOS) delivers through the tray
   icon's balloon — Windows shows it as a toast in the Action Centre, macOS
   as a user notification — which needs a visible icon, so there the icon
-  shows while notifications are enabled (as well as with close-to-tray). One
-  balloon at a time; a click opens the room it was raised for. A balloon
+  shows while notifications are enabled (as well as with close-to-tray). Qt
+  reports a click on any balloon as one signal: a click opens the room only
+  when every balloon raised since the last click is for that room; otherwise
+  (several rooms, or the slot already used) it raises the window without
+  choosing a room (2026-10-15). A balloon
   cannot be withdrawn through Qt: read-dismissal on those platforms needs
   the native toast APIs and is a recorded follow-up.
 - **Notification sound (2026-10-06).** A delivered notification makes
@@ -1034,8 +1043,11 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   push context yet) keeps the old local policy. `m.notice` and edits now stay
   quiet where the account's ruleset has `.m.rule.suppress_notices` /
   `.m.rule.suppress_edits` (the spec defaults do); both notified before —
-  a release-notes item. A highlight counts as a mention for sound and
-  urgency. Known gaps: the picker's disclaimer still says "Saved to your
+  a release-notes item. With the rules known a highlight is the only mention
+  (`m.mentions.room` is never trusted alone); every message card is normal
+  urgency (only the call card is critical); in the default sound mode the
+  rule's `sound` tweak decides; without a verdict, edits (unless newly
+  mentioning) and notices stay quiet (2026-10-15). Known gaps: the picker's disclaimer still says "Saved to your
   account's notification settings" for a device-only room (needs a new
   string), and CallController's ring gate reads the local mode. Live: the
   defect is measured (FAIL, pre-fix build, 2026-09-29), and the fix PASSED
@@ -1544,14 +1556,23 @@ list rather than applying optimistically.
 ### Navigating a room's history
 
 - **Jump to first unread.** The SDK places a read-marker virtual row from
-  `m.fully_read` (which Lightning writes with every read receipt) and
-  MessageDelegate draws it as the "New messages" divider; the pill at the TOP
+  `m.fully_read` and MessageDelegate draws it as the "New messages" divider,
+  for the whole visit, pinned or not. Since 2026-10-15 the automatic read
+  receipt no longer carries `m.fully_read` (matrix-sdk-ui follows it live and
+  dropped the divider about a second after a room opened);
+  `ReadReceiptCoordinator` moves it with `mx_rust_set_fully_read_marker` when
+  the reader LEAVES (room switch, window deactivation, account change,
+  sign-out), never backwards past a position another device wrote, and
+  explicit mark-as-read still writes it. The pill at the TOP
   of the timeline scrolls to it. THE MARKER HAS NO EVENT ID, so this is a ROW
   (`TimelineModel::firstUnreadRow`, NOTIFY countChanged — a virtual row can
   only move by being inserted or removed) handed to
   `beginNavigationLanding()`, which holds a target by stable id across
-  paginations landing while it waits. Offered only when the marker is loaded;
-  a reader further back than the window pages toward it, bounded at 8 pages
+  paginations landing while it waits. Offered when the marker is loaded, and
+  also when the room opened with unread messages and no marker is loaded yet
+  (the marker is above the window): the click then pages toward it, and the
+  pill withdraws if the bounded hunt finds nothing, the marker goes away, or
+  this client writes the marker itself (2026-10-15). The hunt is bounded at 8 pages
   and one per 240 ms, and the reader taking hold of the view cancels the hunt.
 - **Jump to date** (MSC3030 `timestamp_to_event`, stable since Matrix 1.6),
   from the find bar. FORWARD from local midnight of the chosen day, so a date
@@ -2034,15 +2055,25 @@ Live validation of the actions, the keys and the PiP window: **NOT TESTED**.
 
 **Read receipts**: public (as before), private (MSC2285 `m.read.private` —
 the server records it so this account's OTHER devices still clear their
-badge, and no other member sees it), or off. The mode is stored ONCE on the
+badge, and no other member sees it), or "Do not send read receipts". Since
+2026-10-15 that third mode ALSO sends `m.read.private`, on all three paths:
+matrix-sdk computes this device's unread counts from the user's own receipts
+only, so sending none left every room unread on this device after it was
+read, and a private receipt shows other members nothing. It is therefore the
+same as Private on the wire; whether to keep it as a separate choice is an
+open decision. The settings text says a private receipt is still sent. The
+automatic receipt is on the MAIN thread (the live timeline hides threaded
+events), so reading the room no longer marks unopened thread replies read.
+The mode is stored ONCE on the
 bridge rather than passed per call, because THREE Rust paths send a receipt —
 reading a room, marking one read from the room list, and the thread panel's —
 and a rule honoured by two of three is not a rule.
 
-**The fully-read marker is sent in every mode.** It is account data only this
-user can read, and it carries their place in the conversation between their
-own devices and across a reinstall; losing it is not what a privacy setting
-should cost. Receipts already sent cannot be retracted — the protocol has no
+**The fully-read marker is written in every mode.** It is account data only
+this user can read, and it carries their place in the conversation between
+their own devices and across a reinstall; losing it is not what a privacy
+setting should cost. It is written when the reader leaves a room (see
+"Jump to first unread") and by mark-as-read, not with every receipt. Receipts already sent cannot be retracted — the protocol has no
 un-send — and the UI says so.
 
 **Typing notices** can be switched off. They are the highest-frequency thing

@@ -25,6 +25,31 @@ ColumnLayout {
     readonly property bool supported: root.rules ? root.rules.supported === true
                                                  : false
 
+    // The rule sections are shown only once this account's rules have really
+    // arrived: before that the controller holds placeholders (nothing muted,
+    // everything "All messages", no keywords) that read as the account's state.
+    readonly property bool ready: root.supported && root.rules.loaded === true
+
+    // Results shown describe the account they were run for: drop them when
+    // it goes, and re-run them (never from an optimistic write still in
+    // flight) when the rules settle or a write fails.
+    Connections {
+        target: root.rules
+        enabled: root.rules !== null
+        function onStateChanged() {
+            if (!root.shoot)
+                return
+            if (!root.rules.loaded)
+                root.shoot.reset()
+            else if (root.shoot.hasRun && !root.rules.busy)
+                root.shoot.run(app.currentRoomId)
+        }
+        function onWriteFailed() {
+            if (root.shoot && root.shoot.hasRun)
+                root.shoot.run(app.currentRoomId)
+        }
+    }
+
     onVisibleChanged: if (visible && root.rules) root.rules.refresh()
     Component.onCompleted: if (root.rules) root.rules.refresh()
 
@@ -83,16 +108,26 @@ ColumnLayout {
     }
 
     Label {
+        objectName: "pushRulesLoading"
+        visible: root.supported && !root.ready
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
+        color: AppTheme.stormTextMuted
+        font.pixelSize: AppTheme.textMeta
+        text: qsTr("Loading your account's notification rules…")
+    }
+
+    Label {
         text: qsTr("Account notification rules")
         color: AppTheme.stormText
         font.pixelSize: AppTheme.textTitle
         font.weight: AppTheme.weightStrong
         Layout.topMargin: AppTheme.spacing8
-        visible: root.supported
+        visible: root.ready
     }
 
     RulesCard {
-        visible: root.supported
+        visible: root.ready
         ColumnLayout {
             width: parent.width
             spacing: AppTheme.spacing12
@@ -148,10 +183,10 @@ ColumnLayout {
         font.pixelSize: AppTheme.textTitle
         font.weight: AppTheme.weightStrong
         Layout.topMargin: AppTheme.spacing8
-        visible: root.supported
+        visible: root.ready
     }
     RulesCard {
-        visible: root.supported
+        visible: root.ready
         ColumnLayout {
             width: parent.width
             spacing: AppTheme.spacing8
@@ -192,10 +227,10 @@ ColumnLayout {
         font.pixelSize: AppTheme.textTitle
         font.weight: AppTheme.weightStrong
         Layout.topMargin: AppTheme.spacing8
-        visible: root.supported
+        visible: root.ready
     }
     RulesCard {
-        visible: root.supported
+        visible: root.ready
         ColumnLayout {
             width: parent.width
             spacing: AppTheme.spacing8
@@ -242,10 +277,10 @@ ColumnLayout {
         font.pixelSize: AppTheme.textTitle
         font.weight: AppTheme.weightStrong
         Layout.topMargin: AppTheme.spacing8
-        visible: root.supported
+        visible: root.ready
     }
     RulesCard {
-        visible: root.supported
+        visible: root.ready
         ColumnLayout {
             width: parent.width
             spacing: AppTheme.spacing8
@@ -331,13 +366,13 @@ ColumnLayout {
         font.pixelSize: AppTheme.textTitle
         font.weight: AppTheme.weightStrong
         Layout.topMargin: AppTheme.spacing8
-        visible: root.supported
+        visible: root.ready
               && (root.rules.eventReactions >= 0
                   || root.rules.eventInvites >= 0
                   || root.rules.eventNotices >= 0)
     }
     RulesCard {
-        visible: root.supported
+        visible: root.ready
               && (root.rules.eventReactions >= 0
                   || root.rules.eventInvites >= 0
                   || root.rules.eventNotices >= 0)
@@ -351,6 +386,13 @@ ColumnLayout {
                 options: [qsTr("Off"), qsTr("Notify")]
                 level: root.rules.eventReactions
                 onPicked: (i) => root.rules.setEventRule("reactions", i)
+            }
+            Hint {
+                objectName: "pushReactionsNote"
+                visible: root.rules.eventReactions >= 0
+                text: qsTr("This is saved to your account for your other "
+                           + "devices and clients. Lightning does not show "
+                           + "desktop notifications for reactions.")
             }
             LevelRow {
                 visible: root.rules.eventInvites >= 0
@@ -455,11 +497,15 @@ ColumnLayout {
                             text: checkRow.modelData.fix === "enableApp"
                                   ? qsTr("Turn on") : qsTr("Unmute")
                             onClicked: {
-                                if (checkRow.modelData.fix === "enableApp")
+                                if (checkRow.modelData.fix === "enableApp") {
                                     app.settings.notificationsEnabled = true
-                                else
+                                    root.shoot.run(app.currentRoomId)
+                                } else {
+                                    // Re-checked by the Connections above once
+                                    // the write has settled, so a refusal is
+                                    // not read as the account being unmuted.
                                     root.rules.setMasterMute(false)
-                                root.shoot.run(app.currentRoomId)
+                                }
                             }
                         }
                     }

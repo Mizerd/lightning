@@ -1179,16 +1179,13 @@ Item {
             anchors.leftMargin: root.avatarGutterWidth
             anchors.rightMargin: AppTheme.spacingS
             spacing: AppTheme.spacingM
-            // Receipt tracking revives the SDK's ReadMarker row, and while
-            // pinned to the bottom the own-receipt ack cycle would insert and
-            // remove it above every incoming message. Render only when the
-            // reader is not following the bottom. Hosts without a timeline view
-            // keep it visible.
-            readonly property bool suppressedWhilePinned:
-                root.timelineView
-                && root.timelineView.stickToBottom === true
+            // Shown for the whole visit, pinned or not: the SDK places the
+            // ReadMarker row from m.fully_read, which Lightning advances only
+            // when the reader LEAVES the room (ReadReceiptCoordinator), so an
+            // ordinary receipt no longer inserts and removes it above every
+            // incoming message. Hiding it while pinned lost the reader's place
+            // in a room opened at the bottom.
             visible: root.isVirtualRow && model.eventType === 8
-                     && !suppressedWhilePinned
             // unreadBadge, the same "unread" semantic as the numeric badges;
             // falls back to accent on legacy themes.
             Rectangle {

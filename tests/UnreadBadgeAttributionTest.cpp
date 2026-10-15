@@ -230,6 +230,8 @@ private slots:
     void aRoomInTwoSpacesIsCountedOnceByTheirFolder();
     void directMessagesCountLikeMentionsUnlessMuted();
     void aMentionsOnlyDirectMessageCountsOnlyItsRealMentions();
+    void aThreadOnlyDirectMessageShowsNoNumberAnywhereOnTheRail();
+    void theRailRevealFollowsMuteAndMarkedUnread();
 
 private:
     QTemporaryDir m_dir;
@@ -620,6 +622,60 @@ void UnreadBadgeAttributionTest::aMentionsOnlyDirectMessageCountsOnlyItsRealMent
     // Channels' Home lists the DMs too.
     QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3 + 1);
     m_settings->setRoomNotificationMode(quietDm, 0);
+}
+
+// CLAUDE.md section 8: the server count of a room unread only in threads is
+// thread events. The DM max() rule must not turn it into a "mention" number,
+// and the rollups must not add it; the tile still lights.
+void UnreadBadgeAttributionTest::aThreadOnlyDirectMessageShowsNoNumberAnywhereOnTheRail()
+{
+    QList<RoomInfo> rooms = workspace(0, 0, /*dm*/ 5);
+    rooms[3].unreadThreadsOnly = true;
+    load(rooms, /*channels*/ true);
+
+    QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 0);
+    QCOMPARE(railUnread(*m_rail).value(SpaceManager::peopleId()), 0);
+    QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 0);
+    QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
+}
+
+// The inline room reveal under an expanded Space reads the same rule as the
+// Space tile: a muted mention paints nothing, a marked-unread room paints a
+// dot, a thread-only room carries no number.
+void UnreadBadgeAttributionTest::theRailRevealFollowsMuteAndMarkedUnread()
+{
+    const QString muted = QStringLiteral("!muted:x");
+    const QString marked = QStringLiteral("!marked:x");
+    const QString threads = QStringLiteral("!threads:x");
+    QList<RoomInfo> rooms{
+        spaceRoom(kWork, QStringLiteral("Work"), { muted, marked, threads }),
+        room(muted, QStringLiteral("muted"), 2, 1),
+        room(marked, QStringLiteral("marked")),
+        room(threads, QStringLiteral("threads"), 6),
+    };
+    rooms[1].hasUnreadMessages = true;
+    rooms[2].markedUnread = true;
+    rooms[3].unreadThreadsOnly = true;
+    m_settings->setRoomNotificationMode(muted, 2);
+    load(rooms, /*channels*/ true);
+    // As AppController wires it; load() leaves SpaceManager on All messages.
+    m_spaces->setNotificationModeSource([this](const QString &id) {
+        return m_settings->roomNotificationMode(id);
+    });
+
+    QHash<QString, QVariantMap> byId;
+    for (const QVariant &v : m_spaces->directChildRoomsDetailed(kWork)) {
+        const QVariantMap row = v.toMap();
+        byId.insert(row.value(QStringLiteral("roomId")).toString(), row);
+    }
+    QCOMPARE(byId.size(), 3);
+    QVERIFY(!byId.value(muted).value(QStringLiteral("hasUnread")).toBool());
+    QCOMPARE(byId.value(muted).value(QStringLiteral("highlightCount")).toInt(), 0);
+    QCOMPARE(byId.value(muted).value(QStringLiteral("unreadCount")).toInt(), 0);
+    QVERIFY(byId.value(marked).value(QStringLiteral("hasUnread")).toBool());
+    QVERIFY(byId.value(threads).value(QStringLiteral("hasUnread")).toBool());
+    QCOMPARE(byId.value(threads).value(QStringLiteral("unreadCount")).toInt(), 0);
+    m_settings->setRoomNotificationMode(muted, 0);
 }
 
 QTEST_MAIN(UnreadBadgeAttributionTest)

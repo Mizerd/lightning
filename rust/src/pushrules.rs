@@ -10,9 +10,11 @@
 //!
 //! Reading and writing are separate: `summarize` turns a `Ruleset` into the
 //! snapshot C++ renders, and `plan` turns one UI command into steps. Both are
-//! pure so tests need no server. A snapshot is fetched from the server after
-//! every write (`Account::push_rules`), because the SDK's cached rule set only
-//! catches up with a local write on the next sync.
+//! pure so tests need no server. A snapshot is read after every write with
+//! `Account::push_rules`, but that reads the LOCAL account-data store, not the
+//! server: it only catches up with a write when the next sync delivers it
+//! (which also raises `push_rules_changed`). The C++ side therefore keeps the
+//! user's choice on screen until a snapshot reflects it.
 //!
 //! Only rule ids, keywords the user typed and booleans cross the FFI. Keywords
 //! are never logged.
@@ -22,7 +24,7 @@ use std::sync::Arc;
 use matrix_sdk::{
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     ruma::{
-        api::client::push::set_pushrule_actions,
+        api::client::push::{delete_pushrule, set_pushrule_actions},
         push::{
             Action, ConditionalPushRule, HighlightTweakValue, PatternedPushRule,
             PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
@@ -313,6 +315,9 @@ pub(crate) enum Step {
     DefaultMode { one_to_one: bool, all_messages: bool },
     AddKeyword(String),
     RemoveKeyword(String),
+    /// Delete one content rule by its exact rule id; used for keywords another
+    /// client created that `clean_keyword` would refuse.
+    DeleteContentRule(String),
 }
 
 /// Why a command cannot be applied; sent to C++ as a category.
@@ -451,8 +456,24 @@ pub(crate) fn plan(
         },
         "keyword_set" => {
             // Add the keyword if it is new, then set its level.
-            let keyword = clean_keyword(key)?;
             let level = Level::parse(value).ok_or(PlanError::Invalid)?;
+            // A keyword that already exists is addressed by its exact pattern,
+            // so one another client wrote (a slash, a leading dot, padding)
+            // can still be re-levelled. Only a NEW keyword must be clean.
+            let exact: Vec<String> = rules
+                .content
+                .iter()
+                .filter(|rule| !rule.default && rule.pattern == key)
+                .map(|rule| rule.rule_id.clone())
+                .collect();
+            if !exact.is_empty() {
+                let mut steps = Vec::new();
+                for id in exact {
+                    steps.extend(set_level(RuleKind::Content, id, level));
+                }
+                return Ok(steps);
+            }
+            let keyword = clean_keyword(key)?;
             let existing: Vec<String> = rules
                 .content
                 .iter()
@@ -473,6 +494,15 @@ pub(crate) fn plan(
             Ok(steps)
         }
         "keyword_remove" => {
+            let exact: Vec<String> = rules
+                .content
+                .iter()
+                .filter(|rule| !rule.default && rule.pattern == key)
+                .map(|rule| rule.rule_id.clone())
+                .collect();
+            if !exact.is_empty() {
+                return Ok(exact.into_iter().map(Step::DeleteContentRule).collect());
+            }
             let keyword = clean_keyword(key)?;
             Ok(vec![Step::RemoveKeyword(keyword)])
         }
@@ -517,6 +547,11 @@ async fn run_step(
         Step::RemoveKeyword(keyword) => {
             settings.remove_keyword(&keyword).await.map_err(|e| e.to_string())
         }
+        Step::DeleteContentRule(id) => client
+            .send(delete_pushrule::v3::Request::new(RuleKind::Content, id))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
     }
 }
 
@@ -588,7 +623,8 @@ pub(crate) fn write_rule(
                 "category": category,
             }));
         };
-        // Plan against the server's rules, not the SDK's cache.
+        // Plan against the account's rules as last synced (a local store read,
+        // not a server request).
         let rules = match client.account().push_rules().await {
             Ok(rules) => rules,
             Err(err) => {
@@ -817,6 +853,31 @@ mod tests {
             }
             other => panic!("unexpected steps {other:?}"),
         }
+    }
+
+    // A keyword another client created that clean_keyword() would refuse must
+    // still be removable and re-levelled, by its exact pattern and rule id.
+    #[test]
+    fn a_foreign_keyword_the_validator_refuses_can_still_be_changed() {
+        let mut with = rules();
+        with.content.insert(PatternedPushRule::from(PatternedPushRuleInit {
+            actions: loud(),
+            default: false,
+            enabled: true,
+            rule_id: "team-alert".into(),
+            pattern: "a/b".into(),
+        }));
+        // Adding the same text fresh is still refused...
+        assert_eq!(
+            plan(&rules(), "keyword_set", "a/b", "off").unwrap_err(),
+            PlanError::Invalid
+        );
+        // ...but the existing rule is addressed by its id.
+        let steps = plan(&with, "keyword_set", "a/b", "off").unwrap();
+        assert!(matches!(&steps[0],
+            Step::Enabled { kind: RuleKind::Content, id, enabled: false } if id == "team-alert"));
+        let steps = plan(&with, "keyword_remove", "a/b", "").unwrap();
+        assert!(matches!(&steps[0], Step::DeleteContentRule(id) if id == "team-alert"));
     }
 
     #[test]

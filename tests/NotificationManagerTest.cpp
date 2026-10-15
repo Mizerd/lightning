@@ -52,6 +52,23 @@ NotificationManager::Context baseContext()
     context.notificationsEnabled = true;
     return context;
 }
+
+// A name as a card shows it: first-strong isolated (FSI ... PDI), so its own
+// direction cannot reorder the sentence around it.
+QString iso(const QString &name)
+{
+    return QChar(0x2068) + name + QChar(0x2069);
+}
+
+QVariantMap messagePayload(const QString &room, const QString &eventId,
+                           const QString &threadRootId = QString(),
+                           const QString &account = QString())
+{
+    return QVariantMap{ { QStringLiteral("roomId"), room },
+                        { QStringLiteral("eventId"), eventId },
+                        { QStringLiteral("threadRootId"), threadRootId },
+                        { QStringLiteral("accountUserId"), account } };
+}
 } // namespace
 
 class NotificationManagerTest : public QObject
@@ -82,12 +99,45 @@ private Q_SLOTS:
     void theSystemDefaultSourcePlaysNoChimeOfOurs();
     void aTrayBalloonAllowsThePlatformSoundOnlyWhenSystemDefaultWasChosen();
     void aCallBalloonIsSilentWhileLightningRings();
+    // 2026-10-15 notification sweep (package P6). Each names its finding.
+    void anActionOnACardFromBeforeSignOutReachesTheRefusal();
+    void anActionOnACardThisSessionNeverRaisedIsLeftAlone();
+    void theReadWalkSparesThreadRepliesAndNotices();
+    void anUncheckedRoomMentionIsNotAMention();
+    void everyMessageCardIsNormalUrgency();
+    void theDesktopsDoNotDisturbSilencesTheChime();
+    void aChimeThatCannotPlayFallsBackToTheDesktopsSound();
+    void theCallPolicyHoldsForTheDesktopsSoundToo();
+    void aMentionBreaksThroughAnOrdinaryBurst();
+    void theRulesSoundTweakDecidesTheDefaultSoundMode();
+    void aPathThatCannotSoundPlaysOursForSystemDefault();
+    void aGenericNoticeCanSound();
+    void anUndecryptableMessageWaitsBrieflyForItsKey();
+    void aMentionThatArrivesUndecryptableStillNotifies();
+    void aLateDecryptionNeverRaisesASecondBalloon();
+    void aDecryptionOfHistoryRaisesNothing();
+    void aRoomOpensHistoryNeverNotifiesWhenItDecrypts();
+    void aRedactedMessageNeitherNotifiesNorStays();
+    void withoutRulesEditsAndNoticesStayQuiet();
+    void anEmoteNamesItsActor();
+    void aSpoilerStaysHidden();
+    void namesAreIsolatedInTheSentence();
+    void aRoomsSecondMessageUpdatesItsCard();
+    void theSnapIdentityIsOneTheHostCanResolve();
+    void aClickHandsTheActivationTokenToTheWindow();
+    void theSilentCallCardSuppressesTheDesktopsSound();
+    void theSameCallIsNeverBalloonedTwice();
+    void dismissingTheCallCardStopsTheRinger();
+    void anExpiredCallCardIsKeptForWithdrawal();
+    void aMissedCallSurvivesTheReadWalk();
+    void twoRoomsOfBalloonsOpenNeitherByGuess();
+    void aDeliveredMessageAsksForAttention();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
             NotificationManager::decide(incomingText(), baseContext());
         QVERIFY(decision.notify);
-        QCOMPARE(decision.title, QStringLiteral("Lightning Dev"));
+        QCOMPARE(decision.title, iso(QStringLiteral("Lightning Dev")));
         // Sender only: sender and room, but never the message body.
         QVERIFY(decision.body.contains(QStringLiteral("Bob")));
         QVERIFY(!decision.body.contains(QStringLiteral("hello")));
@@ -107,7 +157,7 @@ private Q_SLOTS:
         // Direct rooms title with the sender alone.
         context.roomIsDirect = true;
         const auto dm = NotificationManager::decide(incomingText(), context);
-        QCOMPARE(dm.title, QStringLiteral("Bob"));
+        QCOMPARE(dm.title, iso(QStringLiteral("Bob")));
     }
 
     void pollAndMultilineBodiesStayOneLine()
@@ -176,9 +226,15 @@ private Q_SLOTS:
         QVERIFY(decision.notify);
         QVERIFY(decision.body.contains(QStringLiteral("mentioned")));
 
-        // Room-wide mention also passes MentionsOnly.
+        // m.mentions.room alone does not: without the account's rules nothing
+        // here checks the sender's @room power level (finding 47).
         TimelineEvent roomMention = incomingText();
         roomMention.mentionsRoom = true;
+        QVERIFY2(!NotificationManager::decide(roomMention, context).notify,
+                 "an unchecked m.mentions.room passed a mentions-only room");
+        // The rules' highlight is what admits an @room the sender may use.
+        roomMention.pushVerdict = TimelineEvent::PushVerdict::Notify;
+        roomMention.pushHighlight = true;
         QVERIFY(NotificationManager::decide(roomMention, context).notify);
     }
 
@@ -237,8 +293,10 @@ private Q_SLOTS:
                      .notify);
     }
 
-    // A highlight is a mention for sound: keywords and mentions without
-    // m.mentions sound like one.
+    // A highlight is a mention: keywords and mentions without m.mentions get
+    // the mention chime. Whether a sound plays at all follows the rule's
+    // sound tweak (findings 48/105), as the default rules give every
+    // highlight one.
     void aHighlightSoundsLikeAMention()
     {
         using Verdict = TimelineEvent::PushVerdict;
@@ -248,10 +306,13 @@ private Q_SLOTS:
             withVerdict(incomingText(), Verdict::Notify), context);
         QVERIFY(plain.notify);
         QVERIFY(!plain.playSound);
-        const auto highlighted = NotificationManager::decide(
-            withVerdict(incomingText(), Verdict::Notify, true), context);
+        QVERIFY(!plain.mention);
+        TimelineEvent loud = withVerdict(incomingText(), Verdict::Notify, true);
+        loud.pushSound = true;
+        const auto highlighted = NotificationManager::decide(loud, context);
         QVERIFY(highlighted.notify);
         QVERIFY(highlighted.playSound);
+        QVERIFY(highlighted.mention);
     }
 
     // A local mute applies at once, before the server echoes the rule, and a
@@ -648,12 +709,14 @@ private Q_SLOTS:
                                                          .arg(id)));
         QCOMPARE(manager.pendingPayloadCountForTest(), 64);
 
-        // The two oldest (ids 1, 2) were evicted: clicking them routes
-        // nowhere.
+        // The two oldest (ids 1, 2) were evicted, and withdrawn with it. A
+        // click on one a daemon still shows raises the window but names no
+        // room (finding 24): its room is no longer known.
         QMetaObject::invokeMethod(&manager, "onActionInvoked",
                                   Q_ARG(quint32, 1u),
                                   Q_ARG(QString, QStringLiteral("default")));
-        QCOMPARE(spy.count(), 0);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.takeFirst().at(0).toString().isEmpty());
 
         // A recent notification (id 66) still routes to its room.
         QMetaObject::invokeMethod(&manager, "onActionInvoked",
@@ -1304,9 +1367,12 @@ void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
     QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!tray:x"));
     QCOMPARE(opened.at(0).at(1).toString(), QStringLiteral("$t:example.org"));
     QCOMPARE(opened.at(0).at(2).toString(), QStringLiteral("$root:example.org"));
-    // The balloon is consumed: a second click opens nothing.
+    // The balloon is consumed: a second click names no room, but still brings
+    // the window forward (finding 35: a click that did nothing at all read as
+    // a broken notification).
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(opened.count(), 1);
+    QCOMPARE(opened.count(), 2);
+    QVERIFY(opened.at(1).at(0).toString().isEmpty());
 }
 
 // clearPending() (sign-out / account switch) also forgets the tray balloon's
@@ -1326,7 +1392,9 @@ void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
     manager.clearPending();
 
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QVERIFY2(opened.isEmpty(),
+    // The click raises the window, and names no room.
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.first().at(0).toString().isEmpty(),
              "a tray balloon raised for the previous account still opened its "
              "room after clearPending(): the sign-out sweep does not forget "
              "the balloon's click payload");
@@ -1480,11 +1548,14 @@ void NotificationManagerTest::aNotificationWithNoRoomStillBringsTheWindowForward
     QVERIFY2(opened.at(0).at(0).toString().isEmpty(),
              "a roomless notification invented a room to open");
 
-    // An empty payload (what sign-out leaves) is still refused.
+    // An empty payload (what sign-out leaves) raises the window and routes
+    // nowhere.
     QSignalSpy afterClear(&manager, &NotificationManager::openRequested);
     manager.clearPending();
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(afterClear.count(), 0);
+    QCOMPARE(afterClear.count(), 1);
+    QVERIFY(afterClear.first().at(0).toString().isEmpty());
+    QVERIFY(afterClear.first().at(1).toString().isEmpty());
 }
 
 // Every slot these cases invoke by name still exists: invokeMethod's return is
@@ -1499,6 +1570,7 @@ void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
         QByteArrayLiteral("onNotificationReplied"),
         QByteArrayLiteral("onFallbackMessageClicked"),
         QByteArrayLiteral("onCallRingTick"),
+        QByteArrayLiteral("onActivationToken"),
     };
     for (const QByteArray &name : names) {
         bool found = false;
@@ -1623,6 +1695,10 @@ void NotificationManagerTest::aMentionPlaysTheMentionChime()
 void NotificationManagerTest::theSystemDefaultSourcePlaysNoChimeOfOurs()
 {
     NotificationManager manager;
+    // A delivery that can make the desktop's sound (the daemon, a Windows
+    // balloon); see aPathThatCannotSoundPlaysOursForSystemDefault for the
+    // others.
+    manager.setTrayCarriesSoundForTest(true);
     int played = 0;
     manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
     manager.setSoundSource(NotificationManager::SourceSystem);
@@ -1633,6 +1709,7 @@ void NotificationManagerTest::theSystemDefaultSourcePlaysNoChimeOfOurs()
     // And back: the setting is live (a fresh manager, since the first
     // delivery opened the burst window).
     NotificationManager other;
+    other.setTrayCarriesSoundForTest(true);
     other.setOwnSoundPlayer([&played](bool) { ++played; return true; });
     other.setSoundSource(NotificationManager::SourceSystem);
     other.setSoundSource(NotificationManager::SourceLightning);
@@ -1678,6 +1755,8 @@ void NotificationManagerTest::
     };
     for (const Row &row : rows) {
         NotificationManager manager;
+        // Windows' balloon, which can carry the platform's sound.
+        manager.setTrayCarriesSoundForTest(true);
         int chimes = 0;
         manager.setOwnSoundPlayer([&chimes](bool) { ++chimes; return true; });
         manager.setSoundSource(row.source);
@@ -1708,6 +1787,7 @@ void NotificationManagerTest::
     // A burst coalesces into one alert for the platform's sound too: the
     // second balloon inside the window is silent.
     NotificationManager burst;
+    burst.setTrayCarriesSoundForTest(true);
     burst.setSoundSource(M::SourceSystem);
     NotificationManager::Context context = baseContext();
     context.soundMode = M::SoundAll;
@@ -1745,6 +1825,819 @@ void NotificationManagerTest::aCallBalloonIsSilentWhileLightningRings()
     QCOMPARE(desktop.trayAttemptsForTest(), 1);
     QVERIFY(desktop.lastTrayPlatformSoundForTest());
     desktop.stopIncomingCall(QStringLiteral("call-2"));
+}
+
+// ── 2026-10-15 notification sweep (P6) ─────────────────────────────────────
+// Each case names the finding it pins, and fails on the code before it.
+
+// Findings 20/118: after a sign-out or switch the card's payload was simply
+// gone, so a reply typed into it vanished and the app's "that notification
+// was for a different account" refusal could never run.
+void NotificationManagerTest::anActionOnACardFromBeforeSignOutReachesTheRefusal()
+{
+    const QString room = QStringLiteral("!room:example.org");
+    const QString ann = QStringLiteral("@ann:example.org");
+    NotificationManager manager;
+    manager.setAccountUserId(ann);
+    manager.recordPayloadForTest(
+        11, messagePayload(room, QStringLiteral("$a:x"), QString(), ann));
+    manager.recordPayloadForTest(
+        12, messagePayload(room, QStringLiteral("$b:x"), QString(), ann));
+    manager.clearPending();
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    manager.setAccountUserId(QStringLiteral("@bea:example.org"));
+
+    QSignalSpy replies(&manager, &NotificationManager::replyRequested);
+    QSignalSpy reads(&manager, &NotificationManager::markReadRequested);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                                      Q_ARG(quint32, 11u),
+                                      Q_ARG(QString, QStringLiteral("on my way"))));
+    QVERIFY2(replies.count() == 1,
+             "a reply typed into the previous account's card vanished "
+             "without the different-account refusal");
+    // The account it was raised for, and no room: the app refuses on the
+    // account before it ever looks for one.
+    QCOMPARE(replies.first().at(0).toString(), ann);
+    QVERIFY(replies.first().at(1).toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 12u),
+                                      Q_ARG(QString, QStringLiteral("mark-read"))));
+    QCOMPARE(reads.count(), 1);
+    QCOMPARE(reads.first().at(0).toString(), ann);
+
+    // The same account signed back in: no room left to route to, and not a
+    // different account either, so this class says nothing was sent.
+    manager.setAccountUserId(ann);
+    manager.recordPayloadForTest(
+        13, messagePayload(room, QStringLiteral("$c:x"), QString(), ann));
+    manager.clearPending();
+    const int notices = manager.genericNoticeCountForTest();
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                                      Q_ARG(quint32, 13u),
+                                      Q_ARG(QString, QStringLiteral("hello"))));
+    QCOMPARE(replies.count(), 1);
+    QCOMPARE(manager.genericNoticeCountForTest(), notices + 1);
+}
+
+// The daemon's signals can reach every client on the bus, so an id this
+// session never raised may be another application's card: left alone.
+void NotificationManagerTest::anActionOnACardThisSessionNeverRaisedIsLeftAlone()
+{
+    NotificationManager manager;
+    QSignalSpy replies(&manager, &NotificationManager::replyRequested);
+    QSignalSpy reads(&manager, &NotificationManager::markReadRequested);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                                      Q_ARG(quint32, 99u),
+                                      Q_ARG(QString, QStringLiteral("hi"))));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 99u),
+                                      Q_ARG(QString, QStringLiteral("mark-read"))));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 99u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QCOMPARE(replies.count(), 0);
+    QCOMPARE(reads.count(), 0);
+    QCOMPARE(opened.count(), 0);
+    QCOMPARE(manager.genericNoticeCountForTest(), 0);
+}
+
+// Findings 71/128: matrix-sdk with threading support never counts a thread
+// reply in the room's unread fields, so the walk read "not unread" as read
+// and withdrew a thread card about 5 s after it appeared.
+void NotificationManagerTest::theReadWalkSparesThreadRepliesAndNotices()
+{
+    const QString room = QStringLiteral("!room:example.org");
+    const QString root = QStringLiteral("$root:example.org");
+    NotificationManager manager;
+    manager.recordPayloadForTest(
+        1, messagePayload(room, QStringLiteral("$reply:x"), root));
+    manager.recordPayloadForTest(
+        2, messagePayload(room, QStringLiteral("$plain:x")));
+    // Nothing awaited: the walk's "read" is believed at once.
+    manager.observeRoomUnread(room, false);
+    QVERIFY2(manager.pendingPayloadCountForTest() == 1,
+             "the room list's read state withdrew a thread reply's card");
+    // Reading the thread withdraws it; so does reading the room explicitly.
+    manager.closeThreadNotifications(room, QStringLiteral("$other:x"));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    manager.closeThreadNotifications(room, root);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    manager.recordPayloadForTest(
+        3, messagePayload(room, QStringLiteral("$reply2:x"), root));
+    manager.closeRoomNotifications(room);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// Finding 47: m.mentions.room is the sender's claim. With the rules known
+// only their highlight (which checks the @room power level and the user's
+// own Off) makes a mention, its chime and, before, critical urgency.
+void NotificationManagerTest::anUncheckedRoomMentionIsNotAMention()
+{
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundMentionsAndDirect;
+    TimelineEvent event = withVerdict(incomingText(),
+                                      TimelineEvent::PushVerdict::Notify);
+    event.mentionsRoom = true;
+    const auto decision = NotificationManager::decide(event, context);
+    QVERIFY(decision.notify);
+    QVERIFY2(!decision.mention, "m.mentions.room overrode the rules' verdict");
+    QVERIFY2(!decision.playSound,
+             "an @room from a member without the power to use it chimed");
+
+    // And the card it raises plays the ordinary chime, not the mention one.
+    NotificationManager manager;
+    QList<bool> played;
+    manager.setOwnSoundPlayer([&played](bool mention) {
+        played.append(mention);
+        return true;
+    });
+    context.soundMode = NotificationManager::SoundAll;
+    manager.processEvent(event, context);
+    QCOMPARE(played, QList<bool>{ false });
+}
+
+// Findings 22/149: a mention was sent critical, which GNOME and KDE let
+// through Do Not Disturb and never expire. The composition is pure now.
+void NotificationManagerTest::everyMessageCardIsNormalUrgency()
+{
+    using M = NotificationManager;
+    const M::CardShape full = M::messageCardShape(true, true);
+    QCOMPARE(full.actions,
+             (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                           QStringLiteral("mark-read"),
+                           QObject::tr("Mark as read"),
+                           QStringLiteral("inline-reply"),
+                           QObject::tr("Reply") }));
+    QVERIFY(full.inlineReply);
+    const M::CardShape noReply = M::messageCardShape(true, false);
+    QCOMPARE(noReply.actions,
+             (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                           QStringLiteral("mark-read"),
+                           QObject::tr("Mark as read") }));
+    QVERIFY(!noReply.inlineReply);
+    // A notice has no event to read or reply to, whatever the daemon offers.
+    const M::CardShape notice = M::messageCardShape(false, true);
+    QCOMPARE(notice.actions,
+             (QStringList{ QStringLiteral("default"), QObject::tr("Open") }));
+    QVERIFY(!notice.inlineReply);
+    int shapes = 0;
+    for (bool actionable : { true, false }) {
+        for (bool reply : { true, false }) {
+            QCOMPARE(int(M::messageCardShape(actionable, reply).urgency), 1);
+            ++shapes;
+        }
+    }
+    QCOMPARE(shapes, 4);
+}
+
+// Findings 23/104: Lightning's chime (the default source) played straight
+// through the desktop's Do Not Disturb.
+void NotificationManagerTest::theDesktopsDoNotDisturbSilencesTheChime()
+{
+    NotificationManager manager;
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    manager.setDesktopInhibitedForTest(true);
+    QVERIFY(manager.desktopInhibited());
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 1); // the card itself still goes
+    QVERIFY2(played == 0, "the chime played under Do Not Disturb");
+    QVERIFY(!manager.lastTrayPlatformSoundForTest());
+    manager.setDesktopInhibitedForTest(false);
+    TimelineEvent next = incomingText(QStringLiteral("later"));
+    next.roomId = QStringLiteral("!later:example.org");
+    manager.processEvent(next, context);
+    QCOMPARE(played, 1);
+}
+
+// Finding 106: a chime that could not play (sounds not loaded, a wedged
+// sound server) left every notification silent while the desktop's own
+// sound stayed suppressed.
+void NotificationManagerTest::aChimeThatCannotPlayFallsBackToTheDesktopsSound()
+{
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+
+    NotificationManager manager;
+    manager.setTrayCarriesSoundForTest(true);
+    manager.setSoundAllowedCheck([] { return true; });
+    int asked = 0;
+    manager.setOwnSoundPlayer([&asked](bool) { ++asked; return false; });
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(asked, 1); // asked first
+    QVERIFY2(manager.lastTrayPlatformSoundForTest(),
+             "the chime failed and the desktop's sound stayed suppressed");
+
+    // Without the call policy installed the player's refusal may BE the
+    // policy (in a call): no fallback then.
+    NotificationManager bare;
+    bare.setTrayCarriesSoundForTest(true);
+    bare.setOwnSoundPlayer([](bool) { return false; });
+    bare.processEvent(incomingText(), context);
+    QVERIFY(!bare.lastTrayPlatformSoundForTest());
+}
+
+// Finding 102: "System default" ignored the call state, so the desktop's
+// sound played into a call (and into a share capturing the output mix).
+void NotificationManagerTest::theCallPolicyHoldsForTheDesktopsSoundToo()
+{
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    NotificationManager manager;
+    manager.setTrayCarriesSoundForTest(true);
+    manager.setSoundSource(NotificationManager::SourceSystem);
+    bool callQuiet = true;
+    manager.setSoundAllowedCheck([&callQuiet] { return !callQuiet; });
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    manager.processEvent(incomingText(), context);
+    QVERIFY2(!manager.lastTrayPlatformSoundForTest(),
+             "the desktop's sound played during a call");
+    QCOMPARE(played, 0);
+    callQuiet = false;
+    TimelineEvent next = incomingText(QStringLiteral("after"));
+    next.roomId = QStringLiteral("!after:example.org");
+    manager.processEvent(next, context);
+    QVERIFY(manager.lastTrayPlatformSoundForTest());
+}
+
+// Finding 111: a mention within 1.5 s of an ordinary chime was silent.
+void NotificationManagerTest::aMentionBreaksThroughAnOrdinaryBurst()
+{
+    NotificationManager manager;
+    QList<bool> played;
+    manager.setOwnSoundPlayer([&played](bool mention) {
+        played.append(mention);
+        return true;
+    });
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    manager.processEvent(incomingText(), context);
+    TimelineEvent mention = incomingText(QStringLiteral("@alice look"));
+    mention.roomId = QStringLiteral("!other:example.org");
+    mention.mentionsMe = true;
+    manager.processEvent(mention, context);
+    QCOMPARE(played, (QList<bool>{ false, true }));
+    // A second mention inside the window is one alert with the first.
+    TimelineEvent again = mention;
+    again.roomId = QStringLiteral("!third:example.org");
+    manager.processEvent(again, context);
+    QCOMPARE(played.size(), 2);
+}
+
+// Findings 48/105: "Loud" and "Notify" on the rules page (the sound tweak)
+// changed nothing about Lightning's own sound.
+void NotificationManagerTest::theRulesSoundTweakDecidesTheDefaultSoundMode()
+{
+    using Verdict = TimelineEvent::PushVerdict;
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundMentionsAndDirect;
+    TimelineEvent loudKeyword = withVerdict(incomingText(), Verdict::Notify);
+    loudKeyword.pushSound = true;
+    QVERIFY2(NotificationManager::decide(loudKeyword, context).playSound,
+             "a keyword set to Loud stayed silent");
+    TimelineEvent quietName = withVerdict(incomingText(), Verdict::Notify, true);
+    quietName.pushSound = false;
+    QVERIFY2(!NotificationManager::decide(quietName, context).playSound,
+             "the display-name rule set to Notify still chimed");
+    auto dm = context;
+    dm.roomIsDirect = true;
+    QVERIFY(!NotificationManager::decide(
+                 withVerdict(incomingText(), Verdict::Notify), dm).playSound);
+    // This device's Off and All still override.
+    auto all = context;
+    all.soundMode = NotificationManager::SoundAll;
+    QVERIFY(NotificationManager::decide(quietName, all).playSound);
+    auto off = context;
+    off.soundMode = NotificationManager::SoundOff;
+    QVERIFY(!NotificationManager::decide(loudKeyword, off).playSound);
+    // Without the rules the old heuristic stands: mentions and DMs.
+    QVERIFY(NotificationManager::decide(incomingText(), dm).playSound);
+}
+
+// Findings 39/107: "System default" where the delivery cannot make the
+// desktop's sound (a macOS banner, a Linux tray balloon) was silence.
+void NotificationManagerTest::aPathThatCannotSoundPlaysOursForSystemDefault()
+{
+    NotificationManager manager;
+    manager.setTrayCarriesSoundForTest(false);
+    manager.setSoundSource(NotificationManager::SourceSystem);
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    auto context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    manager.processEvent(incomingText(), context);
+    QVERIFY2(played == 1,
+             "System default on a path without the desktop's sound was silent");
+    QVERIFY(!manager.lastTrayPlatformSoundForTest());
+}
+
+// Finding 108: showGeneric hard-coded silence, so an invitation (often a new
+// DM) never made a sound.
+void NotificationManagerTest::aGenericNoticeCanSound()
+{
+    NotificationManager manager;
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    manager.showGeneric(QStringLiteral("Room invitation"),
+                        QStringLiteral("You were invited"),
+                        QStringLiteral("!invite:example.org"), QString(),
+                        /*sound=*/false);
+    QCOMPARE(played, 0);
+    manager.showGeneric(QStringLiteral("Room invitation"),
+                        QStringLiteral("You were invited"),
+                        QStringLiteral("!invite2:example.org"), QString(),
+                        /*sound=*/true);
+    QCOMPARE(played, 1);
+}
+
+namespace {
+TimelineEvent undecryptable(const QString &eventId = QStringLiteral("$utd:x"))
+{
+    TimelineEvent event = incomingText(QStringLiteral("[unable to decrypt]"));
+    event.eventId = eventId;
+    event.isEncrypted = true;
+    event.undecryptable = true;
+    return event;
+}
+
+TimelineEvent decrypted(const QString &eventId = QStringLiteral("$utd:x"),
+                        const QString &body = QStringLiteral("the real text"))
+{
+    TimelineEvent event = incomingText(body);
+    event.eventId = eventId;
+    event.isEncrypted = true;
+    return event;
+}
+} // namespace
+
+// Findings 46/124/32: a message whose key arrived a moment late notified as
+// "Encrypted message" and was never looked at again.
+void NotificationManagerTest::anUndecryptableMessageWaitsBrieflyForItsKey()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    NotificationManager manager;
+    manager.processEvent(undecryptable(), context);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 1);
+    QCOMPARE(manager.trayAttemptsForTest(), 0);
+    manager.processDecrypted(decrypted(), context);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    QCOMPARE(manager.lastTrayBodyForTest(), QStringLiteral("the real text"));
+    // Never twice: a second report, or the same event appended again.
+    manager.processDecrypted(decrypted(), context);
+    manager.processEvent(undecryptable(), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+
+    // A key that never comes: the generic card after the bounded hold.
+    NotificationManager late;
+    late.setUndecryptableHoldMsForTest(30);
+    late.processEvent(undecryptable(QStringLiteral("$late:x")), context);
+    QCOMPARE(late.trayAttemptsForTest(), 0);
+    QTRY_COMPARE(late.trayAttemptsForTest(), 1);
+    QCOMPARE(late.lastTrayBodyForTest(),
+             QCoreApplication::translate("Notifications", "Encrypted message"));
+}
+
+// Finding 46: the verdict on ciphertext cannot see a mention, so in a
+// mentions-only room the mention never notified at all.
+void NotificationManagerTest::aMentionThatArrivesUndecryptableStillNotifies()
+{
+    using Verdict = TimelineEvent::PushVerdict;
+    auto context = baseContext();
+    context.roomMode = NotificationManager::MentionsOnly;
+    NotificationManager manager;
+    manager.processEvent(withVerdict(undecryptable(), Verdict::Quiet), context);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+    QCOMPARE(manager.trayAttemptsForTest(), 0);
+    TimelineEvent plain = withVerdict(decrypted(), Verdict::Notify, true);
+    plain.mentionsMe = true;
+    manager.processDecrypted(plain, context);
+    QVERIFY2(manager.trayAttemptsForTest() == 1,
+             "a mention that decrypted late never notified");
+}
+
+// A balloon cannot be replaced: once "Encrypted message" is out, the late
+// plaintext raises no second balloon (never double-notify).
+void NotificationManagerTest::aLateDecryptionNeverRaisesASecondBalloon()
+{
+    auto context = baseContext();
+    NotificationManager manager;
+    manager.setUndecryptableHoldMsForTest(0);
+    manager.processEvent(undecryptable(), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    manager.processDecrypted(decrypted(), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+}
+
+// A history backfill (key backup) decrypts old messages by the hundred; none
+// of them is news.
+void NotificationManagerTest::aDecryptionOfHistoryRaisesNothing()
+{
+    auto context = baseContext();
+    NotificationManager manager;
+    manager.processDecrypted(decrypted(QStringLiteral("$never-seen:x")),
+                             context);
+    TimelineEvent history = undecryptable(QStringLiteral("$old:x"));
+    history.backlog = true;
+    manager.processEvent(history, context);
+    manager.processDecrypted(decrypted(QStringLiteral("$old:x")), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 0);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+}
+
+// Review of P6: hydration delivers an opened room's recent history as LIVE
+// appends (backlog=false), and the room's backup download decrypts it a few
+// seconds later. Remembered as a live arrival, every old encrypted message on
+// the first screen raised a card and a sound once the user had scrolled up,
+// unfocused the window or left the room. Same for a message that arrived
+// while the room was on screen at the latest: it was read.
+void NotificationManagerTest::aRoomOpensHistoryNeverNotifiesWhenItDecrypts()
+{
+    auto later = baseContext();
+    later.roomHydrating = false;
+    later.roomVisibleAtLatest = false;
+
+    {
+        auto hydrating = baseContext();
+        hydrating.roomHydrating = true;
+        NotificationManager manager;
+        QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+        manager.processEvent(undecryptable(QStringLiteral("$hist:x")),
+                             hydrating);
+        QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+        manager.processDecrypted(decrypted(QStringLiteral("$hist:x")), later);
+        QVERIFY2(manager.trayAttemptsForTest() == 0,
+                 "history the room delivered while hydrating notified when "
+                 "its key arrived");
+        QCOMPARE(delivered.count(), 0);
+    }
+    {
+        auto onScreen = baseContext();
+        onScreen.roomVisibleAtLatest = true;
+        NotificationManager manager;
+        QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+        manager.processEvent(undecryptable(QStringLiteral("$read:x")),
+                             onScreen);
+        QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+        manager.processDecrypted(decrypted(QStringLiteral("$read:x")), later);
+        QVERIFY2(manager.trayAttemptsForTest() == 0,
+                 "a message that arrived on screen notified when its key "
+                 "arrived after the user left");
+        QCOMPARE(delivered.count(), 0);
+    }
+    {
+        // Control: a genuine live arrival in a room not on screen still
+        // decides on its plaintext, so the gate is not simply closed.
+        NotificationManager manager;
+        QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+        manager.processEvent(undecryptable(QStringLiteral("$live:x")), later);
+        QCOMPARE(manager.heldUndecryptableCountForTest(), 1);
+        manager.processDecrypted(decrypted(QStringLiteral("$live:x")), later);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+        QCOMPARE(delivered.count(), 1);
+    }
+}
+
+// Findings 50/32: a redacted message notified with an empty body, and its
+// card (with the text) stayed after the message was gone.
+void NotificationManagerTest::aRedactedMessageNeitherNotifiesNorStays()
+{
+    TimelineEvent redacted = incomingText();
+    redacted.redacted = true;
+    QVERIFY(!NotificationManager::decide(redacted, baseContext()).notify);
+
+    const QString room = QStringLiteral("!room:example.org");
+    NotificationManager manager;
+    manager.recordPayloadForTest(5, messagePayload(room, QStringLiteral("$gone:x")));
+    manager.recordPayloadForTest(6, messagePayload(room, QStringLiteral("$kept:x")));
+    manager.withdrawEvent(QStringLiteral("$gone:x"));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    // One still held for its key goes too, and never surfaces later.
+    manager.processEvent(undecryptable(QStringLiteral("$secret:x")),
+                         baseContext());
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 1);
+    manager.withdrawEvent(QStringLiteral("$secret:x"));
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+    manager.processDecrypted(decrypted(QStringLiteral("$secret:x")),
+                             baseContext());
+    QCOMPARE(manager.trayAttemptsForTest(), 0);
+}
+
+// Finding 52: without a verdict every edit notified again ("* fixed typo")
+// and every bot notice notified, against the spec's suppress rules.
+void NotificationManagerTest::withoutRulesEditsAndNoticesStayQuiet()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent edit = incomingText(QStringLiteral("* fixed typo"));
+    edit.isEdit = true;
+    edit.editNewBody = QStringLiteral("fixed typo");
+    QVERIFY2(!NotificationManager::decide(edit, context).notify,
+             "an edit notified a second time");
+    TimelineEvent notice = incomingText();
+    notice.type = TimelineEvent::Notice;
+    QVERIFY2(!NotificationManager::decide(notice, context).notify,
+             "a bot notice notified");
+    // An edit that newly mentions this user notifies, with its new text.
+    TimelineEvent mentioning = edit;
+    mentioning.mentionsMe = true;
+    const auto decision = NotificationManager::decide(mentioning, context);
+    QVERIFY(decision.notify);
+    QCOMPARE(decision.body, QStringLiteral("fixed typo"));
+    // One the rules notify for shows the new text too, never the fallback.
+    TimelineEvent ruled =
+        withVerdict(edit, TimelineEvent::PushVerdict::Notify);
+    QCOMPARE(NotificationManager::decide(ruled, context).body,
+             QStringLiteral("fixed typo"));
+    ruled.editNewBody.clear();
+    QCOMPARE(NotificationManager::decide(ruled, context).body,
+             QStringLiteral("fixed typo"));
+}
+
+// Finding 153: "/me is running late" read "is running late".
+void NotificationManagerTest::anEmoteNamesItsActor()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent emote = incomingText(QStringLiteral("is running late"));
+    emote.type = TimelineEvent::Emote;
+    QCOMPARE(NotificationManager::decide(emote, context).body,
+             QStringLiteral("* ") + iso(QStringLiteral("Bob"))
+                 + QStringLiteral(" is running late"));
+}
+
+// Finding 115: the timeline hides a spoiler behind a click; the card, the
+// lock screen and the daemon's history showed it verbatim.
+void NotificationManagerTest::aSpoilerStaysHidden()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent spoiler =
+        incomingText(QStringLiteral("the ending: Snape kills Dumbledore"));
+    spoiler.formattedBody = QStringLiteral(
+        "the ending: <span data-mx-spoiler=\"film\">Snape <span>kills</span> "
+        "<b>Dumbledore</b></span> &amp; more");
+    const QString body = NotificationManager::decide(spoiler, context).body;
+    QVERIFY2(!body.contains(QStringLiteral("Snape"))
+                 && !body.contains(QStringLiteral("Dumbledore"))
+                 && !body.contains(QStringLiteral("kills")),
+             qPrintable(body));
+    QVERIFY2(body.contains(QStringLiteral("(spoiler)")), qPrintable(body));
+    QVERIFY2(body.startsWith(QStringLiteral("the ending:"))
+                 && body.contains(QStringLiteral("& more")),
+             qPrintable(body));
+    // An unterminated spoiler hides the rest rather than leaking it.
+    spoiler.formattedBody =
+        QStringLiteral("a <span data-mx-spoiler>secret never closed");
+    QVERIFY(!NotificationManager::decide(spoiler, context)
+                 .body.contains(QStringLiteral("secret")));
+}
+
+// Finding 141: a display name with U+202E reversed " in <room>" around it.
+void NotificationManagerTest::namesAreIsolatedInTheSentence()
+{
+    // U+202E RIGHT-TO-LEFT OVERRIDE, built at run time so the source carries
+    // no raw bidi control.
+    const QString name = QChar(0x202E) + QStringLiteral("evil");
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent event = incomingText();
+    event.senderDisplayName = name;
+    QCOMPARE(NotificationManager::decide(event, context).title,
+             iso(name) + QStringLiteral(" in ")
+                 + iso(QStringLiteral("Lightning Dev")));
+    context.previewMode = NotificationManager::SenderOnly;
+    QCOMPARE(NotificationManager::decide(event, context).body,
+             QStringLiteral("New message from ") + iso(name));
+}
+
+// Findings 24/123/25: one card per room. Without the text, its body counts
+// what it stands for.
+void NotificationManagerTest::aRoomsSecondMessageUpdatesItsCard()
+{
+    NotificationManager manager;
+    const auto context = baseContext(); // SenderOnly
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(manager.lastTrayBodyForTest(),
+             QStringLiteral("New message from ") + iso(QStringLiteral("Bob")));
+    TimelineEvent second = incomingText(QStringLiteral("two"));
+    second.eventId = QStringLiteral("$ev2:example.org");
+    manager.processEvent(second, context);
+    QVERIFY2(manager.lastTrayBodyForTest().startsWith(QStringLiteral("2 ")),
+             qPrintable(manager.lastTrayBodyForTest()));
+    // Another room has its own card.
+    TimelineEvent elsewhere = incomingText();
+    elsewhere.roomId = QStringLiteral("!elsewhere:example.org");
+    manager.processEvent(elsewhere, context);
+    QVERIFY(manager.lastTrayBodyForTest().startsWith(
+        QStringLiteral("New message from")));
+    // Reading the room starts its count again.
+    manager.closeRoomNotifications(QStringLiteral("!room:example.org"));
+    manager.processEvent(second, context);
+    QVERIFY(manager.lastTrayBodyForTest().startsWith(
+        QStringLiteral("New message from")));
+}
+
+// Finding 27: inside a snap the host knows the entry as <snap>_lightning and
+// cannot resolve a themed icon name looked up inside the snap.
+void NotificationManagerTest::theSnapIdentityIsOneTheHostCanResolve()
+{
+    using M = NotificationManager;
+    const M::DesktopIdentity snap = M::desktopIdentityFor(
+        QString(), QStringLiteral("/snap/lightning/x1"),
+        QStringLiteral("lightning"));
+    QCOMPARE(snap.desktopEntry, QStringLiteral("lightning_lightning"));
+    QCOMPARE(snap.appIcon,
+             QStringLiteral("file:///snap/lightning/x1/meta/gui/lightning.png"));
+    const M::DesktopIdentity flatpak = M::desktopIdentityFor(
+        QStringLiteral("org.example.Lightning"), QString(), QString());
+    QCOMPARE(flatpak.desktopEntry, QStringLiteral("org.example.Lightning"));
+    QVERIFY(flatpak.appIcon.isEmpty());
+    const M::DesktopIdentity plain =
+        M::desktopIdentityFor(QString(), QString(), QString());
+    QCOMPARE(plain.desktopEntry, QStringLiteral("lightning"));
+    QVERIFY(plain.appIcon.isEmpty());
+}
+
+// Finding 21: KWin and other xdg-activation compositors refuse focus to a
+// raise without the token the daemon sent before ActionInvoked.
+void NotificationManagerTest::aClickHandsTheActivationTokenToTheWindow()
+{
+    qunsetenv("XDG_ACTIVATION_TOKEN");
+    NotificationManager manager;
+    manager.setAssumeWaylandForTest(true);
+    // Not our card: ignored.
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActivationToken",
+                                      Q_ARG(quint32, 99u),
+                                      Q_ARG(QString, QStringLiteral("tok-x"))));
+    manager.recordPayloadForTest(
+        7, messagePayload(QStringLiteral("!room:example.org"),
+                          QStringLiteral("$e:x")));
+    manager.recordPayloadForTest(
+        99, messagePayload(QStringLiteral("!room:example.org"),
+                           QStringLiteral("$f:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 99u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QVERIFY(qEnvironmentVariable("XDG_ACTIVATION_TOKEN").isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActivationToken",
+                                      Q_ARG(quint32, 7u),
+                                      Q_ARG(QString, QStringLiteral("tok-1"))));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 7u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QCOMPARE(qEnvironmentVariable("XDG_ACTIVATION_TOKEN"),
+             QStringLiteral("tok-1"));
+    qunsetenv("XDG_ACTIVATION_TOKEN");
+}
+
+// Findings 28/109: the call card left out suppress-sound, so a daemon with a
+// default sound played it over Lightning's ringer, and after Silence.
+void NotificationManagerTest::theSilentCallCardSuppressesTheDesktopsSound()
+{
+    const QVariantMap silent = NotificationManager::callSoundHints(false);
+    QCOMPARE(silent.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QVERIFY(!silent.contains(QStringLiteral("sound-name")));
+    const QVariantMap ringing = NotificationManager::callSoundHints(true);
+    QCOMPARE(ringing.value(QStringLiteral("sound-name")).toString(),
+             QStringLiteral("phone-incoming-call"));
+    QVERIFY(!ringing.contains(QStringLiteral("suppress-sound")));
+}
+
+// Finding 41: the stuck-ringer re-announcement raised a second balloon for
+// the same call, which no one can withdraw.
+void NotificationManagerTest::theSameCallIsNeverBalloonedTwice()
+{
+    NotificationManager manager;
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), /*sound=*/false, 60);
+    QCOMPARE(manager.callTrayAttemptsForTest(), 1);
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), /*sound=*/true, 60);
+    QVERIFY2(manager.callTrayAttemptsForTest() == 1,
+             "the same call was ballooned twice");
+    manager.stopIncomingCall(QStringLiteral("call-1"));
+}
+
+// Finding 82: swiping the call card away left Lightning's ringer ringing.
+void NotificationManagerTest::dismissingTheCallCardStopsTheRinger()
+{
+    NotificationManager manager;
+    QSignalSpy dismissed(&manager, &NotificationManager::callCardDismissed);
+    QSignalSpy declined(&manager, &NotificationManager::callDeclineRequested);
+    manager.showIncomingCall(QStringLiteral("!r:x"), QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), true, 60);
+    manager.setActiveCallNotificationIdForTest(42);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                                      Q_ARG(quint32, 42u),
+                                      Q_ARG(quint32, 2u)));
+    QCOMPARE(dismissed.count(), 1);
+    QCOMPARE(dismissed.first().at(0).toString(), QStringLiteral("call-1"));
+    QCOMPARE(declined.count(), 0);
+    QCOMPARE(manager.activeCallNotificationIdForTest(), 0u);
+    // Closed by us (reason 3) is not the user dismissing it.
+    manager.setActiveCallNotificationIdForTest(43);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                                      Q_ARG(quint32, 43u),
+                                      Q_ARG(quint32, 3u)));
+    QCOMPARE(dismissed.count(), 1);
+    manager.stopIncomingCall(QString());
+}
+
+// Finding 83: an expired call card lost its id, so it could never be
+// withdrawn and its buttons did nothing.
+void NotificationManagerTest::anExpiredCallCardIsKeptForWithdrawal()
+{
+    NotificationManager manager;
+    QSignalSpy accepted(&manager, &NotificationManager::callAcceptRequested);
+    manager.showIncomingCall(QStringLiteral("!r:x"), QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), true, 60,
+                             /*acceptOffered=*/true, /*rtcLane=*/true);
+    manager.setActiveCallNotificationIdForTest(42);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                                      Q_ARG(quint32, 42u),
+                                      Q_ARG(quint32, 1u)));
+    QVERIFY(!manager.callRingActiveForTest());
+    QVERIFY2(manager.activeCallNotificationIdForTest() == 42u,
+             "an expired call card forgot its id");
+    // Its Join still answers while the call lasts.
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 42u),
+                                      Q_ARG(QString, QStringLiteral("accept"))));
+    QCOMPARE(accepted.count(), 1);
+}
+
+// Finding 81: a missed call in a room already read was withdrawn by the next
+// room-list update, leaving no record of the call.
+void NotificationManagerTest::aMissedCallSurvivesTheReadWalk()
+{
+    const QString room = QStringLiteral("!dm:example.org");
+    NotificationManager manager;
+    // showGeneric's payload: a room, no event.
+    manager.recordPayloadForTest(9, messagePayload(room, QString()));
+    manager.observeRoomUnread(room, false);
+    QVERIFY2(manager.pendingPayloadCountForTest() == 1,
+             "the read walk withdrew a missed-call notice");
+    manager.closeRoomNotifications(room);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// Finding 35: Qt reports a click on any balloon as the same signal, so the
+// latest payload answered for all of them and opened the wrong room.
+void NotificationManagerTest::twoRoomsOfBalloonsOpenNeitherByGuess()
+{
+    NotificationManager manager;
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!a:x"), QStringLiteral("$a:x")));
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!b:x"), QStringLiteral("$b:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked"));
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.first().at(0).toString().isEmpty(),
+             "a click on one of two rooms' balloons guessed the latest room");
+    // One room's balloons: that room.
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!a:x"), QStringLiteral("$a2:x")));
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!a:x"), QStringLiteral("$a3:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked"));
+    QCOMPARE(opened.count(), 2);
+    QCOMPARE(opened.at(1).at(0).toString(), QStringLiteral("!a:x"));
+}
+
+// Finding 110: nothing told the app a message card went out, so a minimised
+// window could not ask the taskbar for attention.
+void NotificationManagerTest::aDeliveredMessageAsksForAttention()
+{
+    NotificationManager manager;
+    QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+    TimelineEvent mention = incomingText();
+    mention.mentionsMe = true;
+    manager.processEvent(mention, baseContext());
+    QCOMPARE(delivered.count(), 1);
+    QCOMPARE(delivered.first().at(0).toString(),
+             QStringLiteral("!room:example.org"));
+    QCOMPARE(delivered.first().at(1).toBool(), true);
+    // A notice is not a message; a muted room delivers nothing.
+    manager.showGeneric(QStringLiteral("Room invitation"),
+                        QStringLiteral("You were invited"));
+    auto muted = baseContext();
+    muted.roomMode = NotificationManager::Muted;
+    manager.processEvent(incomingText(), muted);
+    QCOMPARE(delivered.count(), 1);
 }
 
 QTEST_MAIN(NotificationManagerTest)

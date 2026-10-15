@@ -20,23 +20,46 @@ ReadReceiptCoordinator::ReadReceiptCoordinator(QObject *parent)
     m_debounce.setInterval(kDefaultDebounceMs);
     connect(&m_debounce, &QTimer::timeout,
             this, &ReadReceiptCoordinator::onDebounceElapsed);
+    m_retry.setSingleShot(true);
+    connect(&m_retry, &QTimer::timeout,
+            this, &ReadReceiptCoordinator::onRetryElapsed);
 }
 
 void ReadReceiptCoordinator::setClient(MatrixClient *client)
 {
     if (m_client == client)
         return;
-    if (m_client)
+    if (m_client) {
+        // Leaving that account's open room: keep the reader's place there
+        // before its answers stop reaching us.
+        flushFullyReadMarkerFor(m_client, m_openRoomId);
         m_client->disconnect(this);
+    }
     m_client = client;
     if (m_client) {
         connect(m_client, &MatrixClient::loggedOut,
                 this, &ReadReceiptCoordinator::onLoggedOut);
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &ReadReceiptCoordinator::reevaluate);
+        connect(m_client, &MatrixClient::loginSucceeded,
+                this, &ReadReceiptCoordinator::onLoginSucceeded);
+        // The server's answers. Nothing is announced before one arrives.
+        connect(m_client, &MatrixClient::readReceiptAccepted,
+                this, &ReadReceiptCoordinator::onReceiptAccepted);
+        connect(m_client, &MatrixClient::readReceiptFailed,
+                this, &ReadReceiptCoordinator::onReceiptFailed);
+        // The mark-as-read path (a room that was marked unread) answers with
+        // the room-level pair instead.
+        connect(m_client, &MatrixClient::readMarkerAdvanced,
+                this, &ReadReceiptCoordinator::onReadMarkerAdvanced);
+        connect(m_client, &MatrixClient::markRoomReadFailed,
+                this, &ReadReceiptCoordinator::onMarkRoomReadFailed);
     }
     m_debounce.stop();
     ++m_generation;
+    // Another account: none of the previous one's receipts, failures or
+    // fully-read positions apply (room ids can be shared between accounts).
+    resetReceiptState();
 }
 
 void ReadReceiptCoordinator::setTimelineModel(TimelineModel *model)
@@ -56,6 +79,7 @@ void ReadReceiptCoordinator::setTimelineModel(TimelineModel *model)
         connect(m_model, &TimelineModel::modelReset,
                 this, &ReadReceiptCoordinator::reevaluate);
     }
+    m_openRoomId = m_model ? m_model->roomId() : QString();
     m_debounce.stop();
     ++m_generation;
 }
@@ -65,6 +89,15 @@ void ReadReceiptCoordinator::setWindowActive(bool active)
     if (m_windowActive == active)
         return;
     m_windowActive = active;
+    if (!active) {
+        // The reader left the window: their place in the open room is where
+        // m.fully_read goes (see the class comment).
+        flushFullyReadMarker();
+    } else if (!m_openRoomId.isEmpty() && !m_retry.isActive()) {
+        // Coming back is a fresh chance for a receipt that ran out of
+        // retries; bounded because it needs the user to return each time.
+        m_failures.remove(m_openRoomId);
+    }
     Q_EMIT inputsChanged();
     reevaluate();
 }
@@ -120,6 +153,13 @@ QString ReadReceiptCoordinator::eligibleEventId(qint64 *timestampMs) const
         if (last->eventId == eventId && !clearsMarkedUnread())
             return {}; // same receipt already sent, no manual flag to clear
     }
+    // A failed event waits for its backoff, and after the last retry for a
+    // newer event, the window coming back, or the room being reopened.
+    // Without this a roomsChanged storm would re-send it every debounce.
+    const auto failure = m_failures.constFind(m_model->roomId());
+    if (failure != m_failures.constEnd() && failure->eventId == eventId
+        && (failure->waiting || failure->count > kMaxReceiptRetries))
+        return {};
     if (timestampMs)
         *timestampMs = ts;
     return eventId;
@@ -187,16 +227,155 @@ void ReadReceiptCoordinator::sendNow(const QString &eventId, qint64 timestampMs)
     // Keep this behind the same visibility/debounce policy as ordinary reads.
     const bool clearMark = clearsMarkedUnread();
     m_openedMarkedUnread = false;
-    if (clearMark && m_client->supportsMarkRoomRead()) {
+    const bool viaMarkRead = clearMark && m_client->supportsMarkRoomRead();
+    // Recorded BEFORE the call: a backend may answer synchronously. The
+    // in-flight entry also keeps the same receipt from being sent twice while
+    // it is unanswered. receiptSent waits for the server (onReceiptAccepted).
+    m_lastSent.insert(roomId, { eventId, timestampMs });
+    m_inFlight.insert(roomId, { eventId, timestampMs, viaMarkRead });
+    // The reader was shown this event: it is where m.fully_read goes when
+    // they leave, whatever the receipt's own fate.
+    m_seenUpTo.insert(roomId, { eventId, m_client->currentUserId() });
+    qCInfo(lcReceipts) << "read receipt queued event_id=" << eventId;
+    if (viaMarkRead) {
+        // The SDK's mark-read writes m.fully_read itself.
+        m_fullyReadWritten.insert(roomId, eventId);
         m_client->markRoomRead(roomId);
     } else {
         m_client->sendReadReceipt(roomId, eventId);
         if (clearMark)
             m_client->setRoomMarkedUnread(roomId, false);
     }
-    m_lastSent.insert(roomId, { eventId, timestampMs });
-    qCInfo(lcReceipts) << "read receipt sent event_id=" << eventId;
-    Q_EMIT receiptSent(roomId, eventId, timestampMs);
+}
+
+void ReadReceiptCoordinator::onReceiptAccepted(const QString &roomId,
+                                               const QString &eventId)
+{
+    const auto it = m_inFlight.constFind(roomId);
+    // Matched on room AND event: an answer for a receipt this coordinator did
+    // not send, or one it has since replaced, announces nothing.
+    if (it == m_inFlight.constEnd() || it->viaMarkRead || it->eventId != eventId)
+        return;
+    acceptInFlight(roomId);
+}
+
+void ReadReceiptCoordinator::onReceiptFailed(const QString &roomId,
+                                             const QString &eventId)
+{
+    const auto it = m_inFlight.constFind(roomId);
+    if (it == m_inFlight.constEnd() || it->viaMarkRead || it->eventId != eventId)
+        return;
+    failInFlight(roomId);
+}
+
+void ReadReceiptCoordinator::onReadMarkerAdvanced(const QString &roomId)
+{
+    const auto it = m_inFlight.constFind(roomId);
+    if (it != m_inFlight.constEnd() && it->viaMarkRead)
+        acceptInFlight(roomId);
+}
+
+void ReadReceiptCoordinator::onMarkRoomReadFailed(const QString &roomId)
+{
+    const auto it = m_inFlight.constFind(roomId);
+    if (it != m_inFlight.constEnd() && it->viaMarkRead)
+        failInFlight(roomId);
+}
+
+void ReadReceiptCoordinator::acceptInFlight(const QString &roomId)
+{
+    const InFlightReceipt done = m_inFlight.take(roomId);
+    m_lastAccepted.insert(roomId, { done.eventId, done.timestampMs });
+    m_failures.remove(roomId);
+    if (m_retryRoomId == roomId) {
+        m_retry.stop();
+        m_retryRoomId.clear();
+    }
+    qCInfo(lcReceipts) << "read receipt accepted event_id=" << done.eventId;
+    Q_EMIT receiptSent(roomId, done.eventId, done.timestampMs);
+}
+
+void ReadReceiptCoordinator::failInFlight(const QString &roomId)
+{
+    const InFlightReceipt failed = m_inFlight.take(roomId);
+    // Roll back to what the server last accepted, so the failed event is
+    // eligible again and the never-regress check still has its baseline.
+    const auto accepted = m_lastAccepted.constFind(roomId);
+    if (accepted != m_lastAccepted.constEnd())
+        m_lastSent.insert(roomId, accepted.value());
+    else
+        m_lastSent.remove(roomId);
+    if (failed.viaMarkRead) {
+        // The flag is still set on the server; the retry must clear it again.
+        m_fullyReadWritten.remove(roomId);
+        if (roomId == m_openRoomId)
+            m_openedMarkedUnread = true;
+    }
+    ReceiptFailure &failure = m_failures[roomId];
+    if (failure.eventId != failed.eventId) {
+        failure.eventId = failed.eventId;
+        failure.count = 0;
+    }
+    ++failure.count;
+    failure.waiting = false;
+    if (failure.count <= kMaxReceiptRetries && roomId == m_openRoomId) {
+        failure.waiting = true;
+        m_retryRoomId = roomId;
+        m_retry.start(m_retryBaseMs << (failure.count - 1));
+        qCInfo(lcReceipts) << "read receipt failed; retrying attempt="
+                           << failure.count;
+    } else {
+        qCInfo(lcReceipts) << "read receipt failed; waiting for the reader"
+                           << "attempts=" << failure.count;
+    }
+}
+
+void ReadReceiptCoordinator::onRetryElapsed()
+{
+    const QString roomId = m_retryRoomId;
+    m_retryRoomId.clear();
+    const auto failure = m_failures.find(roomId);
+    if (failure != m_failures.end())
+        failure->waiting = false;
+    // Through the debounce and the full condition check, like any trigger.
+    reevaluate();
+}
+
+void ReadReceiptCoordinator::flushFullyReadMarker()
+{
+    flushFullyReadMarkerFor(m_client, m_openRoomId);
+}
+
+void ReadReceiptCoordinator::flushFullyReadMarkerFor(MatrixClient *client,
+                                                     const QString &roomId)
+{
+    if (!client || roomId.isEmpty())
+        return;
+    const SeenEvent seen = m_seenUpTo.value(roomId);
+    if (seen.eventId.isEmpty() || m_fullyReadWritten.value(roomId) == seen.eventId)
+        return;
+    if (seen.userId != client->currentUserId()) {
+        // Shown to another account than the one this client now serves.
+        m_seenUpTo.remove(roomId);
+        return;
+    }
+    m_fullyReadWritten.insert(roomId, seen.eventId);
+    qCInfo(lcReceipts) << "fully-read marker advanced on leave event_id="
+                       << seen.eventId;
+    client->setFullyReadMarker(roomId, seen.eventId);
+    Q_EMIT fullyReadMarkerMoved(roomId, seen.eventId);
+}
+
+void ReadReceiptCoordinator::resetReceiptState()
+{
+    m_retry.stop();
+    m_retryRoomId.clear();
+    m_lastSent.clear();
+    m_lastAccepted.clear();
+    m_inFlight.clear();
+    m_failures.clear();
+    m_seenUpTo.clear();
+    m_fullyReadWritten.clear();
 }
 
 void ReadReceiptCoordinator::onRoomChanged()
@@ -204,15 +383,36 @@ void ReadReceiptCoordinator::onRoomChanged()
     // Drop any pending receipt from the previous room; the per-room last-sent
     // map still suppresses duplicates on return.
     m_debounce.stop();
+    m_retry.stop();
+    m_retryRoomId.clear();
+    // The reader left the previous room: that is when its m.fully_read moves.
+    flushFullyReadMarkerFor(m_client, m_openRoomId);
+    m_openRoomId = m_model ? m_model->roomId() : QString();
+    // Opening a room is a fresh chance for a receipt that failed there.
+    if (!m_openRoomId.isEmpty())
+        m_failures.remove(m_openRoomId);
     ++m_generation;
     m_openedMarkedUnread = m_client && m_model && roomIsMarkedUnread();
     reevaluate();
+}
+
+void ReadReceiptCoordinator::onLoginSucceeded(const QString &userId)
+{
+    // Add-account signs nobody out, so no loggedOut resets the previous
+    // account's state; a different user id does.
+    if (!m_userId.isEmpty() && userId != m_userId) {
+        m_debounce.stop();
+        ++m_generation;
+        resetReceiptState();
+    }
+    m_userId = userId;
 }
 
 void ReadReceiptCoordinator::onLoggedOut()
 {
     m_debounce.stop();
     ++m_generation;
-    m_lastSent.clear();
+    // Late answers for the signed-out session find nothing to announce.
+    resetReceiptState();
     qCInfo(lcReceipts) << "read receipts stopped on sign-out";
 }

@@ -352,7 +352,10 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
             // count would erase the choice the mode exists to offer, so it
             // falls back to the real highlight count like any other room.
             activity.mentions = roomunread::mentionCount(r, mode);
-            if (r.isDirect && mode == kNotificationModeAllMessages)
+            // Not for a room unread only in threads: its server count is
+            // thread events, and a number is what section 8 forbids.
+            if (r.isDirect && mode == kNotificationModeAllMessages
+                && !r.unreadThreadsOnly)
                 activity.mentions = std::max(r.unreadCount, r.highlightCount);
             rooms.insert(r.id, activity);
         }

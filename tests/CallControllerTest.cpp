@@ -17,6 +17,7 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
+#include "calls/OneToOneDm.h"
 #include "calls/CameraPortal.h"
 #include "calls/SdpStore.h"
 #include "calls/RtcController.h"
@@ -57,6 +58,14 @@ public:
     QString simulatedUserId;
     QString currentDeviceId() const override { return simulatedDeviceId; }
     QString simulatedDeviceId;
+    // Rooms a case describes itself (a DM, say); others are the mock's.
+    RoomInfo roomInfo(const QString &roomId) const override
+    {
+        const auto it = roomOverrides.constFind(roomId);
+        return it != roomOverrides.constEnd() ? *it
+                                              : MockMatrixClient::roomInfo(roomId);
+    }
+    QHash<QString, RoomInfo> roomOverrides;
 
     quint64 callInvite(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &offerType,
@@ -218,6 +227,24 @@ public:
         Q_EMIT rtcHandChanged(roomId, sender, membershipEventId,
                               reactionEventId, raised);
     }
+    /// A MatrixRTC call announcement (MSC4075), as SfuCallController hands it
+    /// to the bridge.
+    struct SentNotify {
+        QString roomId;
+        QString type;
+        QString intent;
+        QString membershipEventId;
+    };
+    QList<SentNotify> notifies;
+    quint64 rtcNotify(const QString &roomId, const QString &notificationType,
+                      const QString &intent, quint64 lifetimeMs,
+                      const QString &membershipEventId) override
+    {
+        Q_UNUSED(lifetimeMs);
+        notifies.append({roomId, notificationType, intent, membershipEventId});
+        lastNotifyOp = ++opCounter;
+        return lastNotifyOp;
+    }
     /// A transient call reaction, on the bridge's real signature. Records the
     /// wire arguments: referenced membership event and (emoji, name) pair.
     struct SentReaction {
@@ -295,6 +322,7 @@ public:
 
     QList<SentEvent> sent;
     quint64 opCounter = 100;
+    quint64 lastNotifyOp = 0;
 };
 
 // State-only media double (FakeRecorder pattern): records the calls the
@@ -767,6 +795,8 @@ private:
     {
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = roomId;
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = sender;
@@ -775,6 +805,40 @@ private:
         notify.originServerTs = notify.senderTs;
         notify.callIntent = QStringLiteral("audio");
         client.emitSignal(notify);
+    }
+
+    // Helper, NOT a slot. A fresh MSC4075 announcement, typed and addressed
+    // as the bridge forwards it.
+    static CallSignal rtcAnnouncement(const QString &roomId,
+                                      const QString &eventId,
+                                      const QString &sender,
+                                      const QString &notificationType,
+                                      bool mentionsRoom,
+                                      const QStringList &mentionUserIds = {})
+    {
+        CallSignal notify;
+        notify.kind = CallSignal::Kind::RtcNotification;
+        notify.roomId = roomId;
+        notify.eventId = eventId;
+        notify.sender = sender;
+        notify.lifetimeMs = 30000;
+        notify.senderTs = QDateTime::currentMSecsSinceEpoch();
+        notify.originServerTs = notify.senderTs;
+        notify.callIntent = QStringLiteral("audio");
+        notify.notificationType = notificationType;
+        notify.mentionsRoom = mentionsRoom;
+        notify.mentionUserIds = mentionUserIds;
+        return notify;
+    }
+    static RoomInfo directRoom(const QString &roomId,
+                               const QStringList &targets)
+    {
+        RoomInfo room;
+        room.id = roomId;
+        room.isDirect = true;
+        room.directUserIds = targets;
+        room.directUserId = targets.value(0);
+        return room;
     }
 
 private Q_SLOTS:
@@ -2190,6 +2254,628 @@ private Q_SLOTS:
         QVERIFY(client.sent.isEmpty());
     }
 
+    // ── Who a MatrixRTC announcement rings (MSC4075) ──
+
+    void aGroupCallNotificationDoesNotRing()
+    {
+        // `notification` announces a group call. Before: it reached Ringing
+        // and incomingCallStarted like a 1:1 ring, so every member of the
+        // room got the critical card and the ringer on every call start.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        QSignalSpy notices(&calls, &CallController::callStartedNotice);
+
+        // @room, as Lightning and Element address it.
+        const CallSignal announce = rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$announce-1"),
+            QStringLiteral("@peer:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true);
+        client.emitSignal(announce);
+
+        QCOMPARE(calls.state(), CallController::State::Idle);
+        QVERIFY(!calls.ringing());
+        QVERIFY(!calls.shouldRing());
+        QCOMPARE(started.size(), 0);
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices.first().at(0).toString(), QStringLiteral("!group:x"));
+        QCOMPARE(notices.first().at(1).toString(),
+                 QStringLiteral("$announce-1"));
+        QCOMPARE(notices.first().at(2).toString(), QStringLiteral("@peer:x"));
+        QVERIFY(notices.first().at(3).toLongLong() > 0);
+
+        // A sync re-delivery is not a second notice.
+        client.emitSignal(announce);
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(client.sent.isEmpty());
+
+        // An unstated type rings no more than `notification` does.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$announce-2"),
+            QStringLiteral("@peer:x"), QString(), /*mentionsRoom=*/true));
+        QCOMPARE(calls.state(), CallController::State::Idle);
+        QCOMPARE(started.size(), 0);
+        QCOMPARE(notices.size(), 2);
+    }
+
+    void aRingRingsOnlyTheUsersItAddresses()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        QSignalSpy notices(&calls, &CallController::callStartedNotice);
+
+        // A ring for somebody else in this room: announced, not rung.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$ring-other"),
+            QStringLiteral("@peer:x"), QStringLiteral("ring"),
+            /*mentionsRoom=*/false, {QStringLiteral("@other:x")}));
+        QCOMPARE(calls.state(), CallController::State::Idle);
+        QCOMPARE(started.size(), 0);
+        QCOMPARE(notices.size(), 1);
+
+        // A ring that names us rings.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$ring-me"),
+            QStringLiteral("@peer:x"), QStringLiteral("ring"),
+            /*mentionsRoom=*/false,
+            {QStringLiteral("@other:x"), QStringLiteral("@me:x")}));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QVERIFY(calls.rtcRing());
+        QCOMPARE(calls.activeCallId(), QStringLiteral("$ring-me"));
+        QCOMPARE(started.size(), 1);
+        QVERIFY(calls.shouldRing());
+        QVERIFY(calls.rejectIncoming());
+
+        // So does one addressed to the whole room.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$ring-room"),
+            QStringLiteral("@peer:x"), QStringLiteral("ring"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(started.size(), 2);
+        QCOMPARE(notices.size(), 1);
+    }
+
+    void aCallFromTheOtherPersonInAOneToOneDmRingsWhateverItsType()
+    {
+        // Lightning 0.10.x and earlier announce a DM call as `notification`;
+        // a 1:1 DM whose one m.direct target is the caller keeps ringing for
+        // it.
+        RecordingCallClient client;
+        client.roomOverrides.insert(
+            QStringLiteral("!dm:x"),
+            directRoom(QStringLiteral("!dm:x"), {QStringLiteral("@peer:x")}));
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!dm:x"), QStringLiteral("$dm-1"),
+            QStringLiteral("@peer:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(started.size(), 1);
+    }
+
+    void aDmThatIsNotOneToOneWithTheCallerDoesNotRingForANotification()
+    {
+        // `isDirect` is not "1:1": two m.direct targets, or a caller who is
+        // not the room's one target, gets no DM treatment.
+        RecordingCallClient client;
+        client.roomOverrides.insert(
+            QStringLiteral("!groupdm:x"),
+            directRoom(QStringLiteral("!groupdm:x"),
+                       {QStringLiteral("@peer:x"), QStringLiteral("@third:x")}));
+        client.roomOverrides.insert(
+            QStringLiteral("!dm:x"),
+            directRoom(QStringLiteral("!dm:x"), {QStringLiteral("@peer:x")}));
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        QSignalSpy notices(&calls, &CallController::callStartedNotice);
+
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!groupdm:x"), QStringLiteral("$g-1"),
+            QStringLiteral("@peer:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!dm:x"), QStringLiteral("$s-1"),
+            QStringLiteral("@stranger:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(calls.state(), CallController::State::Idle);
+        QCOMPARE(started.size(), 0);
+        QCOMPARE(notices.size(), 2);
+    }
+
+    // ── What our own announcement asks of other clients ──
+
+    void ourAnnouncementRingsOnlyInAOneToOneDm()
+    {
+        // As Element Web and Element X: `ring` where the call is for the one
+        // other person, `notification` wherever it would ring a whole room.
+        using C = SfuCallController;
+        QCOMPARE(C::announcementTypeFor(directRoom(
+                     QStringLiteral("!dm:x"), {QStringLiteral("@peer:x")})),
+                 QStringLiteral("ring"));
+        RoomInfo targetOnly; // a backend that reports directUserId alone
+        targetOnly.isDirect = true;
+        targetOnly.directUserId = QStringLiteral("@peer:x");
+        QCOMPARE(C::announcementTypeFor(targetOnly), QStringLiteral("ring"));
+        // `isDirect` is not 1:1.
+        QCOMPARE(C::announcementTypeFor(directRoom(
+                     QStringLiteral("!gdm:x"),
+                     {QStringLiteral("@a:x"), QStringLiteral("@b:x")})),
+                 QStringLiteral("notification"));
+        RoomInfo directNoTarget;
+        directNoTarget.isDirect = true;
+        QCOMPARE(C::announcementTypeFor(directNoTarget),
+                 QStringLiteral("notification"));
+        RoomInfo group;
+        group.id = QStringLiteral("!group:x");
+        QCOMPARE(C::announcementTypeFor(group),
+                 QStringLiteral("notification"));
+    }
+
+    // matrix-sdk's DmRoomDefinition::TwoMembers: one m.direct target AND at
+    // most two active (joined or invited) members. A DM someone else joined
+    // or was invited into rings nobody, on either side.
+    void aDmWithAThirdMemberIsNotOneToOne()
+    {
+        RoomInfo dm = directRoom(QStringLiteral("!dm:x"),
+                                 {QStringLiteral("@peer:x")});
+        dm.activeMemberCount = 2;
+        QCOMPARE(calls::oneToOneDmPeer(dm), QStringLiteral("@peer:x"));
+        QCOMPARE(SfuCallController::announcementTypeFor(dm),
+                 QStringLiteral("ring"));
+        dm.activeMemberCount = 3;
+        QVERIFY(calls::oneToOneDmPeer(dm).isEmpty());
+        QCOMPARE(SfuCallController::announcementTypeFor(dm),
+                 QStringLiteral("notification"));
+
+        // Receive side: the peer's `notification` in that room no longer
+        // rings us as a 1:1 call; it is a quiet notice.
+        RecordingCallClient client;
+        client.roomOverrides.insert(QStringLiteral("!dm:x"), dm);
+        CallController controller;
+        controller.setClient(&client);
+        controller.setOwnUserId(QStringLiteral("@me:x"));
+        controller.setBacklogSuppressed(false);
+        QSignalSpy started(&controller, &CallController::incomingCallStarted);
+        QSignalSpy notice(&controller, &CallController::callStartedNotice);
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!dm:x"), QStringLiteral("$announce-3"),
+            QStringLiteral("@peer:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(controller.state(), CallController::State::Idle);
+        QCOMPARE(started.size(), 0);
+        QCOMPARE(notice.size(), 1);
+    }
+
+    void aCallWeStartIsAnnouncedWithTheRoomsType()
+    {
+        // Through the production path: membership accepted, then the
+        // announcement. Before: always `notification`, so a Lightning DM call
+        // never rang the other person's Element.
+        const QList<QPair<QString, QString>> cases = {
+            {QStringLiteral("!dm:x"), QStringLiteral("ring")},
+            {QStringLiteral("!group:x"), QStringLiteral("notification")},
+        };
+        for (const auto &c : cases) {
+            RecordingCallClient client;
+            client.roomOverrides.insert(
+                QStringLiteral("!dm:x"),
+                directRoom(QStringLiteral("!dm:x"),
+                           {QStringLiteral("@peer:x")}));
+            SfuCallController call;
+            call.setClient(&client);
+            const quint64 op = call.beginMembershipPublishForTest(
+                c.first, kReconnectFocus, /*announce=*/true);
+            QVERIFY(op != 0);
+            client.answerPublish(op, true, QString());
+            QCOMPARE(client.notifies.size(), 1);
+            QCOMPARE(client.notifies.first().roomId, c.first);
+            QCOMPARE(client.notifies.first().type, c.second);
+            QCOMPARE(client.notifies.first().membershipEventId,
+                     QStringLiteral("$event"));
+        }
+    }
+
+    // A `ring` whose m.mentions names us past the bridge's id bound still
+    // rings: Rust decides `mentionsMe` on the whole list.
+    void aRingThatMentionsUsPastTheIdBoundStillRings()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        CallSignal ring = rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$ring-me"),
+            QStringLiteral("@peer:x"), QStringLiteral("ring"),
+            /*mentionsRoom=*/false,
+            {QStringLiteral("@a:x"), QStringLiteral("@b:x")});
+        client.emitSignal(ring);
+        QCOMPARE(calls.state(), CallController::State::Idle);
+        ring.eventId = QStringLiteral("$ring-me-2");
+        ring.mentionsMe = true;
+        client.emitSignal(ring);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+    }
+
+    // The quiet notice follows the ring's gates: the backlog, an ignored
+    // sender, a muted room and the account's ring policy.
+    void theCallStartedNoticeFollowsTheRingsGates()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        const QString room = QStringLiteral("!group:x");
+        const QString peer = QStringLiteral("@peer:x");
+        QVERIFY(!calls.noticeAllowed(room, peer)); // backlog gate up
+        calls.setBacklogSuppressed(false);
+        QVERIFY(calls.noticeAllowed(room, peer));
+        bool ignored = true;
+        calls.setSenderIgnoredCheck([&](const QString &) { return ignored; });
+        QVERIFY(!calls.noticeAllowed(room, peer));
+        ignored = false;
+        bool muted = true;
+        calls.setRoomMutedCheck([&](const QString &) { return muted; });
+        QVERIFY(!calls.noticeAllowed(room, peer));
+        muted = false;
+        bool policy = false;
+        calls.setRingPolicyCheck([&](const QString &) { return policy; });
+        QVERIFY(!calls.noticeAllowed(room, peer));
+        policy = true;
+        QVERIFY(calls.noticeAllowed(room, peer));
+    }
+
+    // An announcement in a room whose call we are already ringing for (or
+    // in) is no news: no "call started" notice on top of the ring.
+    void noNoticeForARoomWhoseCallIsAlreadyLiveHere()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        QSignalSpy notices(&calls, &CallController::callStartedNotice);
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$ring-1"),
+            QStringLiteral("@peer:x"), QStringLiteral("ring"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        // A second member's group `notification` in the same room.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!group:x"), QStringLiteral("$notify-2"),
+            QStringLiteral("@other:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(notices.size(), 0);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        // The same in another room is a notice.
+        client.emitSignal(rtcAnnouncement(
+            QStringLiteral("!elsewhere:x"), QStringLiteral("$notify-3"),
+            QStringLiteral("@other:x"), QStringLiteral("notification"),
+            /*mentionsRoom=*/true));
+        QCOMPARE(notices.size(), 1);
+    }
+
+    // MSC4075: the person our 1:1 ring was for declined it. Element ends the
+    // call there; so does this, while nobody else has joined. A decline by
+    // someone else, of another event, or in a group room ends nothing.
+    void aDeclineFromThePersonWeRangEndsOurCall()
+    {
+        const auto ring = [](RecordingCallClient &client,
+                             SfuCallController &call, const QString &roomId) {
+            client.roomOverrides.insert(
+                QStringLiteral("!dm:x"),
+                directRoom(QStringLiteral("!dm:x"),
+                           {QStringLiteral("@peer:x")}));
+            call.setClient(&client);
+            const quint64 op = call.beginMembershipPublishForTest(
+                roomId, kReconnectFocus, /*announce=*/true);
+            client.answerPublish(op, true, QString());
+            // The ring's send result names the event a decline targets.
+            Q_EMIT client.rtcSendFinished(client.lastNotifyOp, true, QString(),
+                                          QStringLiteral("$ring"));
+        };
+        const auto decline = [](const QString &roomId, const QString &sender,
+                                const QString &target) {
+            CallSignal signal;
+            signal.kind = CallSignal::Kind::RtcDecline;
+            signal.roomId = roomId;
+            signal.eventId = QStringLiteral("$decline");
+            signal.sender = sender;
+            signal.targetEventId = target;
+            return signal;
+        };
+
+        {
+            RecordingCallClient client;
+            SfuCallController call;
+            ring(client, call, QStringLiteral("!dm:x"));
+            QVERIFY(call.active());
+            QSignalSpy failed(&call, &SfuCallController::callFailed);
+            // Someone else, or another event: nothing.
+            Q_EMIT client.callSignalReceived(decline(
+                QStringLiteral("!dm:x"), QStringLiteral("@third:x"),
+                QStringLiteral("$ring")));
+            Q_EMIT client.callSignalReceived(decline(
+                QStringLiteral("!dm:x"), QStringLiteral("@peer:x"),
+                QStringLiteral("$other")));
+            QVERIFY(call.active());
+            // The peer declines our ring: the call ends, and says why.
+            Q_EMIT client.callSignalReceived(decline(
+                QStringLiteral("!dm:x"), QStringLiteral("@peer:x"),
+                QStringLiteral("$ring")));
+            QVERIFY(!call.active());
+            QCOMPARE(failed.size(), 1);
+            QVERIFY(!failed.first().at(0).toString().isEmpty());
+        }
+        {
+            // A group room's announcement is a `notification`: a decline
+            // there is one member's, and the call goes on.
+            RecordingCallClient client;
+            SfuCallController call;
+            ring(client, call, QStringLiteral("!group:x"));
+            QVERIFY(call.active());
+            Q_EMIT client.callSignalReceived(decline(
+                QStringLiteral("!group:x"), QStringLiteral("@peer:x"),
+                QStringLiteral("$ring")));
+            QVERIFY(call.active());
+        }
+    }
+
+    // The peer's decline can reach us before our own ring's send answer
+    // (their client saw the ring through sync first). It is kept, and acted
+    // on once the answer names our event; a decline of another event is not.
+    void aDeclineThatOutrunsOurRingsSendAnswerStillEndsTheCall()
+    {
+        const auto decline = [](const QString &target) {
+            CallSignal signal;
+            signal.kind = CallSignal::Kind::RtcDecline;
+            signal.roomId = QStringLiteral("!dm:x");
+            signal.eventId = QStringLiteral("$decline");
+            signal.sender = QStringLiteral("@peer:x");
+            signal.targetEventId = target;
+            return signal;
+        };
+        for (const bool matches : {true, false}) {
+            RecordingCallClient client;
+            client.roomOverrides.insert(
+                QStringLiteral("!dm:x"),
+                directRoom(QStringLiteral("!dm:x"),
+                           {QStringLiteral("@peer:x")}));
+            SfuCallController call;
+            call.setClient(&client);
+            const quint64 op = call.beginMembershipPublishForTest(
+                QStringLiteral("!dm:x"), kReconnectFocus, /*announce=*/true);
+            client.answerPublish(op, true, QString());
+            QVERIFY(client.lastNotifyOp != 0);
+            // The decline first, while our send is unanswered.
+            Q_EMIT client.callSignalReceived(decline(
+                matches ? QStringLiteral("$ring") : QStringLiteral("$other")));
+            QVERIFY(call.active());
+            Q_EMIT client.rtcSendFinished(client.lastNotifyOp, true, QString(),
+                                          QStringLiteral("$ring"));
+            QCOMPARE(call.active(), !matches);
+        }
+    }
+
+    // ── How an RTC ring ends without a decline ──
+
+    void ownMembershipFromAnotherDeviceEndsTheRingAsAnsweredElsewhere()
+    {
+        // Picked up on our phone: the desktop stops ringing, and it is not a
+        // missed call.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QSignalSpy ended(&calls, &CallController::incomingCallEnded);
+
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        // Another room's session says nothing about this ring.
+        calls.noteRtcSession(QStringLiteral("!other:x"), now, 2);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        calls.noteRtcSession(QStringLiteral("!r:x"), now, 2);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(),
+                 CallController::EndReason::AnsweredElsewhere);
+        QCOMPARE(ended.size(), 1);
+        QCOMPARE(ended.first().at(3).toBool(), false); // not missed
+        QVERIFY2(client.sent.isEmpty(),
+                 "a ring answered elsewhere must not send a decline");
+    }
+
+    void anEmptiedSessionEndsTheRingAsMissed()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QSignalSpy ended(&calls, &CallController::incomingCallEnded);
+
+        // The ring can arrive before the caller's membership: an empty
+        // session that has never shown anyone ends nothing.
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 1);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        // The caller gave up before anyone answered.
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::RemoteHangup);
+        QCOMPARE(ended.size(), 1);
+        QCOMPARE(ended.first().at(3).toBool(), true); // missed
+    }
+
+    void aLegacyRingIgnoresRtcSessionReports()
+    {
+        // The legacy lane has answer and hangup events of its own.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        calls.noteRtcSession(QStringLiteral("!r:x"),
+                             QDateTime::currentMSecsSinceEpoch(), 2);
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 1);
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+    }
+
+    void aStaleOwnMembershipDoesNotSilenceARealRing()
+    {
+        // Our laptop crashed in yesterday's call and its membership is still
+        // there; a new ring must ring. Only a membership created after the
+        // ring began (within the clock-skew grace) answered it.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        calls.noteRtcSession(QStringLiteral("!r:x"), now - 3600 * 1000, 2);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        calls.noteRtcSession(
+            QStringLiteral("!r:x"),
+            now - CallController::kOwnMembershipSkewMs - 60 * 1000, 2);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        // Picked up now on the phone.
+        calls.noteRtcSession(QStringLiteral("!r:x"), now, 2);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(),
+                 CallController::EndReason::AnsweredElsewhere);
+    }
+
+    void aSessionReadThatCannotSayWhoIsThereEndsNothing()
+    {
+        // -1 is a read that cannot know (failed, store-only, not read yet).
+        // After the caller was seen it must not read as "everyone left".
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 1);
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, -1);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::RemoteHangup);
+    }
+
+    // ── Ring policy ──
+
+    void theAccountsRingPolicyKeepsTheRingSilent()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setBacklogSuppressed(false);
+        QString askedFor;
+        bool allowed = false;
+        calls.setRingPolicyCheck([&](const QString &roomId) {
+            askedFor = roomId;
+            return allowed;
+        });
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QVERIFY(!calls.shouldRing());
+        QCOMPARE(askedFor, QStringLiteral("!r:x"));
+        allowed = true;
+        QVERIFY(calls.shouldRing());
+    }
+
+    // ── A ring that arrived during the initial sync ──
+
+    void loweringTheBacklogGateAnnouncesARingStillLive()
+    {
+        // Before: the ring reached Ringing under the gate, its announcement
+        // was refused as backlog, and nothing asked again.
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client); // gate raised: the default
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        ringForRtcNotification(client, QStringLiteral("!r:x"),
+                               QStringLiteral("@peer:x"));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(started.size(), 1);
+        QVERIFY(!calls.shouldRing());
+        const qint64 firstRemaining = started.first().at(3).toLongLong();
+
+        calls.setBacklogSuppressed(false);
+        QCOMPARE(started.size(), 2);
+        QCOMPARE(started.last().at(0).toString(), QStringLiteral("!r:x"));
+        QCOMPARE(started.last().at(1).toString(), QStringLiteral("$notify-1"));
+        QCOMPARE(started.last().at(2).toString(), QStringLiteral("@peer:x"));
+        const qint64 remaining = started.last().at(3).toLongLong();
+        QVERIFY(remaining > 0);
+        QVERIFY(remaining <= firstRemaining);
+        QVERIFY(calls.shouldRing());
+
+        // Once only: a later raise and lower is not another announcement.
+        calls.setBacklogSuppressed(true);
+        calls.setBacklogSuppressed(false);
+        QCOMPARE(started.size(), 2);
+    }
+
+    void aRingAnnouncedWithTheGateOpenIsNotAnnouncedAgain()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setBacklogSuppressed(false);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(started.size(), 1);
+        calls.setBacklogSuppressed(true);
+        calls.setBacklogSuppressed(false);
+        QCOMPARE(started.size(), 1);
+    }
+
+    void aLegacyRingFromTheBacklogIsAnnouncedWhenTheGateLowers()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QCOMPARE(started.size(), 1);
+        calls.setBacklogSuppressed(false);
+        QCOMPARE(started.size(), 2);
+        QCOMPARE(started.last().at(1).toString(), QStringLiteral("call-1"));
+    }
+
+    void anEndedRingIsNotAnnouncedWhenTheGateLowers()
+    {
+        RecordingCallClient client;
+        CallController calls;
+        calls.setClient(&client);
+        QSignalSpy started(&calls, &CallController::incomingCallStarted);
+        client.emitSignal(freshInvite(QStringLiteral("call-1")));
+        QVERIFY(calls.rejectIncoming());
+        calls.setBacklogSuppressed(false);
+        QCOMPARE(started.size(), 1);
+    }
+
     void rtcNotificationRingsAndDeclineUsesRtcLane()
     {
         RecordingCallClient client;
@@ -2198,6 +2884,8 @@ private Q_SLOTS:
 
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!r:x");
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = QStringLiteral("@peer:x");
@@ -2225,6 +2913,8 @@ private Q_SLOTS:
 
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!r:x");
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = QStringLiteral("@peer:x");
@@ -2419,6 +3109,8 @@ private Q_SLOTS:
 
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!r:x");
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = QStringLiteral("@peer:x");
@@ -2515,6 +3207,8 @@ private Q_SLOTS:
 
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!r:x");
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = QStringLiteral("@peer:x");
@@ -2678,6 +3372,8 @@ private Q_SLOTS:
         calls.setMediaBackend(&media);
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!r:x");
         notify.eventId = QStringLiteral("$notify-1");
         notify.sender = QStringLiteral("@peer:x");

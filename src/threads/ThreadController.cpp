@@ -1134,9 +1134,39 @@ void ThreadController::setFollowed(bool followed)
     m_client->setThreadSubscribed(m_roomId, m_rootEventId, followed);
 }
 
+void ThreadController::setViewerAtLatest(bool atLatest)
+{
+    if (m_viewerAtLatest == atLatest)
+        return;
+    m_viewerAtLatest = atLatest;
+    syncViewerAtLatest();
+}
+
+void ThreadController::syncViewerAtLatest()
+{
+    const bool now = viewerAtLatest();
+    if (now == m_viewerAtLatestAnnounced)
+        return;
+    m_viewerAtLatestAnnounced = now;
+    Q_EMIT viewerAtLatestChanged();
+    // Back at the newest reply (window focused again, panel shown, scrolled
+    // down): what arrived meanwhile is read now. Deduplicated in markRead().
+    if (now)
+        markRead();
+}
+
 void ThreadController::markRead()
 {
     if (!m_client || m_state != Ready)
+        return;
+    // Only what the reader is looking at: a panel left open behind another
+    // window, minimised or in the tray, or scrolled up, reads nothing. The
+    // room timeline holds the same line (ReadReceiptCoordinator).
+    if (!viewerAtLatest())
+        return;
+    // A notification is moving the reader to a particular reply; the newest
+    // one is not what they are being shown.
+    if (!m_pendingNavigationEventId.isEmpty() || !m_navigationEventId.isEmpty())
         return;
     qint64 latestMs = 0;
     const QString latest = m_model.latestReadableEventId(&latestMs);
@@ -1355,4 +1385,49 @@ void ThreadController::setState(State state, const QString &failureCategory)
     m_state = state;
     m_failureCategory = failureCategory;
     Q_EMIT stateChanged();
+    bool landed = false;
+    if (!m_pendingNavigationEventId.isEmpty()) {
+        const bool sameThread = m_roomId == m_pendingNavigationRoomId
+            && m_rootEventId == m_pendingNavigationRootEventId;
+        if (!sameThread || m_state == Closed || m_state == Failed) {
+            m_pendingNavigationEventId.clear();
+        } else if (m_state == Ready) {
+            // After every stateChanged handler, so the panel's restore of a
+            // saved scroll position cannot undo the landing.
+            const QString eventId = m_pendingNavigationEventId;
+            m_pendingNavigationEventId.clear();
+            navigateToEvent(eventId);
+            landed = true;
+        }
+    }
+    syncViewerAtLatest();
+    // markRead() refused while the landing was pending; if the reply it
+    // landed on left the reader at the newest one, that is read now.
+    if (landed && viewerAtLatest())
+        markRead();
+}
+
+void ThreadController::openThreadAt(const QString &roomId,
+                                    const QString &rootEventId,
+                                    const QString &eventId)
+{
+    if (!supported() || roomId.isEmpty() || rootEventId.isEmpty())
+        return;
+    m_pendingNavigationEventId.clear();
+    const bool alreadyOpen = m_state != Closed && m_state != Failed
+        && m_roomId == roomId && m_rootEventId == rootEventId;
+    if (!alreadyOpen)
+        openThread(roomId, rootEventId);
+    if (eventId.isEmpty() || eventId == rootEventId)
+        return;
+    if (m_roomId != roomId || m_rootEventId != rootEventId)
+        return;   // the open was refused
+    if (m_state == Ready) {
+        // Already open, or a backend that opened it synchronously.
+        navigateToEvent(eventId);
+        return;
+    }
+    m_pendingNavigationEventId = eventId;
+    m_pendingNavigationRoomId = roomId;
+    m_pendingNavigationRootEventId = rootEventId;
 }

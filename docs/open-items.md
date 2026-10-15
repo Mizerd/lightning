@@ -2334,8 +2334,9 @@ gone.
 
   **Scope it as "replace Windows notification delivery with WinRT toasts,
   keeping click routing", as its own round.** The interim position is honest:
-  the stale toast is cosmetic, because the click still routes correctly to the
-  room — the harm is a toast that looks unread after it has been read. macOS
+  the stale toast is cosmetic: a click raises the window, and opens a room
+  only when that is unambiguous — the harm is a toast that looks unread after
+  it has been read. macOS
   has the same hole with a different API and the same shape of cost.
 - ~~**`--version` and `--call-media-status` produce NO OUTPUT on the packaged
   Windows build**~~ — see the entry above; fixed and confirmed on shipped bytes. Measured three ways (cmd redirect,

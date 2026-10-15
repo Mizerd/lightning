@@ -24,9 +24,70 @@ Dialog {
 
     readonly property var activity: app.activity
 
+    // The keyword list is NOT edited here: it used to be a second, local list
+    // that only filtered this panel and never notified or pushed. The account's
+    // keywords are push rules, edited in Settings > Notifications. Nothing in
+    // this panel writes the model's keywords or seen marker except the
+    // explicit "Mark all seen".
     function openPanel() {
         open()
-        keywordsField.text = root.activity ? root.activity.keywords.join(", ") : ""
+    }
+
+    function openEntry(entryId) {
+        if (!root.activity)
+            return
+        root.activity.open(entryId)
+        root.close()
+    }
+
+    // Single-pass %N substitution. QML's String.arg() takes ONE argument and
+    // each call rewrites the lowest-numbered marker anywhere in the string,
+    // including markers an earlier substitution inserted, so a reaction key or
+    // a room name containing "%2" could rewrite the sentence. This replaces
+    // every marker of the TEMPLATE once and never rescans the inserted text.
+    function fill(template, values) {
+        return template.replace(/%([1-9])/g, function(m, d) {
+            var i = parseInt(d, 10) - 1
+            return i < values.length ? String(values[i]) : m
+        })
+    }
+    // Names are other people's text. Strip any bidi control that could close
+    // our isolate or override the direction, then isolate (FSI ... PDI) so a
+    // hostile or opposite-direction name cannot reorder its neighbours.
+    function isolate(name) {
+        var n = String(name === undefined || name === null ? "" : name)
+        n = n.replace(/[\u202A-\u202E\u2066-\u2069]/g, "")
+        return "\u2068" + n + "\u2069"
+    }
+    // A reaction key is remote text. MSC2545 clients put the pack image's mxc
+    // URI there; show the shortcode if a pack this account holds knows it,
+    // else a generic label, never the raw URI (as MessageDelegate does).
+    function reactionDisplay(key) {
+        var k = key || ""
+        if (k.indexOf("mxc://") !== 0)
+            return k
+        var code = ""
+        if (typeof app !== "undefined" && app.stickers) {
+            var rev = app.stickers.revision
+            code = app.stickers.shortcodeForUrl(k)
+        }
+        return code && code.length > 0 ? code : qsTr("custom emoji")
+    }
+    function previewText(kind, preview, reactionKey) {
+        var p = preview || ""
+        if (kind === "reaction")
+            return reactionDisplay(reactionKey || p)
+        return p.indexOf("mxc://") === 0 ? reactionDisplay(p) : p
+    }
+    function rowAccessibleName(kind, reactionKey, roomName, senderName,
+                               senderId, preview, encrypted, seen, timestampMs) {
+        var body = encrypted ? qsTr("encrypted message")
+                             : previewText(kind, preview, reactionKey)
+        var vals = [kindLabel(kind, reactionKey), isolate(roomName),
+                    isolate(senderLabel(senderName, senderId)), body,
+                    timeLabel(timestampMs)]
+        return fill(seen ? qsTr("%1 in %2, %3: %4, %5")
+                         : qsTr("Unread. %1 in %2, %3: %4, %5"), vals)
     }
 
     function kindIcon(kind) {
@@ -47,7 +108,8 @@ Dialog {
         case "room_mention": return qsTr("Mentioned everyone")
         case "reply": return qsTr("Replied to you")
         case "thread": return qsTr("Replied in your thread")
-        case "reaction": return qsTr("Reacted %1 to your message").arg(reactionKey)
+        case "reaction": return fill(qsTr("Reacted %1 to your message"),
+                                     [reactionDisplay(reactionKey)])
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
         // The server says it's highlighted, not which rule matched; a
@@ -65,7 +127,7 @@ Dialog {
                       && d.getMonth() === now.getMonth()
                       && d.getDate() === now.getDate()
         return sameDay ? Qt.formatTime(d, app.settings.clockTimeFormat)
-                       : Qt.locale().toString(d, "ddd d MMM")
+                       : Qt.locale().toString(d, Locale.ShortFormat)
     }
     // A sender the model could not name yet arrives as a bare Matrix ID; the
     // localpart reads as a name ("@bob:example.org" -> "bob"), as mention
@@ -80,20 +142,6 @@ Dialog {
             return colon > 0 ? id.substring(0, colon) : id
         }
         return n
-    }
-
-    function applyKeywords() {
-        if (!root.activity)
-            return
-        var parts = keywordsField.text.split(",")
-        var out = []
-        for (var i = 0; i < parts.length; ++i) {
-            var t = parts[i].trim()
-            if (t.length > 0)
-                out.push(t)
-        }
-        root.activity.keywords = out
-        keywordsField.text = root.activity.keywords.join(", ")
     }
 
     background: Rectangle {
@@ -162,25 +210,28 @@ Dialog {
             onActivated: (value) => { if (root.activity) root.activity.filter = value }
         }
 
-        // Keyword highlights: whole words, case-insensitive, this account.
+        // Keywords are account push rules; they are edited in Settings.
         RowLayout {
             Layout.fillWidth: true
             visible: root.activity && root.activity.filter === "keywords"
             spacing: AppTheme.spacing8
-            AppTextField {
-                id: keywordsField
-                objectName: "activityKeywordsField"
-                storm: true
+            Label {
                 Layout.fillWidth: true
-                placeholderText: qsTr("Keywords, separated by commas")
-                onEditingFinished: root.applyKeywords()
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textBody
+                text: qsTr("Keywords are managed in Settings, under Notifications.")
             }
             AppButton {
+                objectName: "activityOpenKeywordSettings"
                 storm: true
                 kind: "secondary"
                 size: "sm"
-                text: qsTr("Save")
-                onClicked: root.applyKeywords()
+                text: qsTr("Open keyword settings")
+                onClicked: {
+                    root.close()
+                    app.showSettingsSection("notifications")
+                }
             }
         }
 
@@ -198,7 +249,7 @@ Dialog {
                 switch (root.activity.filter) {
                 case "keywords":
                     return root.activity.keywords.length === 0
-                           ? qsTr("Add keywords above to be told when someone uses them.")
+                           ? qsTr("No keywords are set. Add some in Settings, under Notifications.")
                            : qsTr("No message has used your keywords yet.")
                 case "invites": return qsTr("No pending invites.")
                 case "reactions": return qsTr("Nobody has reacted to your messages yet.")
@@ -215,6 +266,18 @@ Dialog {
             clip: true
             spacing: AppTheme.spacing4
             model: root.activity
+            activeFocusOnTab: true
+            keyNavigationEnabled: true
+            currentIndex: 0
+            Accessible.role: Accessible.List
+            Accessible.name: qsTr("Activity")
+            Keys.onReturnPressed: listView.openCurrent()
+            Keys.onEnterPressed: listView.openCurrent()
+            Keys.onSpacePressed: listView.openCurrent()
+            function openCurrent() {
+                if (listView.currentItem)
+                    root.openEntry(listView.currentItem.entryId)
+            }
             ScrollBar.vertical: ScrollBar { }
             delegate: Rectangle {
                 id: row
@@ -239,15 +302,30 @@ Dialog {
                 border.width: 1
                 border.color: row.seen ? AppTheme.stormBorder : AppTheme.stormBorderStrong
                 Accessible.role: Accessible.Button
-                Accessible.name: qsTr("%1 in %2, %3: %4")
-                                   .arg(root.kindLabel(row.kind, row.reactionKey))
-                                   .arg(row.roomName).arg(row.senderName)
-                                   .arg(row.encrypted ? qsTr("encrypted message") : row.preview)
+                objectName: "activityRow"
+                readonly property string a11yName: root.rowAccessibleName(
+                    row.kind, row.reactionKey, row.roomName, row.senderName,
+                    row.senderId, row.preview, row.encrypted, row.seen,
+                    row.timestampMs)
+                Accessible.name: row.a11yName
+                Accessible.onPressAction: root.openEntry(row.entryId)
+                // Visible keyboard focus: the current row while the list has
+                // focus. Drawn inside the row so it is never clipped.
+                Rectangle {
+                    objectName: "activityRowFocusRing"
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.stormBorderStrong
+                    visible: row.ListView.isCurrentItem && listView.activeFocus
+                }
                 HoverHandler { id: rowHover }
                 TapHandler {
+                    gesturePolicy: TapHandler.WithinBounds
                     onTapped: {
-                        root.activity.open(row.entryId)
-                        root.close()
+                        listView.currentIndex = row.index
+                        root.openEntry(row.entryId)
                     }
                 }
                 RowLayout {
@@ -310,11 +388,14 @@ Dialog {
                             text: row.encrypted
                                   ? qsTr("Encrypted message")
                                   : (row.kind === "invite"
-                                     ? qsTr("From %1").arg(root.senderLabel(
-                                           row.senderName, row.senderId))
-                                     : (root.senderLabel(row.senderName,
-                                                         row.senderId)
-                                        + ": " + row.preview))
+                                     ? root.fill(qsTr("From %1"), [root.isolate(
+                                           root.senderLabel(row.senderName,
+                                                            row.senderId))])
+                                     : (root.isolate(root.senderLabel(
+                                            row.senderName, row.senderId))
+                                        + ": " + root.previewText(
+                                            row.kind, row.preview,
+                                            row.reactionKey)))
                             color: row.encrypted ? AppTheme.stormTextMuted
                                                  : AppTheme.stormTextSecondary
                             font.italic: row.encrypted

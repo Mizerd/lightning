@@ -5,6 +5,8 @@
 #include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
 
+#include <QCoreApplication>
+#include <QTranslator>
 #include <QtTest/QtTest>
 
 using matrix::preview::normalizePreviewText;
@@ -156,6 +158,61 @@ private Q_SLOTS:
         e.body.clear();
         e.galleryItems[1].kind = QStringLiteral("file");
         QCOMPARE(oneLineSummary(e), QStringLiteral("2 attachments"));
+    }
+
+    // The summaries are translatable (context EventPreview) and the gallery
+    // count takes plural forms. A stub translator proves the lookup happens.
+    void summariesGoThroughTheTranslator()
+    {
+        struct Stub : QTranslator {
+            QString translate(const char *ctx, const char *src, const char *,
+                              int n) const override
+            {
+                if (QByteArray(ctx) != "EventPreview")
+                    return {};
+                const QByteArray s(src);
+                if (s == "Message removed") return QStringLiteral("PANAIKINTA");
+                if (s == "Poll: %1") return QStringLiteral("Apklausa: %1");
+                if (s == "%n image(s)")
+                    return n == 1 ? QStringLiteral("%n paveikslas")
+                                  : QStringLiteral("%n paveikslai");
+                return {};
+            }
+            bool isEmpty() const override { return false; }
+        } stub;
+        QCoreApplication::installTranslator(&stub);
+        TimelineEvent e;
+        e.redacted = true;
+        QCOMPARE(oneLineSummary(e), QStringLiteral("PANAIKINTA"));
+        TimelineEvent p;
+        p.type = TimelineEvent::Poll;
+        p.pollQuestion = QStringLiteral("Q?");
+        QCOMPARE(oneLineSummary(p), QStringLiteral("Apklausa: Q?"));
+        TimelineEvent g;
+        g.type = TimelineEvent::Image;
+        GalleryItem a;
+        a.kind = QStringLiteral("image");
+        g.galleryItems = { a, a };
+        QCOMPARE(oneLineSummary(g), QStringLiteral("2 paveikslai"));
+        QCoreApplication::removeTranslator(&stub);
+        QCOMPARE(oneLineSummary(e), QStringLiteral("Message removed"));
+        QCOMPARE(oneLineSummary(g), QStringLiteral("2 images"));
+    }
+
+    // The bridge sends a live location's description, or nothing; the label
+    // is translated here rather than arriving in English.
+    void aLiveLocationWithoutADescriptionIsNamed()
+    {
+        TimelineEvent live;
+        live.type = TimelineEvent::Location;
+        live.locationLive = true;
+        QCOMPARE(oneLineSummary(live), QStringLiteral("Live location"));
+        live.body = QStringLiteral("Heading home");
+        QCOMPARE(oneLineSummary(live), QStringLiteral("Heading home"));
+        TimelineEvent pin;
+        pin.type = TimelineEvent::Location;
+        pin.body = QStringLiteral("Vilnius");
+        QCOMPARE(oneLineSummary(pin), QStringLiteral("Vilnius"));
     }
 
     void redactedAndUndecryptableAreHonest()

@@ -31,7 +31,7 @@ ItemDelegate {
     Accessible.name: {
         var base = root.headerName;
         if (root.hiddenHighlight > 0) {
-            base = qsTr("%1, %2 mentions inside").arg(base).arg(root.hiddenHighlight);
+            base = qsTr("%1, %n mention(s) inside", "", root.hiddenHighlight).arg(base);
         } else if (root.hiddenUnread > 0) {
             base = qsTr("%1, unread inside").arg(base);
         }

@@ -780,6 +780,45 @@ pub(crate) struct Msc4075RtcNotificationEventContent {
     pub call_intent: Option<String>,
 }
 
+/// The `call_rtc_notification` record for an
+/// `org.matrix.msc4075.rtc.notification`. The type and `m.mentions` go
+/// through the same [`crate::calls::rtc_notification_addressing`] as the
+/// stable event's, so the two cannot disagree about who rings.
+fn msc4075_notification_payload(
+    ev: &OriginalSyncMsc4075RtcNotificationEvent,
+    room_id: &str,
+    own_user: Option<&matrix_sdk::ruma::UserId>,
+    lifecycle: u64,
+) -> serde_json::Value {
+    let own = own_user.is_some_and(|user| user == ev.sender);
+    let intent = match ev.content.call_intent.as_deref() {
+        Some("video") => "video",
+        _ => "audio",
+    };
+    let mut payload = json!({
+        "type": "call_rtc_notification",
+        "lifecycle": lifecycle,
+        "room_id": room_id,
+        "event_id": ev.event_id.to_string(),
+        "sender": ev.sender.to_string(),
+        "own": own,
+        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
+        "sender_ts": u64::from(ev.content.sender_ts.get()),
+        "lifetime_ms": ev.content.lifetime.min(MAX_NOTIFICATION_LIFETIME_MS),
+        "call_intent": intent,
+        // MatrixRTC lane, not legacy m.call.invite, so one call cannot ring twice.
+        "rtc": true,
+    });
+    if let Some(object) = payload.as_object_mut() {
+        object.extend(crate::calls::rtc_notification_addressing(
+            &ev.content.notification_type,
+            ev.content.mentions.as_ref(),
+            own_user,
+        ));
+    }
+    payload
+}
+
 /// Legacy membership state event, typed only so the SDK reports changes.
 /// The content is a passthrough: the handler just signals "membership
 /// changed" and the session is re-read through the one parser above.
@@ -3406,35 +3445,15 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    let own = client.user_id().is_some_and(|user| user == ev.sender);
                     // A ring is the strongest evidence of a session in a room we are not
                     // viewing, so it licenses one `/state`. Recorded for our own ring too.
                     note_rtc_ring(room.room_id().as_str());
-                    let notification_type = match ev.content.notification_type.as_str()
-                    {
-                        "ring" => "ring",
-                        _ => "notification",
-                    };
-                    let intent = match ev.content.call_intent.as_deref() {
-                        Some("video") => "video",
-                        _ => "audio",
-                    };
-                    enqueue(&events, json!({
-                        "type": "call_rtc_notification",
-                        "lifecycle": timelines.lifecycle(),
-                        "room_id": room.room_id().to_string(),
-                        "event_id": ev.event_id.to_string(),
-                        "sender": ev.sender.to_string(),
-                        "own": own,
-                        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
-                        "sender_ts": u64::from(ev.content.sender_ts.get()),
-                        "lifetime_ms": ev.content.lifetime
-                            .min(MAX_NOTIFICATION_LIFETIME_MS),
-                        "call_intent": intent,
-                        "notification_type": notification_type,
-                        // MatrixRTC lane, not legacy m.call.invite, so one call cannot ring twice.
-                        "rtc": true,
-                    }));
+                    enqueue(&events, msc4075_notification_payload(
+                        &ev,
+                        room.room_id().as_str(),
+                        client.user_id(),
+                        timelines.lifecycle(),
+                    ));
                 }
             },
         );
@@ -5134,6 +5153,31 @@ mod tests {
         assert_eq!(value["m.mentions"]["room"], json!(true));
         // Absent rather than null: Element rejects a malformed relation.
         assert!(value.get("m.relates_to").is_none());
+    }
+
+    #[test]
+    fn the_unstable_notification_forwards_its_type_and_mentions() {
+        let ev: OriginalSyncMsc4075RtcNotificationEvent = serde_json::from_value(json!({
+            "type": "org.matrix.msc4075.rtc.notification",
+            "event_id": "$announce:x",
+            "sender": "@caller:x",
+            "origin_server_ts": 1_000,
+            "content": {
+                "notification_type": "notification",
+                "sender_ts": 1_000,
+                "lifetime": 90_000,
+                "m.mentions": { "user_ids": ["@me:x"], "room": true },
+            },
+        }))
+        .expect("a valid unstable notification");
+        let payload = msc4075_notification_payload(&ev, "!r:x", None, 3);
+        assert_eq!(payload["notification_type"], json!("notification"));
+        // Before: m.mentions was dropped here.
+        assert_eq!(payload["mentions_user_ids"], json!(["@me:x"]));
+        assert_eq!(payload["mentions_room"], json!(true));
+        assert_eq!(payload["rtc"], json!(true));
+        assert_eq!(payload["lifetime_ms"], json!(90_000));
+        assert_eq!(payload["call_intent"], json!("audio"));
     }
 
     #[test]

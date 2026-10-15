@@ -378,6 +378,42 @@ Item {
                          + "volume mention test"),
           section: "notifications", breadcrumb: qsTr("Notifications"),
           anchor: "notificationSoundSourceCombo" },
+        { title: qsTr("Mute all notifications"),
+          keywords: qsTr("mute all silence everything pause notifications "
+                         + "push rules account"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "pushMasterMuteSwitch" },
+        { title: qsTr("Default alerts"),
+          keywords: qsTr("default alerts direct messages rooms all messages "
+                         + "mentions only push rules"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "pushDmDefaultCombo" },
+        { title: qsTr("Mentions"),
+          keywords: qsTr("mention mentions @room user id display name "
+                         + "username highlight alert"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "pushMentionUserIdCombo" },
+        { title: qsTr("Keywords"),
+          keywords: qsTr("keyword keywords word notify when someone says "
+                         + "push rules"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "pushKeywordField" },
+        { title: qsTr("Other events"),
+          keywords: qsTr("other events reactions invitations invites bots "
+                         + "bot notices"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "pushEventReactionsCombo" },
+        { title: qsTr("Not getting notifications?"),
+          keywords: qsTr("troubleshoot troubleshooter not getting notifications "
+                         + "missing no notification test check"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications · Account notification rules"),
+          anchor: "troubleshooterRunButton" },
 
         { title: qsTr("Only exchange messages with verified devices"),
           keywords: qsTr("invisible crypto msc4153 cross-signed verified "
@@ -746,6 +782,14 @@ Item {
             { label: qsTr("Previews"), anchors: ["notificationPreviewCombo"] },
             { label: qsTr("Sound"), anchors: ["notificationSoundCombo"] },
             { label: qsTr("Calls"), anchors: ["ringForCallsCheck"] },
+            { label: qsTr("Mute all"), anchors: ["pushMasterMuteSwitch"] },
+            { label: qsTr("Default alerts"), anchors: ["pushDmDefaultCombo"] },
+            { label: qsTr("Mentions"), anchors: ["pushMentionUserIdCombo"] },
+            { label: qsTr("Keywords"), anchors: ["pushKeywordField"] },
+            { label: qsTr("Other events"),
+              anchors: ["pushEventReactionsCombo"] },
+            { label: qsTr("Not getting notifications?"),
+              anchors: ["troubleshooterRunButton"] },
         ],
         "sound": [
             { label: qsTr("Microphone"), anchors: ["callDevice_microphone"] },
@@ -3656,8 +3700,18 @@ Item {
                                     objectName: "closeToTrayCheck"
                                     text: Qt.platform.os === "osx" ? qsTr("Show Lightning in the menu bar")
                                                        : qsTr("Keep running in the tray when the window is closed")
-                                    checked: app.settings.closeToTray
+                                    // Without QtDBus (macOS) the tray icon IS the
+                                    // notification path, so while desktop
+                                    // notifications are on it cannot be removed.
+                                    readonly property bool iconForced:
+                                        Qt.platform.os === "osx"
+                                        && app.settings.notificationsEnabled
+                                    enabled: !iconForced
+                                    checked: iconForced || app.settings.closeToTray
                                     onToggled: app.settings.closeToTray = checked
+                                    Accessible.description: iconForced
+                                        ? qsTr("Notifications need the menu bar icon")
+                                        : ""
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
@@ -3678,9 +3732,15 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     text: Qt.platform.os === "osx"
-                                          ? qsTr("Closing the window always hides it, and Lightning keeps "
-                                                 + "running. This only controls the menu bar icon; "
-                                                 + "click it to bring the window back. Cmd+Q quits.")
+                                          ? (app.settings.notificationsEnabled
+                                             ? qsTr("Notifications need the menu bar icon, so it stays "
+                                                    + "while desktop notifications are on. Closing the "
+                                                    + "window always hides it, and Lightning keeps "
+                                                    + "running. Click the icon to bring the window "
+                                                    + "back. Cmd+Q quits.")
+                                             : qsTr("Closing the window always hides it, and Lightning keeps "
+                                                    + "running. Click the menu bar icon to bring the "
+                                                    + "window back. Cmd+Q quits."))
                                           : qsTr("Click the tray icon to bring the window "
                                                  + "back. Ctrl+Q quits.")
                                 }
@@ -4760,19 +4820,26 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // The fully-read marker is account data and
-                                    // still syncs; only the receipt stops, so
-                                    // badges on other devices stop clearing.
+                                    // Modes 1 and 2 both send m.read.private
+                                    // (rust/src/lib.rs receipts_for_mode,
+                                    // automatic_receipt; timeline.rs
+                                    // thread_receipt_type): matrix-sdk counts
+                                    // unread from the user's own receipts, so
+                                    // sending none left every room unread on
+                                    // this device. The text must not promise
+                                    // that nothing is sent.
                                     text: qsTr("Private receipts still clear the "
                                                + "unread badge on your own other "
                                                + "devices; nobody else sees them. "
-                                               + "Not sending them at all means your "
-                                               + "other devices stop clearing it too, "
-                                               + "though your place in a conversation "
-                                               + "is still saved. Either way, receipts "
-                                               + "you have already sent cannot be "
-                                               + "taken back, and other people's "
-                                               + "receipts are still shown to you.")
+                                               + "\"Do not send read receipts\" "
+                                               + "works the same way: a private "
+                                               + "receipt is still sent, because "
+                                               + "your own devices need it to know "
+                                               + "what you have read, and other "
+                                               + "people see nothing. Receipts you "
+                                               + "have already sent cannot be taken "
+                                               + "back, and other people's receipts "
+                                               + "are still shown to you.")
                                 }
 
                                 CheckBox {
@@ -6083,7 +6150,9 @@ Item {
                                                + "one; the desktop's notification sound "
                                                + "is turned off. It stays quiet during "
                                                + "calls. Choose System default to let the "
-                                               + "desktop play its own.")
+                                               + "desktop play its own, where the desktop "
+                                               + "can; on macOS it cannot, and Lightning's "
+                                               + "chime plays instead.")
                                 }
                                 // Call devices live under "Sound & video"; the
                                 // ring toggle stays here, gated on desktop
@@ -6099,9 +6168,12 @@ Item {
                                     Accessible.description:
                                         qsTr("Repeat the call sound while an "
                                              + "incoming voice call is "
-                                             + "ringing. Turning this off "
-                                             + "still shows the call — it "
-                                             + "only silences the ring.")
+                                             + "ringing. This is independent of "
+                                             + "Notification sound: the ring "
+                                             + "follows this setting alone. "
+                                             + "Turning it off still shows "
+                                             + "the call — it only silences "
+                                             + "the ring.")
                                     SettingsNeedsBadge { needs: qsTr("Desktop notifications") }
                                 }
                                 Label {

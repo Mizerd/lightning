@@ -3,6 +3,7 @@
 #include "app/CloseBehavior.h"
 
 #include <QColor>
+#include <QEvent>
 #include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
@@ -175,6 +176,9 @@ QIcon macTemplateIcon(const QString &label)
 TrayIcon::TrayIcon(QObject *parent)
     : QObject(parent)
 {
+    // Qt sends LanguageChange to the application object only.
+    if (qApp)
+        qApp->installEventFilter(this);
 }
 
 TrayIcon::~TrayIcon()
@@ -231,7 +235,10 @@ void TrayIcon::setEnabled(bool enabled)
     if (nativeMenu)
         m_icon->setContextMenu(contextMenu());
     connect(m_icon, &QSystemTrayIcon::activated, this,
-            [this, nativeMenu](QSystemTrayIcon::ActivationReason reason) {
+            [this, nativeMenu](QSystemTrayIcon::ActivationReason raw) {
+                const int reason = effectiveActivationReason(
+                    raw, closebehavior::kIsMac,
+                    QGuiApplication::queryKeyboardModifiers() & Qt::MetaModifier);
                 if (activationOpensOwnMenu(reason, nativeMenu)) {
                     // Not from inside the status button's action dispatch.
                     QTimer::singleShot(0, this, [this] { popUpMenu(); });
@@ -251,12 +258,35 @@ QMenu *TrayIcon::contextMenu()
     if (m_menu)
         return m_menu.get();
     m_menu = std::make_unique<QMenu>();
-    QAction *show = m_menu->addAction(tr("Show Lightning"));
-    connect(show, &QAction::triggered, this, &TrayIcon::showRequested);
+    m_showAction = m_menu->addAction(tr("Show Lightning"));
+    connect(m_showAction, &QAction::triggered, this, &TrayIcon::showRequested);
     m_menu->addSeparator();
-    QAction *quit = m_menu->addAction(tr("Quit Lightning"));
-    connect(quit, &QAction::triggered, this, &TrayIcon::quitRequested);
+    m_quitAction = m_menu->addAction(tr("Quit Lightning"));
+    connect(m_quitAction, &QAction::triggered, this, &TrayIcon::quitRequested);
     return m_menu.get();
+}
+
+int TrayIcon::effectiveActivationReason(int reason, bool isMac, bool controlHeld)
+{
+    if (isMac && controlHeld && reason == QSystemTrayIcon::Trigger)
+        return QSystemTrayIcon::Context;
+    return reason;
+}
+
+void TrayIcon::retranslate()
+{
+    if (m_showAction)
+        m_showAction->setText(tr("Show Lightning"));
+    if (m_quitAction)
+        m_quitAction->setText(tr("Quit Lightning"));
+    refreshTooltip();
+}
+
+bool TrayIcon::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange && watched == qApp)
+        retranslate();
+    return QObject::eventFilter(watched, event);
 }
 
 bool TrayIcon::activationShowsWindow(int reason)
@@ -353,14 +383,23 @@ void TrayIcon::refreshTooltip()
 {
     if (!m_icon)
         return;
+    m_icon->setToolTip(tooltipText(m_account, m_unread, m_anyUnread));
+}
+
+QString TrayIcon::tooltipText(const QString &account, int unread, bool anyUnread)
+{
     QString text = QStringLiteral("Lightning");
-    if (!m_account.isEmpty())
-        text += QStringLiteral(" — ") + m_account;
-    if (m_unread > 0) {
+    if (!account.isEmpty())
+        text += QStringLiteral(" — ") + account;
+    if (unread > 0) {
         text += QLatin1Char('\n')
-            + tr("%n unread message(s)", "system tray tooltip", m_unread);
+            + tr("%n unread message(s)", "system tray tooltip", unread);
+    } else if (anyUnread) {
+        // The badge shows the countless dot; say the same in words.
+        text += QLatin1Char('\n')
+            + tr("Unread messages", "system tray tooltip, unread rooms without a count");
     }
-    m_icon->setToolTip(text);
+    return text;
 }
 
 unsigned TrayIcon::balloonInfoFlags(bool hasImage, bool platformSound)
@@ -383,6 +422,14 @@ QImage TrayIcon::balloonImage(const QImage &avatar)
                          Qt::SmoothTransformation);
 }
 
+int TrayIcon::balloonTimeoutMs(bool isMac)
+{
+    // Qt's cocoa backend schedules removeDeliveredNotification after `msecs`
+    // whenever it is non-zero, deleting the notification from Notification
+    // Center, so macOS gets 0 (no removal). Windows treats it as a hint.
+    return isMac ? 0 : 10000;
+}
+
 bool TrayIcon::showMessage(const QString &title, const QString &body,
                            const QImage &image, bool platformSound)
 {
@@ -397,8 +444,7 @@ bool TrayIcon::showMessage(const QString &title, const QString &body,
     // carries no sound of its own.
     Q_UNUSED(platformSound);
 #endif
-    // Windows treats this as a hint and macOS ignores it.
-    constexpr int kMillis = 10000;
+    const int kMillis = balloonTimeoutMs(closebehavior::kIsMac);
     if (image.isNull())
         m_icon->showMessage(title, body, QSystemTrayIcon::Information, kMillis);
     else

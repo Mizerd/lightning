@@ -49,6 +49,11 @@ class PaginationController : public QObject
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool reachedStart READ reachedStart NOTIFY stateChanged)
+    // The backend says there IS older history. Not the
+    // negation of reachedStart: before the backend knows either way both
+    // are false, and a surface offering a jump into older history must not
+    // offer it on that unknown.
+    Q_PROPERTY(bool moreHistory READ moreHistory NOTIFY stateChanged)
     Q_PROPERTY(bool failed READ failed NOTIFY stateChanged)
     Q_PROPERTY(PresentationState presentationState READ presentationState NOTIFY stateChanged)
     Q_PROPERTY(InitialHistoryState initialHistoryState READ initialHistoryState NOTIFY stateChanged)
@@ -154,6 +159,7 @@ public:
     bool busy() const;
     bool nearTopRunActive() const;
     bool reachedStart() const;
+    bool moreHistory() const;
     bool failed() const;
     PresentationState presentationState() const;
     InitialHistoryState initialHistoryState() const;
@@ -253,6 +259,21 @@ private Q_SLOTS:
     void onLoggedOut();
 
 private:
+    void handlePaginationStateChanged(const QString &roomId);
+    // reachedStart()/moreHistory() as last announced, so a backend state
+    // change that settles neither a batch nor a failure (a reset, an
+    // idle readiness note) still NOTIFYs them when they moved.
+    bool m_announcedReachedStart = false;
+    bool m_announcedMoreHistory = false;
+    // canPaginate() as last seen while no page was loading: a backend may
+    // answer false for the length of every page fetch, which would make
+    // moreHistory blink off during the very hunt the pill starts.
+    bool m_moreHistoryKnown = false;
+    // The one way this class announces stateChanged: it first records what
+    // the announcement told QML about reachedStart/moreHistory, so the
+    // change check in onPaginationStateChanged compares with what QML holds
+    // (a room switch, a reset or sign-out included).
+    void emitStateChanged();
     enum class Reason { None, ViewportFill, AutomaticRetry, NearTop, Retry,
                         Navigation };
     enum class NavigationPurpose { None, Reply, Restore };

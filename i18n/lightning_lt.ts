@@ -12173,7 +12173,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+8"/>
         <source>%1 in %2</source>
-        <translation>%1 %2</translation>
+        <translation>%1 kambaryje %2</translation>
     </message>
     <message>
         <location line="+4"/>

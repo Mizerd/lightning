@@ -130,6 +130,7 @@ mod aboutinfo;
 mod serveradmin;
 mod sfu;
 mod storeclose;
+mod syncnotify;
 mod timeline;
 
 /// The single HTTP user agent, for the homeserver and any user-invoked
@@ -321,6 +322,11 @@ struct RustClient {
     // Coordinator nudge channel (SAS, manual request, m.secret.send). Cleared
     // when the observer stops so a stale sender cannot reach a later session.
     recovery_nudges: RecoveryNudgeSlot,
+    // The sync handlers' backlog clock and their undecryptable events awaiting
+    // redecryption (syncnotify.rs), shared with the sync loop that drives the
+    // clock and the crypto observer that re-emits a decrypted event. Reset at
+    // every session end.
+    sync_notify: Arc<syncnotify::SyncNotify>,
 }
 
 impl RustClient {
@@ -382,6 +388,7 @@ impl RustClient {
             command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
             recovery_nudges: Arc::new(Mutex::new(None)),
+            sync_notify: Arc::new(syncnotify::SyncNotify::default()),
             sfu: sfu::SfuState::default(),
             sfu_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
@@ -426,12 +433,16 @@ impl RustClient {
             join_task_within_budget(&mut task, "crypto-bootstrap");
         }
         let task = self.sync_task.lock().ok().and_then(|mut guard| guard.take());
-        if let Some(mut task) = task {
+        let stopped = if let Some(mut task) = task {
             join_task_within_budget(&mut task, "sync");
             true
         } else {
             false
-        }
+        };
+        // After both loops are gone: nothing a stopped session left undecryptable
+        // may be re-emitted into the next one.
+        self.sync_notify.reset();
+        stopped
     }
 
     /// Join every handle under one budget, then abort and briefly drain
@@ -1327,6 +1338,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
         let active_qr = Arc::clone(&bridge.active_qr);
+        let sync_notify = Arc::clone(&bridge.sync_notify);
         // Shared runtime: the SDK's post-login E2EE initialization task must
         // outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -1341,6 +1353,7 @@ pub unsafe extern "C" fn mx_rust_login(
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
+                            Arc::clone(&sync_notify),
                         );
                         let mut builder = client
                             .matrix_auth()
@@ -1457,6 +1470,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
+        let sync_notify = Arc::clone(&bridge.sync_notify);
         let active_qr = Arc::clone(&bridge.active_qr);
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
@@ -1515,6 +1529,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
+                            Arc::clone(&sync_notify),
                         );
                         if let Err(err) =
                             save_persistent_session(&session_file, &homeserver, &stored.session)
@@ -1586,6 +1601,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        let sync_notify = Arc::clone(&bridge.sync_notify);
         let active_sas = Arc::clone(&bridge.active_sas);
         let active_qr = Arc::clone(&bridge.active_qr);
         // Shared runtime: the SDK's post-restore E2EE initialization task
@@ -1613,6 +1629,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
+                            Arc::clone(&sync_notify),
                         );
                         // From the receiver taken before restore_session(), so a
                         // rotation the restore itself caused is still persisted.
@@ -1774,6 +1791,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let sync_client = client.clone();
         let sync_search_index = Arc::clone(&bridge.search_index);
+        let sync_notify = Arc::clone(&bridge.sync_notify);
         let thread = std::thread::spawn(move || {
             let _done = done_tx;
             let runtime_events = Arc::clone(&events);
@@ -1788,7 +1806,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                     _ = run_authoritative_sync(
                         sync_client, events, sync_search_index, sync_mode, room_list_slot,
                         entries_slot, active_subscription, sync_timelines,
-                        sync_media_capable, sync_verification_live, cancel_rx,
+                        sync_media_capable, sync_verification_live, sync_notify, cancel_rx,
                     ) => {}
                     _ = stale_invites => {}
                 }
@@ -1833,6 +1851,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let timelines = Arc::clone(&bridge.timelines);
                 let lifecycle = bridge.timelines.lifecycle();
                 let nudges = Arc::clone(&bridge.recovery_nudges);
+                let observer_notify = Arc::clone(&bridge.sync_notify);
                 let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
                 let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
                 let thread = std::thread::spawn(move || {
@@ -1841,7 +1860,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                     run_async(runtime_events, "crypto_bootstrap", async move {
                         run_crypto_bootstrap_observer(
                             client, observer_events, timelines, lifecycle,
-                            nudges, cancel_rx,
+                            nudges, observer_notify, cancel_rx,
                         )
                         .await;
                     });
@@ -1941,9 +1960,12 @@ async fn run_crypto_bootstrap_observer(
     timelines: Arc<timeline::TimelineRegistry>,
     lifecycle: u64,
     nudges: RecoveryNudgeSlot,
+    sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
     let encryption = client.encryption();
+    // Verdicts for late-decrypted events (see decrypted_event_json).
+    let decrypted_verdicts = push_verdict::SyncVerdicts::default();
     let mut verification = encryption.verification_state();
     let recovery = encryption.recovery();
     let backups = encryption.backups();
@@ -2234,6 +2256,35 @@ async fn run_crypto_bootstrap_observer(
                                 &events, lifecycle, "thread_reply_out_of_view", "",
                                 missing as u64,
                             );
+                        }
+                        // matrix-sdk calls sync event handlers only from a sync
+                        // response, so an event that decrypts later never reaches
+                        // one again: a mention that arrived before its key was never
+                        // notified, and the bell never saw it. Each event the sync
+                        // handler forwarded as undecryptable is re-emitted ONCE
+                        // (take_utd), decrypted, in this lifecycle only; C++ decides
+                        // what a decrypted copy changes. Not a decryption of ours:
+                        // the redecryptor already replaced the event in the cache.
+                        if let Some(room) = client.get_room(&room_id) {
+                            for event_id in &resolved {
+                                let Some(backlog) = sync_notify.take_utd(&room_id, event_id)
+                                else {
+                                    continue;
+                                };
+                                let Some(event) = decrypted_event_json(
+                                    &room, event_id, backlog, &decrypted_verdicts,
+                                )
+                                .await
+                                else {
+                                    continue;
+                                };
+                                enqueue(&events, json!({
+                                    "type": "event_decrypted",
+                                    "lifecycle": lifecycle,
+                                    "room_id": room_id.to_string(),
+                                    "event": event,
+                                }));
+                            }
                         }
                     }
                     // The SDK's redecryptor missed room keys.
@@ -2590,25 +2641,64 @@ pub unsafe extern "C" fn mx_rust_send_typing(
     })
 }
 
-/// Build the receipts for one read position under a privacy mode
-/// (0 public, 1 private `m.read.private`, 2 none). Shared by the in-room and
-/// room-list paths so both honour the setting.
+/// Build the receipts for an EXPLICIT "mark as read" (the room list's
+/// `mx_rust_mark_room_read`) under a privacy mode (0 public, 1 private
+/// `m.read.private`, 2 "do not send read receipts"). Unthreaded on purpose:
+/// marking a room read covers its threads too.
+///
+/// Mode 2 sends a PRIVATE receipt, as Element does with receipts off. It used
+/// to send none, and matrix-sdk computes this device's unread counts from the
+/// user's own `m.read` / `m.read.private` only (`ALL_RECEIPT_TYPES`), so every
+/// room stayed unread on this device after being read; only other members
+/// must not see the read position, and a private receipt shows them nothing.
 ///
 /// `m.fully_read` is sent in every mode: it is private account data and
 /// carries the user's own read position across devices.
 fn receipts_for_mode(event_id: OwnedEventId, mode: i32) -> Receipts {
     match mode {
-        1 => Receipts::new()
+        1 | 2 => Receipts::new()
             .fully_read_marker(event_id.clone())
             .private_read_receipt(event_id),
-        2 => Receipts::new().fully_read_marker(event_id),
         _ => Receipts::new()
             .fully_read_marker(event_id.clone())
             .public_read_receipt(event_id),
     }
 }
 
-/// Privacy comes from `receipt_privacy` (see `receipts_for_mode`).
+/// The receipt the AUTOMATIC in-room path sends while the user reads the live
+/// timeline: one receipt, on the MAIN thread, never `m.fully_read`.
+///
+///  * Main, not unthreaded: the live timeline hides threaded events
+///    (`hide_threaded_events: true`), and matrix-sdk-ui's own choice for that
+///    focus is `ReceiptThread::Main`. An unthreaded receipt at a later
+///    main-timeline event marked every older thread reply read on the server
+///    and on the user's other devices, without anyone opening the thread.
+///  * No `m.fully_read`: matrix-sdk-ui follows it live and drops the "New
+///    messages" marker once it reaches the newest event, so moving it with
+///    every receipt removed the divider and the "First unread" pill about a
+///    second after a room opened. It moves on `mx_rust_set_fully_read_marker`,
+///    which C++ calls when the user leaves the room.
+///  * Modes 1 and 2 send `m.read.private` (see `receipts_for_mode`).
+fn automatic_receipt(
+    event_id: OwnedEventId,
+    mode: i32,
+) -> (
+    matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType,
+    matrix_sdk::ruma::events::receipt::ReceiptThread,
+    OwnedEventId,
+) {
+    use matrix_sdk::ruma::{
+        api::client::receipt::create_receipt::v3::ReceiptType,
+        events::receipt::ReceiptThread,
+    };
+    let receipt_type = match mode {
+        1 | 2 => ReceiptType::ReadPrivate,
+        _ => ReceiptType::Read,
+    };
+    (receipt_type, ReceiptThread::Main, event_id)
+}
+
+/// Privacy comes from `receipt_privacy` (see `automatic_receipt`).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_send_read_receipt(
     ptr: *mut c_void,
@@ -2638,18 +2728,80 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
                 .as_ref() != Some(&event_id) {
                 return;
             }
-            let receipts = receipts_for_mode(event_id, mode);
+            let (receipt_type, thread, event_id) = automatic_receipt(event_id, mode);
             // Not retried: the serial lock is held across this call, and the next
             // receipt supersedes this one anyway.
-            match room.send_multiple_receipts(receipts).await {
+            // Both answers name the event, so C++ can tell this receipt's
+            // answer from an older one's (and from mark-as-read's).
+            let answered = event_id.to_string();
+            match room.send_single_receipt(receipt_type, thread, event_id).await {
                 Ok(()) => enqueue(&events, json!({
-                    "type": "read_marker_advanced", "room_id": room_id
+                    "type": "read_marker_advanced", "room_id": room_id,
+                    "event_id": answered
                 })),
                 Err(error) => {
                     let mut event = roomaction::failure_event("read_receipt", &error, 1);
                     event["room_id"] = json!(room_id);
+                    event["event_id"] = json!(answered);
                     enqueue(&events, event);
                 }
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Move this account's `m.fully_read` marker (its place in the room, private
+/// account data) to `event_id`, with no read receipt. The automatic receipt no
+/// longer carries it (see `automatic_receipt`); C++ calls this when the user
+/// leaves a room they have read, so the "New messages" divider stays put for
+/// the whole visit, as in Element.
+///
+/// Sent as a bare `/read_markers` request rather than through
+/// `send_multiple_receipts`, which also clears the manual "marked unread" flag
+/// and would undo a user who marks a room unread and then switches away. Not
+/// subject to the receipt privacy mode: nothing in it is visible to anyone
+/// else. Answers only on failure, as `room_action_error` with
+/// action="fully_read".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_fully_read_marker(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let event_id: OwnedEventId = EventId::parse(event_id)
+            .map_err(|_| "invalid event id".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            use matrix_sdk::ruma::api::client::read_marker::set_read_marker;
+            // Never backwards: another device may already have moved the
+            // marker past what this one showed. Judged by the two events'
+            // timestamps from the local cache; when either is not cached the
+            // write goes ahead, as it always did.
+            if let Some(current) = current_fully_read(&room).await {
+                if current != event_id {
+                    let current_ts = cached_event_ts(&room, &current).await;
+                    let new_ts = cached_event_ts(&room, &event_id).await;
+                    if fully_read_would_move_back(current_ts, new_ts) {
+                        return;
+                    }
+                }
+            }
+            let mut request = set_read_marker::v3::Request::new(room.room_id().to_owned());
+            request.fully_read = Some(event_id);
+            if let Err(error) = client.send(request).await {
+                let error = matrix_sdk::Error::Http(Box::new(error));
+                let mut event = roomaction::failure_event("fully_read", &error, 1);
+                event["room_id"] = json!(room_id);
+                enqueue(&events, event);
             }
         });
         Ok(String::new())
@@ -3453,7 +3605,11 @@ pub unsafe extern "C" fn mx_rust_send_text(
             // matrix-sdk encrypts automatically for encrypted rooms; failures (missing
             // keys, untrusted devices) come back through send_failed. C++ still
             // refuses when CryptoManager::supportsE2ee() is false.
-            let content = RoomMessageEventContent::text_markdown(body);
+            // An empty `m.mentions` says this message pings nobody, so the
+            // legacy display-name and @room body rules cannot fire on it
+            // (MSC3952; the composer's sends do the same, timeline.rs).
+            let content = RoomMessageEventContent::text_markdown(body)
+                .add_mentions(matrix_sdk::ruma::events::Mentions::new());
             let txn: OwnedTransactionId = transaction_id.clone().into();
             match room.send(content).with_transaction_id(txn).await {
                 Ok(result) => enqueue(
@@ -3539,7 +3695,8 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
                 return;
             }
 
-            let content = RoomMessageEventContent::text_plain(body);
+            let content = RoomMessageEventContent::text_plain(body)
+                .add_mentions(matrix_sdk::ruma::events::Mentions::new());
             let txn: OwnedTransactionId = transaction_id.clone().into();
             match room.send(content).with_transaction_id(txn).await {
                 Ok(result) => enqueue(
@@ -10748,8 +10905,22 @@ async fn build_client_with(
     let encryption_settings = encryption_settings();
     // Threading support puts m.thread events into per-thread event-cache
     // chunks, without which thread timelines open empty; it also makes unread
-    // and receipt computation thread-aware. `with_subscriptions` stays false:
-    // follow state uses the direct Room API, not the MSC4308 extension.
+    // and receipt computation thread-aware.
+    //
+    // `with_subscriptions: false` does MORE than leave out the MSC4308 sliding
+    // sync extension. In matrix-sdk 0.18 `Client::enabled_thread_subscriptions()`
+    // answers false for it before asking the server, and that one switch also
+    // gates (a) the push context's thread-subscription lookup, so the MSC4306
+    // `subscribed_thread` / `unsubscribed_thread` rules never match and a
+    // thread's Follow state does not change THIS device's verdicts, and (b) the
+    // event cache's automatic subscription when we reply in or are mentioned in
+    // a thread. Explicit Follow / Unfollow (`mx_rust_thread_set_subscribed`)
+    // still reaches the server, which applies it to push. Replying in a thread
+    // subscribes automatically anyway: timeline.rs does it after each of our
+    // own thread sends, on a server that advertises MSC4306
+    // (`subscribe_after_thread_send`). Being MENTIONED in a thread does not.
+    // The flag stays false (CLAUDE.md §8 pins it); see the 2026-10-15
+    // notification sweep notes.
     //
     // An empty store path means an in-memory store, used by the OAuth bootstrap
     // (see oauth.rs), which must not create a store before `whoami` says which
@@ -11110,12 +11281,372 @@ pub(crate) fn media_filename_for_kind(
     }
 }
 
+/// `unsigned.age` in milliseconds, when the server sent one.
+fn unsigned_age_ms(age: Option<matrix_sdk::ruma::Int>) -> Option<u64> {
+    age.map(|age| i64::from(age).max(0) as u64)
+}
+
+/// Write `backlog` on a sync-handler payload (see syncnotify::CatchupClock)
+/// and return it.
+fn mark_sync_backlog(
+    notify: &syncnotify::SyncNotify,
+    event: &mut serde_json::Value,
+    timestamp_ms: u64,
+    age_ms: Option<u64>,
+) -> bool {
+    let backlog = notify.catchup.is_backlog(timestamp_ms, age_ms, push_verdict::now_ms());
+    if let Some(object) = event.as_object_mut() {
+        object.insert("backlog".to_owned(), backlog.into());
+    }
+    backlog
+}
+
+/// Whether a redaction by `redactor` removes an event sent by
+/// `target_sender` (`None`: not in the local cache). `can_redact_others`:
+/// the room's power levels let `redactor` redact other people's events
+/// (`None`: unknown). Only a positive refusal refuses.
+fn redaction_applies(
+    target_sender: Option<&matrix_sdk::ruma::UserId>,
+    redactor: &matrix_sdk::ruma::UserId,
+    can_redact_others: Option<bool>,
+) -> bool {
+    match target_sender {
+        Some(sender) if sender != redactor => can_redact_others != Some(false),
+        _ => true,
+    }
+}
+
+/// The event's `origin_server_ts` from the local event cache, with no request.
+async fn cached_event_ts(room: &Room, event_id: &EventId) -> Option<u64> {
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let event = cache.find_event(event_id).await.ok()??;
+    event.raw().get_field::<u64>("origin_server_ts").ok().flatten()
+}
+
+/// The room's current `m.fully_read` event, from the local account data.
+async fn current_fully_read(room: &Room) -> Option<OwnedEventId> {
+    use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
+    let raw = room.account_data_static::<FullyReadEventContent>().await.ok()??;
+    raw.deserialize().ok().map(|event| event.content.event_id)
+}
+
+/// Whether moving `m.fully_read` from an event at `current_ts` to one at
+/// `new_ts` would move it backwards. Unknown on either side is not proof of
+/// that, so it never refuses.
+fn fully_read_would_move_back(current_ts: Option<u64>, new_ts: Option<u64>) -> bool {
+    matches!((current_ts, new_ts), (Some(current), Some(new)) if new < current)
+}
+
+/// The sender of an event this device already holds in its event cache. Never
+/// a request: `None` when the cache does not have it.
+async fn cached_event_sender(room: &Room, event_id: &EventId) -> Option<OwnedUserId> {
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let event = cache.find_event(event_id).await.ok()??;
+    event.raw().get_field::<OwnedUserId>("sender").ok().flatten()
+}
+
+/// `(replaces_event_id, thread_root_id)` from an encrypted event's cleartext
+/// `m.relates_to`, empty when absent.
+fn encrypted_relation_ids(
+    relation: Option<&matrix_sdk::ruma::events::room::encrypted::Relation>,
+) -> (String, String) {
+    use matrix_sdk::ruma::events::room::encrypted::Relation;
+    match relation {
+        Some(Relation::Replacement(replacement)) => {
+            (replacement.event_id.to_string(), String::new())
+        }
+        Some(Relation::Thread(thread)) => (String::new(), thread.event_id.to_string()),
+        _ => (String::new(), String::new()),
+    }
+}
+
+/// The event a message replies to, empty when it is not a reply. A thread
+/// message counts only when its `m.in_reply_to` is real rather than the
+/// fallback every thread message carries for clients without threads.
+fn reply_target_of<C>(
+    relation: Option<&matrix_sdk::ruma::events::room::message::Relation<C>>,
+) -> String {
+    use matrix_sdk::ruma::events::room::message::Relation;
+    match relation {
+        Some(Relation::Reply(reply)) => reply.in_reply_to.event_id.to_string(),
+        Some(Relation::Thread(thread)) if !thread.is_falling_back => thread
+            .in_reply_to
+            .as_ref()
+            .map(|reply| reply.event_id.to_string())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// The `timeline_event` payload for one room message, before its push
+/// verdict and backlog mark. Shared by the sync handler and the late
+/// decryption path, so a message reads the same whichever way it arrived.
+/// `None` for an in-room verification request, which is not a message.
+fn room_message_event_json(
+    content: &RoomMessageEventContent,
+    event_id: &EventId,
+    sender: &UserId,
+    timestamp_ms: u64,
+    own_user_id: &UserId,
+    is_encrypted: bool,
+) -> Option<serde_json::Value> {
+    use matrix_sdk::ruma::events::room::message::Relation;
+    // An MSC4274 gallery arrives as the row of its primary item, as in the
+    // live producer, captioned with the gallery caption, never Sable's
+    // generated `[name: mxc://…]` body.
+    let gallery = crate::timeline::parse_gallery(&content.msgtype)
+        .filter(|g| !g.items.is_empty());
+    let row_msgtype = match &gallery {
+        Some(g) => g
+            .items
+            .iter()
+            .find(|item| matches!(item, MessageType::Image(_)))
+            .unwrap_or(&g.items[0]),
+        None => &content.msgtype,
+    };
+    // See typed_message_row_kind. A msgtype with no typed row (a server
+    // notice, a bridge's or bot's custom type) is forwarded as text with its
+    // body: the push rules notify for any m.room.message, and the open room
+    // and the reload path already show its body.
+    let kind = match typed_message_row_kind(row_msgtype.msgtype()) {
+        Some(kind) => kind,
+        None if matches!(row_msgtype, MessageType::VerificationRequest(_)) => return None,
+        None => "text",
+    };
+    let body = match &gallery {
+        Some(g) => g.caption.clone(),
+        // Text-like bodies only: a media body is a filename.
+        None if matches!(kind, "text" | "notice" | "emote") => {
+            crate::timeline::strip_reply_fallback(content.body()).to_owned()
+        }
+        None => content.body().to_owned(),
+    };
+    // MSC2530's `filename`, as in the live producer. A multi-item gallery has
+    // no single name.
+    let explicit_filename = match row_msgtype {
+        MessageType::File(content) => content.filename.as_deref(),
+        MessageType::Image(content) => content.filename.as_deref(),
+        MessageType::Video(content) => content.filename.as_deref(),
+        MessageType::Audio(content) => content.filename.as_deref(),
+        _ => None,
+    };
+    let media_filename = match &gallery {
+        Some(g) if g.items.len() > 1 => String::new(),
+        _ => media_filename_for_kind(kind, row_msgtype.body(), explicit_filename),
+    };
+
+    // Notification metadata for rooms without a live timeline: m.mentions and
+    // the m.thread root, matching the live-timeline payload.
+    let (mentions_me, mentions_room) = match &content.mentions {
+        Some(mentions) => (mentions.user_ids.contains(own_user_id), mentions.room),
+        None => (false, false),
+    };
+    let thread_root_id = match &content.relates_to {
+        Some(Relation::Thread(thread)) => thread.event_id.to_string(),
+        _ => String::new(),
+    };
+    // An edit is not a new message: its body is the "* " fallback, so the
+    // replacement text travels as `new_body`. C++ keeps an edit out of the
+    // room's preview, order and mirror, and still notifies (an edit that newly
+    // mentions you notifies: .m.rule.is_user_mention precedes
+    // .m.rule.suppress_edits).
+    let (replaces_event_id, new_body) = match &content.relates_to {
+        Some(Relation::Replacement(replacement)) => (
+            replacement.event_id.to_string(),
+            replacement.new_content.msgtype.body().to_owned(),
+        ),
+        _ => (String::new(), String::new()),
+    };
+    Some(json!({
+        "event_id": event_id.to_string(),
+        "sender": sender.to_string(),
+        "body": body,
+        "media_filename": media_filename,
+        "msgtype": kind,
+        "media_voice": message_is_voice(row_msgtype),
+        "timestamp_ms": timestamp_ms,
+        "is_encrypted": is_encrypted,
+        "is_decrypted": is_encrypted,
+        "undecryptable": false,
+        "mentions_me": mentions_me,
+        "mentions_room": mentions_room,
+        "thread_root_id": thread_root_id,
+        "in_reply_to": reply_target_of(content.relates_to.as_ref()),
+        "replaces_event_id": replaces_event_id,
+        "new_body": new_body,
+        // Legacy field for C++ builds that still read `decrypted`.
+        "decrypted": is_encrypted,
+    }))
+}
+
+/// What a poll-start row needs, from either the stable or the unstable type.
+struct PollStart {
+    question: String,
+    thread_root_id: String,
+    in_reply_to: String,
+}
+
+/// `None` for a poll edit, which is not a new poll.
+fn unstable_poll_start(
+    content: &matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent,
+) -> Option<PollStart> {
+    use matrix_sdk::ruma::events::{
+        poll::unstable_start::UnstablePollStartEventContent,
+        room::message::RelationWithoutReplacement,
+    };
+    let UnstablePollStartEventContent::New(content) = content else { return None };
+    let (thread_root_id, in_reply_to) = match &content.relates_to {
+        Some(RelationWithoutReplacement::Thread(thread)) => (
+            thread.event_id.to_string(),
+            if thread.is_falling_back {
+                String::new()
+            } else {
+                thread.in_reply_to.as_ref().map(|r| r.event_id.to_string()).unwrap_or_default()
+            },
+        ),
+        Some(RelationWithoutReplacement::Reply(reply)) => {
+            (String::new(), reply.in_reply_to.event_id.to_string())
+        }
+        _ => (String::new(), String::new()),
+    };
+    Some(PollStart { question: content.poll_start.question.text.clone(), thread_root_id, in_reply_to })
+}
+
+/// `None` for a poll edit, which is not a new poll.
+fn stable_poll_start(
+    content: &matrix_sdk::ruma::events::poll::start::PollStartEventContent,
+) -> Option<PollStart> {
+    use matrix_sdk::ruma::events::room::message::Relation;
+    if matches!(content.relates_to, Some(Relation::Replacement(_))) {
+        return None;
+    }
+    let thread_root_id = match &content.relates_to {
+        Some(Relation::Thread(thread)) => thread.event_id.to_string(),
+        _ => String::new(),
+    };
+    let question = content
+        .poll
+        .question
+        .text
+        .find_plain()
+        .or_else(|| content.text.find_plain())
+        .unwrap_or_default()
+        .to_owned();
+    Some(PollStart {
+        question,
+        thread_root_id,
+        in_reply_to: reply_target_of(content.relates_to.as_ref()),
+    })
+}
+
+/// A poll start as a `timeline_event` payload (kind `poll`, the question as
+/// its body), before its push verdict and backlog mark.
+fn poll_event_json(
+    poll: &PollStart,
+    event_id: &EventId,
+    sender: &UserId,
+    timestamp_ms: u64,
+    is_encrypted: bool,
+) -> serde_json::Value {
+    json!({
+        "event_id": event_id.to_string(),
+        "sender": sender.to_string(),
+        "body": poll.question,
+        "media_filename": "",
+        "msgtype": "poll",
+        "media_voice": false,
+        "timestamp_ms": timestamp_ms,
+        "is_encrypted": is_encrypted,
+        "is_decrypted": is_encrypted,
+        "undecryptable": false,
+        "mentions_me": false,
+        "mentions_room": false,
+        "thread_root_id": poll.thread_root_id,
+        "in_reply_to": poll.in_reply_to,
+        "replaces_event_id": "",
+        "new_body": "",
+        "decrypted": is_encrypted,
+    })
+}
+
+/// The `event_decrypted` payload's `event` for an event the sync handler
+/// forwarded as undecryptable and the event-cache redecryptor has since
+/// decrypted: the same shape as a `timeline_event`, with the push verdict
+/// computed on the DECRYPTED content (so m.mentions and keywords count, as
+/// in Element X), and the `backlog` mark the undecryptable copy carried.
+///
+/// Read from the local event cache only; `None` when the event is gone, still
+/// encrypted, or not a message or poll.
+async fn decrypted_event_json(
+    room: &Room,
+    event_id: &EventId,
+    backlog: bool,
+    verdicts: &push_verdict::SyncVerdicts,
+) -> Option<serde_json::Value> {
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    };
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let cached = cache.find_event(event_id).await.ok()??;
+    // Only a decryption counts: anything else is still the encrypted envelope.
+    cached.encryption_info()?;
+    let raw = cached.raw().clone();
+    let mut event = match raw.deserialize().ok()? {
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncMessageLikeEvent::Original(ev),
+        )) => room_message_event_json(
+            &ev.content,
+            &ev.event_id,
+            &ev.sender,
+            u64::from(ev.origin_server_ts.get()),
+            room.own_user_id(),
+            true,
+        )?,
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
+            SyncMessageLikeEvent::Original(ev),
+        )) => poll_event_json(
+            &unstable_poll_start(&ev.content)?,
+            &ev.event_id,
+            &ev.sender,
+            u64::from(ev.origin_server_ts.get()),
+            true,
+        ),
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::PollStart(
+            SyncMessageLikeEvent::Original(ev),
+        )) => poll_event_json(
+            &stable_poll_start(&ev.content)?,
+            &ev.event_id,
+            &ev.sender,
+            u64::from(ev.origin_server_ts.get()),
+            true,
+        ),
+        _ => return None,
+    };
+    if let Some(object) = event.as_object_mut() {
+        object.insert("backlog".to_owned(), backlog.into());
+    }
+    // The redecryptor stores the actions it computed on the decrypted event;
+    // without a push context it had none, and the rules are asked here.
+    let verdict = match cached.push_actions() {
+        Some(actions) => verdicts.verdict(room, actions).await,
+        None => match room.push_context().await.ok().flatten() {
+            Some(context) => Some(push_verdict::PushVerdict::from_actions(
+                &context.for_event(&raw).await,
+            )),
+            None => None,
+        },
+    };
+    push_verdict::PushVerdict::write(verdict, &mut event);
+    Some(event)
+}
+
 fn install_event_handlers(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
     active_request: Arc<Mutex<Option<VerificationRequest>>>,
     active_sas: KeyedFlowSlot<SasVerification>,
     active_qr: KeyedFlowSlot<QrVerification>,
+    sync_notify: Arc<syncnotify::SyncNotify>,
 ) {
     // A to-device handler on `m.room.encrypted` fires exactly for events the SDK
     // could not decrypt: matrix-sdk hands those to handlers as the original
@@ -11405,6 +11936,7 @@ fn install_event_handlers(
     let sync_verdicts = push_verdict::SyncVerdicts::default();
     let plaintext_events = Arc::clone(&events);
     let plaintext_verdicts = sync_verdicts.clone();
+    let plaintext_notify = Arc::clone(&sync_notify);
     client.add_event_handler(
         move |ev: OriginalSyncRoomMessageEvent,
               room: Room,
@@ -11412,103 +11944,24 @@ fn install_event_handlers(
               push_actions: Vec<matrix_sdk::ruma::push::Action>| {
             let events = Arc::clone(&plaintext_events);
             let verdicts = plaintext_verdicts.clone();
+            let notify = Arc::clone(&plaintext_notify);
             async move {
-                // See typed_message_row_kind: a msgtype with no typed row is dropped.
-                //
-                // An MSC4274 gallery arrives as the row of its primary item, as in the
-                // live producer, captioned with the gallery caption, never Sable's
-                // generated `[name: mxc://…]` body.
-                let gallery = crate::timeline::parse_gallery(&ev.content.msgtype)
-                    .filter(|g| !g.items.is_empty());
-                let (row_msgtype, body) = match &gallery {
-                    Some(g) => {
-                        let primary = g
-                            .items
-                            .iter()
-                            .find(|item| matches!(item, MessageType::Image(_)))
-                            .unwrap_or(&g.items[0]);
-                        (primary, g.caption.clone())
-                    }
-                    None => (
-                        &ev.content.msgtype,
-                        // Text-like bodies only: a media body is a filename.
-                        match &ev.content.msgtype {
-                            MessageType::Text(_)
-                            | MessageType::Notice(_)
-                            | MessageType::Emote(_) => crate::timeline::strip_reply_fallback(
-                                ev.content.body(),
-                            )
-                            .to_owned(),
-                            _ => ev.content.body().to_owned(),
-                        },
-                    ),
-                };
-                let Some(kind) = typed_message_row_kind(row_msgtype.msgtype())
-                else {
+                let Some(mut event) = room_message_event_json(
+                    &ev.content,
+                    &ev.event_id,
+                    &ev.sender,
+                    u64::from(ev.origin_server_ts.get()),
+                    room.own_user_id(),
+                    encryption_info.is_some(),
+                ) else {
                     return;
                 };
-                // MSC2530's `filename`, as in the live producer. A multi-item gallery has
-                // no single name.
-                let explicit_filename = match row_msgtype {
-                    MessageType::File(content) => content.filename.as_deref(),
-                    MessageType::Image(content) => content.filename.as_deref(),
-                    MessageType::Video(content) => content.filename.as_deref(),
-                    MessageType::Audio(content) => content.filename.as_deref(),
-                    _ => None,
-                };
-                let media_filename = match &gallery {
-                    Some(g) if g.items.len() > 1 => String::new(),
-                    _ => media_filename_for_kind(
-                        kind,
-                        row_msgtype.body(),
-                        explicit_filename,
-                    ),
-                };
-
-                let is_encrypted = encryption_info.is_some();
-                // Notification metadata for rooms without a live timeline: m.mentions and
-                // the m.thread root, matching the live-timeline payload.
-                let (mentions_me, mentions_room) = match &ev.content.mentions {
-                    Some(mentions) => (
-                        mentions.user_ids.contains(room.own_user_id()),
-                        mentions.room,
-                    ),
-                    None => (false, false),
-                };
-                let thread_root_id = match &ev.content.relates_to {
-                    Some(matrix_sdk::ruma::events::room::message::Relation::Thread(
-                        thread,
-                    )) => thread.event_id.to_string(),
-                    _ => String::new(),
-                };
-                // An edit is not a new message: its body is the "* " fallback.
-                // C++ keeps it out of the room's preview, order and mirror, and
-                // still notifies (an edit that newly mentions you notifies:
-                // .m.rule.is_user_mention precedes .m.rule.suppress_edits).
-                let replaces_event_id = match &ev.content.relates_to {
-                    Some(matrix_sdk::ruma::events::room::message::Relation::Replacement(
-                        replacement,
-                    )) => replacement.event_id.to_string(),
-                    _ => String::new(),
-                };
-                let mut event = json!({
-                    "event_id": ev.event_id.to_string(),
-                    "sender": ev.sender.to_string(),
-                    "body": body,
-                    "media_filename": media_filename,
-                    "msgtype": kind,
-                    "media_voice": message_is_voice(row_msgtype),
-                    "timestamp_ms": u64::from(ev.origin_server_ts.get()),
-                    "is_encrypted": is_encrypted,
-                    "is_decrypted": is_encrypted,
-                    "undecryptable": false,
-                    "mentions_me": mentions_me,
-                    "mentions_room": mentions_room,
-                    "thread_root_id": thread_root_id,
-                    "replaces_event_id": replaces_event_id,
-                    // Legacy field for C++ builds that still read `decrypted`.
-                    "decrypted": is_encrypted,
-                });
+                mark_sync_backlog(
+                    &notify,
+                    &mut event,
+                    u64::from(ev.origin_server_ts.get()),
+                    unsigned_age_ms(ev.unsigned.age),
+                );
                 push_verdict::PushVerdict::write(
                     verdicts.verdict(&room, &push_actions).await,
                     &mut event,
@@ -11525,25 +11978,169 @@ fn install_event_handlers(
         },
     );
 
+    // Poll starts (MSC3381, stable and unstable). `.m.rule.poll_start` and
+    // `.m.rule.poll_start_one_to_one` notify under the default rules, and the
+    // open-room path already emits a poll row; without these a poll in a room
+    // with no open timeline was never seen. An edited poll is not a new one.
+    let poll_events = Arc::clone(&events);
+    let poll_verdicts = sync_verdicts.clone();
+    let poll_notify = Arc::clone(&sync_notify);
+    client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent,
+              room: Room,
+              encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
+              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+            let events = Arc::clone(&poll_events);
+            let verdicts = poll_verdicts.clone();
+            let notify = Arc::clone(&poll_notify);
+            async move {
+                let Some(start) = unstable_poll_start(&ev.content) else { return };
+                let mut event = poll_event_json(
+                    &start,
+                    &ev.event_id,
+                    &ev.sender,
+                    u64::from(ev.origin_server_ts.get()),
+                    encryption_info.is_some(),
+                );
+                mark_sync_backlog(
+                    &notify,
+                    &mut event,
+                    u64::from(ev.origin_server_ts.get()),
+                    unsigned_age_ms(ev.unsigned.age),
+                );
+                push_verdict::PushVerdict::write(
+                    verdicts.verdict(&room, &push_actions).await,
+                    &mut event,
+                );
+                enqueue(&events, json!({
+                    "type": "timeline_event",
+                    "room_id": room.room_id().to_string(),
+                    "event": event,
+                }));
+            }
+        },
+    );
+    let stable_poll_events = Arc::clone(&events);
+    let stable_poll_verdicts = sync_verdicts.clone();
+    let stable_poll_notify = Arc::clone(&sync_notify);
+    client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::poll::start::OriginalSyncPollStartEvent,
+              room: Room,
+              encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
+              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+            let events = Arc::clone(&stable_poll_events);
+            let verdicts = stable_poll_verdicts.clone();
+            let notify = Arc::clone(&stable_poll_notify);
+            async move {
+                let Some(start) = stable_poll_start(&ev.content) else { return };
+                let mut event = poll_event_json(
+                    &start,
+                    &ev.event_id,
+                    &ev.sender,
+                    u64::from(ev.origin_server_ts.get()),
+                    encryption_info.is_some(),
+                );
+                mark_sync_backlog(
+                    &notify,
+                    &mut event,
+                    u64::from(ev.origin_server_ts.get()),
+                    unsigned_age_ms(ev.unsigned.age),
+                );
+                push_verdict::PushVerdict::write(
+                    verdicts.verdict(&room, &push_actions).await,
+                    &mut event,
+                );
+                enqueue(&events, json!({
+                    "type": "timeline_event",
+                    "room_id": room.room_id().to_string(),
+                    "event": event,
+                }));
+            }
+        },
+    );
+
+    // Redactions in every room, so C++ can withdraw a notification or an
+    // Activity row whose message (or reaction) was deleted. Ids only; the
+    // reason is never forwarded. `redacts` moved from the event into its
+    // content between room versions, so both are read (as localsearch does).
+    let redaction_events = Arc::clone(&events);
+    client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent,
+              room: Room| {
+            let events = Arc::clone(&redaction_events);
+            async move {
+                let Some(original) = ev.as_original() else { return };
+                let Some(redacts) = original
+                    .redacts
+                    .as_ref()
+                    .or(original.content.redacts.as_ref())
+                else {
+                    return;
+                };
+                // A redaction anyone may SEND is not one that applies: only
+                // the event's own sender, or a member allowed to redact
+                // others, removes it. An unauthorised one must not withdraw
+                // a card or drop an Activity row. Unknowns forward, as
+                // before, so a real deletion is never kept on screen.
+                let target_sender = cached_event_sender(&room, redacts).await;
+                let can_redact_others = match target_sender.as_deref() {
+                    Some(sender) if sender != &*original.sender => room
+                        .power_levels()
+                        .await
+                        .ok()
+                        .map(|levels| levels.user_can_redact_event_of_other(&original.sender)),
+                    _ => None,
+                };
+                if !redaction_applies(
+                    target_sender.as_deref(),
+                    &original.sender,
+                    can_redact_others,
+                ) {
+                    return;
+                }
+                enqueue(&events, json!({
+                    "type": "event_redacted",
+                    "room_id": room.room_id().to_string(),
+                    "redacts": redacts.to_string(),
+                    "redaction_event_id": original.event_id.to_string(),
+                }));
+            }
+        },
+    );
+
     // Reactions from sync in any room, for the Activity Center (the timeline
     // diff stream covers only the open room). Ids, sender and a bounded key
-    // cross; C++ decides whether the target is its own.
+    // cross. `target_is_own` comes from the local event cache only (no
+    // request): C++'s own-event set holds only what this session sent, so a
+    // reaction to an older message of ours was dropped there.
     let reaction_events = Arc::clone(&events);
+    let reaction_notify = Arc::clone(&sync_notify);
     client.add_event_handler(
         move |ev: matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent, room: Room| {
             let events = Arc::clone(&reaction_events);
+            let notify = Arc::clone(&reaction_notify);
             async move {
                 let key: String = ev.content.relates_to.key.chars().take(32).collect();
+                let target = &ev.content.relates_to.event_id;
+                let target_is_own =
+                    cached_event_sender(&room, target).await.as_deref() == Some(room.own_user_id());
+                let backlog = notify.catchup.is_backlog(
+                    u64::from(ev.origin_server_ts.get()),
+                    unsigned_age_ms(ev.unsigned.age),
+                    push_verdict::now_ms(),
+                );
                 enqueue(
                     &events,
                     json!({
                         "type": "reaction_event",
                         "room_id": room.room_id().to_string(),
                         "event_id": ev.event_id.to_string(),
-                        "target_event_id": ev.content.relates_to.event_id.to_string(),
+                        "target_event_id": target.to_string(),
+                        "target_is_own": target_is_own,
                         "sender": ev.sender.to_string(),
                         "key": key,
                         "timestamp_ms": u64::from(ev.origin_server_ts.get()),
+                        "backlog": backlog,
                     }),
                 );
             }
@@ -11554,22 +12151,27 @@ fn install_event_handlers(
     // and the room looks empty. Emits a placeholder row with
     // `undecryptable = true` and no ciphertext. `error_kind` is always
     // "no_key": this path exposes no finer reason in 0.18.
+    //
+    // Each one is remembered (bounded, per session) so that when the
+    // event-cache redecryptor resolves it, the crypto observer re-emits it
+    // ONCE as `event_decrypted` with a verdict computed on the decrypted
+    // content (see `decrypted_event_json`).
     let encrypted_events = Arc::clone(&events);
+    let encrypted_notify = Arc::clone(&sync_notify);
     client.add_event_handler(
         move |ev: OriginalSyncRoomEncryptedEvent,
               room: Room,
               push_actions: Vec<matrix_sdk::ruma::push::Action>| {
             let events = Arc::clone(&encrypted_events);
             let verdicts = sync_verdicts.clone();
+            let notify = Arc::clone(&encrypted_notify);
             async move {
                 // m.relates_to is outside the ciphertext: an edit that cannot be
-                // decrypted yet is still not a new message.
-                let replaces_event_id = match &ev.content.relates_to {
-                    Some(matrix_sdk::ruma::events::room::encrypted::Relation::Replacement(
-                        replacement,
-                    )) => replacement.event_id.to_string(),
-                    _ => String::new(),
-                };
+                // decrypted yet is still not a new message, and a thread reply
+                // still belongs to its thread (§8; the live producer reads the
+                // same field in timeline.rs `cleartext_thread_root`).
+                let (replaces_event_id, thread_root_id) = encrypted_relation_ids(
+                    ev.content.relates_to.as_ref());
                 let mut event = json!({
                     "event_id": ev.event_id.to_string(),
                     "sender": ev.sender.to_string(),
@@ -11582,9 +12184,17 @@ fn install_event_handlers(
                     "undecryptable": true,
                     "error_kind": "no_key",
                     "replaces_event_id": replaces_event_id,
+                    "thread_root_id": thread_root_id,
                     // Legacy field for older C++ builds.
                     "decrypted": false,
                 });
+                let backlog = mark_sync_backlog(
+                    &notify,
+                    &mut event,
+                    u64::from(ev.origin_server_ts.get()),
+                    unsigned_age_ms(ev.unsigned.age),
+                );
+                notify.remember_utd(room.room_id(), &ev.event_id, backlog);
                 // Undecryptable, so the rules saw the encrypted event.
                 push_verdict::PushVerdict::write(
                     verdicts.verdict(&room, &push_actions).await,
@@ -11614,6 +12224,7 @@ async fn run_authoritative_sync(
     timelines: Arc<timeline::TimelineRegistry>,
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
     verification_live: VerificationLive,
+    sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     // Call-signalling handlers live as long as this sync loop; their drop
@@ -11663,18 +12274,19 @@ async fn run_authoritative_sync(
     if modern_supported {
         if let Some(cancel) = run_modern_sync(
             client.clone(), Arc::clone(&events), Arc::clone(&sync_mode),
-            room_list_slot, entries_slot, active_subscription, cancel
+            room_list_slot, entries_slot, active_subscription,
+            Arc::clone(&sync_notify), cancel
         ).await {
             set_sync_mode(
                 &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
             );
-            run_classic_sync(client, events, verification_live, cancel).await;
+            run_classic_sync(client, events, verification_live, sync_notify, cancel).await;
         }
     } else {
         set_sync_mode(
             &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
         );
-        run_classic_sync(client, events, verification_live, cancel).await;
+        run_classic_sync(client, events, verification_live, sync_notify, cancel).await;
     }
 }
 
@@ -11806,8 +12418,12 @@ async fn run_modern_sync(
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
     active_subscription: Arc<Mutex<warm_rooms::SubscriptionSet>>,
+    sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    // Everything from before this session is history to the sync handlers;
+    // see syncnotify::CatchupClock for the edges below.
+    sync_notify.catchup.begin(push_verdict::now_ms());
     // Withdraws the published RoomListService on every exit path; a handle
     // outliving the loop would accept subscriptions that go nowhere.
     struct RoomListPublication(Arc<Mutex<Option<Arc<RoomListService>>>>);
@@ -12112,6 +12728,7 @@ async fn run_modern_sync(
                         state, Some(matrix_sdk_ui::room_list_service::State::Running))
                     {
                         list_running = false;
+                        sync_notify.catchup.connection_lost();
                     }
                     if let Some(matrix_sdk_ui::room_list_service::State::Running) = state {
                         if !first_sync && warm_rooms::must_resubscribe(list_running, true) {
@@ -12126,6 +12743,11 @@ async fn run_modern_sync(
                         // costly to repeat per response.
                         if !list_running {
                             list_running = true;
+                            // From here an event is news only if it reached the server
+                            // after this edge. Covers the first load too: Running is set
+                            // after rooms 0..99, and the growing list then delivers
+                            // every further room's (old) latest event.
+                            sync_notify.catchup.running_edge(push_verdict::now_ms());
                             auth_budget.on_running();
                             client.send_queue().set_enabled(true).await;
                         }
@@ -12142,12 +12764,14 @@ async fn run_modern_sync(
                         // offline. The supervisor reconnects itself.
                         Some(UnifiedSyncState::Offline) => {
                             list_running = false;
+                            sync_notify.catchup.connection_lost();
                             enqueue(&events, json!({
                                 "type": "room_list_sync_state", "state": "offline"
                             }));
                         }
                         Some(UnifiedSyncState::Error(error)) => {
                             list_running = false;
+                            sync_notify.catchup.connection_lost();
                             service.stop().await;
                             // The only path to classic sync: a positively classified unsupported
                             // endpoint.
@@ -12398,20 +13022,28 @@ async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     verification_live: VerificationLive,
+    sync_notify: Arc<syncnotify::SyncNotify>,
     cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
-    run_classic_sync_with(client, events, verification_live, cancel, CLASSIC_SYNC_SILENCE)
-        .await;
+    run_classic_sync_with(
+        client, events, verification_live, sync_notify, cancel, CLASSIC_SYNC_SILENCE,
+    )
+    .await;
 }
 
 async fn run_classic_sync_with(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     verification_live: VerificationLive,
+    sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
     silence: ClassicSilenceBudget,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+    // See syncnotify::CatchupClock. The SDK runs the event handlers inside
+    // `sync_once`, BEFORE the callback below, so a catch-up response is judged
+    // while the clock still says "catching up".
+    sync_notify.catchup.begin(push_verdict::now_ms());
 
     let first_response = Arc::new(AtomicBool::new(true));
     // Any callback, success or failure, is a sign of life; see
@@ -12464,6 +13096,7 @@ async fn run_classic_sync_with(
         let callback_failures = Arc::clone(&failure_count);
         let callback_gone = Arc::clone(&session_gone);
         let callback_progress = progress.clone();
+        let callback_notify = Arc::clone(&sync_notify);
         // A new attempt starts its silence clock now, not at the last callback
         // of the attempt before it.
         progress.touch();
@@ -12484,10 +13117,14 @@ async fn run_classic_sync_with(
             let failures = Arc::clone(&callback_failures);
             let session_gone = Arc::clone(&callback_gone);
             let progress = callback_progress.clone();
+            let notify = Arc::clone(&callback_notify);
             async move {
                 // Touched on entry and again on the way out, so neither a slow
                 // callback nor its own backoff sleep counts as SDK silence.
                 progress.touch();
+                // The edge time for the catch-up clock: when the response was in
+                // hand, not after this callback's own (possibly long) work.
+                let answered_ms = push_verdict::now_ms();
                 let response = match result {
                     Ok(response) => response,
                     Err(error) => {
@@ -12504,6 +13141,7 @@ async fn run_classic_sync_with(
                             return Ok(LoopCtrl::Break);
                         }
                         let seen = failures.fetch_add(1, Ordering::SeqCst) + 1;
+                        notify.catchup.connection_lost();
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "offline"
                         }));
@@ -12525,8 +13163,15 @@ async fn run_classic_sync_with(
                 // the send queue, which matrix-sdk disables after any send error and never
                 // re-enables. Gated because set_enabled(true) walks all rooms and queries
                 // the store.
-                if failures.swap(0, Ordering::SeqCst) > 0 {
+                let recovered = failures.swap(0, Ordering::SeqCst) > 0;
+                if recovered {
                     client.send_queue().set_enabled(true).await;
+                }
+                // The first response and the first after an outage are the edges
+                // (syncnotify::CatchupClock). Not every response: the floor would
+                // then trail each callback's own processing time.
+                if recovered || first_response.load(Ordering::SeqCst) {
+                    notify.catchup.running_edge(answered_ms);
                 }
                 {
                     let mut stamps = stamps.lock().await;
@@ -13405,6 +14050,8 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         // The `m.favourite` tag itself, via the SDK's notable-tag bit, so favourites
         // set in other clients show here.
         "is_favourite": room.is_favourite(),
+        // m.lowpriority, set on any client. Forwarded only; ordering is C++'s.
+        "is_low_priority": room.is_low_priority(),
         "has_unread_messages": room.num_unread_messages() > 0,
         "encrypted": room.encryption_state().is_encrypted(),
         // EncryptionState is tri-state; Unknown must not read as unencrypted (draft
@@ -13415,6 +14062,10 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "direct_user_id": direct_targets.first().cloned().unwrap_or_default(),
         "direct_user_ids": direct_targets,
         "member_count": room.joined_members_count(),
+        // Joined plus invited: matrix-sdk's DmRoomDefinition::TwoMembers
+        // counts these ("at most two active members"), so a DM someone else
+        // was invited into is not 1:1 for ringing (src/calls/OneToOneDm.h).
+        "active_member_count": room.active_members_count(),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
         "inviter_user_id": inviter_user_id,
@@ -13966,13 +14617,16 @@ mod tests {
         assert_eq!(private.private_read_receipt.as_deref(), Some(&*id));
         assert_eq!(private.fully_read.as_deref(), Some(&*id));
 
-        // 2: off. No receipt at all, so other devices' badges stop clearing too;
-        // the fully-read marker (account data) still goes.
+        // 2: "do not send read receipts". Nothing other members can see, but a
+        // PRIVATE receipt, as Element does: matrix-sdk counts this device's unread
+        // from the user's own m.read / m.read.private only, so sending none left
+        // every room unread here after it was read (finding 66).
         let off = receipts_for_mode(id.clone(), 2);
-        assert!(off.public_read_receipt.is_none());
-        assert!(
-            off.private_read_receipt.is_none(),
-            "\"do not send\" must not quietly send a private one instead"
+        assert!(off.public_read_receipt.is_none(), "never visible to other members");
+        assert_eq!(
+            off.private_read_receipt.as_deref(),
+            Some(&*id),
+            "without a receipt of its own type this device can never clear a room"
         );
         assert_eq!(
             off.fully_read.as_deref(),
@@ -13985,6 +14639,62 @@ mod tests {
         // stopping receipts.
         let bogus = receipts_for_mode(id.clone(), 77);
         assert_eq!(bogus.public_read_receipt.as_deref(), Some(&*id));
+    }
+
+    #[test]
+    fn only_an_authorised_redaction_is_forwarded() {
+        use matrix_sdk::ruma::user_id;
+        let alice = user_id!("@alice:example.org");
+        let mallory = user_id!("@mallory:example.org");
+        // Your own message: always.
+        assert!(super::redaction_applies(Some(alice), alice, Some(false)));
+        // Someone else's: only with the power to redact others.
+        assert!(!super::redaction_applies(Some(alice), mallory, Some(false)));
+        assert!(super::redaction_applies(Some(alice), mallory, Some(true)));
+        // Unknown power levels or an uncached target: forwarded, as before.
+        assert!(super::redaction_applies(Some(alice), mallory, None));
+        assert!(super::redaction_applies(None, mallory, Some(false)));
+    }
+
+    #[test]
+    fn the_fully_read_marker_never_moves_backwards() {
+        // Another device read further: refuse.
+        assert!(super::fully_read_would_move_back(Some(2_000), Some(1_000)));
+        // Forward, or the same instant: write.
+        assert!(!super::fully_read_would_move_back(Some(1_000), Some(2_000)));
+        assert!(!super::fully_read_would_move_back(Some(1_000), Some(1_000)));
+        // Not cached on either side: no evidence, write as before.
+        assert!(!super::fully_read_would_move_back(None, Some(1_000)));
+        assert!(!super::fully_read_would_move_back(Some(1_000), None));
+        assert!(!super::fully_read_would_move_back(None, None));
+    }
+
+    // The automatic receipt while reading the live timeline: one receipt on the
+    // MAIN thread (an unthreaded one marked older thread replies read on the
+    // server, finding 72), never m.fully_read (moving it with every receipt
+    // removed the "New messages" divider a second after a room opened, finding
+    // 67), and private in modes 1 and 2 (finding 66).
+    #[test]
+    fn the_automatic_receipt_is_main_thread_and_never_fully_read() {
+        use super::automatic_receipt;
+        use matrix_sdk::ruma::{
+            api::client::receipt::create_receipt::v3::ReceiptType,
+            events::receipt::ReceiptThread, EventId,
+        };
+
+        let id = EventId::parse("$abc:example.org").unwrap();
+        for (mode, expected) in [
+            (0, ReceiptType::Read),
+            (1, ReceiptType::ReadPrivate),
+            (2, ReceiptType::ReadPrivate),
+            (77, ReceiptType::Read),
+        ] {
+            let (receipt_type, thread, event) = automatic_receipt(id.clone(), mode);
+            assert_eq!(receipt_type, expected, "mode {mode}");
+            assert_ne!(receipt_type, ReceiptType::FullyRead, "mode {mode}");
+            assert_eq!(thread, ReceiptThread::Main, "mode {mode}");
+            assert_eq!(event, id);
+        }
     }
 
     // Only two real keys that disagree may answer `Some(false)`; every way of
@@ -17361,7 +18071,8 @@ mod classic_sync_wedge_tests {
                 resume_gap: Duration::from_secs(3600),
             };
             tokio::join!(
-                run_classic_sync_with(client, Arc::clone(&events), live, cancel_rx, silence),
+                run_classic_sync_with(
+                    client, Arc::clone(&events), live, Default::default(), cancel_rx, silence),
                 watcher
             );
         });
@@ -17425,7 +18136,8 @@ mod classic_sync_wedge_tests {
             };
             tokio::join!(
                 run_classic_sync_with(
-                    client, Arc::clone(&events), never_verifying(), cancel_rx, silence),
+                    client, Arc::clone(&events), never_verifying(), Default::default(),
+                    cancel_rx, silence),
                 watcher
             );
         });
@@ -18135,6 +18847,7 @@ mod modern_sync_auth_tests {
                     Arc::new(Mutex::new(None)),
                     Arc::new(Mutex::new(None)),
                     Arc::new(Mutex::new(Default::default())),
+                    Default::default(),
                     cancel_rx,
                 ),
                 watcher
@@ -18393,6 +19106,7 @@ mod warm_room_expiry_tests {
                     Arc::new(Mutex::new(None)),
                     Arc::new(Mutex::new(None)),
                     Arc::clone(&set),
+                    Default::default(),
                     cancel_rx,
                 ),
                 watcher
@@ -18839,5 +19553,253 @@ mod utd_recovery_tests {
         sync_undecryptable_event(&client).await;
 
         assert_eq!(queued_key_requests(&client).await, 0);
+    }
+}
+
+// The sync-handler `timeline_event` payload for rooms with no open timeline:
+// what each new field carries, and what the encrypted handler reads from the
+// cleartext relation. Pure builders, so no client is needed.
+#[cfg(test)]
+mod sync_payload_tests {
+    use super::{
+        encrypted_relation_ids, poll_event_json, room_message_event_json,
+        stable_poll_start, unstable_poll_start,
+    };
+    use matrix_sdk::ruma::{
+        event_id,
+        events::{
+            poll::{
+                start::PollStartEventContent,
+                unstable_start::UnstablePollStartEventContent,
+            },
+            room::{
+                encrypted::OriginalSyncRoomEncryptedEvent,
+                message::RoomMessageEventContent,
+            },
+        },
+        user_id,
+    };
+    use serde_json::json;
+
+    fn payload(content: serde_json::Value) -> Option<serde_json::Value> {
+        let content: RoomMessageEventContent = serde_json::from_value(content).unwrap();
+        room_message_event_json(
+            &content,
+            event_id!("$e:example.org"),
+            user_id!("@them:example.org"),
+            1_000,
+            user_id!("@me:example.org"),
+            false,
+        )
+    }
+
+    fn encrypted(relates_to: serde_json::Value) -> OriginalSyncRoomEncryptedEvent {
+        serde_json::from_value(json!({
+            "type": "m.room.encrypted",
+            "event_id": "$enc:example.org",
+            "sender": "@them:example.org",
+            "origin_server_ts": 1,
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEnAC",
+                "sender_key": "SENDERKEY",
+                "device_id": "DEVICE",
+                "session_id": "SESSION",
+                "m.relates_to": relates_to,
+            },
+        }))
+        .unwrap()
+    }
+
+    // Finding 130: an undecryptable thread reply in a room with no open
+    // timeline lost its thread, so C++ mirrored it as a standalone main
+    // timeline row (§8) and its notification opened the main timeline. The
+    // relation is outside the ciphertext. Before the fix the handler read only
+    // `Replacement` and `thread_root_id` was absent.
+    #[test]
+    fn an_undecryptable_thread_reply_keeps_its_thread_root() {
+        let ev = encrypted(json!({
+            "rel_type": "m.thread",
+            "event_id": "$root:example.org",
+            "is_falling_back": true,
+            "m.in_reply_to": { "event_id": "$latest:example.org" },
+        }));
+        assert_eq!(
+            encrypted_relation_ids(ev.content.relates_to.as_ref()),
+            (String::new(), "$root:example.org".to_owned())
+        );
+        let edit = encrypted(json!({ "rel_type": "m.replace", "event_id": "$orig:example.org" }));
+        assert_eq!(
+            encrypted_relation_ids(edit.content.relates_to.as_ref()),
+            ("$orig:example.org".to_owned(), String::new())
+        );
+    }
+
+    // Finding 8: the sync payload carried no reply metadata, so a reply in a
+    // room with no open timeline could never be a reply row.
+    #[test]
+    fn a_reply_names_the_event_it_answers_and_a_thread_fallback_does_not() {
+        let reply = payload(json!({
+            "msgtype": "m.text",
+            "body": "> <@me:example.org> hi\n\nhello",
+            "m.relates_to": { "m.in_reply_to": { "event_id": "$asked:example.org" } },
+        }))
+        .unwrap();
+        assert_eq!(reply["in_reply_to"], "$asked:example.org");
+        assert_eq!(reply["body"], "hello", "the reply fallback is stripped");
+
+        // Every thread message carries an m.in_reply_to fallback for clients
+        // without threads; it is not a reply.
+        let in_thread = payload(json!({
+            "msgtype": "m.text",
+            "body": "in thread",
+            "m.relates_to": {
+                "rel_type": "m.thread",
+                "event_id": "$root:example.org",
+                "is_falling_back": true,
+                "m.in_reply_to": { "event_id": "$latest:example.org" },
+            },
+        }))
+        .unwrap();
+        assert_eq!(in_thread["in_reply_to"], "");
+        assert_eq!(in_thread["thread_root_id"], "$root:example.org");
+
+        // A real reply inside a thread is a reply.
+        let threaded_reply = payload(json!({
+            "msgtype": "m.text",
+            "body": "answer",
+            "m.relates_to": {
+                "rel_type": "m.thread",
+                "event_id": "$root:example.org",
+                "is_falling_back": false,
+                "m.in_reply_to": { "event_id": "$asked:example.org" },
+            },
+        }))
+        .unwrap();
+        assert_eq!(threaded_reply["in_reply_to"], "$asked:example.org");
+    }
+
+    #[test]
+    fn an_edit_carries_its_replacement_text() {
+        let edit = payload(json!({
+            "msgtype": "m.text",
+            "body": "* fixed",
+            "m.new_content": { "msgtype": "m.text", "body": "fixed" },
+            "m.relates_to": { "rel_type": "m.replace", "event_id": "$orig:example.org" },
+        }))
+        .unwrap();
+        assert_eq!(edit["replaces_event_id"], "$orig:example.org");
+        assert_eq!(edit["new_body"], "fixed");
+        let plain = payload(json!({ "msgtype": "m.text", "body": "hi" })).unwrap();
+        assert_eq!(plain["new_body"], "");
+        assert_eq!(plain["in_reply_to"], "");
+    }
+
+    // Finding 53: a msgtype with no typed row was dropped, so a server notice
+    // or a bridge's custom type never notified in a room that was not open.
+    #[test]
+    fn an_unknown_msgtype_is_forwarded_as_text_and_a_verification_request_is_not() {
+        let notice = payload(json!({
+            "msgtype": "m.server_notice",
+            "body": "Your server is over its limit",
+            "server_notice_type": "m.server_notice.usage_limit_reached",
+        }))
+        .unwrap();
+        assert_eq!(notice["msgtype"], "text");
+        assert_eq!(notice["body"], "Your server is over its limit");
+        let custom = payload(json!({ "msgtype": "com.example.bot", "body": "beep" })).unwrap();
+        assert_eq!(custom["msgtype"], "text");
+        assert_eq!(custom["body"], "beep");
+        assert!(payload(json!({
+            "msgtype": "m.key.verification.request",
+            "body": "verify me",
+            "from_device": "DEV",
+            "methods": ["m.sas.v1"],
+            "to": "@me:example.org",
+        }))
+        .is_none());
+    }
+
+    #[test]
+    fn mentions_are_read_from_the_content() {
+        let mention = payload(json!({
+            "msgtype": "m.text",
+            "body": "hey",
+            "m.mentions": { "user_ids": ["@me:example.org"] },
+        }))
+        .unwrap();
+        assert_eq!(mention["mentions_me"], true);
+        assert_eq!(mention["mentions_room"], false);
+    }
+
+    // Finding 53: poll starts had no sync handler at all.
+    #[test]
+    fn a_poll_start_becomes_a_poll_row_and_a_poll_edit_does_not() {
+        let unstable: UnstablePollStartEventContent = serde_json::from_value(json!({
+            "org.matrix.msc3381.poll.start": {
+                "question": { "org.matrix.msc1767.text": "Lunch?" },
+                "kind": "org.matrix.msc3381.poll.disclosed",
+                "max_selections": 1,
+                "answers": [
+                    { "id": "a", "org.matrix.msc1767.text": "Yes" },
+                    { "id": "b", "org.matrix.msc1767.text": "No" },
+                ],
+            },
+            "org.matrix.msc1767.text": "Lunch?\n1. Yes\n2. No",
+            "m.relates_to": { "m.in_reply_to": { "event_id": "$asked:example.org" } },
+        }))
+        .unwrap();
+        let start = unstable_poll_start(&unstable).expect("a new poll");
+        let row = poll_event_json(
+            &start,
+            event_id!("$p:example.org"),
+            user_id!("@them:example.org"),
+            5,
+            false,
+        );
+        assert_eq!(row["msgtype"], "poll");
+        assert_eq!(row["body"], "Lunch?");
+        assert_eq!(row["in_reply_to"], "$asked:example.org");
+
+        let stable: PollStartEventContent = serde_json::from_value(json!({
+            "m.text": [{ "body": "Lunch?" }],
+            "m.poll": {
+                "question": { "m.text": [{ "body": "Lunch?" }] },
+                "kind": "m.disclosed",
+                "max_selections": 1,
+                "answers": [
+                    { "m.id": "a", "m.text": [{ "body": "Yes" }] },
+                    { "m.id": "b", "m.text": [{ "body": "No" }] },
+                ],
+            },
+        }))
+        .unwrap();
+        assert_eq!(stable_poll_start(&stable).expect("a new poll").question, "Lunch?");
+
+        let edit: PollStartEventContent = serde_json::from_value(json!({
+            "m.text": [{ "body": "Lunch?" }],
+            "m.poll": {
+                "question": { "m.text": [{ "body": "Lunch?" }] },
+                "max_selections": 1,
+                "answers": [
+                    { "m.id": "a", "m.text": [{ "body": "Yes" }] },
+                    { "m.id": "b", "m.text": [{ "body": "No" }] },
+                ],
+            },
+            "m.new_content": {
+                "m.text": [{ "body": "Dinner?" }],
+                "m.poll": {
+                    "question": { "m.text": [{ "body": "Dinner?" }] },
+                    "max_selections": 1,
+                    "answers": [
+                        { "m.id": "a", "m.text": [{ "body": "Yes" }] },
+                        { "m.id": "b", "m.text": [{ "body": "No" }] },
+                    ],
+                },
+            },
+            "m.relates_to": { "rel_type": "m.replace", "event_id": "$p:example.org" },
+        }))
+        .unwrap();
+        assert!(stable_poll_start(&edit).is_none(), "an edited poll is not a new one");
     }
 }

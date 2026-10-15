@@ -4,6 +4,7 @@
 #include "calls/SdpStore.h"
 #include "matrix/RecoveryReopenBudget.h"
 #include "matrix/RustSessionPolicy.h"
+#include "matrix/NotificationProducerState.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix/SessionLifecycleGuard.h"
 #include "storage/AppDataPaths.h"
@@ -303,6 +304,7 @@ public:
 
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
+    void setFullyReadMarker(const QString &roomId, const QString &eventId) override;
     void setReadReceiptPrivacy(int mode) override;
     /// MSC4153 "invisible crypto", process-wide. Static because Rust reads it
     /// when a client is built (matrix-sdk has no runtime setter), so it must be
@@ -1160,6 +1162,7 @@ private:
     friend class RtcBridgePayloadTest;
     friend class SyncMessageRowTest;
     friend class E2eeBridgeTest;
+    friend class NotificationProducerTest;
 
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,
@@ -1190,6 +1193,27 @@ private:
     void handleSpacesEvent(const QJsonArray &spaces);
     RoomInfo roomInfoFromJson(const QJsonObject &obj) const;
     void handleTimelineEvent(const QJsonObject &event);
+    // `event_redacted` / `event_decrypted` from the sync handlers (every room).
+    void handleEventRedacted(const QJsonObject &event);
+    void handleEventDecrypted(const QJsonObject &event);
+    // The notification-path signals a diff implies (live insert, late
+    // decryption, redaction), separate from the model signals. `roomId` is the
+    // real room; `threadRootId` is set for a thread timeline's diff.
+    void emitDiffNotificationFacts(const QString &roomId,
+                                   const QString &threadRootId,
+                                   const matrix::rust_timeline::DiffOutcome &outcome);
+    // Bookkeeping for one event that reached the notification path: a live
+    // undecryptable sighting, a highlight credit, a backlog note.
+    void noteNotifiedEvent(const QString &roomId, const TimelineEvent &event);
+    // Emits eventDecrypted for `event` when this session saw it arrive
+    // undecryptable, at most once.
+    void emitDecryptedOnce(const QString &roomId, TimelineEvent event);
+    // Feeds the highlight-gap tracker from room payloads.
+    void observeHighlightCounts(const QJsonArray &rooms);
+    void flushHighlightGaps();
+    // Clears the above on every session boundary (same lifetime as
+    // m_forwardedEditIds).
+    void resetNotificationProducerState();
     // Live-timeline event handlers.
     void handleTimelineReset(const QJsonObject &event);
     void handleTimelineDiff(const QJsonObject &event);
@@ -1359,10 +1383,19 @@ private:
     unsigned m_indexAllHold = 0;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
-    // Edits already forwarded from sync. They never enter m_timelines, so its
-    // de-dup scan cannot see a second delivery of one. Bounded; same lifetime
-    // as the mirror.
+    // Edits and poll starts already forwarded from sync. They never enter
+    // m_timelines, so its de-dup scan cannot see a second delivery of one.
+    // Bounded; same lifetime as the mirror.
     QSet<QString> m_forwardedEditIds;
+    // Events this session saw arrive undecryptable (any room, any producer),
+    // with whether that sighting was history. A late decryption is announced
+    // (eventDecrypted) only for an id taken from here, so it fires once and
+    // never for history that decrypts on a room open. Bounded; same lifetime
+    // as m_forwardedEditIds.
+    matrix::notification_producer::BoundedIdMap m_undecryptableSeen{4096};
+    // Finding 121: highlight-count rises nobody was told about.
+    matrix::notification_producer::HighlightGapTracker m_highlightGaps;
+    QTimer m_highlightGapTimer;
     // A backward-pagination page arrives as many one-item inserts after the
     // timeline-start sentinel. Keep the mirror exact per diff but publish one
     // contiguous model transaction at the drain boundary.

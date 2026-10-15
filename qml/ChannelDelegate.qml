@@ -106,7 +106,7 @@ ItemDelegate {
                     ? qsTr("%1, mention in a thread", "channel row")
                     : qsTr("%1, unread in a thread", "channel row")).arg(base);
         else if (root.highlightCount > 0)
-            base = qsTr("%1, %2 mentions").arg(base).arg(root.highlightCount);
+            base = qsTr("%1, %n mention(s)", "", root.highlightCount).arg(base);
         else if (root.readsUnread)
             base = qsTr("%1, unread").arg(base);
         return base;

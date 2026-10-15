@@ -90,16 +90,18 @@ Item {
                     leftMargin: AppTheme.spacing12
                 }
                 // Sentence case with the shared section-label tokens.
-                // categoryOf() yields "invite", "favourite" and "conversation":
-                // joined rows are one activity feed with DMs and rooms
-                // interleaved, so splitting by kind would repeat headers
-                // constantly. The conversation section is named after the
-                // active filter chip ("Conversations" under All).
+                // categoryOf() yields "invite", "favourite", "conversation"
+                // and "lowpriority": joined rows are one activity feed with
+                // DMs and rooms interleaved, so splitting by kind would repeat
+                // headers constantly. The conversation section is named after
+                // the active filter chip ("Conversations" under All).
                 text: section === "invite"
                       ? qsTr("Invites")
                       : (section === "favourite"
                          ? qsTr("Favourites")
-                         : root.conversationSectionLabel)
+                         : (section === "lowpriority"
+                            ? qsTr("Low priority")
+                            : root.conversationSectionLabel))
                 color: AppTheme.roomListSection
                 font.family: AppTheme.menuSectionFont
                 font.pixelSize: AppTheme.menuSectionSize

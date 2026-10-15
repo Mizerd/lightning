@@ -53,6 +53,11 @@ inline int visibleUnreadCount(const RoomInfo &r, int mode)
 {
     if (mode == kModeMute || mode == kModeMentionsUnverified)
         return 0;
+    // Unread only in threads: the server number counts thread events the main
+    // timeline does not show, so no surface may print it (section 8). The room
+    // is still unread (countsAsUnread) and draws the thread glyph or a dot.
+    if (r.unreadThreadsOnly)
+        return 0;
     if (mode == kModeMentions && !r.encryptionKnown)
         return 0;
     return r.unreadCount > 0 ? r.unreadCount : 0;
@@ -74,15 +79,28 @@ struct Summary {
 };
 
 // The tray's walk. `modeOf(roomId)` is read only for a room that is raw-unread;
-// `onRoom(room, countsAsUnread)` sees every joined room (invites are not
-// unread messages and have their own notification).
+// `onRoom(room, countsAsUnread)` sees every joined room, a Space room included
+// (as not unread: no other surface counts a Space room and the user has no row
+// to open to clear it, but a notification already raised for one is withdrawn).
+// A pending invitation is not an unread message and gets no `onRoom` call (it
+// has its own notification, withdrawn when answered), but it needs action, so
+// it adds one to the total and lights the badge, as Element's does.
 template<typename ModeFn, typename RoomFn>
 Summary summarize(const QList<RoomInfo> &rooms, ModeFn modeOf, RoomFn onRoom)
 {
     Summary out;
     for (const RoomInfo &room : rooms) {
+        if (room.membership == RoomInfo::Invited) {
+            out.any = true;
+            out.total += 1;
+            continue;
+        }
         if (room.membership != RoomInfo::Joined)
             continue;
+        if (room.isSpace) {
+            onRoom(room, false);
+            continue;
+        }
         // Ask for the mode once, and only for a room with something unread:
         // the lookup is a settings read per room.
         const bool raw = rawUnread(room);

@@ -6,6 +6,7 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 
 struct CallSignal {
     enum class Kind {
@@ -48,6 +49,21 @@ struct CallSignal {
     QString callIntent;
     QString targetEventId;
     qint64 senderTs = 0;
+    // RtcNotification only: "ring" or "notification" as the sender stated it
+    // (empty when absent), and who the announcement addresses, from its
+    // m.mentions. In an unambiguous 1:1 DM (calls::oneToOneDmPeer: one
+    // m.direct target, at most two active members) a call from the other
+    // person rings whatever the type, because Lightning 0.10.x and earlier
+    // announced DM calls as "notification". Elsewhere a "notification"
+    // announces a call and never rings, and a "ring" rings only the users it
+    // mentions (or everyone with @room). `mentionsMe` is decided in Rust
+    // against the whole m.mentions list; mentionUserIds is bounded at the
+    // bridge edge and here, so it can miss us. Ids are only compared, never
+    // rendered or logged.
+    QString notificationType;
+    QStringList mentionUserIds;
+    bool mentionsRoom = false;
+    bool mentionsMe = false;
 };
 
 Q_DECLARE_METATYPE(CallSignal)

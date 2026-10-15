@@ -148,6 +148,41 @@ private Q_SLOTS:
         QCOMPARE(RoomListModel::orderRankOf(busy), 2);
     }
 
+    // A low-priority room (m.lowpriority) sinks below the feed under its own
+    // header however recent it is; a room tagged both reads as a favourite.
+    void aLowPriorityRoomSinksBelowTheFeedUnderItsOwnHeader()
+    {
+        CapableClient client;
+        RoomInfo busy = makeRoom(QStringLiteral("!busy:x"));
+        busy.lastActivity =
+            QDateTime(QDate(2026, 9, 5), QTime(12, 0), QTimeZone::UTC);
+        RoomInfo low = makeRoom(QStringLiteral("!low:x"));
+        low.lastActivity = busy.lastActivity.addSecs(3600); // newer
+        low.lowPriority = true;
+        RoomInfo both = makeRoom(QStringLiteral("!both:x"));
+        both.lastActivity = busy.lastActivity.addSecs(-7200);
+        both.lowPriority = true;
+        both.isFavourite = true;
+        client.roomSet = { low, busy, both };
+        RoomListModel model;
+        model.setClient(&client);
+        Q_EMIT client.roomsChanged();
+
+        QCOMPARE(model.rowCount(), 3);
+        auto idAt = [&](int row) {
+            return model.data(model.index(row), RoomListModel::RoomIdRole).toString();
+        };
+        auto categoryAt = [&](int row) {
+            return model.data(model.index(row), RoomListModel::CategoryRole).toString();
+        };
+        QCOMPARE(idAt(0), QStringLiteral("!both:x"));
+        QCOMPARE(categoryAt(0), QStringLiteral("favourite"));
+        QCOMPARE(idAt(1), QStringLiteral("!busy:x"));
+        QCOMPARE(categoryAt(1), QStringLiteral("conversation"));
+        QCOMPARE(idAt(2), QStringLiteral("!low:x"));
+        QCOMPARE(categoryAt(2), QStringLiteral("lowpriority"));
+    }
+
     // With an empty loaded timeline (every room that is not open), the call
     // must reach the backend that can resolve the event itself.
     void closedRoomIsMarkedReadThroughTheCapableBackend()

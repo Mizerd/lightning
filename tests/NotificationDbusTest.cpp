@@ -25,6 +25,8 @@
 #include <QTest>
 #include <QThread>
 
+#include <optional>
+
 namespace {
 
 const auto kService = QStringLiteral("org.freedesktop.Notifications");
@@ -57,6 +59,12 @@ public:
             "<method name=\"CloseNotification\"><arg type=\"u\" direction=\"in\"/></method>"
             "<signal name=\"ActionInvoked\"><arg type=\"u\"/><arg type=\"s\"/></signal>"
             "<signal name=\"NotificationClosed\"><arg type=\"u\"/><arg type=\"u\"/></signal>"
+            "</interface>"
+            "<interface name=\"org.freedesktop.DBus.Properties\">"
+            "<method name=\"Get\"><arg type=\"s\" direction=\"in\"/>"
+            "<arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>"
+            "<signal name=\"PropertiesChanged\"><arg type=\"s\"/><arg type=\"a{sv}\"/>"
+            "<arg type=\"as\"/></signal>"
             "</interface>");
     }
 
@@ -81,11 +89,25 @@ public:
                     QDBusError::NotSupported, QStringLiteral("no")));
             else
                 m_bus.send(message.createReply(QVariant(m_capabilities)));
-        } else if (member == QLatin1String("Notify")) {
-            if (m_holdNotify)
-                m_held.append(message);
+        } else if (member == QLatin1String("Get")) {
+            // KDE's Do Not Disturb; most daemons have no such property.
+            if (m_inhibited.has_value()
+                && message.arguments().value(1).toString()
+                    == QLatin1String("Inhibited"))
+                m_bus.send(message.createReply(
+                    QVariant::fromValue(QDBusVariant(*m_inhibited))));
             else
-                m_bus.send(message.createReply(QVariant(++m_nextId)));
+                m_bus.send(message.createErrorReply(
+                    QDBusError::UnknownProperty, QStringLiteral("no")));
+        } else if (member == QLatin1String("Notify")) {
+            if (m_holdNotify) {
+                m_held.append(message);
+            } else {
+                // As the spec says: a replacement keeps the card's id.
+                const quint32 replaces = message.arguments().value(1).toUInt();
+                m_bus.send(message.createReply(
+                    QVariant(replaces != 0 ? replaces : ++m_nextId)));
+            }
         } else {
             m_bus.send(message.createReply());
         }
@@ -98,6 +120,7 @@ public:
         m_mode = mode;
         m_capabilities = capabilities;
         m_holdNotify = false;
+        m_inhibited.reset();
         m_capabilityErrors = 0;
         m_held.clear();
         m_calls.clear();
@@ -109,6 +132,12 @@ public:
         QMutexLocker lock(&m_mutex);
         m_capabilityErrors = count;
         m_capabilityError = type;
+    }
+    // Answer Get(Inhibited) with this value; unset answers UnknownProperty.
+    void setInhibited(bool inhibited)
+    {
+        QMutexLocker lock(&m_mutex);
+        m_inhibited = inhibited;
     }
     void setHoldNotify(bool hold)
     {
@@ -139,6 +168,16 @@ public:
         }
         return {};
     }
+    QList<QVariantList> allArguments(const QString &member) const
+    {
+        QMutexLocker lock(&m_mutex);
+        QList<QVariantList> all;
+        for (const QDBusMessage &call : m_calls) {
+            if (call.member() == member)
+                all.append(call.arguments());
+        }
+        return all;
+    }
     QList<quint32> closedIds() const
     {
         QMutexLocker lock(&m_mutex);
@@ -157,6 +196,24 @@ public:
         signal << id << action;
         m_bus.send(signal);
     }
+    void emitNotificationClosed(quint32 id, quint32 reason)
+    {
+        QDBusMessage signal =
+            QDBusMessage::createSignal(kPath, kInterface,
+                                       QStringLiteral("NotificationClosed"));
+        signal << id << reason;
+        m_bus.send(signal);
+    }
+    void emitInhibitedChanged(bool inhibited)
+    {
+        QDBusMessage signal = QDBusMessage::createSignal(
+            kPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+            QStringLiteral("PropertiesChanged"));
+        signal << kInterface
+               << QVariantMap{ { QStringLiteral("Inhibited"), inhibited } }
+               << QStringList{};
+        m_bus.send(signal);
+    }
 
 private:
     QDBusConnection m_bus;
@@ -166,6 +223,7 @@ private:
     bool m_holdNotify = false;
     int m_capabilityErrors = 0;
     QDBusError::ErrorType m_capabilityError = QDBusError::ServiceUnknown;
+    std::optional<bool> m_inhibited;
     quint32 m_nextId = 40;
     QList<QDBusMessage> m_held;
     QList<QDBusMessage> m_calls;
@@ -212,6 +270,16 @@ private Q_SLOTS:
     void aDaemonThatNeverComesUpIsAskedABoundedNumberOfTimes();
     void aCallCardIsRaisedOnceAndRetiredIfTheCallEnds();
     void theCardCarriesSuppressSoundExactlyWhenTheDesktopsSoundIsNotWanted();
+    // 2026-10-15 notification sweep (package P6).
+    void aMessageCardIsNormalUrgencyAndCarriesItsActions();
+    void signingOutClosesEveryCardItRaised();
+    void aRoomsNextMessageReplacesItsCard();
+    void aDecryptedMessageReplacesItsEncryptedCard();
+    void aKeyedNoticeIsReplacedAndWithdrawn();
+    void theCallCardIsQuietWhenSilentAndStaysDismissed();
+    void theDesktopsDoNotDisturbSilencesTheChime();
+    // Last: it hands the service name over and back.
+    void aRestartedDaemonForgetsItsIds();
 
 private:
     QProcess m_daemon;
@@ -358,7 +426,11 @@ void NotificationDbusTest::aDaemonThatStopsAnsweringNeverBlocksTheCaller()
     QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 1);
     QElapsedTimer timer;
     timer.start();
-    manager.processEvent(incomingText(), context());
+    // Another room: a second message to the same room would wait for the
+    // first card's id (one card per room) and send nothing more here.
+    TimelineEvent other = incomingText();
+    other.roomId = QStringLiteral("!other:example.org");
+    manager.processEvent(other, context());
     manager.showIncomingCall(kRoom, QStringLiteral("$call"),
                              QStringLiteral("Call"),
                              QStringLiteral("Bob is calling"), true, 30);
@@ -417,8 +489,13 @@ void NotificationDbusTest::aCardAnsweredAfterSignOutIsNotRouted()
     // route a click into the next account.
     manager.clearPending();
     m_fake->releaseHeld(80);
-    QTest::qWait(200);
+    // Evidence the stale reply was processed, rather than a fixed wait it may
+    // outlast under load (finding 150).
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 1);
     QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    // And the card it raised is withdrawn: its preview must not outlive the
+    // account (finding 117).
+    QTRY_VERIFY(m_fake->closedIds().contains(80));
 
     // The control: the same card answered before a sign-out is routed.
     manager.processEvent(incomingText(), context());
@@ -459,7 +536,13 @@ void NotificationDbusTest::aDaemonNotUpYetIsAskedAgain()
     QVERIFY(!manager.inlineReplySupported());
 
     QTest::qWait(200);
-    manager.processEvent(incomingText(QStringLiteral("<b>Bob</b>")), context());
+    // Another room: a second message in the same room is folded into that
+    // room's card as "2 new messages" (one card per room), which would hide
+    // the body this case is about.
+    TimelineEvent second = incomingText(QStringLiteral("<b>Bob</b>"));
+    second.roomId = QStringLiteral("!second:example.org");
+    second.eventId = QStringLiteral("$ev2:example.org");
+    manager.processEvent(second, context());
     QTRY_COMPARE(m_fake->count(QStringLiteral("GetCapabilities")), 2);
     QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
     // The answer is used: no body-markup, so the text goes as it is, and the
@@ -477,7 +560,11 @@ void NotificationDbusTest::aDaemonThatNeverComesUpIsAskedABoundedNumberOfTimes()
     NotificationManager manager;
     manager.setCapabilityRetryMsForTest(0);
     for (int i = 0; i < 6; ++i) {
-        manager.processEvent(incomingText(), context());
+        // A room each: one card per room would otherwise fold a message that
+        // arrives while its room's card is being raised into the next one.
+        TimelineEvent event = incomingText();
+        event.roomId = QStringLiteral("!room%1:example.org").arg(i);
+        manager.processEvent(event, context());
         QTest::qWait(50);
     }
     // Every message is still delivered, and the daemon is asked at most four
@@ -527,6 +614,258 @@ void NotificationDbusTest::aCallCardIsRaisedOnceAndRetiredIfTheCallEnds()
     QTRY_VERIFY(m_fake->closedIds().contains(70));
     QVERIFY(manager.activeCallIdForTest().isEmpty());
     QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// ── 2026-10-15 notification sweep (P6) ─────────────────────────────────────
+
+namespace {
+QVariantMap hintsOf(const QVariantList &notifyArgs)
+{
+    return qdbus_cast<QVariantMap>(notifyArgs.value(6).value<QDBusArgument>());
+}
+} // namespace
+
+// Findings 22/149: the actions and urgency a card actually carries over the
+// bus. A mention used to be critical (2), which GNOME and KDE let through Do
+// Not Disturb and never expire; nothing asserted either.
+void NotificationDbusTest::aMessageCardIsNormalUrgencyAndCarriesItsActions()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer,
+                  { QStringLiteral("body"), QStringLiteral("actions"),
+                    QStringLiteral("inline-reply") });
+    NotificationManager manager;
+    TimelineEvent mention = incomingText();
+    mention.mentionsMe = true;
+    manager.processEvent(mention, context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 1);
+    QVariantList args = m_fake->lastArguments(QStringLiteral("Notify"));
+    QCOMPARE(args.value(5).toStringList(),
+             NotificationManager::messageCardShape(true, true).actions);
+    QVERIFY(args.value(5).toStringList().contains(QStringLiteral("mark-read")));
+    QVERIFY(args.value(5).toStringList().contains(QStringLiteral("inline-reply")));
+    QVariantMap hints = hintsOf(args);
+    QVERIFY2(hints.value(QStringLiteral("urgency")).toInt() == 1,
+             "a mention card was not normal urgency");
+    QVERIFY(hints.contains(QStringLiteral("x-kde-reply-placeholder-text")));
+
+    // A notice: open only, normal urgency, no reply box.
+    manager.showGeneric(QStringLiteral("Room invitation"),
+                        QStringLiteral("You were invited"), kRoom);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    args = m_fake->lastArguments(QStringLiteral("Notify"));
+    QCOMPARE(args.value(5).toStringList(),
+             (QStringList{ QStringLiteral("default"), QObject::tr("Open") }));
+    hints = hintsOf(args);
+    QCOMPARE(hints.value(QStringLiteral("urgency")).toInt(), 1);
+    QVERIFY(!hints.contains(QStringLiteral("x-kde-reply-placeholder-text")));
+}
+
+// Findings 114/117: sign-out, removal and a switch left every card of the
+// account (with "Sender and message" previews) in the history for good.
+void NotificationDbusTest::signingOutClosesEveryCardItRaised()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    manager.processEvent(incomingText(), context());
+    TimelineEvent other = incomingText();
+    other.roomId = QStringLiteral("!other:example.org");
+    manager.processEvent(other, context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 2);
+    const QList<QVariantList> raised =
+        m_fake->allArguments(QStringLiteral("Notify"));
+    QCOMPARE(raised.size(), 2);
+    QVERIFY(m_fake->closedIds().isEmpty());
+    manager.clearPending();
+    QTRY_COMPARE(m_fake->closedIds().size(), 2);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// Findings 24/123/25: every message was a new card (replaces_id 0): 30
+// messages, 30 cards, and past 64 the oldest could never be withdrawn.
+void NotificationDbusTest::aRoomsNextMessageReplacesItsCard()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    const quint32 first =
+        m_fake->lastArguments(QStringLiteral("Notify")).value(1).toUInt();
+    QCOMPARE(first, 0u);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 1);
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    const quint32 replaces =
+        m_fake->lastArguments(QStringLiteral("Notify")).value(1).toUInt();
+    QVERIFY2(replaces != 0, "the room's second message raised a second card");
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 2);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    // While a room's first card is still being raised, its next message waits
+    // for the id instead of raising a duplicate.
+    m_fake->setHoldNotify(true);
+    TimelineEvent a = incomingText();
+    a.roomId = QStringLiteral("!busy:example.org");
+    manager.processEvent(a, context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 3);
+    manager.processEvent(a, context());
+    manager.processEvent(a, context());
+    m_fake->releaseHeld(500);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 4);
+    QCOMPARE(m_fake->lastArguments(QStringLiteral("Notify")).value(1).toUInt(),
+             500u);
+    m_fake->releaseHeld(500);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 4);
+    QCOMPARE(m_fake->count(QStringLiteral("Notify")), 4);
+}
+
+// Findings 46/124/32: "Encrypted message" stayed for good even when the key
+// arrived a second later. The card is replaced in place, silently.
+void NotificationDbusTest::aDecryptedMessageReplacesItsEncryptedCard()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    manager.setUndecryptableHoldMsForTest(0);
+    NotificationManager::Context ctx = context();
+    ctx.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent utd = incomingText();
+    utd.eventId = QStringLiteral("$utd:example.org");
+    utd.isEncrypted = true;
+    utd.undecryptable = true;
+    manager.processEvent(utd, ctx);
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    QVariantList args = m_fake->lastArguments(QStringLiteral("Notify"));
+    QVERIFY(!args.value(4).toString().contains(QStringLiteral("hello")));
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 1);
+
+    TimelineEvent plain = incomingText();
+    plain.eventId = utd.eventId;
+    plain.isEncrypted = true;
+    plain.body = QStringLiteral("the real text");
+    manager.processDecrypted(plain, ctx);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    args = m_fake->lastArguments(QStringLiteral("Notify"));
+    QVERIFY2(args.value(1).toUInt() != 0,
+             "the decrypted text raised a second card");
+    QVERIFY2(args.value(4).toString().contains(QStringLiteral("the real text")),
+             qPrintable(args.value(4).toString()));
+    // It alerted once already.
+    QCOMPARE(hintsOf(args).value(QStringLiteral("suppress-sound")).toBool(),
+             true);
+}
+
+// Findings 80/125: an invite or verification card had no way to be
+// withdrawn once the thing it announced was over.
+void NotificationDbusTest::aKeyedNoticeIsReplacedAndWithdrawn()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    manager.showGeneric(QStringLiteral("Verification"),
+                        QStringLiteral("A session wants to verify"), QString(),
+                        QString(), false, QStringLiteral("verify:1"));
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 1);
+    manager.showGeneric(QStringLiteral("Verification"),
+                        QStringLiteral("Still waiting"), QString(), QString(),
+                        false, QStringLiteral("verify:1"));
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    const quint32 id =
+        m_fake->lastArguments(QStringLiteral("Notify")).value(1).toUInt();
+    QVERIFY(id != 0);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 2);
+    manager.withdrawGeneric(QStringLiteral("verify:1"));
+    QTRY_VERIFY(m_fake->closedIds().contains(id));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// Findings 28/109: the call card sent no suppress-sound, so a daemon with a
+// default sound played it over Lightning's ringer. Finding 29: a card the
+// user dismissed came back when the call's join state changed. Finding 82:
+// the dismissal did not reach the ringer.
+void NotificationDbusTest::theCallCardIsQuietWhenSilentAndStaysDismissed()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    QSignalSpy dismissed(&manager, &NotificationManager::callCardDismissed);
+    manager.showIncomingCall(kRoom, QStringLiteral("$call"),
+                             QStringLiteral("Call"),
+                             QStringLiteral("Bob is calling"),
+                             /*sound=*/false, 30);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 1);
+    const QVariantMap hints = lastNotifyHints(m_fake);
+    QCOMPARE(hints.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QCOMPARE(hints.value(QStringLiteral("urgency")).toInt(), 2);
+    QTRY_VERIFY(manager.activeCallNotificationIdForTest() != 0);
+    const quint32 id = manager.activeCallNotificationIdForTest();
+
+    m_fake->emitNotificationClosed(id, 2);
+    QTRY_COMPARE(dismissed.count(), 1);
+    QCOMPARE(dismissed.first().at(0).toString(), QStringLiteral("$call"));
+    QCOMPARE(manager.activeCallNotificationIdForTest(), 0u);
+
+    // The join state changes; then a message is the marker. The bus keeps
+    // order, so a redraw would arrive before it.
+    manager.setCallAcceptOffered(QStringLiteral("$call"), true, true);
+    TimelineEvent marker = incomingText();
+    marker.roomId = QStringLiteral("!marker:example.org");
+    manager.processEvent(marker, context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    const QList<QVariantList> all =
+        m_fake->allArguments(QStringLiteral("Notify"));
+    QVERIFY2(!all.at(1).value(5).toStringList().contains(
+                 QStringLiteral("decline")),
+             "a dismissed call card was raised again");
+    manager.stopIncomingCall(QStringLiteral("$call"));
+}
+
+// Findings 23/104: Lightning's chime ignored the desktop's Do Not Disturb.
+void NotificationDbusTest::theDesktopsDoNotDisturbSilencesTheChime()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    m_fake->setInhibited(true);
+    NotificationManager manager;
+    int own = 0;
+    manager.setOwnSoundPlayer([&own](bool) { ++own; return true; });
+    NotificationManager::Context ctx = context();
+    ctx.soundMode = NotificationManager::SoundAll;
+    manager.processEvent(incomingText(), ctx);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 1);
+    QVERIFY(manager.desktopInhibited());
+    QVERIFY2(own == 0, "the chime played under Do Not Disturb");
+    QCOMPARE(lastNotifyHints(m_fake).value(QStringLiteral("suppress-sound"))
+                 .toBool(),
+             true);
+    // Do Not Disturb ends; the next message chimes.
+    m_fake->emitInhibitedChanged(false);
+    QTRY_VERIFY(!manager.desktopInhibited());
+    TimelineEvent next = incomingText();
+    next.roomId = QStringLiteral("!next:example.org");
+    manager.processEvent(next, ctx);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    QCOMPARE(own, 1);
+}
+
+// Finding 26: after a daemon restart our ids named other applications'
+// cards (and our clicks routed theirs), and the capabilities were never
+// asked again.
+void NotificationDbusTest::aRestartedDaemonForgetsItsIds()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    QCOMPARE(m_fake->count(QStringLiteral("GetCapabilities")), 1);
+
+    QDBusConnection fakeBus(QStringLiteral("fake-notifications"));
+    QVERIFY(fakeBus.unregisterService(kService));
+    QVERIFY(fakeBus.registerService(kService));
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 0);
+    QCOMPARE(manager.capabilityRequestsForTest(), 0);
+
+    TimelineEvent next = incomingText();
+    next.roomId = QStringLiteral("!next:example.org");
+    manager.processEvent(next, context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("GetCapabilities")), 2);
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
 }
 
 QTEST_MAIN(NotificationDbusTest)

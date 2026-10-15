@@ -45,6 +45,7 @@ use matrix_sdk::ruma::events::rtc::decline::OriginalSyncRtcDeclineEvent;
 use matrix_sdk::ruma::events::rtc::notification::{
     CallIntent, OriginalSyncRtcNotificationEvent,
 };
+use matrix_sdk::ruma::events::Mentions;
 use matrix_sdk::ruma::{EventId, OwnedVoipId, UInt, UserId, VoipVersionId};
 use matrix_sdk::config::RequestConfig;
 use matrix_sdk::{Client, Room};
@@ -145,6 +146,86 @@ pub(crate) fn reason_from_code(code: &str) -> Result<Reason, String> {
         "replaced" => Reason::from("replaced"),
         _ => return Err("unsupported hangup reason".to_owned()),
     })
+}
+
+/// Bound on the mentioned user ids forwarded with an MSC4075 announcement.
+/// The C++ side only compares them with our own id.
+const MAX_RTC_MENTION_IDS: usize = 256;
+
+/// Who an MSC4075 announcement addresses, and how, as the bridge forwards it
+/// from BOTH notification types (the stable `m.rtc.notification` here, the
+/// unstable one in `rtc.rs`): `notification_type` is a closed set, and
+/// anything but `ring` is `notification`, which announces a call and never
+/// rings; `mentions_user_ids` / `mentions_room` are its `m.mentions`. Sender
+/// content, so it only narrows who rings: dropping it made every
+/// announcement ring every member of the room.
+///
+/// `mentions_me` is decided here, against the WHOLE list, so the bound on the
+/// forwarded ids can never drop the one that names this account.
+pub(crate) fn rtc_notification_addressing(
+    notification_type: &str,
+    mentions: Option<&Mentions>,
+    own_user: Option<&UserId>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let notification_type = match notification_type {
+        "ring" => "ring",
+        _ => "notification",
+    };
+    let (user_ids, room) = match mentions {
+        Some(mentions) => (
+            mentions
+                .user_ids
+                .iter()
+                .take(MAX_RTC_MENTION_IDS)
+                .map(|user| user.to_string())
+                .collect::<Vec<_>>(),
+            mentions.room,
+        ),
+        None => (Vec::new(), false),
+    };
+    let mentions_me = match (mentions, own_user) {
+        (Some(mentions), Some(own)) => mentions.user_ids.iter().any(|user| user == own),
+        _ => false,
+    };
+    let mut fields = serde_json::Map::new();
+    fields.insert("notification_type".to_owned(), json!(notification_type));
+    fields.insert("mentions_user_ids".to_owned(), json!(user_ids));
+    fields.insert("mentions_room".to_owned(), json!(room));
+    fields.insert("mentions_me".to_owned(), json!(mentions_me));
+    fields
+}
+
+/// The `call_rtc_notification` record for a stable `m.rtc.notification`.
+fn rtc_notification_payload(
+    ev: &OriginalSyncRtcNotificationEvent,
+    room_id: &str,
+    own_user: Option<&UserId>,
+    lifecycle: u64,
+) -> serde_json::Value {
+    let own = own_user.is_some_and(|user| user == ev.sender);
+    let mut payload = json!({
+        "type": "call_rtc_notification",
+        "lifecycle": lifecycle,
+        "room_id": room_id,
+        "event_id": ev.event_id.to_string(),
+        "sender": ev.sender.to_string(),
+        "own": own,
+        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
+        "sender_ts": u64::from(ev.content.sender_ts.get()),
+        "lifetime_ms": u64::try_from(
+                ev.content.lifetime.as_millis()
+                    .min(u128::from(MAX_INVITE_LIFETIME_MS)))
+            .unwrap_or(MAX_INVITE_LIFETIME_MS),
+        "call_intent": intent_str(ev.content.call_intent.as_ref()),
+    });
+    if let Some(object) = payload.as_object_mut() {
+        object.extend(rtc_notification_addressing(
+            ev.content.notification_type.as_str(),
+            ev.content.mentions.as_ref(),
+            own_user,
+        ));
+    }
+    payload
 }
 
 fn intent_str(intent: Option<&CallIntent>) -> &'static str {
@@ -857,24 +938,12 @@ pub(crate) fn register_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    let own = client
-                        .user_id()
-                        .is_some_and(|user| user == ev.sender);
-                    enqueue(&events, json!({
-                        "type": "call_rtc_notification",
-                        "lifecycle": timelines.lifecycle(),
-                        "room_id": room.room_id().to_string(),
-                        "event_id": ev.event_id.to_string(),
-                        "sender": ev.sender.to_string(),
-                        "own": own,
-                        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
-                        "sender_ts": u64::from(ev.content.sender_ts.get()),
-                        "lifetime_ms": u64::try_from(
-                                ev.content.lifetime.as_millis()
-                                    .min(u128::from(MAX_INVITE_LIFETIME_MS)))
-                            .unwrap_or(MAX_INVITE_LIFETIME_MS),
-                        "call_intent": intent_str(ev.content.call_intent.as_ref()),
-                    }));
+                    enqueue(&events, rtc_notification_payload(
+                        &ev,
+                        room.room_id().as_str(),
+                        client.user_id(),
+                        timelines.lifecycle(),
+                    ));
                 }
             },
         );
@@ -918,6 +987,105 @@ pub(crate) fn register_handlers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stable_notification(content: serde_json::Value) -> OriginalSyncRtcNotificationEvent {
+        serde_json::from_value(json!({
+            "type": "m.rtc.notification",
+            "event_id": "$announce:x",
+            "sender": "@caller:x",
+            "origin_server_ts": 1_000,
+            "content": content,
+        }))
+        .expect("a valid m.rtc.notification")
+    }
+
+    #[test]
+    fn the_stable_notification_forwards_its_type_and_mentions() {
+        // Before: the stable handler forwarded neither, so every announcement
+        // reached CallController as a ring.
+        let ev = stable_notification(json!({
+            "notification_type": "notification",
+            "sender_ts": 1_000,
+            "lifetime": 30_000,
+            "m.mentions": { "user_ids": ["@me:x"], "room": false },
+        }));
+        let payload = rtc_notification_payload(&ev, "!r:x", None, 7);
+        assert_eq!(payload["type"], json!("call_rtc_notification"));
+        assert_eq!(payload["notification_type"], json!("notification"));
+        assert_eq!(payload["mentions_user_ids"], json!(["@me:x"]));
+        assert_eq!(payload["mentions_room"], json!(false));
+        // The rest of the record is unchanged.
+        assert_eq!(payload["event_id"], json!("$announce:x"));
+        assert_eq!(payload["sender"], json!("@caller:x"));
+        assert_eq!(payload["lifetime_ms"], json!(30_000));
+        assert_eq!(payload["lifecycle"], json!(7));
+
+        let ring = stable_notification(json!({
+            "notification_type": "ring",
+            "sender_ts": 1_000,
+            "lifetime": 30_000,
+            "m.mentions": { "room": true },
+        }));
+        let payload = rtc_notification_payload(&ring, "!r:x", None, 7);
+        assert_eq!(payload["notification_type"], json!("ring"));
+        assert_eq!(payload["mentions_user_ids"], json!([]));
+        assert_eq!(payload["mentions_room"], json!(true));
+    }
+
+    #[test]
+    fn mentions_me_is_decided_on_the_whole_list_before_the_bound() {
+        let me = UserId::parse("@me:x").expect("valid user id");
+        // We are listed past the forwarding bound: still addressed.
+        let mut ids: Vec<_> = (0..(MAX_RTC_MENTION_IDS + 10))
+            .map(|i| UserId::parse(format!("@u{i}:x")).expect("valid user id"))
+            .collect();
+        ids.push(me.clone());
+        let many = Mentions::with_user_ids(ids);
+        let fields = rtc_notification_addressing("ring", Some(&many), Some(&me));
+        assert_eq!(
+            fields["mentions_user_ids"].as_array().map(Vec::len),
+            Some(MAX_RTC_MENTION_IDS)
+        );
+        assert_eq!(fields["mentions_me"], json!(true));
+        // Not listed, no mentions, or no own id: not addressed.
+        let others = Mentions::with_user_ids([UserId::parse("@them:x").unwrap()]);
+        let fields = rtc_notification_addressing("ring", Some(&others), Some(&me));
+        assert_eq!(fields["mentions_me"], json!(false));
+        let fields = rtc_notification_addressing("ring", None, Some(&me));
+        assert_eq!(fields["mentions_me"], json!(false));
+        let fields = rtc_notification_addressing("ring", Some(&many), None);
+        assert_eq!(fields["mentions_me"], json!(false));
+        // And the stable payload carries it, judged against our own id.
+        let ev = stable_notification(json!({
+            "notification_type": "ring",
+            "sender_ts": 1_000,
+            "lifetime": 30_000,
+            "m.mentions": { "user_ids": ["@me:x"] },
+        }));
+        let payload = rtc_notification_payload(&ev, "!r:x", Some(&me), 7);
+        assert_eq!(payload["mentions_me"], json!(true));
+        assert_eq!(payload["own"], json!(false));
+    }
+
+    #[test]
+    fn notification_addressing_is_a_closed_set_and_bounded() {
+        // A type nobody defined never rings.
+        let fields = rtc_notification_addressing("RING!", None, None);
+        assert_eq!(fields["notification_type"], json!("notification"));
+        // No m.mentions addresses nobody.
+        assert_eq!(fields["mentions_user_ids"], json!([]));
+        assert_eq!(fields["mentions_room"], json!(false));
+
+        let many = Mentions::with_user_ids((0..(MAX_RTC_MENTION_IDS + 44)).map(|i| {
+            UserId::parse(format!("@u{i}:x")).expect("valid user id")
+        }));
+        let fields = rtc_notification_addressing("ring", Some(&many), None);
+        assert_eq!(fields["notification_type"], json!("ring"));
+        assert_eq!(
+            fields["mentions_user_ids"].as_array().map(Vec::len),
+            Some(MAX_RTC_MENTION_IDS)
+        );
+    }
 
     #[test]
     fn only_json_naming_no_server_counts_as_an_empty_answer() {

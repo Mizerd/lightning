@@ -13,7 +13,10 @@ use std::{
 
 use matrix_sdk::{
     room::PushContext,
-    ruma::{push::Action, OwnedRoomId, RoomId},
+    ruma::{
+        push::{Action, Tweak},
+        OwnedRoomId, RoomId,
+    },
     Room,
 };
 use matrix_sdk_ui::{
@@ -26,24 +29,32 @@ use matrix_sdk_ui::{
 pub(crate) struct PushVerdict {
     pub(crate) notify: bool,
     pub(crate) highlight: bool,
+    /// The matched rule carries a `sound` tweak. This is the whole difference
+    /// between "Notify" and "Loud" on the rules page (pushrules.rs
+    /// `actions_for`), and matrix-sdk writes a keyword as notify + sound
+    /// without highlight, so neither `notify` nor `highlight` can stand in
+    /// for it.
+    pub(crate) sound: bool,
 }
 
 impl PushVerdict {
-    pub(crate) const QUIET: Self = Self { notify: false, highlight: false };
+    pub(crate) const QUIET: Self = Self { notify: false, highlight: false, sound: false };
 
     pub(crate) fn from_actions(actions: &[Action]) -> Self {
         Self {
             notify: actions.iter().any(Action::should_notify),
             highlight: actions.iter().any(Action::is_highlight),
+            sound: actions.iter().any(|action| matches!(action, Action::SetTweak(Tweak::Sound(_)))),
         }
     }
 
-    /// `push_notify` / `push_highlight` on an event payload. Without a verdict
-    /// nothing is written, which C++ reads as unknown.
+    /// `push_notify` / `push_highlight` / `push_sound` on an event payload.
+    /// Without a verdict nothing is written, which C++ reads as unknown.
     pub(crate) fn write(verdict: Option<Self>, payload: &mut serde_json::Value) {
         if let (Some(verdict), Some(object)) = (verdict, payload.as_object_mut()) {
             object.insert("push_notify".to_owned(), verdict.notify.into());
             object.insert("push_highlight".to_owned(), verdict.highlight.into());
+            object.insert("push_sound".to_owned(), verdict.sound.into());
         }
     }
 }
@@ -320,22 +331,22 @@ mod tests {
         let highlight = Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes));
         assert_eq!(
             PushVerdict::from_actions(&[]),
-            PushVerdict { notify: false, highlight: false }
+            PushVerdict { notify: false, highlight: false, sound: false }
         );
         assert_eq!(
             PushVerdict::from_actions(&[Action::Notify]),
-            PushVerdict { notify: true, highlight: false }
+            PushVerdict { notify: true, highlight: false, sound: false }
         );
         assert_eq!(
             PushVerdict::from_actions(&[Action::Notify, highlight.clone()]),
-            PushVerdict { notify: true, highlight: true }
+            PushVerdict { notify: true, highlight: true, sound: false }
         );
         assert_eq!(
             PushVerdict::from_actions(&[
                 Action::Notify,
                 Action::SetTweak(Tweak::Highlight(HighlightTweakValue::No)),
             ]),
-            PushVerdict { notify: true, highlight: false }
+            PushVerdict { notify: true, highlight: false, sound: false }
         );
     }
 
@@ -345,9 +356,24 @@ mod tests {
         PushVerdict::write(None, &mut payload);
         assert!(payload.get("push_notify").is_none());
         assert!(payload.get("push_highlight").is_none());
-        PushVerdict::write(Some(PushVerdict { notify: false, highlight: true }), &mut payload);
+        assert!(payload.get("push_sound").is_none());
+        PushVerdict::write(Some(PushVerdict { notify: false, highlight: true, sound: true }), &mut payload);
         assert_eq!(payload["push_notify"], json!(false));
         assert_eq!(payload["push_highlight"], json!(true));
+        assert_eq!(payload["push_sound"], json!(true));
+    }
+
+    // "Notify" and "Loud" on the rules page differ ONLY by the sound tweak
+    // (pushrules.rs `actions_for`). Before the sound bit, both mapped to the
+    // same verdict, so this device chimed for both or neither.
+    #[test]
+    fn loud_and_notify_differ_only_in_sound() {
+        use crate::pushrules::{actions_for, Level};
+        let notify = PushVerdict::from_actions(&actions_for(Level::Notify));
+        let loud = PushVerdict::from_actions(&actions_for(Level::Loud));
+        assert_eq!(notify, PushVerdict { notify: true, highlight: true, sound: false });
+        assert_eq!(loud, PushVerdict { notify: true, highlight: true, sound: true });
+        assert_ne!(notify, loud, "the two levels must be distinguishable here");
     }
 
     #[tokio::test]
@@ -355,7 +381,7 @@ mod tests {
         let rules = Ruleset::server_default(&me());
         assert_eq!(
             verdict(&rules, &plain()).await,
-            PushVerdict { notify: true, highlight: false }
+            PushVerdict { notify: true, highlight: false, sound: false }
         );
     }
 
@@ -378,7 +404,7 @@ mod tests {
         }));
         assert_eq!(
             verdict(&rules, &mention).await,
-            PushVerdict { notify: true, highlight: true }
+            PushVerdict { notify: true, highlight: true, sound: true }
         );
     }
 
@@ -416,7 +442,7 @@ mod tests {
         );
         assert_eq!(
             verdict(&rules, &keyword_message()).await,
-            PushVerdict { notify: true, highlight: false }
+            PushVerdict { notify: true, highlight: false, sound: true }
         );
     }
 
@@ -430,7 +456,7 @@ mod tests {
         );
         assert_eq!(
             verdict(&rules, &keyword_message()).await,
-            PushVerdict { notify: true, highlight: true }
+            PushVerdict { notify: true, highlight: true, sound: false }
         );
     }
 
@@ -500,7 +526,7 @@ mod tests {
                 true
             })
             .await;
-        assert_eq!(verdict, Some(PushVerdict { notify: true, highlight: false }));
+        assert_eq!(verdict, Some(PushVerdict { notify: true, highlight: false, sound: false }));
         assert_eq!(lookups.load(Ordering::SeqCst), 0);
     }
 

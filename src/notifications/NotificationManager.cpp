@@ -13,16 +13,18 @@
 #include "models/UserLookup.h"
 
 #include <QCoreApplication>
-#include <QDateTime>
+#include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QDir>
 #include <QFileInfo>
 #include <QIcon>
 #include <QPixmap>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QImage>
 
+#include <algorithm>
 #include <utility>
 
 #ifdef HAVE_QT_DBUS
@@ -33,6 +35,8 @@
 #include <QDBusMetaType>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
+#include <QDBusServiceWatcher>
+#include <QDBusVariant>
 #endif
 
 #ifdef HAVE_QT_DBUS
@@ -83,6 +87,185 @@ constexpr int kAvatarWaitMs = 1200;
 // Edge of the initials disc handed to the daemon; 64 covers the common 48px
 // slot without a soft upscale on HiDPI.
 constexpr int kFallbackAvatarEdge = 64;
+// Undecryptable events remembered per session for a late decryption, and how
+// long one stays news: a key that arrives after this re-raises nothing.
+constexpr int kMaxLiveUndecryptable = 256;
+constexpr qint64 kUndecryptableMemoryMs = 10 * 60 * 1000;
+constexpr int kMaxActivationTokens = 16;
+// freedesktop NotificationClosed reasons.
+constexpr quint32 kClosedExpired = 1;
+constexpr quint32 kClosedDismissed = 2;
+// Separates the parts of a card group key; never in a room id or event id.
+const QChar kKeySeparator(0x1f);
+
+// First-strong isolation around an untrusted name spliced into a sentence:
+// a display name with an RLO, or in another script than the sentence, cannot
+// reorder the words around it. PDI also closes any override left open inside.
+QString isolate(const QString &text)
+{
+    return QChar(0x2068) + text + QChar(0x2069);
+}
+
+QString messageGroupKey(const QString &roomId, const QString &threadRootId)
+{
+    return QStringLiteral("m") + kKeySeparator + roomId + kKeySeparator
+        + threadRootId;
+}
+
+QString genericGroupKey(const QString &key)
+{
+    return QStringLiteral("g") + kKeySeparator + key;
+}
+
+QString decodeHtmlEntities(const QString &text)
+{
+    static const QRegularExpression entity(
+        QStringLiteral("&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z]{2,8});"));
+    QString out;
+    out.reserve(text.size());
+    qsizetype last = 0;
+    auto it = entity.globalMatch(text);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        out += QStringView(text).mid(last, match.capturedStart() - last);
+        last = match.capturedEnd();
+        const QString name = match.captured(1);
+        if (name.startsWith(QLatin1Char('#'))) {
+            bool ok = false;
+            const uint code = name.startsWith(QLatin1String("#x"),
+                                              Qt::CaseInsensitive)
+                ? name.mid(2).toUInt(&ok, 16) : name.mid(1).toUInt(&ok, 10);
+            if (ok && code > 0 && code <= 0x10FFFF
+                && !(code >= 0xD800 && code <= 0xDFFF)) {
+                const char32_t c = code;
+                out += QString::fromUcs4(&c, 1);
+            }
+            continue;
+        }
+        const QString lower = name.toLower();
+        if (lower == QLatin1String("amp"))
+            out += QLatin1Char('&');
+        else if (lower == QLatin1String("lt"))
+            out += QLatin1Char('<');
+        else if (lower == QLatin1String("gt"))
+            out += QLatin1Char('>');
+        else if (lower == QLatin1String("quot"))
+            out += QLatin1Char('"');
+        else if (lower == QLatin1String("apos"))
+            out += QLatin1Char('\'');
+        else if (lower == QLatin1String("nbsp"))
+            out += QLatin1Char(' ');
+        else
+            out += match.captured(0);
+    }
+    out += QStringView(text).mid(last);
+    return out;
+}
+
+// Plain text of an HTML body with every spoiler replaced by `placeholder`.
+// A span carrying data-mx-spoiler hides everything up to its matching close,
+// nested spans included; an unterminated spoiler hides the rest. Other tags
+// are dropped, block breaks become newlines (the caller collapses them).
+QString spoilerSafeText(const QString &html, const QString &placeholder)
+{
+    const QString body = matrix::preview::stripReplyFallback(html);
+    static const QRegularExpression tag(
+        QStringLiteral("<(/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>"));
+    static const QStringList breaking{
+        QStringLiteral("br"), QStringLiteral("p"), QStringLiteral("div"),
+        QStringLiteral("li"), QStringLiteral("blockquote"),
+        QStringLiteral("tr"), QStringLiteral("h1"), QStringLiteral("h2"),
+        QStringLiteral("h3"), QStringLiteral("h4"), QStringLiteral("h5"),
+        QStringLiteral("h6"), QStringLiteral("pre")
+    };
+    QString out;
+    qsizetype last = 0;
+    int spoilerDepth = 0;
+    auto it = tag.globalMatch(body);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        if (spoilerDepth == 0)
+            out += QStringView(body).mid(last, match.capturedStart() - last);
+        last = match.capturedEnd();
+        const bool closing = !match.captured(1).isEmpty();
+        const QString name = match.captured(2).toLower();
+        const QString attributes = match.captured(3);
+        if (spoilerDepth > 0) {
+            if (name == QLatin1String("span")) {
+                if (closing)
+                    --spoilerDepth;
+                else if (!attributes.trimmed().endsWith(QLatin1Char('/')))
+                    ++spoilerDepth;
+            }
+            continue;
+        }
+        if (!closing && name == QLatin1String("span")
+            && attributes.contains(QLatin1String("data-mx-spoiler"),
+                                   Qt::CaseInsensitive)) {
+            out += QLatin1Char(' ') + placeholder + QLatin1Char(' ');
+            spoilerDepth = 1;
+            continue;
+        }
+        if (breaking.contains(name))
+            out += QLatin1Char('\n');
+    }
+    if (spoilerDepth == 0)
+        out += QStringView(body).mid(last);
+    return decodeHtmlEntities(out);
+}
+
+// What a message says, for the one line a card shows: an edit's new text,
+// never the "* " fallback, and a spoiler as a placeholder, never its text.
+QString messageText(const TimelineEvent &event)
+{
+    const bool spoiler = event.formattedBody.contains(
+        QLatin1String("data-mx-spoiler"), Qt::CaseInsensitive);
+    QString text;
+    if (spoiler) {
+        text = spoilerSafeText(
+            event.formattedBody,
+            QCoreApplication::translate("Notifications", "(spoiler)"));
+    } else if (event.isEdit && !event.editNewBody.isEmpty()) {
+        return event.editNewBody;
+    } else {
+        text = event.body;
+    }
+    if (event.isEdit) {
+        const QString trimmed = text.trimmed();
+        if (trimmed.startsWith(QLatin1String("* ")))
+            text = trimmed.mid(2);
+    }
+    return text;
+}
+
+// The gates that do not depend on what the message says: a message refused
+// by one of these is not news whatever its plaintext turns out to be.
+bool passesContextGates(const TimelineEvent &event,
+                        const NotificationManager::Context &context)
+{
+    if (!context.notificationsEnabled || !context.initialSyncComplete)
+        return false;
+    if (event.backlog || event.redacted)
+        return false;
+    if (context.roomMode == NotificationManager::Muted
+        || context.senderIsIgnored)
+        return false;
+    if (event.isVirtual() || event.type == TimelineEvent::StateChange
+        || event.type == TimelineEvent::CallEvent)
+        return false;
+    if (event.isLocalEcho || event.status != TimelineEvent::Sent)
+        return false;
+    if (!context.selfUserId.isEmpty() && event.sender == context.selfUserId)
+        return false;
+    // A room settling after being opened delivers its recent HISTORY as live
+    // appends (backlog=false), and the room's backup download decrypts them a
+    // few seconds later; a message already on screen at the latest was read.
+    // Neither is news once its key arrives, whatever the window is doing by
+    // then, so neither may be remembered as a live arrival to decide later.
+    if (context.roomHydrating || context.roomVisibleAtLatest)
+        return false;
+    return true;
+}
 
 #ifdef HAVE_QT_DBUS
 // Every call to the daemon is asynchronous. A daemon that owns the name but
@@ -90,6 +273,10 @@ constexpr int kFallbackAvatarEdge = 64;
 // one message (introspection, GetCapabilities, Notify; measured).
 constexpr int kCapabilitiesTimeoutMs = 3000;
 constexpr int kNotifyTimeoutMs = 10000;
+constexpr int kPropertyTimeoutMs = 3000;
+// The Do Not Disturb state is read again at most this often on delivery, for
+// a desktop whose change signal is not followed (GNOME's banners setting).
+constexpr qint64 kInhibitionRefreshMs = 30000;
 // A daemon not up yet (autostart order) or not answering is asked again,
 // after NotificationManager::m_capabilityRetryMs, this many times per session.
 constexpr int kMaxCapabilityRequests = 4;
@@ -118,20 +305,37 @@ FreedesktopNotificationImage notificationImage(const QImage &source)
                           static_cast<qsizetype>(image.sizeInBytes()));
     return out;
 }
+
+// A variant that may be wrapped once more (the settings portal's deprecated
+// Read returns `v` inside `v`).
+QVariant unwrapVariant(QVariant value)
+{
+    while (value.metaType() == QMetaType::fromType<QDBusVariant>())
+        value = value.value<QDBusVariant>().variant();
+    return value;
+}
+
+QDBusPendingCallWatcher *readPortalSetting(QObject *parent,
+                                           const QString &method)
+{
+    QDBusMessage read = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.portal.Desktop"),
+        QStringLiteral("/org/freedesktop/portal/desktop"),
+        QStringLiteral("org.freedesktop.portal.Settings"), method);
+    read << QStringLiteral("org.gnome.desktop.notifications")
+         << QStringLiteral("show-banners");
+    return new QDBusPendingCallWatcher(
+        QDBusConnection::sessionBus().asyncCall(read, kPropertyTimeoutMs),
+        parent);
+}
 #endif
 } // namespace
 
 #ifdef HAVE_QT_DBUS
-// The notification's app icon and desktop entry. The fixed name "lightning"
-// resolves only for installed packages. Inside a Flatpak the exported entry
-// and icon are renamed to FLATPAK_ID. When no themed icon resolves, the
-// bundled icon is written to the cache once and passed as a file:// URI,
-// which the freedesktop spec accepts (source runs, AppImages).
-struct NotificationIdentity {
-    QString appIcon;      // theme name or file:// URI
-    QString desktopEntry; // desktop file basename, no .desktop suffix
-};
-
+// The notification's app icon and desktop entry; see desktopIdentityFor().
+// When no themed icon resolves, the bundled icon is written to the cache once
+// and passed as a file:// URI, which the freedesktop spec accepts (source
+// runs, AppImages).
 QString materializedIconPath()
 {
     // Lightning's own cache root, so a portable install does not write to
@@ -151,13 +355,16 @@ QString materializedIconPath()
     return path;
 }
 
-NotificationIdentity notificationIdentity()
+NotificationManager::DesktopIdentity notificationIdentity()
 {
-    static const NotificationIdentity identity = [] {
-        NotificationIdentity result;
-        const QString flatpakId = qEnvironmentVariable("FLATPAK_ID");
-        result.desktopEntry = flatpakId.isEmpty()
-            ? QStringLiteral("lightning") : flatpakId;
+    static const NotificationManager::DesktopIdentity identity = [] {
+        NotificationManager::DesktopIdentity result =
+            NotificationManager::desktopIdentityFor(
+                qEnvironmentVariable("FLATPAK_ID"),
+                qEnvironmentVariable("SNAP"),
+                qEnvironmentVariable("SNAP_NAME"));
+        if (!result.appIcon.isEmpty())
+            return result;
         if (QIcon::hasThemeIcon(result.desktopEntry)) {
             result.appIcon = result.desktopEntry;
             return result;
@@ -172,9 +379,34 @@ NotificationIdentity notificationIdentity()
 }
 #endif
 
+// The fixed name "lightning" resolves only for installed packages. Inside a
+// Flatpak the exported entry and icon are renamed to FLATPAK_ID. Inside a
+// snap the host knows the entry as `<snap>_lightning` (snapd prefixes
+// meta/gui/lightning.desktop with the snap name) and cannot resolve a themed
+// name looked up inside the snap, so the icon is the file the snap ships in
+// meta/gui (build-snap.sh), a path the host can read.
+NotificationManager::DesktopIdentity NotificationManager::desktopIdentityFor(
+    const QString &flatpakId, const QString &snapDir, const QString &snapName)
+{
+    DesktopIdentity identity;
+    if (!flatpakId.isEmpty()) {
+        identity.desktopEntry = flatpakId;
+        return identity;
+    }
+    if (!snapDir.isEmpty() && !snapName.isEmpty()) {
+        identity.desktopEntry = snapName + QStringLiteral("_lightning");
+        identity.appIcon = QUrl::fromLocalFile(
+            snapDir + QStringLiteral("/meta/gui/lightning.png")).toString();
+        return identity;
+    }
+    identity.desktopEntry = QStringLiteral("lightning");
+    return identity;
+}
+
 NotificationManager::NotificationManager(QObject *parent)
     : QObject(parent)
 {
+    m_clock.start();
 #ifdef HAVE_QT_DBUS
     qDBusRegisterMetaType<FreedesktopNotificationImage>();
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -187,11 +419,32 @@ NotificationManager::NotificationManager(QObject *parent)
     bus.connect(kService, kPath, kInterface,
                 QStringLiteral("NotificationClosed"), this,
                 SLOT(onNotificationClosed(quint32,quint32)));
+    // Spec 1.2: sent just before ActionInvoked, so the raise may take focus
+    // on a compositor that enforces xdg-activation.
+    bus.connect(kService, kPath, kInterface,
+                QStringLiteral("ActivationToken"), this,
+                SLOT(onActivationToken(quint32,QString)));
+    // KDE's Do Not Disturb (the `Inhibited` property).
+    bus.connect(kService, kPath,
+                QStringLiteral("org.freedesktop.DBus.Properties"),
+                QStringLiteral("PropertiesChanged"), this,
+                SLOT(onDaemonPropertiesChanged(QString,QVariantMap,QStringList)));
+    // A restarted daemon hands out ids from scratch: ours would close and
+    // route other applications' cards.
+    if (bus.isConnected()) {
+        auto *watcher = new QDBusServiceWatcher(
+            kService, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
+        connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+                &NotificationManager::onDaemonOwnerChanged);
+    }
 #endif
     m_avatarWaitTimer.setSingleShot(true);
     m_avatarWaitTimer.setInterval(kAvatarWaitMs);
     connect(&m_avatarWaitTimer, &QTimer::timeout, this,
             [this] { flushAvatarWaits(/*fallbackAll=*/true); });
+    m_utdHoldTimer.setSingleShot(true);
+    connect(&m_utdHoldTimer, &QTimer::timeout, this,
+            &NotificationManager::flushHeldUndecryptable);
     // Re-deliver the ringing card every few seconds so the themed sound
     // repeats.
     m_callRingTimer.setInterval(5000);
@@ -201,7 +454,7 @@ NotificationManager::NotificationManager(QObject *parent)
 
 void NotificationManager::onCallRingTick()
 {
-    if (QDateTime::currentMSecsSinceEpoch() >= m_callRingDeadlineMs) {
+    if (nowMs() >= m_callRingDeadlineMs) {
         stopIncomingCall(m_activeCallId);
         return;
     }
@@ -235,6 +488,9 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     // verdict.
     if (event.backlog)
         return decision;
+    // A redacted message has nothing left to say; its text is gone.
+    if (event.redacted)
+        return decision;
     if (context.roomMode == Muted)
         return decision;
     // Covers the window before the server applies the ignore.
@@ -248,9 +504,6 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         return decision;
     if (!context.selfUserId.isEmpty() && event.sender == context.selfUserId)
         return decision;
-    // A highlight also covers keywords and mentions without m.mentions.
-    const bool mention =
-        event.mentionsMe || event.mentionsRoom || event.pushHighlight;
     // The account's push rules, as the SDK evaluated them, decide when they
     // came with the event: they carry a mode set on any client, the account
     // default, keywords (with or without a highlight) and the suppress rules
@@ -259,11 +512,27 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     const bool rulesKnown =
         event.pushVerdict != TimelineEvent::PushVerdict::Unknown
         && !context.localModeUnsynced;
+    // A mention is what the rules call a highlight: they check @room against
+    // the sender's power level and honour the user's own Off for @room and
+    // for their name. Without them only m.mentions naming this user counts;
+    // m.mentions.room is the sender's own claim, with no power-level check
+    // here.
+    const bool mention = rulesKnown
+        ? event.pushHighlight
+        : (event.mentionsMe || event.pushHighlight);
     if (rulesKnown) {
         if (event.pushVerdict == TimelineEvent::PushVerdict::Quiet)
             return decision;
-    } else if (context.roomMode == MentionsOnly && !mention) {
-        return decision;
+    } else {
+        // The spec's default suppress rules, which the account's rules would
+        // have applied: an edit notifies only when it newly mentions this
+        // user, a bot's m.notice never.
+        if (event.isEdit && !event.mentionsMe)
+            return decision;
+        if (event.type == TimelineEvent::Notice)
+            return decision;
+        if (context.roomMode == MentionsOnly && !mention)
+            return decision;
     }
     // A room on screen, focused and at the latest message needs no
     // notification.
@@ -273,14 +542,15 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     if (context.roomHydrating)
         return decision;
 
-    const QString sender = event.senderDisplayName.isEmpty()
+    const QString sender = isolate(event.senderDisplayName.isEmpty()
         ? matrix::user_lookup::localpartOrUserId(event.sender)
-        : event.senderDisplayName;
-    const QString room = context.roomName.isEmpty()
+        : event.senderDisplayName);
+    const QString room = isolate(context.roomName.isEmpty()
         ? QCoreApplication::translate("Notifications", "Matrix room")
-        : context.roomName;
+        : context.roomName);
 
     decision.notify = true;
+    decision.mention = mention;
     switch (context.previewMode) {
     case SenderAndMessage: {
         decision.title = context.roomIsDirect
@@ -313,8 +583,14 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         } else {
             // One compact line: mention markdown reduces to its label, newlines
             // collapse.
-            decision.body =
-                matrix::preview::normalizePreviewText(event.body).left(160);
+            const QString text =
+                matrix::preview::normalizePreviewText(messageText(event))
+                    .left(160);
+            // An emote reads as the timeline renders it: "* Alice waves".
+            decision.body = event.type == TimelineEvent::Emote
+                ? QCoreApplication::translate("Notifications", "* %1 %2")
+                      .arg(sender, text)
+                : text;
         }
         break;
     }
@@ -334,14 +610,18 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     }
 
     // Sound only applies to notifications that passed the checks above; the
-    // mode narrows which of them make a sound.
+    // mode narrows which of them make a sound. With the account's rules known
+    // the default mode follows their sound tweak, which is what "Loud" and
+    // "Notify" on the rules page set (DMs and mentions are Loud by default);
+    // Off and All are this device's overrides.
     switch (context.soundMode) {
     case SoundOff:
         decision.playSound = false;
         break;
     case SoundMentionsAndDirect:
-        decision.playSound =
-            mention || context.roomIsDirect;
+        decision.playSound = rulesKnown
+            ? event.pushSound
+            : (mention || context.roomIsDirect);
         break;
     case SoundAll:
         decision.playSound = true;
@@ -386,43 +666,240 @@ void NotificationManager::processEvent(const TimelineEvent &event,
                                        const Context &context)
 {
     const Decision decision = decide(event, context);
+    // A message the SDK could not decrypt yet usually has its key a moment
+    // later. Held briefly, so the card carries the text (or, for a mention in
+    // a mentions-only room, exists at all) instead of "Encrypted message".
+    // Only live arrivals are remembered: a history backfill decrypting later
+    // must not notify.
+    if (event.undecryptable && !event.eventId.isEmpty()
+        && passesContextGates(event, context)) {
+        auto live = m_liveUtds.find(event.eventId);
+        if (live == m_liveUtds.end()) {
+            m_liveUtds.insert(event.eventId,
+                              LiveUtd{ UtdState::Quiet, nowMs() });
+            m_liveUtdOrder.append(event.eventId);
+            while (m_liveUtdOrder.size() > kMaxLiveUndecryptable)
+                m_liveUtds.remove(m_liveUtdOrder.takeFirst());
+            live = m_liveUtds.find(event.eventId);
+        } else if (live->state != UtdState::Quiet) {
+            return; // already held or delivered: never twice
+        }
+        if (!decision.notify || live == m_liveUtds.end())
+            return;
+        if (m_utdHoldMs > 0) {
+            live->state = UtdState::Held;
+            m_heldUtds.append(
+                HeldUtd{ std::make_shared<const TimelineEvent>(event), context,
+                         nowMs() + m_utdHoldMs });
+            if (!m_utdHoldTimer.isActive())
+                m_utdHoldTimer.start(m_utdHoldMs);
+            return;
+        }
+        live->state = UtdState::Delivered;
+    }
     if (!decision.notify)
         return;
+    deliverDecision(event, context, decision, event.undecryptable,
+                    /*replacement=*/false);
+}
+
+void NotificationManager::flushHeldUndecryptable()
+{
+    const qint64 now = nowMs();
+    QList<HeldUtd> due;
+    for (auto it = m_heldUtds.begin(); it != m_heldUtds.end();) {
+        if (it->dueMs <= now) {
+            due.append(*it);
+            it = m_heldUtds.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const HeldUtd &held : std::as_const(due)) {
+        auto live = m_liveUtds.find(held.event->eventId);
+        if (live != m_liveUtds.end())
+            live->state = UtdState::Delivered;
+        const Decision decision = decide(*held.event, held.context);
+        if (decision.notify)
+            deliverDecision(*held.event, held.context, decision,
+                            /*undecryptable=*/true, /*replacement=*/false);
+    }
+    if (!m_heldUtds.isEmpty()) {
+        qint64 next = m_heldUtds.first().dueMs;
+        for (const HeldUtd &held : std::as_const(m_heldUtds))
+            next = std::min(next, held.dueMs);
+        m_utdHoldTimer.start(int(std::max<qint64>(0, next - nowMs())));
+    }
+}
+
+void NotificationManager::processDecrypted(const TimelineEvent &event,
+                                           const Context &context)
+{
+    if (event.eventId.isEmpty() || event.undecryptable)
+        return;
+    const auto live = m_liveUtds.find(event.eventId);
+    // Never seen live while undecryptable (history, a previous account), or
+    // already decided: nothing to decide again.
+    if (live == m_liveUtds.end() || live->state == UtdState::Decided)
+        return;
+    const LiveUtd seen = live.value();
+    // Kept, so neither a second decryption report nor the same event
+    // appended again can notify twice.
+    live->state = UtdState::Decided;
+    if (nowMs() - seen.seenMs > kUndecryptableMemoryMs) {
+        qCInfo(lcNotify) << "a message decrypted too late to notify";
+        return;
+    }
+    const Decision decision = decide(event, context);
+    if (seen.state == UtdState::Held) {
+        m_heldUtds.removeIf([&event](const HeldUtd &held) {
+            return held.event->eventId == event.eventId;
+        });
+        if (m_heldUtds.isEmpty())
+            m_utdHoldTimer.stop();
+        if (decision.notify)
+            deliverDecision(event, context, decision, false, false);
+        return;
+    }
+    if (seen.state == UtdState::Quiet) {
+        // Its ciphertext did not notify (to the rules a mention in a
+        // mentions-only room is just an encrypted message); the plaintext
+        // decides now.
+        if (decision.notify)
+            deliverDecision(event, context, decision, false, false);
+        return;
+    }
+    // Delivered as "Encrypted message". Not shown yet (waiting for an avatar
+    // or the capabilities): it leaves with the text instead, alert and all.
+    const auto sameEvent = [&event](const Card &card) {
+        return card.payload.value(QStringLiteral("eventId")).toString()
+            == event.eventId;
+    };
+    qsizetype unshown = m_avatarWaits.removeIf(sameEvent)
+        + m_capabilityWaits.removeIf(sameEvent);
+    // Or waiting behind its room's card, which is still being raised.
+    const QString groupKey = messageGroupKey(
+        routableRoomId(event.roomId),
+        routableThreadRootId(event.roomId, event.threadRootId));
+    const auto waitingGroup = m_groups.find(groupKey);
+    if (waitingGroup != m_groups.end() && waitingGroup->next
+        && sameEvent(*waitingGroup->next)) {
+        waitingGroup->next.reset();
+        ++unshown;
+    }
+    if (unshown > 0) {
+        if (m_avatarWaits.isEmpty())
+            m_avatarWaitTimer.stop();
+        // It was counted once already; it is delivered again, not anew.
+        const auto counted = m_groups.find(groupKey);
+        if (counted != m_groups.end())
+            counted->count = std::max(0, counted->count - int(unshown));
+        if (decision.notify)
+            deliverDecision(event, context, decision, false, false);
+        return;
+    }
+    // Shown: replaced in place and silently (it has alerted once), or
+    // withdrawn if the plaintext would not have notified. A card that has
+    // since moved on to a newer message stays as it is.
+    quint32 cardId = 0;
+    for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
+         ++it) {
+        if (it.value().value(QStringLiteral("eventId")).toString()
+                == event.eventId
+            && it.value().value(QStringLiteral("utd")).toBool()) {
+            cardId = it.key();
+            break;
+        }
+    }
+    if (cardId == 0)
+        return;
+    const QString group =
+        m_pendingPayloads.value(cardId).value(QStringLiteral("group")).toString();
+    const auto groupIt = m_groups.constFind(group);
+    if (groupIt != m_groups.cend()
+        && (groupIt->inFlight || groupIt->id != cardId))
+        return; // a newer card is on its way and replaces it anyway
+    if (!decision.notify) {
+        closeNotification(cardId);
+        forgetPayload(cardId);
+        return;
+    }
+    deliverDecision(event, context, decision, false, /*replacement=*/true);
+}
+
+void NotificationManager::deliverDecision(const TimelineEvent &event,
+                                          const Context &context,
+                                          const Decision &decision,
+                                          bool undecryptable, bool replacement)
+{
     const QString roomId = routableRoomId(event.roomId);
+    const QString threadRootId =
+        routableThreadRootId(event.roomId, event.threadRootId);
     // The room list may not show this room unread yet; see observeRoomUnread().
-    m_roomsAwaitingUnread.insert(
-        roomId, QDateTime::currentMSecsSinceEpoch() + m_awaitUnreadMs);
+    if (!replacement)
+        m_roomsAwaitingUnread.insert(roomId, nowMs() + m_awaitUnreadMs);
+    const QString groupKey = messageGroupKey(roomId, threadRootId);
+    int count = 0;
+    {
+        CardGroup &group = m_groups[groupKey];
+        if (!replacement)
+            ++group.count;
+        count = group.count;
+    }
+    QString body = decision.body;
+    // One card per room: past the first message it stands for all of them.
+    // With the text shown, the latest line is the useful one; without it, the
+    // count is (a mention keeps its own line, which says more).
+    if (count > 1 && !replacement) {
+        if (context.previewMode == SenderOnly && !event.mentionsMe) {
+            body = QCoreApplication::translate("Notifications",
+                                               "%n new messages", nullptr,
+                                               count);
+        } else if (context.previewMode == Private) {
+            body = QCoreApplication::translate(
+                "Notifications", "%n new Matrix notifications", nullptr,
+                count);
+        }
+    }
     QVariantMap payload;
     // Normalised where the payload is built, so every consumer sees a real room
     // id.
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
-    payload.insert(QStringLiteral("threadRootId"),
-                   routableThreadRootId(event.roomId, event.threadRootId));
+    payload.insert(QStringLiteral("threadRootId"), threadRootId);
     // The owning account; actions taken after a switch are checked against it.
     payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
-    // Mentions and other highlights raise the urgency.
-    payload.insert(QStringLiteral("mention"),
-                   event.mentionsMe || event.mentionsRoom
-                       || event.pushHighlight);
+    // Selects the mention chime.
+    payload.insert(QStringLiteral("mention"), decision.mention);
+    payload.insert(QStringLiteral("group"), groupKey);
+    // A card a late decryption may replace in place.
+    if (undecryptable)
+        payload.insert(QStringLiteral("utd"), true);
+    m_groups[groupKey].payload = payload;
+
+    Card card;
+    card.title = decision.title;
+    card.body = body;
+    card.payload = payload;
+    card.sound = decision.playSound && !replacement;
+    card.replacement = replacement;
     // Private preview keeps the generic app identity: a room avatar or initials
     // disc would disclose the conversation.
-    if (context.previewMode == Private) {
-        deliver(decision.title, decision.body, payload, decision.playSound);
-        return;
+    if (context.previewMode != Private) {
+        // Draw the initials disc when there is no avatar, as other surfaces do.
+        card.fallback = lightning::notifications::fallbackAvatar(
+            context.roomName, context.avatarColorKey, kFallbackAvatarEdge,
+            context.themeId);
+        card.avatarMxc = context.avatarMxc;
     }
-    // Draw the initials disc when there is no avatar, as other surfaces do.
-    const QImage fallback = lightning::notifications::fallbackAvatar(
-        context.roomName, context.avatarColorKey, kFallbackAvatarEdge,
-        context.themeId);
-    deliver(decision.title, decision.body, payload, decision.playSound,
-            context.avatarMxc, fallback);
+    deliver(std::move(card));
 }
 
 void NotificationManager::showGeneric(const QString &title,
                                       const QString &safeBody,
                                       const QString &roomId,
-                                      const QString &avatarMxc)
+                                      const QString &avatarMxc, bool sound,
+                                      const QString &key)
 {
     ++m_genericNoticeCount;
     QVariantMap payload;
@@ -430,24 +907,82 @@ void NotificationManager::showGeneric(const QString &title,
     payload.insert(QStringLiteral("eventId"), QString{});
     payload.insert(QStringLiteral("threadRootId"), QString{});
     payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
-    deliver(title, safeBody, payload, false, avatarMxc);
+    if (!key.isEmpty()) {
+        const QString groupKey = genericGroupKey(key);
+        payload.insert(QStringLiteral("group"), groupKey);
+        m_groups[groupKey].payload = payload;
+    }
+    Card card;
+    card.title = title;
+    card.body = safeBody;
+    card.payload = payload;
+    card.sound = sound;
+    card.avatarMxc = avatarMxc;
+    deliver(std::move(card));
+}
+
+void NotificationManager::withdrawGeneric(const QString &key)
+{
+    if (key.isEmpty())
+        return;
+    const QString groupKey = genericGroupKey(key);
+    withdrawWhere([&groupKey](const QVariantMap &payload) {
+        return payload.value(QStringLiteral("group")).toString() == groupKey;
+    });
+}
+
+void NotificationManager::withdrawEvent(const QString &eventId)
+{
+    if (eventId.isEmpty())
+        return;
+    // A redacted message must not surface later either.
+    m_heldUtds.removeIf([&eventId](const HeldUtd &held) {
+        return held.event->eventId == eventId;
+    });
+    if (m_heldUtds.isEmpty())
+        m_utdHoldTimer.stop();
+    if (m_liveUtds.remove(eventId) > 0)
+        m_liveUtdOrder.removeOne(eventId);
+    const int withdrawn = withdrawWhere([&eventId](const QVariantMap &payload) {
+        return payload.value(QStringLiteral("eventId")).toString() == eventId;
+    });
+    if (withdrawn > 0)
+        qCInfo(lcNotify) << "withdrew a notification for a removed message";
 }
 
 void NotificationManager::clearPending()
 {
     stopIncomingCall(QString());
+    // The previous account's cards (and their previews) go with it. An action
+    // on one that still arrives meets its tombstone, and the app's refusal.
+    const QList<quint32> shown = m_payloadOrder;
+    for (const quint32 id : shown) {
+        closeNotification(id);
+        tombstone(id, m_pendingPayloads.value(id)
+                          .value(QStringLiteral("accountUserId")).toString());
+    }
+    if (!shown.isEmpty())
+        qCInfo(lcNotify) << "withdrew" << shown.size()
+                         << "notification(s) of the previous session";
     m_pendingPayloads.clear();
     m_payloadOrder.clear();
+    m_groups.clear();
+    m_activationTokens.clear();
     m_avatarWaits.clear();
     m_avatarWaitTimer.stop();
     m_capabilityWaits.clear();
+    m_heldUtds.clear();
+    m_utdHoldTimer.stop();
+    m_liveUtds.clear();
+    m_liveUtdOrder.clear();
     m_roomsAwaitingUnread.clear();
     // A Notify still in flight belongs to the previous account; its reply must
-    // not record a click payload.
+    // not record a click payload, and its card is closed on arrival.
     ++m_deliveryGeneration;
     // The tray balloon's payload is a pending click too; clear it so a balloon
     // left on screen cannot route into the previous account's room.
     m_lastFallbackPayload.clear();
+    m_balloonRooms.clear();
 }
 
 void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
@@ -463,10 +998,21 @@ void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
     // list has shown the room unread since its latest card, or a few seconds
     // (a room read before the list ever showed it unread).
     const auto awaiting = m_roomsAwaitingUnread.constFind(roomId);
-    if (awaiting != m_roomsAwaitingUnread.cend()
-        && QDateTime::currentMSecsSinceEpoch() < awaiting.value())
+    if (awaiting != m_roomsAwaitingUnread.cend() && nowMs() < awaiting.value())
         return;
-    closeRoomNotifications(roomId);
+    m_roomsAwaitingUnread.remove(roomId);
+    // Only the room's own messages: its unread fields never count a thread
+    // reply (matrix-sdk with threading support skips them) and say nothing
+    // about a notice such as a missed call, so "read" says nothing about
+    // those either.
+    const int withdrawn = withdrawWhere([&roomId](const QVariantMap &payload) {
+        return payload.value(QStringLiteral("roomId")).toString() == roomId
+            && !payload.value(QStringLiteral("eventId")).toString().isEmpty()
+            && payload.value(QStringLiteral("threadRootId")).toString().isEmpty();
+    });
+    if (withdrawn > 0)
+        qCInfo(lcNotify) << "withdrew" << withdrawn
+                         << "notification(s) for a room that has been read";
 }
 
 void NotificationManager::closeRoomNotifications(const QString &roomId)
@@ -474,69 +1020,151 @@ void NotificationManager::closeRoomNotifications(const QString &roomId)
     if (roomId.isEmpty())
         return;
     m_roomsAwaitingUnread.remove(roomId);
-    // A delivery still waiting for its avatar has not been shown yet; drop it
-    // for a room that has now been read.
-    if (!m_avatarWaits.isEmpty()) {
-        const auto sameRoom = [&roomId](const WaitingDelivery &waiting) {
-            return waiting.payload.value(QStringLiteral("roomId")).toString()
-                == roomId;
-        };
-        // Log the drop (count only) so it is distinguishable from never having
-        // raised a notification.
-        const qsizetype dropped = m_avatarWaits.removeIf(sameRoom);
-        if (dropped > 0) {
-            qCInfo(lcNotify) << "dropped" << dropped
-                             << "notification(s) parked for an avatar in a "
-                                "room that has been read";
-            if (m_avatarWaits.isEmpty())
-                m_avatarWaitTimer.stop();
-        }
-    }
-    // Same for one waiting for the daemon's capabilities.
-    m_capabilityWaits.removeIf([&roomId](const CapabilityWait &waiting) {
-        return waiting.payload.value(QStringLiteral("roomId")).toString()
-            == roomId;
+    // A message still held for its key belongs to the room just read.
+    m_heldUtds.removeIf([&roomId](const HeldUtd &held) {
+        return routableRoomId(held.event->roomId) == roomId;
     });
-    if (m_pendingPayloads.isEmpty())
+    if (m_heldUtds.isEmpty())
+        m_utdHoldTimer.stop();
+    const int withdrawn = withdrawWhere([&roomId](const QVariantMap &payload) {
+        return payload.value(QStringLiteral("roomId")).toString() == roomId;
+    });
+    if (withdrawn > 0)
+        qCInfo(lcNotify) << "withdrew" << withdrawn
+                         << "notification(s) for a room that has been read";
+}
+
+void NotificationManager::closeThreadNotifications(const QString &roomId,
+                                                   const QString &rootEventId)
+{
+    if (roomId.isEmpty() || rootEventId.isEmpty())
         return;
+    m_heldUtds.removeIf([&roomId, &rootEventId](const HeldUtd &held) {
+        return routableRoomId(held.event->roomId) == roomId
+            && routableThreadRootId(held.event->roomId,
+                                    held.event->threadRootId)
+                == rootEventId;
+    });
+    if (m_heldUtds.isEmpty())
+        m_utdHoldTimer.stop();
+    const int withdrawn = withdrawWhere(
+        [&roomId, &rootEventId](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("roomId")).toString() == roomId
+                && payload.value(QStringLiteral("threadRootId")).toString()
+                    == rootEventId;
+        });
+    if (withdrawn > 0)
+        qCInfo(lcNotify) << "withdrew" << withdrawn
+                         << "notification(s) for a thread that has been read";
+}
+
+int NotificationManager::withdrawWhere(
+    const std::function<bool(const QVariantMap &)> &match)
+{
+    // Deliveries not shown yet: waiting for an avatar or the capabilities.
+    const auto cardMatches = [&match](const Card &card) {
+        return match(card.payload);
+    };
+    const qsizetype dropped = m_avatarWaits.removeIf(cardMatches)
+        + m_capabilityWaits.removeIf(cardMatches);
+    if (dropped > 0) {
+        // Count only, so it is distinguishable from never having raised one.
+        qCInfo(lcNotify) << "dropped" << dropped
+                         << "notification(s) not shown yet";
+        if (m_avatarWaits.isEmpty())
+            m_avatarWaitTimer.stop();
+    }
     QList<quint32> stale;
     for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
          ++it) {
-        if (it.value().value(QStringLiteral("roomId")).toString() == roomId)
+        if (match(it.value()))
             stale.append(it.key());
     }
-    if (stale.isEmpty())
-        return;
     // The ring owns its own lifetime; reading its room must not silence it.
     stale.removeOne(m_activeCallNotificationId);
-    if (stale.isEmpty())
-        return;
     for (const quint32 id : std::as_const(stale)) {
         closeNotification(id);
         forgetPayload(id);
     }
-    qCInfo(lcNotify) << "withdrew" << stale.size()
-                     << "notification(s) for a room that has been read";
+    // Cards still being raised are closed when their id arrives; a group with
+    // nothing shown is forgotten, so its count starts again.
+    for (auto it = m_groups.begin(); it != m_groups.end();) {
+        if (it->next && match(it->next->payload))
+            it->next.reset();
+        if (!match(it->payload)) {
+            ++it;
+        } else if (it->inFlight) {
+            it->withdrawn = true;
+            ++it;
+        } else if (it->id == 0) {
+            it = m_groups.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return int(stale.size());
 }
 
 void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
 {
+    if (m_tombstones.remove(id) > 0)
+        m_tombstoneOrder.removeOne(id);
     // Re-recording promotes an id to most recent, so a refreshed call card is
     // not evicted first.
     m_payloadOrder.removeOne(id);
     m_payloadOrder.append(id);
     m_pendingPayloads.insert(id, payload);
     // Evict the oldest past the cap so recent notifications stay clickable.
+    // The evicted card is withdrawn rather than left in the history, where a
+    // click would do nothing and no read could ever remove it.
     while (m_payloadOrder.size() > kMaxPendingPayloads) {
-        const quint32 oldest = m_payloadOrder.takeFirst();
-        m_pendingPayloads.remove(oldest);
+        qsizetype index = 0;
+        if (m_payloadOrder.first() == m_activeCallNotificationId
+            && m_payloadOrder.size() > 1)
+            index = 1;
+        const quint32 oldest = m_payloadOrder.at(index);
+        const QString account = m_pendingPayloads.value(oldest)
+                                    .value(QStringLiteral("accountUserId"))
+                                    .toString();
+        closeNotification(oldest);
+        forgetPayload(oldest);
+        // forgetPayload() only removes what it finds; never loop forever.
+        m_payloadOrder.removeOne(oldest);
+        tombstone(oldest, account);
     }
 }
 
 void NotificationManager::forgetPayload(quint32 id)
 {
-    if (m_pendingPayloads.remove(id) > 0)
-        m_payloadOrder.removeOne(id);
+    const auto it = m_pendingPayloads.constFind(id);
+    if (it == m_pendingPayloads.cend())
+        return;
+    const QString groupKey = it->value(QStringLiteral("group")).toString();
+    m_pendingPayloads.erase(it);
+    m_payloadOrder.removeOne(id);
+    m_activationTokens.remove(id);
+    if (groupKey.isEmpty())
+        return;
+    const auto group = m_groups.find(groupKey);
+    if (group == m_groups.end() || group->id != id)
+        return;
+    // The card is gone; the next message raises a new one. One still on its
+    // way keeps the group (and its count) for its answer.
+    if (group->inFlight || group->next)
+        group->id = 0;
+    else
+        m_groups.erase(group);
+}
+
+void NotificationManager::tombstone(quint32 id, const QString &accountUserId)
+{
+    if (id == 0)
+        return;
+    if (!m_tombstones.contains(id))
+        m_tombstoneOrder.append(id);
+    m_tombstones.insert(id, accountUserId);
+    while (m_tombstoneOrder.size() > kMaxTombstones)
+        m_tombstones.remove(m_tombstoneOrder.takeFirst());
 }
 
 void NotificationManager::closeNotification(quint32 id)
@@ -554,55 +1182,77 @@ void NotificationManager::closeNotification(quint32 id)
 #endif
 }
 
-void NotificationManager::deliver(const QString &title, const QString &body,
-                                  const QVariantMap &payload, bool sound,
-                                  const QString &avatarMxc,
-                                  const QImage &fallback)
+void NotificationManager::deliver(Card card)
 {
-    if (!avatarMxc.startsWith(QLatin1String("mxc://")) || !m_avatarImage) {
-        deliverNow(title, body, payload, sound, fallback);
+    if (!card.avatarMxc.startsWith(QLatin1String("mxc://")) || !m_avatarImage) {
+        card.avatar = card.fallback;
+        deliverNow(std::move(card));
         return;
     }
-    const QImage cached = m_avatarImage(avatarMxc, /*request=*/true);
+    const QImage cached = m_avatarImage(card.avatarMxc, /*request=*/true);
     if (!cached.isNull()) {
-        deliverNow(title, body, payload, sound, cached);
+        card.avatar = cached;
+        deliverNow(std::move(card));
         return;
     }
-    if (m_avatarFailed && m_avatarFailed(avatarMxc)) {
-        deliverNow(title, body, payload, sound, fallback);
+    if (m_avatarFailed && m_avatarFailed(card.avatarMxc)) {
+        card.avatar = card.fallback;
+        deliverNow(std::move(card));
         return;
     }
     // Bounded: if the avatar stalls, the notification appears with the fallback
     // after a short grace period.
     if (m_avatarWaits.size() >= kMaxPendingPayloads) {
-        const WaitingDelivery oldest = m_avatarWaits.takeFirst();
-        deliverNow(oldest.title, oldest.body, oldest.payload, oldest.sound,
-                   oldest.fallback);
+        Card oldest = m_avatarWaits.takeFirst();
+        oldest.avatar = oldest.fallback;
+        deliverNow(std::move(oldest));
     }
-    m_avatarWaits.append({ title, body, payload, sound, avatarMxc, fallback });
+    m_avatarWaits.append(std::move(card));
     if (!m_avatarWaitTimer.isActive())
         m_avatarWaitTimer.start();
 }
 
 void NotificationManager::flushAvatarWaits(bool fallbackAll)
 {
-    QList<WaitingDelivery> remaining;
-    for (const WaitingDelivery &waiting : std::as_const(m_avatarWaits)) {
+    QList<Card> ready;
+    QList<Card> remaining;
+    for (const Card &waiting : std::as_const(m_avatarWaits)) {
         const QImage image = m_avatarImage
             ? m_avatarImage(waiting.avatarMxc, /*request=*/false) : QImage{};
         const bool failed = !m_avatarImage
             || (m_avatarFailed && m_avatarFailed(waiting.avatarMxc));
         if (!image.isNull() || failed || fallbackAll) {
-            deliverNow(waiting.title, waiting.body, waiting.payload,
-                       waiting.sound,
-                       image.isNull() ? waiting.fallback : image);
+            Card card = waiting;
+            card.avatar = image.isNull() ? waiting.fallback : image;
+            ready.append(std::move(card));
         } else {
             remaining.append(waiting);
         }
     }
     m_avatarWaits = remaining;
+    for (Card &card : ready)
+        deliverNow(std::move(card));
     if (!m_avatarWaits.isEmpty() && !m_avatarWaitTimer.isActive())
         m_avatarWaitTimer.start();
+}
+
+NotificationManager::CardShape NotificationManager::messageCardShape(
+    bool actionable, bool inlineReplySupported)
+{
+    CardShape shape;
+    shape.actions = QStringList{ QStringLiteral("default"), tr("Open") };
+    // Mark-as-read and Reply need a real event: generic notices (invites,
+    // verification requests) have no eventId and cannot be read or replied to.
+    if (actionable) {
+        shape.actions << QStringLiteral("mark-read") << tr("Mark as read");
+        if (inlineReplySupported) {
+            // The action id is fixed by the extension; the label is ours.
+            shape.actions << QStringLiteral("inline-reply") << tr("Reply");
+            shape.inlineReply = true;
+        }
+    }
+    shape.urgency = 1;
+    return shape;
 }
 
 // The only place a notification body is escaped. A freedesktop body is
@@ -622,8 +1272,15 @@ bool NotificationManager::requestCapabilities()
 {
     if (m_capabilityRequestInFlight)
         return true;
-    if (QDateTime::currentMSecsSinceEpoch() < m_capabilityRetryAtMs)
+    if (nowMs() < m_capabilityRetryAtMs)
         return false;
+    // Asked first, so on one daemon its answer arrives before the
+    // capabilities release the first delivery and its chime.
+    if (!m_inhibitionQueried) {
+        m_inhibitionQueried = true;
+        m_inhibitionQueriedAtMs = nowMs();
+        queryDesktopInhibition();
+    }
     m_capabilityRequestInFlight = true;
     ++m_capabilityRequests;
     auto *watcher = new QDBusPendingCallWatcher(
@@ -632,8 +1289,11 @@ bool NotificationManager::requestCapabilities()
             kCapabilitiesTimeoutMs),
         this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, watcher] {
+            [this, watcher, daemon = m_daemonGeneration] {
         watcher->deleteLater();
+        // The daemon changed hands meanwhile; the new one is asked anew.
+        if (daemon != m_daemonGeneration)
+            return;
         m_capabilityRequestInFlight = false;
         const QDBusPendingReply<QStringList> caps = *watcher;
         if (caps.isError()) {
@@ -650,8 +1310,7 @@ bool NotificationManager::requestCapabilities()
                 || type == QDBusError::Disconnected
                 || type == QDBusError::NoServer;
             if (transient && m_capabilityRequests < kMaxCapabilityRequests)
-                m_capabilityRetryAtMs =
-                    QDateTime::currentMSecsSinceEpoch() + m_capabilityRetryMs;
+                m_capabilityRetryAtMs = nowMs() + m_capabilityRetryMs;
             else
                 m_bodyMarkupKnown = true;
             qCWarning(lcNotify) << "notification server capabilities unknown:"
@@ -670,10 +1329,9 @@ bool NotificationManager::requestCapabilities()
         if (!caps.isError())
             m_bodyMarkupKnown = true;
         // Delivered now, with what is known; a retry only serves later ones.
-        const QList<CapabilityWait> waiting = std::exchange(m_capabilityWaits, {});
-        for (const CapabilityWait &wait : waiting)
-            deliverNow(wait.title, wait.body, wait.payload, wait.sound,
-                       wait.avatar);
+        const QList<Card> waiting = std::exchange(m_capabilityWaits, {});
+        for (const Card &wait : waiting)
+            deliverNow(wait);
         if (std::exchange(m_callWaitsForCapabilities, false))
             deliverCallNotification();
     });
@@ -681,86 +1339,232 @@ bool NotificationManager::requestCapabilities()
 }
 #endif
 
-void NotificationManager::deliverNow(const QString &title,
-                                     const QString &body,
-                                     const QVariantMap &payload, bool sound,
-                                     const QImage &avatar)
+void NotificationManager::queryDesktopInhibition()
 {
 #ifdef HAVE_QT_DBUS
     QDBusConnection bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected()) {
-        // No session bus: fall back to the tray balloon. Our chime does not
-        // depend on the bus.
-        const SoundPlan plan = takeSoundPlan(
-            sound, payload.value(QStringLiteral("mention")).toBool());
-        if (!deliverThroughTray(title, body, payload, avatar,
+    if (!bus.isConnected())
+        return;
+    // KDE: the daemon's `Inhibited` property; PropertiesChanged follows it.
+    QDBusMessage get = QDBusMessage::createMethodCall(
+        kService, kPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("Get"));
+    get << kInterface << QStringLiteral("Inhibited");
+    auto *watcher = new QDBusPendingCallWatcher(
+        bus.asyncCall(get, kPropertyTimeoutMs), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, daemon = m_daemonGeneration] {
+        watcher->deleteLater();
+        if (daemon != m_daemonGeneration)
+            return;
+        const QDBusPendingReply<QDBusVariant> reply = *watcher;
+        // A daemon without the property (most) answers with an error.
+        if (reply.isError())
+            return;
+        const QVariant value = unwrapVariant(reply.value().variant());
+        if (value.metaType() != QMetaType::fromType<bool>())
+            return;
+        if (m_daemonInhibited != value.toBool())
+            qCInfo(lcNotify) << "desktop do-not-disturb =" << value.toBool();
+        m_daemonInhibited = value.toBool();
+    });
+    // GNOME: its daemon has no such property; the banners setting is read
+    // through the settings portal, which also works inside a Flatpak. Only
+    // on GNOME, so no other session starts a portal for it.
+    if (!qEnvironmentVariable("XDG_CURRENT_DESKTOP")
+             .contains(QLatin1String("GNOME"), Qt::CaseInsensitive))
+        return;
+    const auto apply = [this](const QDBusPendingReply<QDBusVariant> &reply) {
+        if (reply.isError())
+            return;
+        const QVariant value = unwrapVariant(reply.value().variant());
+        if (value.metaType() == QMetaType::fromType<bool>())
+            m_bannersOff = !value.toBool();
+    };
+    auto *portal = readPortalSetting(this, QStringLiteral("ReadOne"));
+    connect(portal, &QDBusPendingCallWatcher::finished, this,
+            [this, portal, apply] {
+        portal->deleteLater();
+        const QDBusPendingReply<QDBusVariant> reply = *portal;
+        if (!reply.isError()
+            || reply.error().type() != QDBusError::UnknownMethod) {
+            apply(reply);
+            return;
+        }
+        // A portal older than version 2 has only the deprecated Read.
+        auto *legacy = readPortalSetting(this, QStringLiteral("Read"));
+        connect(legacy, &QDBusPendingCallWatcher::finished, this,
+                [legacy, apply] {
+            legacy->deleteLater();
+            apply(*legacy);
+        });
+    });
+#endif
+}
+
+void NotificationManager::deliverNow(Card card)
+{
+    const bool mention = card.payload.value(QStringLiteral("mention")).toBool();
+    const QString roomId =
+        card.payload.value(QStringLiteral("roomId")).toString();
+    const bool isMessage =
+        !card.payload.value(QStringLiteral("eventId")).toString().isEmpty();
+    // The balloon: no session bus, no daemon, or no QtDBus at all (Windows,
+    // macOS: a toast on Windows, a user notification on macOS). It carries
+    // the plan's platformSound: on Windows TrayIcon raises the balloon with
+    // NIIF_NOSOUND unless the desktop's sound was chosen, since Qt's own
+    // balloon always made Windows add its sound on top of (or instead of)
+    // ours. A balloon cannot be replaced, so an in-place update is dropped.
+    const auto throughTray = [this, mention, roomId, isMessage](const Card &c) {
+        if (c.replacement)
+            return;
+        const SoundPlan plan =
+            takeSoundPlan(c.sound, mention, trayCarriesSound());
+        if (!deliverThroughTray(c.title, c.body, c.payload, c.avatar,
                                 plan.platformSound))
             qCInfo(lcNotify) << "notification service unavailable";
+        // Delivered or not, the window can still ask for attention.
+        if (isMessage)
+            Q_EMIT messageDelivered(roomId, mention);
+    };
+#ifdef HAVE_QT_DBUS
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        throughTray(card);
         return;
     }
     if (!m_bodyMarkupKnown && requestCapabilities()) {
         // The capabilities decide how the body is escaped; wait for them.
         if (m_capabilityWaits.size() < kMaxCapabilityWaits)
-            m_capabilityWaits.append({ title, body, payload, sound, avatar });
+            m_capabilityWaits.append(std::move(card));
         else
             qCWarning(lcNotify) << "notification dropped: daemon not answering";
         return;
     }
-    const NotificationIdentity identity = notificationIdentity();
+    // Do Not Disturb, re-read now and then for a desktop whose change signal
+    // is not followed; the answer serves the next delivery.
+    if (!m_inhibitionQueried
+        || nowMs() - m_inhibitionQueriedAtMs > kInhibitionRefreshMs) {
+        m_inhibitionQueried = true;
+        m_inhibitionQueriedAtMs = nowMs();
+        queryDesktopInhibition();
+    }
+    // One card per group: replace it in place, and while its first Notify is
+    // in flight hold the newest card for the id rather than raise a second.
+    const QString groupKey =
+        card.payload.value(QStringLiteral("group")).toString();
+    quint32 replacesId = 0;
+    if (!groupKey.isEmpty()) {
+        auto group = m_groups.find(groupKey);
+        if (group == m_groups.end())
+            group = m_groups.insert(groupKey, CardGroup{});
+        if (group->inFlight) {
+            if (group->next) {
+                // The held one never sounded; the one replacing it carries
+                // its alert.
+                card.sound = card.sound || group->next->sound;
+                card.replacement = card.replacement && group->next->replacement;
+            }
+            group->next = std::move(card);
+            return;
+        }
+        replacesId = group->id;
+        group->inFlight = true;
+        group->withdrawn = false;
+        group->payload = card.payload;
+    }
+    const NotificationManager::DesktopIdentity identity = notificationIdentity();
+    const CardShape shape =
+        messageCardShape(!roomId.isEmpty() && isMessage, m_inlineReply);
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },
+        { QStringLiteral("urgency"), QVariant::fromValue(shape.urgency) },
     };
-    // Mentions are critical (2), which GNOME and KDE do not time out; ordinary
-    // traffic stays normal (1).
-    const bool mention = payload.value(QStringLiteral("mention")).toBool();
-    hints.insert(QStringLiteral("urgency"),
-                 QVariant::fromValue(uchar(mention ? 2 : 1)));
-    if (!avatar.isNull()) {
+    if (!card.avatar.isNull()) {
         hints.insert(QStringLiteral("image-data"),
-                     QVariant::fromValue(notificationImage(avatar)));
+                     QVariant::fromValue(notificationImage(card.avatar)));
     }
     // Lightning's chime, or the themed one, or none; the platform's own sound
-    // is suppressed unless the user chose it.
-    const SoundPlan plan = takeSoundPlan(sound, mention);
+    // is suppressed unless it is the one that plays.
+    const SoundPlan plan = takeSoundPlan(card.sound && !card.replacement,
+                                         mention, /*pathCarriesSound=*/true);
     const QVariantMap soundHintMap = soundHints(plan);
     for (auto it = soundHintMap.cbegin(); it != soundHintMap.cend(); ++it)
         hints.insert(it.key(), it.value());
+    if (shape.inlineReply) {
+        hints.insert(QStringLiteral("x-kde-reply-placeholder-text"),
+                     tr("Reply…"));
+    }
     // Escaped iff the daemon renders markup; see bodyForServer(). The title is
     // never escaped.
-    const QString safeBody = bodyForServer(body);
-
-    // Mark-as-read and Reply need a real event: generic notices (invites,
-    // verification requests) have no eventId and cannot be read or replied to.
-    QStringList actions{ QStringLiteral("default"), tr("Open") };
-    const bool actionable =
-        !payload.value(QStringLiteral("roomId")).toString().isEmpty()
-        && !payload.value(QStringLiteral("eventId")).toString().isEmpty();
-    if (actionable) {
-        actions << QStringLiteral("mark-read") << tr("Mark as read");
-        if (m_inlineReply) {
-            // The action id is fixed by the extension; the label is ours.
-            actions << QStringLiteral("inline-reply") << tr("Reply");
-            hints.insert(QStringLiteral("x-kde-reply-placeholder-text"),
-                         tr("Reply…"));
-        }
-    }
+    const QString safeBody = bodyForServer(card.body);
 
     QDBusMessage call = notificationsCall(QStringLiteral("Notify"));
-    call << QStringLiteral("Lightning") << quint32(0) << identity.appIcon
-         << title << safeBody << actions << hints << int(-1);
+    call << QStringLiteral("Lightning") << replacesId << identity.appIcon
+         << card.title << safeBody << shape.actions << hints << int(-1);
     auto *watcher = new QDBusPendingCallWatcher(
         bus.asyncCall(call, kNotifyTimeoutMs), this);
+    if (isMessage && !card.replacement)
+        Q_EMIT messageDelivered(roomId, mention);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, watcher, title, body, payload, avatar,
+            [this, watcher, card, groupKey, throughTray,
              platformSound = plan.platformSound,
-             generation = m_deliveryGeneration] {
+             generation = m_deliveryGeneration,
+             daemon = m_daemonGeneration] {
         watcher->deleteLater();
+        ++m_notifyReplies;
         const QDBusPendingReply<quint32> reply = *watcher;
-        // Signed out meanwhile: the card is not this account's to route.
-        if (generation != m_deliveryGeneration)
+        // The daemon changed hands meanwhile: that id is the old daemon's and
+        // may already name another application's card on the new one.
+        if (daemon != m_daemonGeneration)
             return;
+        // Signed out meanwhile: the card is not this account's to route, and
+        // its preview must not outlive the account either.
+        if (generation != m_deliveryGeneration) {
+            if (!reply.isError()) {
+                closeNotification(reply.value());
+                tombstone(reply.value(),
+                          card.payload.value(QStringLiteral("accountUserId"))
+                              .toString());
+            }
+            return;
+        }
+        if (!groupKey.isEmpty()) {
+            const auto group = m_groups.find(groupKey);
+            if (group != m_groups.end())
+                group->inFlight = false;
+        }
         if (!reply.isError()) {
-            recordPayload(reply.value(), payload);
+            const quint32 id = reply.value();
+            quint32 previous = 0;
+            if (!groupKey.isEmpty()) {
+                auto group = m_groups.find(groupKey);
+                if (group == m_groups.end())
+                    group = m_groups.insert(groupKey, CardGroup{});
+                previous = std::exchange(group->id, id);
+            }
+            // A daemon that no longer had the card it was asked to replace
+            // raises a new one; the old id is gone.
+            if (previous != 0 && previous != id)
+                forgetPayload(previous);
+            recordPayload(id, card.payload);
+            if (groupKey.isEmpty())
+                return;
+            const auto group = m_groups.find(groupKey);
+            if (group == m_groups.end())
+                return;
+            if (group->withdrawn) {
+                // Read or redacted while it was being raised.
+                group->next.reset();
+                closeNotification(id);
+                forgetPayload(id);
+                return;
+            }
+            if (group->next) {
+                Card next = std::move(*group->next);
+                group->next.reset();
+                deliverNow(std::move(next));
+            }
             return;
         }
         // No daemon, or a refusal: log the error name only (never title or
@@ -770,18 +1574,21 @@ void NotificationManager::deliverNow(const QString &title,
         else
             qCWarning(lcNotify) << "notification server refused the notification:"
                                 << reply.error().name();
-        deliverThroughTray(title, body, payload, avatar, platformSound);
+        if (!card.replacement
+            && !deliverThroughTray(card.title, card.body, card.payload,
+                                   card.avatar, platformSound))
+            qCInfo(lcNotify) << "notification service unavailable";
+        if (!groupKey.isEmpty()) {
+            const auto group = m_groups.find(groupKey);
+            if (group != m_groups.end() && group->next) {
+                Card next = std::move(*group->next);
+                group->next.reset();
+                throughTray(next);
+            }
+        }
     });
 #else
-    // No QtDBus (Windows, macOS): the tray balloon carries the notification
-    // (a toast on Windows, a user notification on macOS). It carries the
-    // plan's platformSound too: on Windows TrayIcon raises the balloon with
-    // NIIF_NOSOUND unless System default was chosen, since Qt's own balloon
-    // always made Windows add its sound on top of (or instead of) ours.
-    const SoundPlan plan = takeSoundPlan(
-        sound, payload.value(QStringLiteral("mention")).toBool());
-    if (!deliverThroughTray(title, body, payload, avatar, plan.platformSound))
-        qCInfo(lcNotify) << "native notifications unavailable on this build";
+    throughTray(card);
 #endif
 }
 
@@ -811,6 +1618,22 @@ QVariantMap NotificationManager::soundHints(const SoundPlan &plan)
     return hints;
 }
 
+QVariantMap NotificationManager::callSoundHints(bool sound)
+{
+    QVariantMap hints;
+    if (sound) {
+        // Themed call sound. Not coalesced with message sounds: the repeat is
+        // the ring.
+        hints.insert(QStringLiteral("sound-name"),
+                     QStringLiteral("phone-incoming-call"));
+    } else {
+        // A silent card, or Lightning's own ringer sounding: no daemon adds
+        // its default sound to it, nor to a redraw after Silence.
+        hints.insert(QStringLiteral("suppress-sound"), true);
+    }
+    return hints;
+}
+
 void NotificationManager::setSoundSource(int source)
 {
     m_soundSource = source == SourceSystem ? SourceSystem : SourceLightning;
@@ -822,23 +1645,70 @@ void NotificationManager::setOwnSoundPlayer(
     m_ownSound = std::move(player);
 }
 
-NotificationManager::SoundPlan NotificationManager::takeSoundPlan(
-    bool sound, bool mention)
+void NotificationManager::setSoundAllowedCheck(std::function<bool()> check)
 {
+    m_soundAllowed = std::move(check);
+}
+
+bool NotificationManager::trayCarriesSound() const
+{
+    if (m_trayCarriesSoundOverride >= 0)
+        return m_trayCarriesSoundOverride == 1;
+#ifdef Q_OS_WIN
+    return true;
+#else
+    // macOS: Qt's NSUserNotification sets no soundName; a Linux tray balloon
+    // carries no sound of its own (TrayIcon::showMessage).
+    return false;
+#endif
+}
+
+NotificationManager::SoundPlan NotificationManager::takeSoundPlan(
+    bool sound, bool mention, bool pathCarriesSound)
+{
+    // The call state (a call, a share capturing the output mix) and the
+    // desktop's Do Not Disturb hold for both sources.
+    const bool allowed = sound && (!m_soundAllowed || m_soundAllowed())
+        && !desktopInhibited();
     bool coalesced = false;
-    if (sound) {
-        // At most one alert per short window.
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        if (now - m_lastSoundMs < kSoundCoalesceMs)
-            coalesced = true;
-        else
+    if (allowed) {
+        // At most one alert per short window, but a mention breaks through an
+        // ordinary burst: only another mention coalesces it.
+        const qint64 now = nowMs();
+        coalesced = mention
+            ? m_mentionSoundPlayed
+                  && now - m_lastMentionSoundMs < kSoundCoalesceMs
+            : m_soundPlayed && now - m_lastSoundMs < kSoundCoalesceMs;
+        if (!coalesced) {
             m_lastSoundMs = now;
+            m_soundPlayed = true;
+            if (mention) {
+                m_lastMentionSoundMs = now;
+                m_mentionSoundPlayed = true;
+            }
+        }
     }
-    const SoundPlan plan = planSound(sound, coalesced, m_soundSource);
+    SoundPlan plan = planSound(allowed, coalesced, m_soundSource);
+    if (plan.platformSound && !pathCarriesSound) {
+        // The desktop's sound was chosen but this delivery cannot make it (a
+        // macOS banner, a Linux tray balloon): ours rather than silence.
+        plan = planSound(true, false, SourceLightning);
+    }
     if (plan.playOwn) {
         const bool played = m_ownSound && m_ownSound(mention);
         qCInfo(lcNotify) << "notification sound own="
                          << (played ? "played" : "not played");
+        // The policy already allowed it (checked above), so a chime that did
+        // not play is a fault: sounds not loaded, a wedged sound server. The
+        // desktop's sound rather than silence, as the ringer falls back. Only
+        // with the policy installed: without it the player's refusal may be
+        // the policy itself.
+        if (!played && m_soundAllowed && pathCarriesSound) {
+            plan.playOwn = false;
+            plan.platformSound = true;
+            plan.suppressPlatform = false;
+            qCInfo(lcNotify) << "notification sound fell back to the desktop's";
+        }
     }
     return plan;
 }
@@ -864,27 +1734,49 @@ bool NotificationManager::deliverThroughTray(const QString &title,
 {
     ++m_trayAttempts;
     m_lastTrayPlatformSound = platformSound;
+    m_lastTrayTitle = title;
+    m_lastTrayBody = body;
     if (!m_fallbackTray
         || !m_fallbackTray->showMessage(title, body, avatar, platformSound))
         return false;
-    // One balloon at a time: the latest payload is the one a click resolves to.
-    m_lastFallbackPayload = payload;
+    noteBalloon(payload);
     if (!payload.value(QStringLiteral("roomId")).toString().isEmpty())
         qCInfo(lcNotify) << "notification delivered through the tray balloon";
     return true;
 }
 
+void NotificationManager::noteBalloon(const QVariantMap &payload)
+{
+    // One balloon slot: the latest payload is the one a click resolves to,
+    // unless balloons for other rooms are outstanding too.
+    m_lastFallbackPayload = payload;
+    m_balloonRooms.insert(
+        routableRoomId(payload.value(QStringLiteral("roomId")).toString()));
+}
+
 void NotificationManager::onFallbackMessageClicked()
 {
-    const QVariantMap payload = m_lastFallbackPayload;
-    m_lastFallbackPayload.clear();
+    const QVariantMap payload = std::exchange(m_lastFallbackPayload, {});
+    const qsizetype rooms = m_balloonRooms.size();
+    m_balloonRooms.clear();
     // Windows toast click reported as doing nothing on the first of three
-    // clicks (2026-10-14, cause unknown). Booleans only, so a capture can tell
-    // "Qt never delivered the click" (no line) from "delivered with no payload
-    // stored" from "routed" without logging a room id.
+    // clicks (2026-10-14, cause unknown). Booleans and a count only, so a
+    // capture can tell "Qt never delivered the click" (no line) from
+    // "delivered with no payload stored" from "routed" without logging a room
+    // id.
     qCInfo(lcNotify) << "tray balloon clicked payload="
                      << (!payload.isEmpty()) << "room="
-                     << !payload.value(QStringLiteral("roomId")).toString().isEmpty();
+                     << !payload.value(QStringLiteral("roomId")).toString().isEmpty()
+                     << "rooms=" << rooms;
+    // Qt reports a click on any of the balloons as the same signal. With more
+    // than one room outstanding the latest is a guess that is wrong for every
+    // other balloon, so the window comes up without choosing a room.
+    if (rooms > 1) {
+        emitOpenFor({});
+        return;
+    }
+    // An empty payload (already used, or signed out) still raises the window:
+    // a click that does nothing reads as a broken notification.
     emitOpenFor(payload);
 }
 
@@ -892,11 +1784,10 @@ void NotificationManager::onFallbackMessageClicked()
 // processEvent() is not the only payload producer. Idempotent.
 void NotificationManager::emitOpenFor(const QVariantMap &payload)
 {
-    // Gate on the payload, not the room id: notices without a room (e.g. a
-    // verification request) still raise the window, which Main.qml does before
-    // reading the room id. Sign-out clears the whole payload.
-    if (payload.isEmpty())
-        return;
+    // Notices without a room (e.g. a verification request), and cards whose
+    // room is no longer known, still raise the window, which Main.qml does
+    // before reading the room id. Sign-out clears the payloads, so nothing
+    // routes into the previous account's rooms.
     const QString roomId =
         routableRoomId(payload.value(QStringLiteral("roomId")).toString());
     Q_EMIT openRequested(
@@ -904,6 +1795,31 @@ void NotificationManager::emitOpenFor(const QVariantMap &payload)
         routableThreadRootId(
             payload.value(QStringLiteral("roomId")).toString(),
             payload.value(QStringLiteral("threadRootId")).toString()));
+}
+
+void NotificationManager::onActivationToken(quint32 id, const QString &token)
+{
+    // Only for our cards; the signal can reach every listener on the bus.
+    if (id == 0 || token.isEmpty())
+        return;
+    if (!m_pendingPayloads.contains(id) && !m_tombstones.contains(id)
+        && id != m_activeCallNotificationId)
+        return;
+    m_activationTokens.insert(id, token);
+    while (m_activationTokens.size() > kMaxActivationTokens)
+        m_activationTokens.erase(m_activationTokens.begin());
+}
+
+void NotificationManager::applyActivationToken(quint32 id)
+{
+    const QString token = m_activationTokens.take(id);
+    if (token.isEmpty())
+        return;
+    // As for a second launch (main.cpp): Qt's Wayland shell integration reads
+    // and clears the variable when the window next activates.
+    if (m_assumeWayland
+        || QGuiApplication::platformName().startsWith(QLatin1String("wayland")))
+        qputenv("XDG_ACTIVATION_TOKEN", token.toUtf8());
 }
 
 void NotificationManager::onActionInvoked(quint32 id, const QString &action)
@@ -914,6 +1830,8 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         if (id != 0 && id == m_activeCallNotificationId
             && !m_activeCallId.isEmpty()) {
             const QString callId = m_activeCallId;
+            // Joining raises the window; let it take focus.
+            applyActivationToken(id);
             // Retire the card before emitting so a racing re-delivery cannot
             // restore it.
             stopIncomingCall(callId);
@@ -942,9 +1860,11 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
     }
     if (action == QLatin1String("mark-read")) {
         const QVariantMap payload = m_pendingPayloads.value(id);
-        forgetPayload(id);
-        if (payload.isEmpty())
+        if (payload.isEmpty()) {
+            handleStaleAction(id, action, QString());
             return;
+        }
+        forgetPayload(id);
         // A room id, never a timeline id: markRoomRead has no composite
         // entries.
         Q_EMIT markReadRequested(
@@ -960,18 +1880,23 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
     if (action != QLatin1String("default"))
         return;
     const QVariantMap payload = m_pendingPayloads.value(id);
-    forgetPayload(id);
-    if (payload.isEmpty())
+    if (payload.isEmpty()) {
+        handleStaleAction(id, action, QString());
         return;
+    }
+    applyActivationToken(id);
+    forgetPayload(id);
     emitOpenFor(payload);
 }
 
 void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
 {
     const QVariantMap payload = m_pendingPayloads.value(id);
-    forgetPayload(id);
-    if (payload.isEmpty())
+    if (payload.isEmpty()) {
+        handleStaleAction(id, QStringLiteral("inline-reply-text"), text);
         return;
+    }
+    forgetPayload(id);
     // Ignore empty submissions.
     const QString body = text.trimmed();
     if (body.isEmpty())
@@ -986,21 +1911,139 @@ void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
         body);
 }
 
+// A card we raised whose payload is gone: withdrawn at sign-out or an account
+// switch (a daemon that keeps it in its history anyway), evicted, or answered
+// after a sign-out. Never silent: the user typed a reply or pressed a button.
+// An id with no tombstone is not known to be ours at all (the daemon's
+// signals can reach every client on the bus), so it is left alone.
+void NotificationManager::handleStaleAction(quint32 id, const QString &action,
+                                            const QString &text)
+{
+    const auto tomb = m_tombstones.constFind(id);
+    if (tomb == m_tombstones.cend())
+        return;
+    const QString account = tomb.value();
+    m_tombstones.remove(id);
+    m_tombstoneOrder.removeOne(id);
+    const bool reply = action == QLatin1String("inline-reply-text");
+    qCInfo(lcNotify) << "action on a withdrawn notification:"
+                     << (reply ? QStringLiteral("reply") : action);
+    if (action == QLatin1String("default")) {
+        // The room it named is not ours to open any more; the window is.
+        applyActivationToken(id);
+        emitOpenFor({});
+        return;
+    }
+    const QString body = text.trimmed();
+    if (reply && body.isEmpty())
+        return;
+    if (account.isEmpty() || account != m_accountUserId) {
+        // Another account's card: the app refuses it and says so.
+        if (reply)
+            Q_EMIT replyRequested(account, QString(), QString(), body);
+        else
+            Q_EMIT markReadRequested(account, QString(), QString());
+        return;
+    }
+    showStaleActionNotice();
+}
+
+void NotificationManager::showStaleActionNotice()
+{
+    showGeneric(tr("Lightning"),
+                tr("That notification is out of date, so nothing was sent. "
+                   "Open Lightning and try again from there."));
+}
+
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
 {
     if (id != 0 && id == m_activeCallNotificationId) {
+        // The card expired into the history (some daemons time out even a
+        // critical card): stop re-posting it, but keep its id so the end of
+        // the call withdraws it and its buttons keep answering meanwhile.
+        if (reason == kClosedExpired) {
+            m_activeCallCardExpired = true;
+            m_callRingTimer.stop();
+            return;
+        }
         // Dismissing the call card stops re-ringing but does not decline; other
-        // devices keep ringing.
+        // devices keep ringing. Lightning's own ringer stops with it, as for
+        // the in-app Dismiss.
+        const QString callId = m_activeCallId;
         m_activeCallNotificationId = 0;
+        m_activeCallCardExpired = false;
         m_callRingTimer.stop();
+        forgetPayload(id);
+        if (reason == kClosedDismissed && !callId.isEmpty())
+            Q_EMIT callCardDismissed(callId);
+        return;
     }
     // freedesktop reasons: 1 expired, 2 dismissed, 3 CloseNotification,
     // 4 undefined. Expired popups stay in KDE/GNOME history, so keep their
     // payload for closeRoomNotifications().
-    constexpr quint32 kExpired = 1;
-    if (reason == kExpired)
+    if (reason == kClosedExpired)
         return;
     forgetPayload(id);
+    if (m_tombstones.remove(id) > 0)
+        m_tombstoneOrder.removeOne(id);
+}
+
+void NotificationManager::onDaemonPropertiesChanged(
+    const QString &interfaceName, const QVariantMap &changed,
+    const QStringList &invalidated)
+{
+    if (interfaceName != kInterface)
+        return;
+    const auto inhibited = changed.constFind(QStringLiteral("Inhibited"));
+    if (inhibited != changed.cend()) {
+        if (m_daemonInhibited != inhibited->toBool())
+            qCInfo(lcNotify) << "desktop do-not-disturb ="
+                             << inhibited->toBool();
+        m_daemonInhibited = inhibited->toBool();
+    } else if (invalidated.contains(QStringLiteral("Inhibited"))) {
+        queryDesktopInhibition();
+    }
+}
+
+void NotificationManager::onDaemonOwnerChanged(const QString &service,
+                                               const QString &oldOwner,
+                                               const QString &newOwner)
+{
+    Q_UNUSED(service);
+    Q_UNUSED(oldOwner);
+    qCInfo(lcNotify) << "notification service changed hands; running:"
+                     << !newOwner.isEmpty();
+    // Every id the old daemon gave out may name another application's card on
+    // the new one: forget them all, and what it said it could do.
+    ++m_daemonGeneration;
+    m_pendingPayloads.clear();
+    m_payloadOrder.clear();
+    m_tombstones.clear();
+    m_tombstoneOrder.clear();
+    m_groups.clear();
+    m_activationTokens.clear();
+    m_activeCallNotificationId = 0;
+    m_activeCallCardExpired = false;
+    m_callNotifyInFlight = false;
+    m_callRedrawPending = false;
+    m_bodyMarkup = false;
+    m_bodyMarkupKnown = false;
+    m_inlineReply = false;
+    m_capabilityRequestInFlight = false;
+    m_capabilityRequests = 0;
+    m_capabilityRetryAtMs = 0;
+    m_daemonInhibited = false;
+    m_inhibitionQueried = false;
+    if (newOwner.isEmpty())
+        return;
+#ifdef HAVE_QT_DBUS
+    // Deliveries that waited for the old daemon's answer ask the new one.
+    if (!m_capabilityWaits.isEmpty())
+        requestCapabilities();
+#endif
+    // A call still ringing gets its card back on the new daemon.
+    if (!m_activeCallId.isEmpty())
+        deliverCallNotification();
 }
 
 QStringList NotificationManager::callActions(bool acceptOffered, bool rtcLane,
@@ -1032,8 +2075,13 @@ void NotificationManager::setCallAcceptOffered(const QString &callId,
     }
     m_activeCallAcceptOffered = offered;
     m_activeCallRtcLane = rtcLane;
-    // Redraw only; the deadline and ring timer are untouched.
-    deliverCallNotification();
+    // Redraw only a card that is showing, or one being raised (it is redrawn
+    // when its id arrives). A card the user dismissed stays dismissed: a
+    // join-state change is no reason to put it back, ringing.
+    const bool showing =
+        m_activeCallNotificationId != 0 && !m_activeCallCardExpired;
+    if (showing || m_callNotifyInFlight)
+        deliverCallNotification();
 }
 
 void NotificationManager::showIncomingCall(const QString &roomId,
@@ -1049,6 +2097,11 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     // One ring at a time; a newer call replaces the previous card.
     if (!m_activeCallId.isEmpty() && m_activeCallId != callId)
         stopIncomingCall(m_activeCallId);
+    // A new call gets its own balloon; the same call announced again (the
+    // stuck-ringer fallback) does not get a second, since a balloon can never
+    // be withdrawn.
+    if (m_activeCallId != callId)
+        m_activeCallTrayDelivered = false;
     m_activeCallId = callId;
     m_activeCallRoomId = roomId;
     m_activeCallTitle = title;
@@ -1057,10 +2110,8 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     m_activeCallAcceptOffered = acceptOffered;
     m_activeCallRtcLane = rtcLane;
     m_activeCallSilenceOffered = silenceOffered;
-    m_callRingDeadlineMs = QDateTime::currentMSecsSinceEpoch()
-        + qint64(qBound(5, ringSeconds, 300)) * 1000;
-    // A new call gets its own balloon.
-    m_activeCallTrayDelivered = false;
+    m_activeCallCardExpired = false;
+    m_callRingDeadlineMs = nowMs() + qint64(qBound(5, ringSeconds, 300)) * 1000;
     deliverCallNotification();
     if (sound)
         m_callRingTimer.start();
@@ -1078,8 +2129,9 @@ void NotificationManager::silenceIncomingCall(const QString &callId)
     m_activeCallSilenceOffered = false;
     m_callRingTimer.stop();
     // Redraw without the Silence button, but only if the card is still showing
-    // (id 0 means it was closed). The tray balloon is latched per call.
-    if (m_activeCallNotificationId != 0)
+    // (id 0 means it was closed; an expired one is in the history). The tray
+    // balloon is latched per call.
+    if (m_activeCallNotificationId != 0 && !m_activeCallCardExpired)
         deliverCallNotification();
 }
 
@@ -1094,6 +2146,7 @@ void NotificationManager::stopIncomingCall(const QString &callId)
         forgetPayload(m_activeCallNotificationId);
     }
     m_activeCallNotificationId = 0;
+    m_activeCallCardExpired = false;
     // A card still being raised is retired when its id arrives.
     m_callRedrawPending = false;
     m_callWaitsForCapabilities = false;
@@ -1133,17 +2186,14 @@ void NotificationManager::deliverCallNotification()
     const QStringList actions = callActions(m_activeCallAcceptOffered,
                                             m_activeCallRtcLane,
                                             m_activeCallSilenceOffered);
-    const NotificationIdentity identity = notificationIdentity();
+    const NotificationManager::DesktopIdentity identity = notificationIdentity();
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },
         { QStringLiteral("urgency"), quint8(2) }, // critical: a live ring
     };
-    if (m_activeCallSound) {
-        // Themed call sound. Not coalesced with message sounds: the repeat is
-        // the ring.
-        hints.insert(QStringLiteral("sound-name"),
-                     QStringLiteral("phone-incoming-call"));
-    }
+    const QVariantMap soundHintMap = callSoundHints(m_activeCallSound);
+    for (auto it = soundHintMap.cbegin(); it != soundHintMap.cend(); ++it)
+        hints.insert(it.key(), it.value());
     // Same single escape as deliverNow(); the body contains member-chosen
     // names.
     QDBusMessage call = notificationsCall(QStringLiteral("Notify"));
@@ -1154,8 +2204,13 @@ void NotificationManager::deliverCallNotification()
     auto *watcher = new QDBusPendingCallWatcher(
         bus.asyncCall(call, kNotifyTimeoutMs), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, watcher, callId = m_activeCallId] {
+            [this, watcher, callId = m_activeCallId,
+             daemon = m_daemonGeneration] {
         watcher->deleteLater();
+        ++m_notifyReplies;
+        // The old daemon's id; the owner change already raised the card anew.
+        if (daemon != m_daemonGeneration)
+            return;
         m_callNotifyInFlight = false;
         const QDBusPendingReply<quint32> reply = *watcher;
         if (callId != m_activeCallId) {
@@ -1167,11 +2222,14 @@ void NotificationManager::deliverCallNotification()
                 && reply.value() != m_activeCallNotificationId)
                 forgetPayload(m_activeCallNotificationId);
             m_activeCallNotificationId = reply.value();
+            m_activeCallCardExpired = false;
             recordPayload(m_activeCallNotificationId,
                           QVariantMap{
                               { QStringLiteral("roomId"), m_activeCallRoomId },
                               { QStringLiteral("eventId"), QString() },
                               { QStringLiteral("threadRootId"), QString() },
+                              { QStringLiteral("accountUserId"),
+                                m_accountUserId },
                           });
         } else {
             if (reply.error().type() == QDBusError::ServiceUnknown)

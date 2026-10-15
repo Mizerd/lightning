@@ -2092,6 +2092,10 @@ Item {
         //    path is asserted to refuse it.
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
+        // A ring addressed to the room: a bare `notification` (or no type)
+        // announces a call without ringing (MSC4075).
+        notify.notificationType = QStringLiteral("ring");
+        notify.mentionsRoom = true;
         notify.roomId = QStringLiteral("!general:mock.local");
         notify.eventId = QStringLiteral("$notify-lane");
         notify.sender = QStringLiteral("@peer:mock.local");
@@ -3597,18 +3601,22 @@ ApplicationWindow {
                  "the first-arrival check runs AFTER our own membership "
                  "publishes, so it can only ever answer no");
 
-        // Announce ("notification"), not "ring", which makes the far end ring.
+        // The type is the room's: "ring" only in a 1:1 DM, "notification"
+        // elsewhere (SfuCallController::announcementTypeFor, whose behaviour
+        // CallControllerTest pins). Never a literal "ring", which would ring
+        // every member of a group room.
         QVERIFY2(src.contains(QStringLiteral("m_client->rtcNotify(")),
                  "nothing announces the call, so the room still gets no "
                  "timeline row when a call starts");
         const int notify = src.indexOf(QStringLiteral("m_client->rtcNotify("));
+        const int typed = src.indexOf(QStringLiteral(
+            "announcementTypeFor(m_client->roomInfo(m_roomId))"));
+        QVERIFY2(typed >= 0 && typed < notify,
+                 "the announcement's type is not decided from the room");
         const QString args = src.mid(notify, 320);
-        QVERIFY2(args.contains(QStringLiteral("\"notification\"")),
-                 qPrintable(QStringLiteral("the announcement is not sent as "
-                                           "a notification: %1").arg(args)));
         QVERIFY2(!args.contains(QStringLiteral("\"ring\"")),
-                 "the announcement rings other people's clients, which was "
-                 "deliberately left to its own round");
+                 qPrintable(QStringLiteral("the announcement rings whatever "
+                                           "the room: %1").arg(args)));
 
         // Once: the flag clears as it fires, or each membership refresh
         // announces again.

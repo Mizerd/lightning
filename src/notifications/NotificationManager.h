@@ -1,15 +1,19 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QPointer>
 #include <QImage>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
 #include <QTimer>
 
 #include <functional>
+#include <memory>
+#include <optional>
 
 struct TimelineEvent;
 class TrayIcon;
@@ -21,6 +25,11 @@ class TrayIcon;
 // Notifications D-Bus service, or the tray balloon where none exists. Bodies
 // appear only in "Sender and message" mode and are never logged or persisted.
 // Click payloads carry only room/event/thread identity.
+//
+// One card per room (and one per thread, and one per keyed notice): a new
+// message replaces its room's card through replaces_id rather than stacking a
+// new one, so withdrawing a read room is one CloseNotification and the
+// bounded click-payload map is bounded by rooms rather than by traffic.
 class NotificationManager : public QObject
 {
     Q_OBJECT
@@ -65,6 +74,33 @@ public:
     /// The freedesktop hints a plan adds to a Notify call.
     static QVariantMap soundHints(const SoundPlan &plan);
 
+    /// The action list and urgency a message or notice card is sent with.
+    /// Pure, like callActions(), so the composition is tested without a
+    /// daemon. Every message card is normal urgency: critical is reserved for
+    /// a live ring, since GNOME and KDE let a critical card through Do Not
+    /// Disturb and over full-screen windows and never expire it.
+    struct CardShape {
+        QStringList actions;
+        uchar urgency = 1;
+        /// The card offers an inline reply box (KDE placeholder hint).
+        bool inlineReply = false;
+    };
+    /// `actionable`: the card names a real room and event (generic notices do
+    /// not, and cannot be read or replied to).
+    static CardShape messageCardShape(bool actionable,
+                                      bool inlineReplySupported);
+
+    /// The desktop-entry hint and app icon for this install. Pure: tests pass
+    /// the environment. An empty appIcon means "the themed name if it
+    /// resolves, else the bundled icon written to the cache".
+    struct DesktopIdentity {
+        QString desktopEntry;
+        QString appIcon;
+    };
+    static DesktopIdentity desktopIdentityFor(const QString &flatpakId,
+                                              const QString &snapDir,
+                                              const QString &snapName);
+
     // Everything the decision needs, supplied by the app layer.
     struct Context {
         QString selfUserId;
@@ -106,6 +142,11 @@ public:
         QString body;
         // Whether to also play a sound. Always false when notify is false.
         bool playSound = false;
+        // A mention: the mention chime and the card's mention flag. With the
+        // account's rules known it is their highlight alone; without them,
+        // m.mentions naming this user (never m.mentions.room alone, which
+        // carries no power-level check).
+        bool mention = false;
     };
 
     explicit NotificationManager(QObject *parent = nullptr);
@@ -128,10 +169,19 @@ public:
     bool playOwnSoundForTest(bool mention) const
     { return m_ownSound && m_ownSound(mention); }
     /// Plays Lightning's chime for a delivered notification (`mention`
-    /// selects the mention variant) and returns whether one played. The
-    /// caller owns the sound policy that is not about the notification
-    /// itself (in a call, silent while a share captures the output mix).
+    /// selects the mention variant) and returns whether one played.
     void setOwnSoundPlayer(std::function<bool(bool mention)> player);
+    /// The call-state policy for any notification sound, Lightning's or the
+    /// desktop's: false while a call or a share that captures the output mix
+    /// must stay quiet. Consulted before either source plays. Once installed,
+    /// a chime the player then cannot play falls back to the desktop's sound
+    /// (without it a refusal by the player could be the policy, not a fault).
+    void setSoundAllowedCheck(std::function<bool()> check);
+    /// The desktop is in Do Not Disturb: the daemon's `Inhibited` property
+    /// (KDE), or GNOME's show-banners off. Lightning's own chime stays quiet
+    /// while it holds. False where it cannot be read.
+    bool desktopInhibited() const
+    { return m_daemonInhibited || m_bannersOff; }
     /// Whether the daemon offers an inline reply box. False until the first
     /// delivery has queried GetCapabilities, and without D-Bus.
     bool inlineReplySupported() const { return m_inlineReply; }
@@ -145,14 +195,33 @@ public:
                                    bool notificationsEnabled);
 
     // Decide and (when positive) deliver natively. The click payload is
-    // {roomId, eventId, threadRootId} only.
+    // {roomId, eventId, threadRootId} only. A message that could not be
+    // decrypted yet is held briefly for its key; see processDecrypted().
     void processEvent(const TimelineEvent &event, const Context &context);
+
+    /// An event this class saw live while undecryptable has been decrypted.
+    /// Decides again on the plaintext: a card still held is delivered with
+    /// it, an "Encrypted message" card is replaced in place (silently), and
+    /// a message whose ciphertext did not notify (a mention in a mentions-only
+    /// room) notifies now. Never a second card for one event; events never
+    /// seen live are ignored, so a history backfill raises nothing.
+    void processDecrypted(const TimelineEvent &event, const Context &context);
+
+    /// The event was redacted (or otherwise must disappear): withdraw a card
+    /// showing it, and drop one not delivered yet.
+    void withdrawEvent(const QString &eventId);
 
     // Generic non-message notifications (invites, verification requests).
     // The body must already be safe — callers never pass message content.
+    // `sound` asks for the message sound plan (the same coalescing, policy
+    // and source). A non-empty `key` names the card: showing the same key
+    // again replaces it, and withdrawGeneric() withdraws it.
     void showGeneric(const QString &title, const QString &safeBody,
                      const QString &roomId = QString(),
-                     const QString &avatarMxc = QString());
+                     const QString &avatarMxc = QString(),
+                     bool sound = false, const QString &key = QString());
+    /// Withdraw the generic card raised with `key`, shown or still on its way.
+    void withdrawGeneric(const QString &key);
 
     // Incoming call. While ringing it is re-delivered every few seconds,
     // replacing itself, so the themed call sound repeats. `sound` false shows a
@@ -172,11 +241,15 @@ public:
     /// static so tests can check it without a daemon.
     static QStringList callActions(bool acceptOffered, bool rtcLane,
                                    bool silenceOffered = false);
+    /// The call card's sound hints: the themed ring while it rings, and
+    /// `suppress-sound` otherwise, so no daemon adds a default sound to a
+    /// silent card or under Lightning's own ringer. Pure.
+    static QVariantMap callSoundHints(bool sound);
     /// Update whether the showing call card offers an answer, and redraw it.
     /// The joinability answer usually arrives after the card is raised (it
     /// needs an asynchronous session read). Unlike showIncomingCall(), this
     /// keeps the ring deadline and sound timer. Mismatched or absent call ids
-    /// are a no-op.
+    /// are a no-op, and a card that is not showing is not raised again.
     void setCallAcceptOffered(const QString &callId, bool offered,
                               bool rtcLane);
 
@@ -189,7 +262,10 @@ public:
     // another device). Safe to call when nothing is showing.
     void stopIncomingCall(const QString &callId);
 
-    // Logout/account switch: forget queued click payloads.
+    // Logout/account switch/removal: withdraw every card this account raised
+    // (their previews must not outlive it) and forget their click payloads.
+    // An action on one that still arrives reaches the different-account
+    // refusal through a tombstone rather than vanishing.
     void clearPending();
 
     // Test hook: record a click payload as deliver() would, exercising the
@@ -205,37 +281,62 @@ public:
     bool callSilenceOfferedForTest() const
     { return m_activeCallSilenceOffered; }
     QString activeCallIdForTest() const { return m_activeCallId; }
+    quint32 activeCallNotificationIdForTest() const
+    { return m_activeCallNotificationId; }
     // Stands in for the Notify() reply so the id-matched decline/closed
     // branches can be driven without a daemon.
     void setActiveCallNotificationIdForTest(quint32 id)
-    { m_activeCallNotificationId = id; }
+    { m_activeCallNotificationId = id; m_activeCallCardExpired = false; }
     // Count of generic notices raised, for tests without a daemon.
     int genericNoticeCountForTest() const { return m_genericNoticeCount; }
     // Tray balloon delivery where no freedesktop daemon exists (Windows,
     // macOS). Only one balloon shows at a time, so the manager keeps the single
-    // payload it carries.
+    // payload it carries, and which rooms have balloons outstanding.
     void setFallbackTray(TrayIcon *tray);
     void deliverThroughTrayForTest(const QVariantMap &payload)
-    { m_lastFallbackPayload = payload; }
+    { noteBalloon(payload); }
     // Tray balloon attempts by the call ring, and their payload. Counts
     // attempts rather than deliveries because offscreen tests have no tray.
     int callTrayAttemptsForTest() const { return m_callTrayAttempts; }
     QVariantMap lastCallTrayPayloadForTest() const
     { return m_lastCallTrayPayload; }
-    // Every tray balloon attempt (messages and calls), and whether the last
-    // one allowed the platform's own sound. Attempts, as above.
+    // Every tray balloon attempt (messages and calls), its title and body, and
+    // whether the last one allowed the platform's own sound. Attempts, as
+    // above.
     int trayAttemptsForTest() const { return m_trayAttempts; }
     bool lastTrayPlatformSoundForTest() const
     { return m_lastTrayPlatformSound; }
+    QString lastTrayTitleForTest() const { return m_lastTrayTitle; }
+    QString lastTrayBodyForTest() const { return m_lastTrayBody; }
+    /// Whether the balloon path can carry the platform's sound: Windows can
+    /// (TrayIcon sets or clears NIIF_NOSOUND), macOS and a Linux tray cannot.
+    void setTrayCarriesSoundForTest(bool carries)
+    { m_trayCarriesSoundOverride = carries ? 1 : 0; }
     // Deliveries parked waiting for an avatar fetch. They have no notification
     // id yet, so tests observe them here.
     int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
-    // The payload a parked delivery carries.
+    // The payload a parked delivery carries, and its body.
     QVariantMap avatarWaitPayloadForTest(int index) const
     {
         return index >= 0 && index < m_avatarWaits.size()
             ? m_avatarWaits.at(index).payload : QVariantMap{};
     }
+    QString avatarWaitBodyForTest(int index) const
+    {
+        return index >= 0 && index < m_avatarWaits.size()
+            ? m_avatarWaits.at(index).body : QString();
+    }
+    /// Messages held for their decryption key, and the hold.
+    int heldUndecryptableCountForTest() const { return m_heldUtds.size(); }
+    void setUndecryptableHoldMsForTest(int ms) { m_utdHoldMs = ms; }
+    /// Stand-in for the desktop's Do Not Disturb state.
+    void setDesktopInhibitedForTest(bool inhibited)
+    { m_daemonInhibited = inhibited; }
+    /// Notify replies this manager has processed, current or stale, so a test
+    /// can wait for evidence rather than for time.
+    int notifyRepliesProcessedForTest() const { return m_notifyReplies; }
+    /// Pretend the session is Wayland, so the activation token is exported.
+    void setAssumeWaylandForTest(bool wayland) { m_assumeWayland = wayland; }
 
     // ── Composite thread-timeline ids never leave this class ──
     // Thread replies arrive with the composite timeline id in
@@ -246,7 +347,9 @@ public:
                                         const QString &threadRootId);
 
 Q_SIGNALS:
-    // The user activated a notification. Identity only — no tokens.
+    // The user activated a notification. Identity only — no tokens. Empty ids
+    // mean "raise the window" (a card whose room is no longer known, or a
+    // balloon that cannot say which of several rooms was clicked).
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
     // The user pressed Decline on the incoming-call notification.
@@ -261,6 +364,12 @@ Q_SIGNALS:
     /// CallSoundController::silenceRing decides, and quietens the card through
     /// silenceIncomingCall().
     void callSilenceRequested(const QString &callId);
+    /// The user dismissed the ringing call card (freedesktop reason 2). Not a
+    /// decline: other devices keep ringing; the app stops its own ringer.
+    void callCardDismissed(const QString &callId);
+    /// A message card left for the desktop (daemon or balloon). For window
+    /// attention hints; a silent in-place update is not a delivery.
+    void messageDelivered(const QString &roomId, bool mention);
     // Notification actions. Both carry the account the notification was raised
     // for, since the card can outlive an account switch or sign-out; the app
     // layer refuses a mismatch.
@@ -276,36 +385,65 @@ private Q_SLOTS:
     // implemented by GNOME), offered only when GetCapabilities advertises it.
     void onNotificationReplied(quint32 id, const QString &text);
     void onNotificationClosed(quint32 id, quint32 reason);
+    // Spec 1.2: the xdg-activation token for an action that follows.
+    void onActivationToken(quint32 id, const QString &token);
+    // The daemon's `Inhibited` property changed (KDE Do Not Disturb).
+    void onDaemonPropertiesChanged(const QString &interfaceName,
+                                   const QVariantMap &changed,
+                                   const QStringList &invalidated);
+    // The notification service changed hands (daemon restart): every id it
+    // gave out is meaningless now.
+    void onDaemonOwnerChanged(const QString &service, const QString &oldOwner,
+                              const QString &newOwner);
     // The tray balloon (Windows / macOS delivery) was clicked.
     void onFallbackMessageClicked();
     void onCallRingTick();
 
 private:
+    // One card on its way to the desktop.
+    struct Card {
+        QString title;
+        QString body;
+        QVariantMap payload;
+        bool sound = false;
+        // The resolved image (deliverNow), or what deliver() resolves it from.
+        QImage avatar;
+        QString avatarMxc;
+        QImage fallback;
+        // A silent in-place update (a decrypted "Encrypted message"): no
+        // sound and no messageDelivered.
+        bool replacement = false;
+    };
     // `fallback` is shown when the avatar is absent or cannot be fetched;
     // an empty image reverts to the daemon's own generic icon.
-    void deliver(const QString &title, const QString &body,
-                 const QVariantMap &payload, bool sound = false,
-                 const QString &avatarMxc = QString(),
-                 const QImage &fallback = QImage());
-    void deliverNow(const QString &title, const QString &body,
-                    const QVariantMap &payload, bool sound,
-                    const QImage &avatar);
+    void deliver(Card card);
+    void deliverNow(Card card);
+    // Builds a message card from a decision and delivers it.
+    void deliverDecision(const TimelineEvent &event, const Context &context,
+                         const Decision &decision, bool undecryptable,
+                         bool replacement);
     // Re-deliver the incoming-call notification, replacing the previous one.
     void deliverCallNotification();
     void flushAvatarWaits(bool fallbackAll);
+    void flushHeldUndecryptable();
     // Store a click payload, evicting the oldest past the cap so the most
-    // recent notifications stay clickable.
+    // recent notifications stay clickable. An evicted card is withdrawn.
     void recordPayload(quint32 id, const QVariantMap &payload);
 public:
     /// Withdraw every still-showing notification for a room that has been read
     /// (here or elsewhere), so the notification centre does not keep stale
-    /// entries. For an explicit read (mark-read, reply); the room list's walk
-    /// uses observeRoomUnread().
+    /// entries. For an explicit read (mark-read, reply, an invite resolving);
+    /// the room list's walk uses observeRoomUnread().
     void closeRoomNotifications(const QString &roomId);
-    /// The room list's unread state for a room. Read withdraws its cards, but
-    /// only once the list has shown the room unread since its latest card:
-    /// the card can come first, and a "read" that predates the message must
-    /// not withdraw it.
+    /// A thread was read: withdraw the cards its replies raised.
+    void closeThreadNotifications(const QString &roomId,
+                                  const QString &rootEventId);
+    /// The room list's unread state for a room. Read withdraws its message
+    /// cards, but only once the list has shown the room unread since its
+    /// latest card: the card can come first, and a "read" that predates the
+    /// message must not withdraw it. Thread replies and notices (a missed
+    /// call, an invite) are not what the room's unread fields count, so the
+    /// walk never withdraws them; they go with an explicit read.
     void observeRoomUnread(const QString &roomId, bool unread);
     bool roomAwaitsUnreadForTest(const QString &roomId) const
     { return m_roomsAwaitingUnread.contains(roomId); }
@@ -313,15 +451,34 @@ public:
     void setCapabilityRetryMsForTest(int ms) { m_capabilityRetryMs = ms; }
     int capabilityRequestsForTest() const { return m_capabilityRequests; }
 private:
+    // Remove a payload, and the group mapping that points at it.
     void forgetPayload(quint32 id);
     // CloseNotification without waiting for an answer.
     void closeNotification(quint32 id);
+    // Withdraw and forget the cards matching `match`, sparing the call card;
+    // also drops matching deliveries not shown yet. Returns cards withdrawn.
+    int withdrawWhere(const std::function<bool(const QVariantMap &)> &match);
+    // Remember that `id` was ours and for which account, after its payload
+    // went (sign-out, eviction).
+    void tombstone(quint32 id, const QString &accountUserId);
+    // An action arrived for a card we raised but can no longer route.
+    void handleStaleAction(quint32 id, const QString &action,
+                           const QString &text);
+    // Our own short notice for an action that did nothing.
+    void showStaleActionNotice();
     // GetCapabilities, asynchronously; delivers what waited for it. True while
     // a request is in flight; false in the pause after a failed one, when the
     // caller goes on with the fallback (escaped body, no inline reply).
     bool requestCapabilities();
+    // Do Not Disturb: the daemon's Inhibited, and GNOME's show-banners through
+    // the settings portal. Asked once per daemon, before the first delivery.
+    void queryDesktopInhibition();
     /// The one place openRequested is emitted; normalises the payload identity.
+    /// An empty payload raises the window without naming a room.
     void emitOpenFor(const QVariantMap &payload);
+    // Export the activation token the daemon gave for `id` (Wayland), so the
+    // window raise that follows may take focus.
+    void applyActivationToken(quint32 id);
     // The incoming-call ring's tray delivery; see the definition.
     bool deliverCallThroughTray();
     /// Balloon delivery for sessions with no freedesktop daemon. True when the
@@ -331,24 +488,71 @@ private:
     bool deliverThroughTray(const QString &title, const QString &body,
                             const QVariantMap &payload, const QImage &avatar,
                             bool platformSound);
+    void noteBalloon(const QVariantMap &payload);
+    bool trayCarriesSound() const;
+    // Monotonic milliseconds; immune to wall-clock steps.
+    qint64 nowMs() const { return m_clock.elapsed(); }
+
     QPointer<TrayIcon> m_fallbackTray;
     QVariantMap m_lastFallbackPayload;
+    // Distinct rooms with a balloon raised since the last balloon click. A
+    // click cannot say which balloon it was, so with more than one the window
+    // is raised without guessing.
+    QSet<QString> m_balloonRooms;
     int m_trayAttempts = 0;
     bool m_lastTrayPlatformSound = false;
+    QString m_lastTrayTitle;
+    QString m_lastTrayBody;
+    int m_trayCarriesSoundOverride = -1;
 
     // Bounded number of click payloads retained for routing.
     static constexpr int kMaxPendingPayloads = 64;
+    static constexpr int kMaxTombstones = 64;
 
     QHash<quint32, QVariantMap> m_pendingPayloads;
     // Insertion order of m_pendingPayloads, oldest first (QHash is unordered).
     QList<quint32> m_payloadOrder;
-    // Monotonic time of the last sound; coalesces bursts into one alert.
+    // Cards we raised and can no longer route, and the account each was for.
+    QHash<quint32, QString> m_tombstones;
+    QList<quint32> m_tombstoneOrder;
+    // One card per group (room, thread, or keyed notice): its id once the
+    // daemon answered, whether a Notify is in flight, the newest card waiting
+    // for that answer (a second Notify with replaces_id 0 would raise a
+    // duplicate), and how many messages it stands for.
+    struct CardGroup {
+        quint32 id = 0;
+        bool inFlight = false;
+        bool withdrawn = false;
+        int count = 0;
+        // The newest card's payload: what a withdrawal matches before (or
+        // while) the daemon answers.
+        QVariantMap payload;
+        std::optional<Card> next;
+    };
+    QHash<QString, CardGroup> m_groups;
+    // Activation tokens by notification id, until the action they precede.
+    QHash<quint32, QString> m_activationTokens;
+    bool m_assumeWayland = false;
+
+    QElapsedTimer m_clock;
+    // Monotonic time of the last sound and of the last mention sound;
+    // coalesces bursts into one alert, though a mention breaks through an
+    // ordinary burst.
     qint64 m_lastSoundMs = 0;
+    qint64 m_lastMentionSoundMs = 0;
+    bool m_soundPlayed = false;
+    bool m_mentionSoundPlayed = false;
     SoundSource m_soundSource = SourceLightning;
     std::function<bool(bool)> m_ownSound;
+    std::function<bool()> m_soundAllowed;
+    bool m_daemonInhibited = false;
+    bool m_bannersOff = false;
+    bool m_inhibitionQueried = false;
+    qint64 m_inhibitionQueriedAtMs = 0;
     /// Decides and, for Lightning's chime, plays: called once per delivery,
-    /// at the point it leaves for the daemon or the tray.
-    SoundPlan takeSoundPlan(bool sound, bool mention);
+    /// at the point it leaves for the daemon or the tray. `pathCarriesSound`:
+    /// the delivery can make the platform's sound at all.
+    SoundPlan takeSoundPlan(bool sound, bool mention, bool pathCarriesSound);
     // Escapes a body iff the daemon advertises body-markup. The only place a
     // notification body is escaped; callers pass raw text. Needs the
     // capabilities.
@@ -363,25 +567,44 @@ private:
     int m_capabilityRequests = 0;
     qint64 m_capabilityRetryAtMs = 0;
     int m_capabilityRetryMs = 30000;
-    struct CapabilityWait {
-        QString title;
-        QString body;
-        QVariantMap payload;
-        bool sound = false;
-        QImage avatar;
-    };
-    QList<CapabilityWait> m_capabilityWaits;
+    QList<Card> m_capabilityWaits;
     bool m_callWaitsForCapabilities = false;
     // The call card's Notify is in flight; a redraw meanwhile waits for it.
     bool m_callNotifyInFlight = false;
     bool m_callRedrawPending = false;
-    // Bumped by clearPending(), so a reply for the previous account is dropped.
+    // Bumped by clearPending(), so a reply for the previous account is not
+    // routed (and its card is closed).
     quint64 m_deliveryGeneration = 0;
+    // Bumped when the daemon changes hands: a reply from the old one names an
+    // id the new one may have given to another application.
+    quint64 m_daemonGeneration = 0;
+    int m_notifyReplies = 0;
     // Rooms with a card raised since the room list last showed them unread,
-    // and until when a "read" from the list is not believed.
+    // and until when (monotonic) a "read" from the list is not believed.
     QHash<QString, qint64> m_roomsAwaitingUnread;
     int m_awaitUnreadMs = 5000;
     QString m_accountUserId;
+
+    // Undecryptable messages held for their key, and the undecryptable events
+    // seen live this session (so a late decryption is decided once, and a
+    // history backfill is not).
+    struct HeldUtd {
+        std::shared_ptr<const TimelineEvent> event;
+        Context context;
+        qint64 dueMs = 0;
+    };
+    QList<HeldUtd> m_heldUtds;
+    QTimer m_utdHoldTimer;
+    int m_utdHoldMs = 3000;
+    // Quiet: did not notify; Held: waiting for its key; Delivered: shown as
+    // "Encrypted message"; Decided: its plaintext was decided, never again.
+    enum class UtdState : quint8 { Quiet, Held, Delivered, Decided };
+    struct LiveUtd {
+        UtdState state = UtdState::Quiet;
+        qint64 seenMs = 0;
+    };
+    QHash<QString, LiveUtd> m_liveUtds;
+    QList<QString> m_liveUtdOrder;
 
     // Incoming-call ring state: the active call, its notification id (for
     // replaces_id and CloseNotification), the repeat timer and deadline.
@@ -395,24 +618,20 @@ private:
     bool m_activeCallRtcLane = false;
     bool m_activeCallSilenceOffered = false;
     quint32 m_activeCallNotificationId = 0;
-    // Whether this call was already announced through the tray. Reset on every
-    // raise and stop.
+    // The daemon expired the card (reason 1): it is in the history, not on
+    // screen. Its id is kept so the end of the call can withdraw it, but it
+    // is never redrawn.
+    bool m_activeCallCardExpired = false;
+    // Whether this call was already announced through the tray. Reset when
+    // the call changes, never by a re-announcement of the same call.
     bool m_activeCallTrayDelivered = false;
     int m_callTrayAttempts = 0;
     QVariantMap m_lastCallTrayPayload;
     qint64 m_callRingDeadlineMs = 0;
     QTimer m_callRingTimer;
     int m_genericNoticeCount = 0;
-    struct WaitingDelivery {
-        QString title;
-        QString body;
-        QVariantMap payload;
-        bool sound = false;
-        QString avatarMxc;
-        QImage fallback;
-    };
     std::function<QImage(const QString &, bool)> m_avatarImage;
     std::function<bool(const QString &)> m_avatarFailed;
-    QList<WaitingDelivery> m_avatarWaits;
+    QList<Card> m_avatarWaits;
     QTimer m_avatarWaitTimer;
 };

@@ -182,18 +182,33 @@ char *mx_rust_poll_command_event(void *client);
 /* 0.5.8 Matrix-native room state commands. Results are asynchronous events;
  * no composer text, raw events, or secret material crosses these calls. */
 char *mx_rust_send_typing(void *client, const char *room_id, int typing);
+/* The AUTOMATIC receipt while reading the live timeline: ONE receipt on the
+ * MAIN thread (so unread thread replies stay unread), public in mode 0 and
+ * `m.read.private` in modes 1 and 2. It does NOT move m.fully_read any more:
+ * call mx_rust_set_fully_read_marker when the user leaves the room. */
 char *mx_rust_send_read_receipt(void *client,
                                 const char *room_id,
                                 const char *event_id);
+/* Move this account's m.fully_read marker (private account data, the "New
+ * messages" divider) to event_id, with no read receipt and without touching
+ * the manual unread flag. Same privacy in every mode: nobody else can see it.
+ * Answers only on failure: room_action_error with action="fully_read". */
+char *mx_rust_set_fully_read_marker(void *client,
+                                    const char *room_id,
+                                    const char *event_id);
 /* Receipt privacy for EVERY subsequent receipt this bridge sends, from any
- * of its three paths: 0 public, 1 private (`m.read.private`), 2 none. The
+ * of its three paths: 0 public, 1 private (`m.read.private`), 2 "do not send
+ * read receipts" — which also sends `m.read.private`, as Element does: other
+ * members see nothing, and this account's own devices can still clear the
+ * room (matrix-sdk counts unread from m.read / m.read.private only). The
  * fully-read marker — this account's own place in the room — is sent in
- * every mode; only what OTHER people can see changes. Not retroactive. */
+ * every mode by mark-as-read. Not retroactive. */
 char *mx_rust_set_receipt_privacy(void *client, int mode);
 char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
 /* Mark a room read WITHOUT opening it. The target event comes from the SDK's
- * own Room::latest_event(), so no timeline needs to be loaded. Sends the
- * public read receipt AND m.fully_read together, and always clears the
+ * own Room::latest_event(), so no timeline needs to be loaded. Sends an
+ * UNTHREADED read receipt (public or private per the privacy mode; it covers
+ * the room's threads too) AND m.fully_read together, and always clears the
  * manual unread flag. Answers on read_marker_advanced, or room_action_error
  * with action="mark_read". */
 char *mx_rust_mark_room_read(void *client, const char *room_id);

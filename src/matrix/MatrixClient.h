@@ -423,6 +423,16 @@ public:
                             int timeoutMs = 20000) = 0;
     virtual void sendReadReceipt(const QString &roomId,
                                  const QString &eventId) = 0;
+    /// Move the room's `m.fully_read` marker (the "New messages" divider every
+    /// client draws) to `eventId`. Separate from sendReadReceipt, which no
+    /// longer moves it: the divider must survive a visit, so the marker
+    /// advances only when the user leaves the room. Backends without it leave
+    /// this inert.
+    virtual void setFullyReadMarker(const QString &roomId, const QString &eventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(eventId);
+    }
     /// Who learns that this account read a message: 0 public, 1 private
     /// (`m.read.private`), 2 nobody. Applies to later receipts only; a sent
     /// receipt cannot be retracted.
@@ -1253,7 +1263,8 @@ public:
     // Activity Center seed: the server's highlight notifications
     // (GET /notifications?only=highlight), bounded to `limit`. Answers on
     // activitySeedReceived with [{eventId, roomId, senderId, timestampMs, read,
-    // encrypted, preview, threadRootId}]; never ciphertext.
+    // encrypted, preview, threadRootId, msgtype}], or activitySeedFailed;
+    // never ciphertext.
     virtual void requestActivitySeed(int limit) { Q_UNUSED(limit); }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
@@ -1853,6 +1864,31 @@ Q_SIGNALS:
                                   const QString &rootEventId, bool ok,
                                   bool subscribed);
     void eventAppended(const QString &roomId, const TimelineEvent &event);
+    /// A live remote event that did NOT go out on eventAppended, for the
+    /// notification and Activity Center consumers ONLY. Never connect a
+    /// timeline model to it: the event is either not a main-timeline row at all
+    /// (a thread reply in the open room, which its live timeline hides) or has
+    /// already been delivered to the model as an insert (a message landing
+    /// above a pending or failed send). `roomId` is always the real room id,
+    /// never a composite timeline id; a thread reply carries threadRootId.
+    /// Consumers de-duplicate thread events by event id, as they already do
+    /// for eventAppended.
+    void liveEventObserved(const QString &roomId, const TimelineEvent &event);
+    /// An event first seen undecryptable became readable (keys arrived late,
+    /// CLAUDE.md section 9). Emitted at most once per event id per session,
+    /// and only for an event this session saw arrive: never for history that
+    /// decrypts when a room is opened. `event` is the decrypted event with the
+    /// verdict computed on the decrypted content when the bridge knows it
+    /// (unknown otherwise), its thread root, mentions, and `backlog` set when
+    /// the undecryptable copy was itself history. Notification and Activity
+    /// Center consumers only; timeline models are updated by their own diffs.
+    void eventDecrypted(const QString &roomId, const TimelineEvent &event);
+    /// A room's highlight count rose by `count` without a highlighted event
+    /// being delivered for it (the room list sends one event per room per
+    /// response, so a mention followed by another message is never seen).
+    /// Never raised before the initial sync, for a room's first count, or for
+    /// a rise that came with history (a catch-up).
+    void roomHighlightsUnnotified(const QString &roomId, int count);
     void eventStatusChanged(const QString &roomId,
                             const QString &eventId,
                             TimelineEvent::Status status);
@@ -1906,6 +1942,13 @@ Q_SIGNALS:
     // FFI call can be rejected, so nothing downstream may assume it landed.
     void readMarkerAdvanced(const QString &roomId);
     void markRoomReadFailed(const QString &roomId);
+    /// The outcome of one sendReadReceipt: the homeserver accepted the receipt
+    /// for `eventId`, or it was not delivered (refused by the bridge, or the
+    /// request failed; it is not retried by the backend). A receipt superseded
+    /// by a newer one for the same room before it was sent reports nothing;
+    /// the newer one reports. Room and event ids only.
+    void readReceiptAccepted(const QString &roomId, const QString &eventId);
+    void readReceiptFailed(const QString &roomId, const QString &eventId);
     // The same pair for a THREAD's own receipt (markThreadRead): accepted by
     // the homeserver, or failed. Room id and thread root id only.
     // Both carry the `opId` markThreadRead() was given.
@@ -2257,12 +2300,18 @@ Q_SIGNALS:
     void roomSendFinished(quint64 opId, const QString &roomId, bool ok,
                           const QString &category);
     // A reaction seen over sync in any room. Only ids, sender and the bounded
-    // key cross; the Activity Center decides whether it targets the user's own
-    // message.
+    // key cross. `targetIsOwn` is true only when the backend confirmed from its
+    // own store that the reacted-to event is the user's (false means "not
+    // known", never "not ours"); `backlog` marks a reaction that is history
+    // (initial sync, catch-up) rather than an arrival.
     void reactionEventReceived(const QString &roomId, const QString &reactionEventId,
                                const QString &targetEventId, const QString &senderId,
-                               const QString &key, qint64 timestampMs);
+                               const QString &key, qint64 timestampMs,
+                               bool targetIsOwn = false, bool backlog = false);
     void activitySeedReceived(const QVariantList &entries);
+    // requestActivitySeed failed: nothing was fetched. Distinct from an empty
+    // seed, which means the server has no highlights.
+    void activitySeedFailed();
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

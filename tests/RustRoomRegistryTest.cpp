@@ -7,6 +7,7 @@
 #include "matrix/RustRoomRegistry.h"
 #include "matrix/RustTimelineMirror.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSet>
@@ -402,6 +403,97 @@ private Q_SLOTS:
         applySnapshot(registry, second);
         QVERIFY(!map.value(roomId(0)).unreadThreadsOnly);
         QVERIFY(!map.value(roomId(0)).mentionInThreads);
+    }
+
+    // Finding 65: the m.lowpriority tag reaches RoomInfo, and an emission
+    // without it (the tag was removed) clears it rather than latching.
+    void theLowPriorityTagFollowsThePayloadAndNeverLatches()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject tagged = roomJson(roomId(0));
+        tagged.insert(QStringLiteral("is_low_priority"), true);
+        applyIndexReset(registry, QJsonArray{ tagged });
+        QVERIFY(map.value(roomId(0)).lowPriority);
+
+        applySnapshot(registry, QJsonArray{ roomJson(roomId(0)) });
+        QVERIFY(!map.value(roomId(0)).lowPriority);
+    }
+
+    // The 1:1 DM rule (calls::oneToOneDmPeer) needs joined + invited members
+    // as matrix-sdk counts them; an older bridge sends only the joined count,
+    // and a payload without either keeps what was known.
+    void theActiveMemberCountReachesTheRoom()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject room = roomJson(roomId(0));
+        room.insert(QStringLiteral("member_count"), 2);
+        room.insert(QStringLiteral("active_member_count"), 3);
+        applyIndexReset(registry, QJsonArray{ room });
+        QCOMPARE(map.value(roomId(0)).activeMemberCount, 3);
+
+        QJsonObject older = roomJson(roomId(0));
+        older.insert(QStringLiteral("member_count"), 2);
+        applySnapshot(registry, QJsonArray{ older });
+        QCOMPARE(map.value(roomId(0)).activeMemberCount, 2);
+
+        applySnapshot(registry, QJsonArray{ roomJson(roomId(0)) });
+        QCOMPARE(map.value(roomId(0)).activeMemberCount, 2);
+
+        RoomInfo a;
+        a.id = roomId(0);
+        RoomInfo b = a;
+        b.activeMemberCount = 3;
+        QVERIFY(a != b);
+    }
+
+    // A tag change must be a change: replaceRoom skips dataChanged for an
+    // equal room, so a row would keep its old section.
+    void aLowPriorityChangeIsAChangeButACounterStampIsNot()
+    {
+        RoomInfo a;
+        a.id = roomId(0);
+        RoomInfo b = a;
+        b.lowPriority = true;
+        QVERIFY(a != b);
+        // The stamp moves on every payload; counting it would announce every
+        // room on every room-list diff.
+        RoomInfo c = a;
+        c.countsWrittenAtMs = 12345;
+        QVERIFY(a == c);
+    }
+
+    // Finding 4: a consumer must be able to tell counters written after a row
+    // it holds from counters that predate it. Only a payload carrying the
+    // counters stamps them.
+    void onlyAPayloadCarryingTheCountersStampsThem()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        applyIndexReset(registry, QJsonArray{ roomJson(roomId(0)) });
+        QCOMPARE(map.value(roomId(0)).countsWrittenAtMs, qint64(0));
+
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        QJsonObject counted = roomJson(roomId(0));
+        counted.insert(QStringLiteral("unread_count"), 3);
+        counted.insert(QStringLiteral("highlight_count"), 1);
+        applySnapshot(registry, QJsonArray{ counted });
+        const qint64 stamped = map.value(roomId(0)).countsWrittenAtMs;
+        QVERIFY2(stamped >= before, "a payload with counters did not stamp them");
+        QVERIFY(stamped <= QDateTime::currentMSecsSinceEpoch());
+
+        // A payload without counters (a name change, say) keeps the old stamp
+        // and the old counters.
+        applySnapshot(registry, QJsonArray{ roomJson(roomId(0), QStringLiteral("Renamed")) });
+        QCOMPARE(map.value(roomId(0)).countsWrittenAtMs, stamped);
+        QCOMPARE(map.value(roomId(0)).highlightCount, 1);
     }
 
     void anEmptyPreviewNeverClobbersAKnownOne()

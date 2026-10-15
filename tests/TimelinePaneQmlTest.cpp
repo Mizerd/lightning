@@ -5432,10 +5432,12 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The SDK's ReadMarker row renders collapsed while pinned to the bottom,
-    // or the own-receipt ack cycle bounces the "New messages" divider under
-    // every incoming message. It appears only for a reader who scrolled up.
-    void newMessagesDividerCollapsesWhilePinnedToBottom()
+    // The "New messages" divider stays for the whole visit, pinned or not:
+    // m.fully_read now moves only when the reader leaves the room
+    // (ReadReceiptCoordinator), so the own-receipt ack cycle no longer bounces
+    // it, and hiding it while pinned lost the reader's place in a room opened
+    // at the bottom. Its height does not change with following, either.
+    void newMessagesDividerStaysWhilePinnedToBottom()
     {
         AppController controller(AppController::MockBackend);
         const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
@@ -5511,19 +5513,20 @@ private Q_SLOTS:
             QStringLiteral("unreadDivider"));
         QVERIFY(divider != nullptr);
 
-        // Pinned to the bottom: the marker row renders as nothing.
-        QVERIFY(!divider->isVisible());
-        QCOMPARE(markerItem->implicitHeight(), 0.0);
-
-        // Scrolled up: the divider is back.
-        QVERIFY(timeline->setProperty("stickToBottom", false));
+        // Pinned to the bottom: the divider is shown.
         QTRY_VERIFY_WITH_TIMEOUT(divider->isVisible(), 2000);
-        QVERIFY(markerItem->implicitHeight() >= 28.0);
+        const qreal pinnedHeight = markerItem->implicitHeight();
+        QVERIFY(pinnedHeight >= 28.0);
 
-        // Returning to the bottom collapses it again.
+        // Scrolled up and back: still shown, and the row keeps its height.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTest::qWait(50);
+        QVERIFY(divider->isVisible());
+        QCOMPARE(markerItem->implicitHeight(), pinnedHeight);
         QVERIFY(timeline->setProperty("stickToBottom", true));
-        QTRY_VERIFY_WITH_TIMEOUT(!divider->isVisible(), 2000);
-        QCOMPARE(markerItem->implicitHeight(), 0.0);
+        QTest::qWait(50);
+        QVERIFY(divider->isVisible());
+        QCOMPARE(markerItem->implicitHeight(), pinnedHeight);
 
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
@@ -8903,6 +8906,152 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
     }
 
+    // The room was opened with unread messages but the marker lies above the
+    // loaded rows: the pill is still offered, and its hunt is bounded, so
+    // with nothing to find it withdraws instead of promising for ever.
+    void thePillIsOfferedWhenTheMarkerIsAboveTheLoadedRows()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QVERIFY2(controller.roomList()->findRoom(roomId)
+                         .value(QStringLiteral("unreadCount")).toInt() > 0,
+                 "the fixture room opens with unread messages");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("d"), QStringLiteral("body")),
+            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), -1);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QTRY_VERIFY2_WITH_TIMEOUT(pill->isVisible(),
+                                  "a marker above the loaded rows offers no jump",
+                                  2000);
+
+        QMetaObject::invokeMethod(pill, "click");
+        QTRY_VERIFY2_WITH_TIMEOUT(!pill->isVisible(),
+                                  "the bounded hunt found nothing and the pill "
+                                  "still promises a jump", 8000);
+        QCOMPARE(controller.timeline()->readMarkerRow(), -1);
+    }
+
+    // A read-marker row that was loaded and then goes away takes the pill with
+    // it. The "opened with unread" snapshot stands in only for a marker the
+    // reader has not seen loaded; once the row was there, its removal (the
+    // coordinator writing m.fully_read on window deactivation, or another
+    // device moving it) must not bring the pill back as a jump the bounded
+    // hunt cannot land. History is left unexhausted on purpose, so the only
+    // thing that can hide the pill is the marker going away.
+    void aReadMarkerThatGoesAwayTakesThePillWithIt()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QVERIFY2(controller.roomList()->findRoom(roomId)
+                         .value(QStringLiteral("unreadCount")).toInt() > 0,
+                 "the fixture room opens with unread messages");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+
+        const QList<TimelineEvent> plain =
+            textFixture(roomId, 30, QStringLiteral("g"), QStringLiteral("body"));
+        QList<TimelineEvent> withMarker = plain;
+        TimelineEvent marker;
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        withMarker.insert(20, marker);
+
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          withMarker, /*paginationPages=*/3,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(controller.timeline()->readMarkerRow() >= 0);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QTRY_VERIFY2_WITH_TIMEOUT(pill->isVisible(),
+                                  "the marker is loaded and the pill is hidden",
+                                  2000);
+
+        // The SDK drops the marker row (the same rows, minus the marker).
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->resetTimelineForTest(roomId, plain, /*paginationPages=*/3);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->readMarkerRow(), -1,
+                                  3000);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->eventCount() > 0,
+                                 3000);
+        // The pill's other gate is still open: history is not exhausted.
+        QVERIFY2(!controller.pagination()->reachedStart(),
+                 "the fixture reached the start, so it cannot tell the two "
+                 "reasons for hiding the pill apart");
+
+        QTRY_VERIFY2_WITH_TIMEOUT(!pill->isVisible(),
+                                  "the marker went away and the pill still "
+                                  "offers a jump to it", 2000);
+        // And it stays hidden: nothing re-arms the snapshot this visit.
+        QTest::qWait(200);
+        QVERIFY(!pill->isVisible());
+    }
+
+    // The deep-marker pill (no marker row loaded, room opened with unread)
+    // withdraws when Lightning itself writes m.fully_read for the room: the
+    // window lost focus with the reader at the bottom, so nothing unread is
+    // left above the loaded rows and a hunt could not land. A write for
+    // ANOTHER room changes nothing. The coordinator's emission is covered by
+    // ReadReceiptCoordinatorTest::windowDeactivationMovesTheFullyReadMarker;
+    // this case drives the pane's half through the real signal.
+    void theDeepMarkerPillWithdrawsWhenTheFullyReadMarkerIsWritten()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QVERIFY2(controller.roomList()->findRoom(roomId)
+                         .value(QStringLiteral("unreadCount")).toInt() > 0,
+                 "the fixture room opens with unread messages");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("w"), QStringLiteral("body")),
+            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), -1);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QTRY_VERIFY2_WITH_TIMEOUT(pill->isVisible(),
+                                  "a marker above the loaded rows offers no jump",
+                                  2000);
+        ReadReceiptCoordinator *receipts = controller.readReceipts();
+        QVERIFY(receipts != nullptr);
+
+        // Another room's write leaves this room's pill alone.
+        QVERIFY(QMetaObject::invokeMethod(
+            receipts, "fullyReadMarkerMoved",
+            Q_ARG(QString, QStringLiteral("!elsewhere:mock.local")),
+            Q_ARG(QString, QStringLiteral("$x"))));
+        QTest::qWait(50);
+        QVERIFY(pill->isVisible());
+
+        QVERIFY(QMetaObject::invokeMethod(
+            receipts, "fullyReadMarkerMoved", Q_ARG(QString, roomId),
+            Q_ARG(QString, QStringLiteral("$w-newest"))));
+        QVERIFY2(!controller.pagination()->reachedStart(),
+                 "the fixture reached the start, so it cannot tell the two "
+                 "reasons for hiding the pill apart");
+        QTRY_VERIFY2_WITH_TIMEOUT(!pill->isVisible(),
+                                  "m.fully_read was written past everything "
+                                  "and the pill still offers a jump", 2000);
+    }
+
     // No marker, no pill.
     void noReadMarkerMeansNoPill()
     {
@@ -8922,7 +9071,12 @@ private Q_SLOTS:
             QStringLiteral("jumpToFirstUnreadButton"));
         QVERIFY(pill != nullptr);
         QVERIFY2(!pill->isVisible(),
-                 "the pill is offered with nothing to jump to");
+                 qPrintable(QStringLiteral(
+                     "the pill is offered with nothing to jump to "
+                     "(openedWithUnread %1, moreHistory %2, reachedStart %3)")
+                     .arg(root->property("openedWithUnread").toBool())
+                     .arg(controller.pagination()->moreHistory())
+                     .arg(controller.pagination()->reachedStart())));
     }
 
     // The find bar's History segment searches the local index (which covers
@@ -9862,6 +10016,10 @@ private Q_SLOTS:
         // driven by hand: the offscreen platform may activate the test window.
         QObject::disconnect(qGuiApp,
                             SIGNAL(applicationStateChanged(Qt::ApplicationState)),
+                            &controller, nullptr);
+        // Focus changes re-derive the main window's activity too (finding
+        // 69), and showing this case's window moves focus.
+        QObject::disconnect(qGuiApp, SIGNAL(focusWindowChanged(QWindow*)),
                             &controller, nullptr);
         receipts->setWindowActive(false);
         receipts->setDebounceMs(10);

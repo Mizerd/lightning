@@ -107,6 +107,12 @@ public:
     /// Number of participant devices in the room's call; 0 means none (or not
     /// observed yet).
     Q_INVOKABLE int participantCount(const QString &roomId) const;
+    /// participantCount() only when the read behind it can say who is there:
+    /// a usable store view ("store") or the server's answer ("server",
+    /// "server-none"). -1 for anything else: not read yet, a store with no
+    /// session in it, a failed request, or a read held back by its cooldown,
+    /// all of which can read 0 with people in the call.
+    int authoritativeParticipantCount(const QString &roomId) const;
     /// True when somebody is in the room's call and nothing closed it.
     Q_INVOKABLE bool hasLiveSession(const QString &roomId) const;
     /// True when one of the local user's devices is in the call.

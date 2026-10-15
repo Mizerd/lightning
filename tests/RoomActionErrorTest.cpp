@@ -62,8 +62,9 @@ private Q_SLOTS:
                  "the room_action_error branch is gone; this contract is "
                  "pinned to a handler that no longer exists");
         // Bounded to the branch, so a call somewhere else in this very large
-        // file cannot satisfy it.
-        const QString body = source.mid(branch, 1400);
+        // file cannot satisfy it. 2400: the branch also settles a failed read
+        // receipt (readReceiptFailed, 2026-10-15) before it reports.
+        const QString body = source.mid(branch, 2400);
         QVERIFY2(body.contains(QStringLiteral("room_action::userFacingError")),
                  "the room_action_error branch no longer asks for a "
                  "user-facing message, so a refused Favourite or Mark as read "
@@ -119,7 +120,7 @@ private Q_SLOTS:
         const QString source = QString::fromUtf8(file.readAll());
         const int branch = source.indexOf(QStringLiteral("\"room_action_error\""));
         QVERIFY(branch > 0);
-        const QString body = source.mid(branch, 1400);
+        const QString body = source.mid(branch, 2400);
         QVERIFY2(body.contains(QStringLiteral("\"reason=\"")),
                  "the failure log line does not carry the reason, so a failed "
                  "room action cannot be diagnosed from a log");
@@ -135,7 +136,9 @@ private Q_SLOTS:
         QVERIFY2(!lib.contains(QStringLiteral("\"type\": \"room_action_error\"")),
                  "a room_action_error is still built by hand in lib.rs, without "
                  "its reason");
-        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 4);
+        // Five since 2026-10-15: mx_rust_set_fully_read_marker reports a
+        // failed m.fully_read write the same way (action "fully_read").
+        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 5);
     }
 
     // A queue overflow must repair the stream, not only announce it. The

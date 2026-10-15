@@ -2134,10 +2134,17 @@ void SettingsManager::setRoomNotificationModeUnsynced(const QString &roomId,
         return;
     const QString key = roomNotificationScopePrefix()
         + QStringLiteral("notifications/room-mode-unsynced/") + roomId;
+    const bool wasUnsynced = m_store->contains(key);
+    const int oldBase = roomNotificationModeUnsyncedBase(roomId);
     if (unsynced)
         m_store->setValue(key, (serverBase >= 0 && serverBase <= 3) ? serverBase : -1);
     else
         m_store->remove(key);
+    // roomUnreadMode() reads this flag, so a surface that counts unread
+    // (the tray) must hear about a change in it.
+    if (wasUnsynced != unsynced
+        || (unsynced && oldBase != ((serverBase >= 0 && serverBase <= 3) ? serverBase : -1)))
+        Q_EMIT roomNotificationModeChanged(roomId);
 }
 
 QStringList SettingsManager::unsyncedRoomNotificationModes() const
@@ -2172,6 +2179,15 @@ QStringList SettingsManager::accountRoomNotificationModeRooms() const
     const QStringList rooms = m_store->childKeys();
     m_store->endGroup();
     return rooms;
+}
+
+bool SettingsManager::hasStoredRoomNotificationMode(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return false;
+    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    return (!scopedKey.isEmpty() && m_store->contains(scopedKey))
+        || m_store->contains(roomNotificationModeGlobalKey(roomId));
 }
 
 int SettingsManager::roomNotificationMode(const QString &roomId) const

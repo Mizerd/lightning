@@ -357,8 +357,11 @@ ApplicationWindow {
             app.showMain()
             app.currentRoomId = roomId
             var inThread = threadRootId && threadRootId.length > 0
+            // The thread panel lands on the notified reply once the thread is
+            // Ready (bounded thread pagination, highlighted), instead of
+            // wherever the panel was last left.
             if (inThread)
-                app.thread.openThread(roomId, threadRootId)
+                app.thread.openThreadAt(roomId, threadRootId, eventId || "")
             // A thread reply is not in the room timeline (Live with
             // hide_threaded_events), so jumping to it there can only fail; the
             // thread panel opened above is the destination. The thread root

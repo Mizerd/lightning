@@ -4,6 +4,8 @@
 // QApplication (QTEST_MAIN) rather than composer-spell-test's guiless main.
 
 #include <QAction>
+#include <QCoreApplication>
+#include <QEvent>
 #include <QFile>
 #include <QImage>
 #include <QMenu>
@@ -45,6 +47,57 @@ private slots:
         show->trigger();
         QCOMPARE(shown.count(), 1);
         QCOMPARE(quitting.count(), 1);
+    }
+
+    // Finding 145: the dot-only state (unread rooms, no count) had no words.
+    void theTooltipSaysUnreadInTheDotOnlyState()
+    {
+        const QString dotOnly = TrayIcon::tooltipText(QString(), 0, true);
+        QVERIFY2(dotOnly.contains(QLatin1Char('\n')), qPrintable(dotOnly));
+        QVERIFY(dotOnly.contains(QStringLiteral("Unread messages")));
+        QCOMPARE(TrayIcon::tooltipText(QString(), 0, false),
+                 QStringLiteral("Lightning"));
+        QVERIFY(TrayIcon::tooltipText(QStringLiteral("@a:b"), 3, true)
+                    .contains(QStringLiteral("3")));
+    }
+
+    // Finding 144: the cached menu kept the language it was built in.
+    void aLanguageChangeRetranslatesTheCachedMenu()
+    {
+        TrayIcon tray;
+        QMenu *menu = tray.contextMenu();
+        QList<QAction *> acts;
+        for (QAction *a : menu->actions())
+            if (!a->isSeparator())
+                acts << a;
+        QCOMPARE(acts.size(), 2);
+        acts[0]->setText(QStringLiteral("stale"));
+        acts[1]->setText(QStringLiteral("stale"));
+        QEvent change(QEvent::LanguageChange);
+        QCoreApplication::sendEvent(qApp, &change);
+        QCOMPARE(acts[0]->text(), QStringLiteral("Show Lightning"));
+        QCOMPARE(acts[1]->text(), QStringLiteral("Quit Lightning"));
+    }
+
+    // Finding 42: macOS Control-click arrives as Trigger.
+    void aMacControlClickIsASecondaryClick()
+    {
+        QCOMPARE(TrayIcon::effectiveActivationReason(QSystemTrayIcon::Trigger, true, true),
+                 int(QSystemTrayIcon::Context));
+        QCOMPARE(TrayIcon::effectiveActivationReason(QSystemTrayIcon::Trigger, true, false),
+                 int(QSystemTrayIcon::Trigger));
+        QCOMPARE(TrayIcon::effectiveActivationReason(QSystemTrayIcon::Trigger, false, true),
+                 int(QSystemTrayIcon::Trigger));
+        QCOMPARE(TrayIcon::effectiveActivationReason(QSystemTrayIcon::DoubleClick, true, true),
+                 int(QSystemTrayIcon::DoubleClick));
+    }
+
+    // Finding 36: a non-zero timeout deletes the notification from
+    // Notification Center on macOS.
+    void macOSBalloonsAreNeverTimedOut()
+    {
+        QCOMPARE(TrayIcon::balloonTimeoutMs(true), 0);
+        QVERIFY(TrayIcon::balloonTimeoutMs(false) > 0);
     }
 
     // The right click opens the menu; it must not also raise the window

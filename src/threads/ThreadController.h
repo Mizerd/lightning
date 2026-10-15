@@ -41,6 +41,14 @@ class ThreadController : public QObject
     Q_PROPERTY(int roomThreadUnread READ roomThreadUnread
                    NOTIFY roomThreadUnreadChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
+    /// Whether the reader is looking at the open thread's newest reply right
+    /// now. ThreadPanel writes `followLatest && panel visible && Window.active`;
+    /// it reads true only while the thread is Ready. It gates the thread's
+    /// read receipt (markRead) and the desktop-notification suppression for
+    /// replies in this thread, so a panel left open behind another window
+    /// marks nothing read. Becoming true marks the newest reply read.
+    Q_PROPERTY(bool viewerAtLatest READ viewerAtLatest WRITE setViewerAtLatest
+                   NOTIFY viewerAtLatestChanged)
     /// Photo metadata policy ("location" | "all" | "keep"), pushed in from
     /// qml/Main.qml beside the room composer's. Thread attachments are images
     /// leaving the client like any other.
@@ -119,6 +127,8 @@ public:
     bool supported() const;
     State state() const { return m_state; }
     bool active() const { return m_state != Closed; }
+    bool viewerAtLatest() const { return m_viewerAtLatest && m_state == Ready; }
+    void setViewerAtLatest(bool atLatest);
     QString roomId() const { return m_roomId; }
     QString rootEventId() const { return m_rootEventId; }
     QString failureCategory() const { return m_failureCategory; }
@@ -213,7 +223,8 @@ public:
     // Follow/unfollow the open thread (server-side MSC4306 subscription).
     Q_INVOKABLE void setFollowed(bool followed);
     // Sends one threaded read receipt for the open thread's latest readable
-    // event (deduplicated; never room-wide).
+    // event (deduplicated; never room-wide). A no-op unless viewerAtLatest,
+    // and while a reply search is moving the reader to an older reply.
     Q_INVOKABLE void markRead();
     // Threads view lifecycle for the current room.
     Q_INVOKABLE void openList(const QString &roomId);
@@ -233,6 +244,14 @@ public:
     // history a bounded number of times and reports when the target cannot be
     // reached. Never touches the room timeline.
     Q_INVOKABLE void navigateToEvent(const QString &eventId);
+    // Opens a thread and locates one of its replies once it is Ready: a
+    // notification or Activity row for a reply lands on that reply, not
+    // wherever the panel was. Runs after every stateChanged handler (the
+    // panel's scroll restore included). Dropped if the thread fails, closes
+    // or is replaced first. An empty or root `eventId` only opens the thread.
+    Q_INVOKABLE void openThreadAt(const QString &roomId,
+                                  const QString &rootEventId,
+                                  const QString &eventId);
 
     // Test hook for the navigation policy. Non-positive arguments leave the
     // value unchanged.
@@ -253,6 +272,7 @@ Q_SIGNALS:
     void supportedChanged();
     void roomThreadUnreadChanged();
     void stateChanged();
+    void viewerAtLatestChanged();
     void replyCountChanged();
     /// The root's own row changed in place (decrypted, edited, redacted, or
     /// its sender resolved). The panel renders the root from a `rootInfo()`
@@ -282,6 +302,9 @@ private Q_SLOTS:
 
 private:
     void setState(State state, const QString &failureCategory = QString());
+    // Announces a change of viewerAtLatest() and reads the newest reply on a
+    // rising edge.
+    void syncViewerAtLatest();
     QString timelineId() const;
     // Send every queued attachment through the SDK thread path. Each becomes
     // its own local echo in the thread timeline.
@@ -360,6 +383,14 @@ private:
     bool m_followAutomatic = false;
     bool m_followBusy = false;
     QString m_lastMarkedReadEventId;
+    // What ThreadPanel last wrote; viewerAtLatest() also requires Ready.
+    bool m_viewerAtLatest = false;
+    // The value last announced through viewerAtLatestChanged.
+    bool m_viewerAtLatestAnnounced = false;
+    // openThreadAt(): the reply to locate once that thread is Ready.
+    QString m_pendingNavigationEventId;
+    QString m_pendingNavigationRoomId;
+    QString m_pendingNavigationRootEventId;
     // Thread receipts sent and not yet answered by the server, by the request
     // id each was sent with (the answers echo it, because separate receipts
     // can complete out of order). Cleared on sign-out.

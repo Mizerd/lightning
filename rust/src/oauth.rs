@@ -834,6 +834,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
         let active_qr = Arc::clone(&bridge.active_qr);
+        let sync_notify = Arc::clone(&bridge.sync_notify);
         let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
@@ -863,6 +864,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
+                            Arc::clone(&sync_notify),
                         );
                         // OAuth access tokens are short-lived, so rotations must be persisted.
                         if let Ok(mut guard) = token_task.lock() {

@@ -68,7 +68,7 @@ public:
         EncryptedRole,
         IsSpaceRole,
         MemberCountRole, // display/diagnostics only; never used for DM classification
-        CategoryRole,    // "invite" | "favourite" | "conversation"; see orderRankOf()
+        CategoryRole,    // "invite" | "favourite" | "conversation" | "lowpriority"; see orderRankOf()
         HighlightCountRole,
         MarkedUnreadRole,
         HasUnreadRole,

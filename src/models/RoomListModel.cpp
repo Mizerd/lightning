@@ -336,7 +336,11 @@ QVariantList RoomListModel::recentRooms(int max) const
             { QStringLiteral("name"),        r.name },
             { QStringLiteral("avatarUrl"),   effectiveAvatarUrl(r) },
             { QStringLiteral("isDirect"),    r.isDirect },
-            { QStringLiteral("hasUnread"),   r.hasUnreadMessages },
+            // The shared rule, so a marked-unread, thread-only or mention room
+            // reads unread here exactly as in the room list, and a muted one
+            // does not.
+            { QStringLiteral("hasUnread"),
+              roomunread::countsAsUnread(r, notificationModeOf(r.id)) },
             { QStringLiteral("unreadCount"), shownUnread(r) },
             // Home: activity recency and the mention badge.
             { QStringLiteral("lastActivity"), r.lastActivity },
@@ -430,9 +434,10 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
             if (r.isDirect) return false;
             break;
         case 3: // Unreads
-            if (!(r.hasUnreadMessages || r.markedUnread
-                  || r.highlightCount > 0)
-                || !roomunread::countsAsUnread(r, notificationModeOf(r.id))) {
+            // The shared rule alone: a room unread only in a thread has no
+            // receipt flag and no highlight, only a count, and SpaceChannelModel's
+            // Unreads chip lists it.
+            if (!roomunread::countsAsUnread(r, notificationModeOf(r.id))) {
                 if (r.id != m_pinnedRoomId)
                     return false;
             }
@@ -623,8 +628,8 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             target.insert(r.id, m_hold.target(r.id, r.lastActivity));
         }
         // Invitations first, then favourites under their own header, then one
-        // activity feed of DMs and rooms interleaved by recency. Within each
-        // rank the order is recency.
+        // activity feed of DMs and rooms interleaved by recency, then low
+        // priority rooms under theirs. Within each rank the order is recency.
         //
         // A room whose successor the user can reach sorts below every live room
         // of its rank: a demotion, not a filter, so the old room stays
@@ -814,6 +819,11 @@ void RoomListModel::reconcileRooms()
 
     setOrderHeld(m_sortPending);
     resolveMissingDirectAvatars();
+    // The account-wide totals (window title) must not depend on the scope: a
+    // room the scope filter drops emits no model signal, so it would never
+    // reach the model-signal trigger. updateUnreadTotals() is a no-op when
+    // nothing moved.
+    updateUnreadTotals();
 }
 
 void RoomListModel::resetRooms(const QList<RoomInfo> &rooms)
@@ -955,17 +965,23 @@ int RoomListModel::orderRankOf(const RoomInfo &room)
     // Favourites next, under their own header (Element's shape).
     if (room.isFavourite)
         return 1;
+    // Low priority (m.lowpriority) last, under its own header, as Element
+    // does. A room tagged both reads as a favourite: the SDK drops the other
+    // tag when either is set.
+    if (room.lowPriority)
+        return 3;
     return 2;
 }
 
 QString RoomListModel::categoryOf(const RoomInfo &room)
 {
-    // Three ranks, three values. "conversation" covers DMs and rooms alike
+    // Four ranks, four values. "conversation" covers DMs and rooms alike
     // since they interleave by recency. The presenter chooses the visible label
     // from the active filter.
     switch (orderRankOf(room)) {
     case 0: return QStringLiteral("invite");
     case 1: return QStringLiteral("favourite");
+    case 3: return QStringLiteral("lowpriority");
     default: return QStringLiteral("conversation");
     }
 }
@@ -1010,6 +1026,13 @@ void RoomListModel::updateUnreadTotals()
     int highlight = 0;
     if (m_client) {
         for (const RoomInfo &room : m_client->rooms()) {
+            if (room.membership == RoomInfo::Invited) {
+                // An invitation needs action: one highlight-level entry, as
+                // Element counts it in the title and the tray.
+                ++unread;
+                ++highlight;
+                continue;
+            }
             if (room.isSpace || room.membership != RoomInfo::Joined)
                 continue;
             // The shared rule: a muted room is neither unread nor a mention.

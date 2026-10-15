@@ -60,6 +60,8 @@
 class MatrixClient;
 class QScreen;
 class RtcController;
+struct RoomInfo;
+struct CallSignal;
 class CameraPortal;
 class ScreenCastPortal;
 class SettingsManager;
@@ -618,6 +620,10 @@ public:
     /// starts the call and must be announced: true when only this device's
     /// own stale membership is present.
     static bool startsCallForAnnouncement(const QVariantList &participants);
+    /// The MSC4075 `notification_type` our announcement carries: `ring` in an
+    /// unambiguous 1:1 DM (one m.direct target), `notification` elsewhere,
+    /// as Element Web and Element X send them.
+    static QString announcementTypeFor(const RoomInfo &room);
     /// How often the refresh tick reconciled the key lane. The reconciliation
     /// is compiled out without WebRTC; this counter is not, so tests can see
     /// the timer reach it.
@@ -697,8 +703,11 @@ public:
     /// Preparing, room and focus recorded, and a real rtcPublishMembership in
     /// flight (its op id is returned). Runs join()'s last steps, which are
     /// the only ones reachable without a media engine.
+    /// `announce`: also announce the call once the membership lands, as a
+    /// join that starts the call does.
     quint64 beginMembershipPublishForTest(const QString &roomId,
-                                          const QString &focusUrl);
+                                          const QString &focusUrl,
+                                          bool announce = false);
     /// Shorten the reaction window so its expiry, duplicate rule and parked
     /// staleness run quickly; the real timer and clauses still run.
     void setReactionWindowMsForTest(int ms)
@@ -933,6 +942,11 @@ private:
 
     void setState(State state, const QString &error = QString());
     void teardown(State finalState, const QString &error = QString());
+    /// A peer's MSC4075 decline of our ring (see m_announceEventId). Not a
+    /// slot: connected by member pointer, so moc never needs CallSignal.
+    void onCallSignal(const CallSignal &signal);
+    /// Our 1:1 ring was declined: end the call unless someone joined.
+    void endCallDeclinedIfAlone();
 
     // ── Reconnecting (see kReconnectBudgetMs in the .cpp) ──
     /// Where the current reconnect attempt is. Waiting: no SFU session, the
@@ -1235,6 +1249,16 @@ private:
     bool m_announceOnPublish = false;
     /// "video" or "audio": the announcement's intent.
     QString m_announceIntent;
+    /// Our `ring` in a 1:1 DM: its send op, the event id the server gave it,
+    /// and the one person it rang. A decline from that person, targeting
+    /// that event, while nobody else has joined, ends our call (MSC4075; as
+    /// Element does). Cleared with the call.
+    quint64 m_announceOp = 0;
+    QString m_announceEventId;
+    QString m_announcePeer;
+    /// A decline from m_announcePeer that arrived before our ring's send
+    /// answered (its target, one kept); checked when the answer lands.
+    QString m_pendingDeclineTarget;
     QString m_delayId;
     /// Why `m_delayId` is empty, in rtc.rs's vocabulary; empty when armed.
     /// `unrecognized`/`not_found`/`no_delay_id` mean no usable MSC4140

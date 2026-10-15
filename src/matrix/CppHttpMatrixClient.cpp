@@ -1382,17 +1382,49 @@ void CppHttpMatrixClient::sendTyping(const QString &roomId,
 void CppHttpMatrixClient::sendReadReceipt(const QString &roomId,
                                            const QString &eventId)
 {
-    if (!m_loggedIn || eventId.isEmpty()) return;
-    if (m_lastReceiptSent.value(roomId) == eventId) return; // debounce
-    m_lastReceiptSent[roomId] = eventId;
+    if (eventId.isEmpty()) return;
+    // Every call is answered, through the event loop: ReadReceiptCoordinator
+    // announces a receipt only on readReceiptAccepted and retries only on
+    // readReceiptFailed, so a call left unanswered would hold its receipt in
+    // flight for the rest of the visit.
+    if (!m_loggedIn) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, roomId, eventId] { Q_EMIT readReceiptFailed(roomId, eventId); },
+            Qt::QueuedConnection);
+        return;
+    }
+    // Debounce on what the server has ACCEPTED (written in the reply handler
+    // below), so a receipt that failed is sent again when it is retried
+    // rather than swallowed here as a duplicate.
+    if (m_lastReceiptSent.value(roomId) == eventId) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, roomId, eventId] { Q_EMIT readReceiptAccepted(roomId, eventId); },
+            Qt::QueuedConnection);
+        return;
+    }
 
     QUrl url = endpoint(QStringLiteral("/rooms/%1/receipt/m.read/%2")
                              .arg(percentPath(roomId), percentPath(eventId)));
     QNetworkRequest req(url);
     applyBearer(req);
     QNetworkReply *reply = m_nam->post(req, QByteArray("{}"));
-    QObject::connect(reply, &QNetworkReply::finished, reply,
-                     &QNetworkReply::deleteLater);
+    // The account the receipt was sent for: an answer arriving after sign-out
+    // or an account change records and announces nothing.
+    const QString sentFor = m_userId;
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, roomId, eventId, sentFor] {
+        reply->deleteLater();
+        if (!m_loggedIn || m_userId != sentFor)
+            return;
+        if (reply->error() != QNetworkReply::NoError) {
+            Q_EMIT readReceiptFailed(roomId, eventId);
+            return;
+        }
+        m_lastReceiptSent[roomId] = eventId;
+        Q_EMIT readReceiptAccepted(roomId, eventId);
+    });
 }
 
 // -------- media send --------

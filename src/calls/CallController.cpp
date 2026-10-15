@@ -5,6 +5,7 @@
 #include <QUuid>
 
 #include "CallMediaBackend.h"
+#include "OneToOneDm.h"
 #include "matrix/MatrixClient.h"
 #include "matrix/PresentableName.h"
 
@@ -19,6 +20,8 @@ constexpr int kRecentEndedCap = 32;
 constexpr qint64 kSenderClockSkewToleranceMs = 10000;
 constexpr qint64 kMinLifetimeMs = 5000;
 constexpr qint64 kMaxLifetimeMs = 300000;
+// Announcements already reported as a quiet notice (sync re-delivery guard).
+constexpr int kRecentNoticesCap = 32;
 // At most this many busy auto-rejects per session; further unsolicited
 // invites are dropped silently so a hostile sender cannot pump outbound sends.
 constexpr int kMaxBusyRejectsPerSession = 8;
@@ -685,7 +688,27 @@ bool CallController::hangup()
 
 void CallController::setBacklogSuppressed(bool suppressed)
 {
+    const bool lowered = m_backlogSuppressed && !suppressed;
     m_backlogSuppressed = suppressed;
+    if (!lowered)
+        return;
+    // A ring that arrived while the gate was raised reached Ringing (its
+    // freshness was already checked against its lifetime) but its
+    // announcement was refused as backlog, and nothing would ask again: the
+    // call rang silently, and its end could never be a missed call. Announce
+    // it now with what is left of its lifetime, once.
+    if (m_state != State::Ringing
+        || m_session.direction != Direction::Inbound
+        || m_session.announcedLive || m_session.answerPending)
+        return;
+    const qint64 remaining = m_session.ringDeadlineMs
+        - QDateTime::currentMSecsSinceEpoch();
+    if (remaining <= 0)
+        return;
+    m_session.announcedLive = true;
+    qCInfo(lcCalls) << "ring announced once the initial sync finished";
+    Q_EMIT incomingCallStarted(m_session.roomId, m_session.callId,
+                               m_session.senderId, remaining);
 }
 
 void CallController::setSenderIgnoredCheck(
@@ -700,6 +723,47 @@ void CallController::setRoomMutedCheck(
     m_roomMutedCheck = std::move(check);
 }
 
+void CallController::setRingPolicyCheck(
+    std::function<bool(const QString &roomId)> check)
+{
+    m_ringPolicyCheck = std::move(check);
+}
+
+void CallController::noteRtcSession(const QString &roomId,
+                                    qint64 ownMembershipJoinedAtMs,
+                                    int memberCount)
+{
+    if (m_state != State::Ringing || !m_session.rtc || roomId.isEmpty()
+        || roomId != m_session.roomId)
+        return;
+    // Only a membership that appeared after the ring began answered it. One
+    // from before (a device that crashed in an earlier call, or our phone
+    // already sitting in this room's call) says nothing about this ring.
+    const bool answeredElsewhere = ownMembershipJoinedAtMs > 0
+        && ownMembershipJoinedAtMs
+            >= m_session.ringStartedAtMs - kOwnMembershipSkewMs;
+    if (answeredElsewhere) {
+        // Picked up on another of our devices: that is exactly
+        // AnsweredElsewhere, and not a missed call.
+        qCInfo(lcCalls) << "ring cleared: answered on another of our devices";
+        endSession(EndReason::AnsweredElsewhere);
+        return;
+    }
+    if (memberCount < 0)
+        return; // the read could not say who is there
+    if (memberCount > 0) {
+        m_session.rtcSessionSeen = true;
+        return;
+    }
+    // Empty. Only an emptying session says the caller gave up: the ring can
+    // arrive before their membership does, and ending then would silence a
+    // live call.
+    if (!m_session.rtcSessionSeen)
+        return;
+    qCInfo(lcCalls) << "ring cleared: the call ended before it was answered";
+    endSession(EndReason::RemoteHangup);
+}
+
 bool CallController::shouldRing() const
 {
     if (m_state != State::Ringing)
@@ -709,6 +773,22 @@ bool CallController::shouldRing() const
     if (m_senderIgnoredCheck && m_senderIgnoredCheck(m_session.senderId))
         return false;
     if (m_roomMutedCheck && m_roomMutedCheck(m_session.roomId))
+        return false;
+    if (m_ringPolicyCheck && !m_ringPolicyCheck(m_session.roomId))
+        return false;
+    return true;
+}
+
+bool CallController::noticeAllowed(const QString &roomId,
+                                   const QString &senderId) const
+{
+    if (m_backlogSuppressed || roomId.isEmpty())
+        return false;
+    if (m_senderIgnoredCheck && m_senderIgnoredCheck(senderId))
+        return false;
+    if (m_roomMutedCheck && m_roomMutedCheck(roomId))
+        return false;
+    if (m_ringPolicyCheck && !m_ringPolicyCheck(roomId))
         return false;
     return true;
 }
@@ -786,6 +866,7 @@ void CallController::onLoggedOut()
     // After ending: endSession records the id, and that memory must not
     // survive into the next account.
     m_recentEnded.clear();
+    m_recentNotices.clear();
 }
 
 void CallController::handleInvite(const CallSignal &signal)
@@ -875,6 +956,8 @@ void CallController::handleInvite(const CallSignal &signal)
     session.invitee = signal.invitee;
     session.direction = Direction::Inbound;
     session.lifetimeMs = signal.lifetimeMs;
+    session.announcedLive = !m_backlogSuppressed;
+    session.ringDeadlineMs = QDateTime::currentMSecsSinceEpoch() + remaining;
     m_session = session;
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;
@@ -974,11 +1057,43 @@ void CallController::handleSelectAnswer(const CallSignal &signal)
         endSession(EndReason::AnsweredElsewhere);
 }
 
+bool CallController::rtcNotificationRingsUs(const CallSignal &signal) const
+{
+    // A 1:1 DM whose one m.direct target is the caller is a call to us,
+    // whatever the type says. Element's clients, and Lightning since
+    // 2026-10-15, send `ring` there; Lightning 0.10.x and earlier announced
+    // DM calls as `notification`, and those must keep ringing. Exactly one
+    // target (calls::oneToOneDmPeer, the rule the send side uses too).
+    if (m_client && !signal.sender.isEmpty()
+        && calls::oneToOneDmPeer(m_client->roomInfo(signal.roomId))
+            == signal.sender)
+        return true;
+    // Elsewhere only a `ring` rings (MSC4075), and only the users it
+    // addresses through m.mentions. `notification` announces a group call,
+    // and an unstated type never rings more than that.
+    if (signal.notificationType != QLatin1String("ring"))
+        return false;
+    if (signal.mentionsRoom || signal.mentionsMe)
+        return true;
+    const QString own = ownUserId();
+    return !own.isEmpty() && signal.mentionUserIds.contains(own);
+}
+
+void CallController::rememberNotice(const QString &eventId)
+{
+    if (eventId.isEmpty())
+        return;
+    m_recentNotices.removeOne(eventId);
+    m_recentNotices.append(eventId);
+    while (m_recentNotices.size() > kRecentNoticesCap)
+        m_recentNotices.removeFirst();
+}
+
 void CallController::handleRtcNotification(const CallSignal &signal)
 {
     if (signal.own)
         return;
-    if (recentlyEnded(signal.eventId))
+    if (recentlyEnded(signal.eventId) || m_recentNotices.contains(signal.eventId))
         return;
     if (m_senderIgnoredCheck && m_senderIgnoredCheck(signal.sender))
         return;
@@ -986,6 +1101,21 @@ void CallController::handleRtcNotification(const CallSignal &signal)
         signal.originServerTs, signal.senderTs, signal.lifetimeMs);
     if (remaining <= 0)
         return;
+    if (!rtcNotificationRingsUs(signal)) {
+        // Announced, not rung: no Ringing state, no ring card, no ringer,
+        // and no missed call when it lapses (Element shows a quiet notice).
+        rememberNotice(signal.eventId);
+        qCInfo(lcCalls) << "call announcement, not a ring for us type="
+                        << (signal.notificationType.isEmpty()
+                                ? QStringLiteral("unstated")
+                                : signal.notificationType);
+        // A call we are already ringing or in, in that room, needs no notice.
+        if (sessionLive() && m_session.roomId == signal.roomId)
+            return;
+        Q_EMIT callStartedNotice(signal.roomId, signal.eventId,
+                                 signal.sender, remaining);
+        return;
+    }
     if (sessionLive()) {
         // No auto-decline: an m.rtc.decline stops the ring on every one of our
         // devices, and being busy here must not silence the others.
@@ -1000,6 +1130,12 @@ void CallController::handleRtcNotification(const CallSignal &signal)
     session.direction = Direction::Inbound;
     session.rtc = true;
     session.lifetimeMs = signal.lifetimeMs;
+    session.announcedLive = !m_backlogSuppressed;
+    session.ringStartedAtMs = signal.originServerTs > 0
+        ? signal.originServerTs
+        : (signal.senderTs > 0 ? signal.senderTs
+                               : QDateTime::currentMSecsSinceEpoch());
+    session.ringDeadlineMs = QDateTime::currentMSecsSinceEpoch() + remaining;
     m_session = session;
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;

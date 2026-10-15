@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QTimer>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -72,6 +73,8 @@ public:
     bool masterMuteKnown() const { return m_loaded; }
 
     Q_INVOKABLE void refresh();
+    // Tests only: how long an accepted choice is held (default 15 s).
+    void setHoldMsForTest(qint64 ms) { m_holdMs = ms; }
     Q_INVOKABLE void setMasterMute(bool on);
     // `directMessages` selects the DM default, otherwise the rooms default.
     Q_INVOKABLE void setDefaultAll(bool directMessages, bool allMessages);
@@ -104,6 +107,10 @@ private Q_SLOTS:
                          const QString &category);
     void onInitialSyncDoneChanged();
     void onLoggedOut();
+    // The SDK saw the account's push rules move (a sync delivered a change,
+    // ours or another device's): read them again.
+    void onPushRulesChanged();
+    void onHoldExpired();
 
 private:
     bool flag(const QString &key) const { return m_snap.value(key).toBool(); }
@@ -111,6 +118,13 @@ private:
     { return m_snap.value(key, -1).toInt(); }
     void write(const QString &kind, const QString &key, const QString &value,
                const QVariantMap &optimistic);
+    // Makes `server` the shown state, then lays the choices the server has not
+    // reflected yet back over it.
+    void applyServer(const QVariantMap &server);
+    void armHoldTimer();
+    // The index of `keyword` in the current list, or -1. Exact, or ignoring
+    // case when `exact` is false.
+    int keywordIndex(const QString &keyword, bool exact) const;
     static QString describeCategory(const QString &category);
     static QString levelName(int level);
 
@@ -119,12 +133,24 @@ private:
     // Snapshot to restore when a write fails.
     QVariantMap m_lastServer;
     QHash<quint64, QString> m_pending; // op id -> command kind
-    // Writes the server accepted whose OWN snapshot is still to come. That
-    // snapshot is read from the SDK's account-data store, which only moves
-    // when the next sync delivers the change, so it is the state from BEFORE
-    // the write and must not replace the optimistic one.
-    QSet<quint64> m_settling;
+    // What each in-flight write set optimistically.
+    QHash<quint64, QVariantMap> m_optimistic;
+    // Choices the server accepted but no snapshot reflects yet. Any snapshot
+    // is read from the SDK's account-data store (Account::push_rules), which
+    // only moves when a sync delivers the change, so one read before that is
+    // the state from BEFORE the write. A held field is shown until a snapshot
+    // agrees with it or kHoldMs passes, whichever is first.
+    struct Hold { QVariant value; qint64 expiresMs = 0; };
+    QHash<QString, Hold> m_hold;
+    QTimer m_holdTimer;
+    qint64 m_holdMs = 15000;
     quint64 m_refreshOp = 0;
+    // A refresh was asked for while one was in flight, so the answer coming
+    // may predate the reason: ask again when it lands.
+    bool m_refreshQueued = false;
+    // The refresh in flight was issued after the initial sync finished.
+    bool m_refreshAfterSync = false;
+    bool m_errorFromRefresh = false;
     bool m_loaded = false;
     QString m_error;
 };

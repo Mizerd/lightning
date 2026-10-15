@@ -49,8 +49,9 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk::ruma::{events::AnySyncTimelineEvent, room_version_rules::RoomVersionRules};
+use matrix_sdk::send_queue::RoomSendQueueUpdate;
 use matrix_sdk_ui::{
-    eyeball_im::VectorDiff,
+    eyeball_im::{Vector, VectorDiff},
     timeline::{
         default_event_filter,
         thread_list_service::{ThreadListItem, ThreadListService},
@@ -65,10 +66,20 @@ use serde_json::json;
 
 use crate::enqueue;
 
-/// Build an m.mentions payload from MXID strings. Invalid ids are dropped;
-/// an empty result yields `None`. `add_mentions` must be called before any
-/// relation-adding method (reply / replacement).
-pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
+/// Build an m.mentions payload from MXID strings. Invalid ids are dropped.
+///
+/// ALWAYS returns a value, and an empty one is not the same as none: an
+/// outgoing event that carries `"m.mentions": {}` tells every receiving server
+/// it uses intentional mentions (MSC3952, spec v1.7), while one WITHOUT the key
+/// is still matched by the legacy `.m.rule.contains_display_name`,
+/// `.m.rule.contains_user_name` and `.m.rule.roomnotif` body rules. So "ask Max
+/// about it" would highlight anyone named Max, a typed "@room" would ping the
+/// room, and because `contains_display_name` precedes `.m.rule.suppress_edits`
+/// every `* ...` edit would ping them again. Element and Element X always send
+/// the key. `add_mentions` must be called before any relation-adding method
+/// (reply / replacement), so ruma's `make_replacement` can carry the new
+/// content's mentions into `m.new_content` and only NEW ones to the top level.
+pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Mentions {
     // "@room" travels in the same list as user ids. It can never collide with
     // a user (a Matrix id needs a domain), and it keeps one FFI signature for
     // "who does this message mention".
@@ -83,14 +94,33 @@ pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
             users.push(user);
         }
     }
-    if users.is_empty() && !room {
-        return None;
-    }
     let mut mentions = Mentions::with_user_ids(users);
     // Whether the server acts on it is up to the room's power levels
     // (notifications.room); the client offers it only where allowed.
     mentions.room = room;
-    Some(mentions)
+    mentions
+}
+
+/// The one way a composed outgoing message gets its body AND its `m.mentions`
+/// (see `mentions_from_ids` for why the key is never omitted). Used by the room
+/// send, the scheduled send and the explicit-relation send.
+pub(crate) fn outgoing_content(
+    body: &str,
+    spec: &SendBodySpec,
+    mention_user_ids: Vec<String>,
+) -> RoomMessageEventContent {
+    composed_content(body, spec).add_mentions(mentions_from_ids(mention_user_ids))
+}
+
+/// `outgoing_content` for the paths the SDK adds the relation to afterwards:
+/// replies (`send_reply`) and edits (`edit` -> ruma `make_replacement`).
+pub(crate) fn outgoing_content_without_relation(
+    body: &str,
+    spec: &SendBodySpec,
+    mention_user_ids: Vec<String>,
+) -> RoomMessageEventContentWithoutRelation {
+    composed_content_without_relation(body, spec)
+        .add_mentions(mentions_from_ids(mention_user_ids))
 }
 
 /// The whole-room mention as it crosses the FFI; matches the composer text.
@@ -200,6 +230,28 @@ pub(crate) fn parse_reply_target(id: &str) -> Result<Option<OwnedEventId>, Strin
         .map_err(|_| "Invalid reply target event id.".to_owned())
 }
 
+/// A live-location row's `body`: the sender's own description, or EMPTY. It
+/// used to fall back to the English "Live location", which reached room-list
+/// previews untranslated (finding 140); C++ labels an empty-bodied row that
+/// carries `locationLive: true` in the UI language instead.
+pub(crate) fn live_location_body(description: Option<&str>) -> &str {
+    description.unwrap_or_default()
+}
+
+/// The receipt a thread read sends for the user's receipt privacy mode
+/// (0 public, 1 private, 2 "do not send read receipts"). Mode 2 sends a
+/// PRIVATE receipt, exactly like the room path (`receipts_for_mode` in lib.rs)
+/// and like Element with receipts off: nobody else can see it, and without it
+/// this device's thread dots and the server's thread counts never clear
+/// (finding 66 — mode 2 used to send nothing and still report success).
+/// Anything else is public, as in `receipts_for_mode`.
+pub(crate) fn thread_receipt_type(privacy: i32) -> ReceiptType {
+    match privacy {
+        1 | 2 => ReceiptType::ReadPrivate,
+        _ => ReceiptType::Read,
+    }
+}
+
 /// The one place an attachment's `AttachmentConfig` is assembled, for both the
 /// room and the thread send. `in_reply_to` MUST come from the caller: the SDK
 /// derives the whole reply (and, in a thread, the m.thread relation) from it,
@@ -217,7 +269,9 @@ pub(crate) fn attachment_config(
         caption: caption
             .filter(|c| !c.is_empty())
             .map(TextMessageEventContent::plain),
-        mentions: None,
+        // Empty, never absent: a caption is a body the legacy display-name rules
+        // would match (see `mentions_from_ids`).
+        mentions: Some(Mentions::new()),
         in_reply_to,
     }
 }
@@ -456,6 +510,19 @@ pub struct TimelineRegistry {
     /// reaches the backup late is still picked up. Cleared on shutdown; manual
     /// recovery clears the open room. Identifiers only.
     backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
+    /// The open room, and the `origin_server_ts` of the newest event our own
+    /// UNTHREADED read receipt (public or private) points at. By spec such a
+    /// receipt covers every thread too, so a thread whose latest reply is no
+    /// newer reads as read (finding 134). `None` inside: no such receipt, or its
+    /// event is not in the local cache — then only threaded receipts count
+    /// (conservative, §8). Never a MAIN-thread receipt: that one covers the main
+    /// timeline only. Identifiers and a timestamp only.
+    unthreaded_read_cover: Mutex<Option<(String, Option<u64>)>>,
+    /// The MSC4306 automatic-subscription watchers started by thread sends
+    /// (see `watch_thread_send`). Each holds the session's Client while it
+    /// waits for its send to reach the server, so shutdown aborts them all and
+    /// no session outlives its sign-out through one.
+    thread_auto_subscriptions: Mutex<Vec<tokio::task::AbortHandle>>,
 }
 
 /// One key's attempt history this lifecycle. Identifiers and counters only.
@@ -536,7 +603,29 @@ impl TimelineRegistry {
             export_media: Mutex::new(HashMap::new()),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
+            unthreaded_read_cover: Mutex::new(None),
+            thread_auto_subscriptions: Mutex::new(Vec::new()),
         }
+    }
+
+    /// See `unthreaded_read_cover`. `None` for any room but the one recorded.
+    fn unthreaded_read_cover_ms(&self, room_id: &str) -> Option<u64> {
+        let guard = self.unthreaded_read_cover.lock().ok()?;
+        match guard.as_ref() {
+            Some((room, cover)) if room == room_id => *cover,
+            _ => None,
+        }
+    }
+
+    /// Record `room_id`'s cover; returns the previous one for that room.
+    fn set_unthreaded_read_cover(&self, room_id: &str, cover: Option<u64>) -> Option<u64> {
+        let Ok(mut guard) = self.unthreaded_read_cover.lock() else { return None };
+        let previous = match guard.as_ref() {
+            Some((room, previous)) if room == room_id => *previous,
+            _ => None,
+        };
+        *guard = Some((room_id.to_owned(), cover));
+        previous
     }
 
     /// Record a backup-download attempt. Returns false when the key is not due
@@ -1235,29 +1324,12 @@ impl TimelineRegistry {
     ) -> Result<(), String> {
         // `op_id` is the caller's own request id, echoed on the answer: the
         // receipts are separate tasks, so they can complete out of order.
-        // 2 = none. A thread receipt has no fully-read marker to fall back to, so
-        // nothing is sent.
-        // The user did read it, and the Activity bell is local state: announce
-        // it as advanced (the main-room path does the same under privacy 2).
-        if privacy == 2 {
-            enqueue(&self.events, json!({
-                "type": "thread_read_marker_advanced",
-                "room_id": room_id,
-                "thread_root_id": root_event_id,
-                "op_id": op_id,
-            }));
-            return Ok(());
-        }
         let Some((timeline, _gen, _lifecycle)) =
             self.thread_timeline_for(&room_id, &root_event_id)
         else {
             return Err("No live thread timeline is open for that root.".to_owned());
         };
-        let receipt_type = if privacy == 1 {
-            ReceiptType::ReadPrivate
-        } else {
-            ReceiptType::Read
-        };
+        let receipt_type = thread_receipt_type(privacy);
         // The homeserver's answer is reported, never assumed: the Activity bell
         // clears a thread's rows only on `thread_read_marker_advanced`.
         let events = Arc::clone(&self.events);
@@ -1456,7 +1528,6 @@ impl TimelineRegistry {
             ),
             _ => None,
         };
-        let mentions = mentions_from_ids(mention_user_ids);
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         // Capture the thread generation so a send resolving after a thread switch,
@@ -1465,27 +1536,26 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         runtime.spawn(async move {
+            let watcher = watch_thread_send(&client, &room_id).await;
             let send_on = |timeline: Arc<Timeline>| {
                 let body = body.clone();
                 let reply_to = reply_to.clone();
-                let mentions = mentions.clone();
+                let mention_user_ids = mention_user_ids.clone();
                 let spec = spec.clone();
                 async move {
                     match reply_to {
                         Some(reply_to) => {
-                            let mut content =
-                                composed_content_without_relation(&body, &spec);
-                            if let Some(mentions) = mentions {
-                                content = content.add_mentions(mentions);
-                            }
+                            let content = outgoing_content_without_relation(
+                                &body,
+                                &spec,
+                                mention_user_ids,
+                            );
                             unwedge_send_queue(&timeline);
                             timeline.send_reply(content, reply_to).await.is_ok()
                         }
                         None => {
-                            let mut message = composed_content(&body, &spec);
-                            if let Some(mentions) = mentions {
-                                message = message.add_mentions(mentions);
-                            }
+                            let message =
+                                outgoing_content(&body, &spec, mention_user_ids);
                             unwedge_send_queue(&timeline);
                             timeline
                                 .send(AnyMessageLikeEventContent::RoomMessage(
@@ -1507,6 +1577,11 @@ impl TimelineRegistry {
                     None => false,
                 }
             };
+            if sent {
+                registry.subscribe_after_thread_send(
+                    client.clone(), &room_id, &root_event_id, watcher, lifecycle,
+                );
+            }
             if !sent && registry.thread_current(thread_gen, lifecycle) {
                 enqueue(
                     &events,
@@ -1584,6 +1659,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &thread_root_id);
         runtime.spawn(async move {
+            let watcher = watch_thread_send(&client, &room_id).await;
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
                 unwedge_send_queue(&timeline);
                 timeline.send(content).await.is_ok()
@@ -1600,6 +1676,11 @@ impl TimelineRegistry {
                     None => false,
                 }
             };
+            if sent {
+                registry.subscribe_after_thread_send(
+                    client.clone(), &room_id, &thread_root_id, watcher, lifecycle,
+                );
+            }
             if !sent && registry.thread_current(thread_gen, lifecycle) {
                 enqueue(
                     &events,
@@ -1803,6 +1884,9 @@ impl TimelineRegistry {
         if let Ok(mut guard) = self.reaction_inflight.lock() {
             guard.clear();
         }
+        // Each holds a Client of the departing session. After the lifecycle
+        // bump above, so register_thread_auto_subscription() can tell.
+        self.abort_thread_auto_subscriptions();
         if let Some((task, _room, _root)) = self.take_active_thread() {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
@@ -1960,14 +2044,10 @@ impl TimelineRegistry {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
-        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let mut message = composed_content(&body, &spec);
-            if let Some(mentions) = mentions {
-                message = message.add_mentions(mentions);
-            }
+            let message = outgoing_content(&body, &spec, mention_user_ids);
             let content = AnyMessageLikeEventContent::RoomMessage(message);
             unwedge_send_queue(&timeline);
             if timeline.send(content).await.is_err()
@@ -2059,14 +2139,11 @@ impl TimelineRegistry {
         };
         let reply_to = EventId::parse(&in_reply_to)
             .map_err(|_| "Invalid reply target event id.".to_owned())?;
-        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let mut content = composed_content_without_relation(&body, &spec);
-            if let Some(mentions) = mentions {
-                content = content.add_mentions(mentions);
-            }
+            let content =
+                outgoing_content_without_relation(&body, &spec, mention_user_ids);
             unwedge_send_queue(&timeline);
             if timeline.send_reply(content, reply_to).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
@@ -2114,6 +2191,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         runtime.spawn(async move {
+            let watcher = watch_thread_send(&client, &room_id).await;
             let timeline = match open_thread {
                 Some((timeline, _gen, _lc)) => Some(timeline),
                 None => {
@@ -2136,6 +2214,11 @@ impl TimelineRegistry {
             } else {
                 false
             };
+            if sent {
+                registry.subscribe_after_thread_send(
+                    client.clone(), &room_id, &root_event_id, watcher, lifecycle,
+                );
+            }
             // Gated on the LIFECYCLE alone, like the room attachment path. The
             // C++ side owns the op (chip, stripped copy, voice file) and has
             // to hear how it ended even when the thread timeline was
@@ -2194,7 +2277,6 @@ impl TimelineRegistry {
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid edit target event id.".to_owned())?;
-        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         // The payload field is `room_generation`, so carry the room counter there.
@@ -2202,11 +2284,11 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
             // ruma's make_replacement puts mentions in m.new_content and only newly
-            // added ones at top level, so attach them before wrapping.
-            let mut message = composed_content_without_relation(&new_body, &spec);
-            if let Some(mentions) = mentions {
-                message = message.add_mentions(mentions);
-            }
+            // added ones at top level, so attach them before wrapping. ALWAYS, even
+            // when empty: an edit without the key re-runs the legacy body rules
+            // and pings everyone the text names a second time.
+            let message =
+                outgoing_content_without_relation(&new_body, &spec, mention_user_ids);
             let content = EditedContent::RoomMessage(message);
             unwedge_send_queue(&timeline);
             if timeline.edit(&item_id, content).await.is_err() {
@@ -2346,6 +2428,92 @@ impl TimelineRegistry {
             }
         });
         Ok(())
+    }
+
+    /// MSC4306 automatic subscription after our own thread send (finding 132,
+    /// option b). `with_subscriptions` stays false (CLAUDE.md §8), so the
+    /// SDK's event cache never does this itself; Element subscribes a user to
+    /// a thread they reply in, and so does this, with `automatic` naming the
+    /// event that caused it, as MSC4306 requires. A server without MSC4306 is
+    /// never asked; a user who unsubscribed after that event is honoured by
+    /// the server (M_CONFLICTING_UNSUBSCRIPTION, which the SDK treats as Ok).
+    fn subscribe_after_thread_send(
+        self: &Arc<Self>,
+        client: Client,
+        room_id: &str,
+        root_event_id: &str,
+        watcher: Option<tokio::sync::broadcast::Receiver<RoomSendQueueUpdate>>,
+        lifecycle: u64,
+    ) {
+        // A send that finished after sign-out: the session it belongs to is
+        // gone, and a watcher would keep its Client (and its stores) open.
+        if !self.lifecycle_current(lifecycle) {
+            return;
+        }
+        let Some(updates) = watcher else { return };
+        let Ok(root) = EventId::parse(root_event_id) else { return };
+        let Some(room) = RoomId::parse(room_id).ok().and_then(|id| client.get_room(&id))
+        else {
+            return;
+        };
+        let registry = Arc::clone(self);
+        let task = tokio::spawn(async move {
+            if !registry.lifecycle_current(lifecycle) {
+                return;
+            }
+            let supported = client
+                .unstable_features()
+                .await
+                .map(|features| server_supports_thread_subscriptions(&features))
+                .unwrap_or(false);
+            if !supported {
+                return;
+            }
+            let Some(sent) = wait_for_thread_send(updates, &root).await else { return };
+            if !registry.lifecycle_current(lifecycle) {
+                return;
+            }
+            // Failures change nothing the user can see: the explicit Follow
+            // control still works, and the next send tries again.
+            let _ = room.subscribe_thread_if_needed(&root, Some(sent)).await;
+        });
+        self.register_thread_auto_subscription(task.abort_handle(), lifecycle);
+    }
+
+    /// Track a watcher so shutdown() can abort it. shutdown() bumps the
+    /// lifecycle BEFORE it drains the list, so a watcher registered in
+    /// between is checked again here, under the same lock, and aborted at
+    /// once: it would otherwise sit in a list nobody drains again, holding
+    /// the old session's Client for its whole wait. Returns whether it was
+    /// kept.
+    fn register_thread_auto_subscription(
+        &self,
+        handle: tokio::task::AbortHandle,
+        lifecycle: u64,
+    ) -> bool {
+        let Ok(mut guard) = self.thread_auto_subscriptions.lock() else {
+            handle.abort();
+            return false;
+        };
+        // Under the lock shutdown() drains with: either this sees the bumped
+        // lifecycle, or the drain sees this handle. Only this handle is
+        // aborted; a newer session's watchers in the list are its own.
+        if !self.lifecycle_current(lifecycle) {
+            handle.abort();
+            return false;
+        }
+        guard.retain(|tracked| !tracked.is_finished());
+        guard.push(handle);
+        true
+    }
+
+    /// Abort every automatic-subscription watcher (shutdown).
+    fn abort_thread_auto_subscriptions(&self) {
+        if let Ok(mut guard) = self.thread_auto_subscriptions.lock() {
+            for task in guard.drain(..) {
+                task.abort();
+            }
+        }
     }
 
     /// Claim the in-flight slot for one reaction target. Returns false when a
@@ -2860,6 +3028,17 @@ async fn open_room_task(
         }
     };
 
+    // Finding 134: thread summaries are judged against our unthreaded read
+    // receipt. Subscribed first so a receipt landing during the load is seen,
+    // and loaded before the snapshot so the first paint is already right.
+    let own_receipts = timeline.subscribe_own_user_read_receipts_changed().await;
+    tokio::pin!(own_receipts);
+    let mut own_receipts_open = true;
+    if let Some(own) = client.user_id() {
+        let cover = load_unthreaded_read_cover(&room, own).await;
+        registry.set_unthreaded_read_cover(&room_id, cover);
+    }
+
     // Atomic snapshot plus subscription: no event falls between `items` and
     // the first diff.
     let (items, mut stream) = timeline.subscribe().await;
@@ -2970,11 +3149,12 @@ send queue owes nothing for them: {in_flight:?}"
     );
 
     let snapshot: Vec<serde_json::Value> =
-        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+        items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
     );
+    let mut tail = LiveTail::new(items.clone());
     enqueue(
         &events,
         json!({
@@ -3014,6 +3194,34 @@ send queue owes nothing for them: {in_flight:?}"
             _ = &mut fetch_members, if !members_fetched => {
                 members_fetched = true;
             }
+            changed = own_receipts.next(), if own_receipts_open => {
+                if changed.is_none() {
+                    own_receipts_open = false;
+                    continue;
+                }
+                if !registry.is_current(room_gen, lifecycle) {
+                    break;
+                }
+                // Our receipt moved (this device, "Mark as read", another
+                // client). A thread root's row is not otherwise re-sent when
+                // only the receipt changes, so repaint the roots whose answer
+                // flipped, as `set`s of the very items C++ already holds.
+                let Some(own) = client.user_id() else { continue };
+                let cover = load_unthreaded_read_cover(&room, own).await;
+                let previous = registry.set_unthreaded_read_cover(&room_id, cover);
+                if previous == cover {
+                    continue;
+                }
+                for (index, item) in tail.thread_roots_flipped_by(previous, cover) {
+                    let repaint = VectorDiff::Set { index, value: item };
+                    enqueue(
+                        &events,
+                        diff_to_json(
+                            &room_id, room_gen, lifecycle, &repaint, &own_user, &registry,
+                        ),
+                    );
+                }
+            }
             maybe_diffs = stream.next() => {
                 let Some(diffs) = maybe_diffs else { break };
                 if !registry.is_current(room_gen, lifecycle) {
@@ -3038,12 +3246,24 @@ send queue owes nothing for them: {in_flight:?}"
                     let mut value = diff_to_json(
                         &room_id, room_gen, lifecycle, &diff, &own_user, &registry,
                     );
-                    annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
+                    let now = crate::push_verdict::now_ms();
+                    let decrypted = tail.decrypts_in_place(&diff, item_is_utd, item_event_id);
+                    let live_insert = tail.classify_and_apply(&diff, |item| {
+                        arrived_since_open(item, opened_ms, now)
+                    });
+                    let judged = mark_live_insert(&diff, live_insert.as_ref(), &mut value);
+                    annotate_push_verdicts(&room, &mut push_context, judged, &mut value)
                         .await;
+                    if decrypted {
+                        annotate_decrypted_set(
+                            &room, &mut push_context, &diff, &mut value, opened_ms, now,
+                        )
+                        .await;
+                    }
                     backlog.mark(
-                        &diff,
+                        judged,
                         &mut value,
-                        crate::push_verdict::now_ms(),
+                        now,
                         |item| crate::push_verdict::item_facts(item),
                     );
                     enqueue(&events, value);
@@ -3160,11 +3380,12 @@ async fn open_thread_task(
     );
 
     let snapshot: Vec<serde_json::Value> =
-        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+        items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
     );
+    let mut tail = LiveTail::new(items.clone());
     let has_event_rows = items
         .iter()
         .any(|item| matches!(item.kind(), TimelineItemKind::Event(_)));
@@ -3271,12 +3492,24 @@ async fn open_thread_task(
                         "lifecycle": lifecycle,
                     });
                     let mut value = fill_diff_json(base, &diff, &own_user, &registry);
-                    annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
+                    let now = crate::push_verdict::now_ms();
+                    let decrypted = tail.decrypts_in_place(&diff, item_is_utd, item_event_id);
+                    let live_insert = tail.classify_and_apply(&diff, |item| {
+                        arrived_since_open(item, opened_ms, now)
+                    });
+                    let judged = mark_live_insert(&diff, live_insert.as_ref(), &mut value);
+                    annotate_push_verdicts(&room, &mut push_context, judged, &mut value)
                         .await;
+                    if decrypted {
+                        annotate_decrypted_set(
+                            &room, &mut push_context, &diff, &mut value, opened_ms, now,
+                        )
+                        .await;
+                    }
                     backlog.mark(
-                        &diff,
+                        judged,
                         &mut value,
-                        crate::push_verdict::now_ms(),
+                        now,
                         |item| crate::push_verdict::item_facts(item),
                     );
                     enqueue(&events, value);
@@ -3392,7 +3625,7 @@ async fn open_context_task(
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
     let snapshot: Vec<serde_json::Value> =
-        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+        items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
     enqueue(
         &events,
         json!({
@@ -3560,6 +3793,86 @@ fn thread_list_item_to_json(item: &ThreadListItem) -> serde_json::Value {
     out
 }
 
+/// The MSC4306 unstable feature flag.
+const THREAD_SUBSCRIPTIONS_FEATURE: &str = "org.matrix.msc4306";
+
+/// Whether the homeserver advertises MSC4306 thread subscriptions.
+pub(crate) fn server_supports_thread_subscriptions(
+    features: &std::collections::BTreeSet<matrix_sdk::ruma::api::FeatureFlag>,
+) -> bool {
+    features.contains(&matrix_sdk::ruma::api::FeatureFlag::from(THREAD_SUBSCRIPTIONS_FEATURE))
+}
+
+/// The thread a queued event's content belongs to: its `m.relates_to` is an
+/// `m.thread` relation naming that root.
+pub(crate) fn thread_root_of_content(content: &serde_json::Value) -> Option<&str> {
+    let relation = content.get("m.relates_to")?;
+    if relation.get("rel_type")?.as_str()? != "m.thread" {
+        return None;
+    }
+    relation.get("event_id")?.as_str()
+}
+
+/// Listen to the room's send queue from BEFORE a thread send, so the send's
+/// own local echo is seen. `None` when the room is unknown.
+async fn watch_thread_send(
+    client: &Client,
+    room_id: &str,
+) -> Option<tokio::sync::broadcast::Receiver<RoomSendQueueUpdate>> {
+    let room = RoomId::parse(room_id).ok().and_then(|id| client.get_room(&id))?;
+    room.send_queue().subscribe().await.ok().map(|(_, updates)| updates)
+}
+
+/// How long a watcher waits for its send to reach the server. A queued send
+/// can wait on the network for a while (an attachment uploads first); past
+/// this the next send in the thread tries again.
+const THREAD_SEND_WATCH_SECS: u64 = 600;
+
+/// The event id the server gave the first of our queued events in `root`'s
+/// thread, from the room's send-queue updates. `None` when none reaches the
+/// server within the bound, or the queue goes away.
+async fn wait_for_thread_send(
+    mut updates: tokio::sync::broadcast::Receiver<RoomSendQueueUpdate>,
+    root: &EventId,
+) -> Option<OwnedEventId> {
+    use matrix_sdk::send_queue::LocalEchoContent;
+    use tokio::sync::broadcast::error::RecvError;
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(THREAD_SEND_WATCH_SECS);
+    let mut ours: HashSet<matrix_sdk::ruma::OwnedTransactionId> = HashSet::new();
+    loop {
+        let update = match tokio::time::timeout_at(deadline, updates.recv()).await {
+            Ok(Ok(update)) => update,
+            Ok(Err(RecvError::Lagged(_))) => continue,
+            Ok(Err(RecvError::Closed)) | Err(_) => return None,
+        };
+        match update {
+            RoomSendQueueUpdate::NewLocalEvent(echo) => {
+                let LocalEchoContent::Event { serialized_event, .. } = echo.content else {
+                    continue;
+                };
+                let (raw, _event_type) = serialized_event.into_raw();
+                let Ok(content) = serde_json::from_str::<serde_json::Value>(raw.json().get())
+                else {
+                    continue;
+                };
+                if thread_root_of_content(&content) == Some(root.as_str()) {
+                    ours.insert(echo.transaction_id);
+                }
+            }
+            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                ours.remove(&transaction_id);
+            }
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id }
+                if ours.contains(&transaction_id) =>
+            {
+                return Some(event_id);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A thread timeline built just for one send when the panel is not open,
 /// so the SDK attaches the m.thread relation and encrypts.
 async fn build_transient_thread_timeline(
@@ -3640,6 +3953,249 @@ fn diff_to_json(
     fill_diff_json(base, diff, own_user, registry)
 }
 
+/// Mirrors an open timeline's items so an `insert` can be judged by what
+/// surrounds it (finding 151).
+///
+/// matrix-sdk-ui puts a new remote event right after the last remote event
+/// ITEM (`event_handler.rs`, `TimelineItemPosition::End`) and emits `push_back`
+/// only when that slot is the end of the list. While a local echo (a pending,
+/// uploading or FAILED send, which the send queue persists) or a virtual item
+/// sits below it, the very same live arrival is an `insert` — and push verdicts
+/// and the backlog mark looked at `append`/`push_back` only, so it was never
+/// notified, for as long as the echo stayed there.
+pub(crate) struct LiveTail<T> {
+    items: Vector<T>,
+    /// Set when a diff ever disagrees with the mirror (an index out of range).
+    /// Classification then stops — the old behaviour — rather than guessing,
+    /// and nothing here can panic the timeline task.
+    lost: bool,
+}
+
+/// Whether a timeline item is a remote event (not a local echo, not virtual).
+pub(crate) trait RemoteEventItem {
+    fn is_remote_event(&self) -> bool;
+}
+
+impl RemoteEventItem for Arc<TimelineItem> {
+    fn is_remote_event(&self) -> bool {
+        self.as_event().is_some_and(|event| !event.is_local_echo())
+    }
+}
+
+impl<T: Clone + RemoteEventItem> LiveTail<T> {
+    pub(crate) fn new(items: Vector<T>) -> Self {
+        Self { items, lost: false }
+    }
+
+    /// Classify `diff` against the items BEFORE it, then fold it into the
+    /// mirror. Every diff of the stream must pass through here, in order.
+    ///
+    /// Returns `Some(PushBack { value })` for an `insert` of a remote event
+    /// with nothing but local echoes and virtual items after it: the same
+    /// arrival the SDK would have pushed back on a timeline without them.
+    /// `arrived_live` is consulted only when no remote event precedes the slot
+    /// either, where position alone cannot tell a live arrival from history
+    /// paginated into an otherwise empty timeline.
+    pub(crate) fn classify_and_apply(
+        &mut self,
+        diff: &VectorDiff<T>,
+        arrived_live: impl Fn(&T) -> bool,
+    ) -> Option<VectorDiff<T>> {
+        let live = self.classify(diff, arrived_live);
+        self.apply(diff);
+        live
+    }
+
+    fn classify(
+        &self,
+        diff: &VectorDiff<T>,
+        arrived_live: impl Fn(&T) -> bool,
+    ) -> Option<VectorDiff<T>> {
+        if self.lost {
+            return None;
+        }
+        let VectorDiff::Insert { index, value } = diff else { return None };
+        let len = self.items.len();
+        if *index > len || !value.is_remote_event() {
+            return None;
+        }
+        // Walk from the end: the tail below an end insert is a few echoes.
+        if self.items.iter().rev().take(len - *index).any(|item| item.is_remote_event()) {
+            return None; // history, or an out-of-order event, not an arrival
+        }
+        let follows_remote =
+            self.items.iter().rev().skip(len - *index).any(|item| item.is_remote_event());
+        if !follows_remote && !arrived_live(value) {
+            return None;
+        }
+        Some(VectorDiff::PushBack { value: value.clone() })
+    }
+
+    /// Whether `diff` is a `set` that turns the mirrored undecryptable event
+    /// at its index into a readable copy of the SAME event. Must be asked
+    /// before `classify_and_apply` folds the diff in.
+    pub(crate) fn decrypts_in_place(
+        &self,
+        diff: &VectorDiff<T>,
+        is_utd: impl Fn(&T) -> bool,
+        event_id: impl Fn(&T) -> Option<String>,
+    ) -> bool {
+        if self.lost {
+            return false;
+        }
+        let VectorDiff::Set { index, value } = diff else { return false };
+        let Some(previous) = self.items.get(*index) else { return false };
+        if !is_utd(previous) || is_utd(value) {
+            return false;
+        }
+        match (event_id(previous), event_id(value)) {
+            (Some(before), Some(after)) => before == after,
+            _ => false,
+        }
+    }
+
+    /// The mirrored items, unless the mirror was lost.
+    fn items(&self) -> Option<&Vector<T>> {
+        (!self.lost).then_some(&self.items)
+    }
+
+    fn apply(&mut self, diff: &VectorDiff<T>) {
+        if self.lost {
+            return;
+        }
+        let len = self.items.len();
+        let in_range = match diff {
+            VectorDiff::Insert { index, .. } => *index <= len,
+            VectorDiff::Set { index, .. } | VectorDiff::Remove { index } => *index < len,
+            VectorDiff::Truncate { length } => *length <= len,
+            _ => true,
+        };
+        if !in_range {
+            self.lost = true;
+            self.items.clear();
+            return;
+        }
+        diff.clone().apply(&mut self.items);
+    }
+}
+
+impl LiveTail<Arc<TimelineItem>> {
+    /// Thread roots whose latest reply moves across the unthreaded read cover
+    /// going from `before` to `after` (finding 134), with their indices in the
+    /// stream C++ mirrors. Nothing when the mirror was lost.
+    fn thread_roots_flipped_by(
+        &self,
+        before: Option<u64>,
+        after: Option<u64>,
+    ) -> Vec<(usize, Arc<TimelineItem>)> {
+        let Some(items) = self.items() else { return Vec::new() };
+        items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                thread_latest_reply_ts(item)
+                    .is_some_and(|ts| cover_flips(before, after, ts))
+            })
+            .map(|(index, item)| (index, Arc::clone(item)))
+            .collect()
+    }
+}
+
+/// The latest reply's timestamp on a thread root item, if it carries one.
+fn thread_latest_reply_ts(item: &TimelineItem) -> Option<u64> {
+    let TimelineItemContent::MsgLike(msg_like) = item.as_event()?.content() else {
+        return None;
+    };
+    let summary = msg_like.thread_summary.as_ref()?;
+    match &summary.latest_event {
+        TimelineDetails::Ready(latest) => Some(u64::from(latest.timestamp.get())),
+        _ => None,
+    }
+}
+
+/// Whether moving the cover from `before` to `after` changes the answer for a
+/// latest reply sent at `latest_reply_ts_ms`.
+fn cover_flips(before: Option<u64>, after: Option<u64>, latest_reply_ts_ms: u64) -> bool {
+    thread_latest_reply_read(false, false, latest_reply_ts_ms, before)
+        != thread_latest_reply_read(false, false, latest_reply_ts_ms, after)
+}
+
+/// The push-verdict/backlog view of `diff`: the live append a classified
+/// insert stands for, else the diff itself. A classified insert's payload keeps
+/// op `insert` and its index (the model needs the position) and gains
+/// `live_append: true`, so C++ can notify for it without re-deriving the
+/// classification. The `insert` payload's `item` key is the slot `push_back`
+/// uses, so `live_append_slots` pairs it unchanged.
+fn mark_live_insert<'a>(
+    diff: &'a VectorDiff<Arc<TimelineItem>>,
+    live_insert: Option<&'a VectorDiff<Arc<TimelineItem>>>,
+    value: &mut serde_json::Value,
+) -> &'a VectorDiff<Arc<TimelineItem>> {
+    match live_insert {
+        Some(as_append) => {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("live_append".to_owned(), true.into());
+            }
+            as_append
+        }
+        None => diff,
+    }
+}
+
+/// BacklogMarker's time rule, inverted: whether `item` reached the server
+/// after the timeline opened (by `unsigned.age` when present, so no clock
+/// skew; by its timestamp otherwise).
+fn arrived_since_open(item: &Arc<TimelineItem>, opened_ms: u64, now_ms: u64) -> bool {
+    crate::push_verdict::item_facts(item).is_some_and(|facts| match facts.age_ms {
+        Some(age) => now_ms.saturating_sub(age) >= opened_ms,
+        None => facts.timestamp_ms >= opened_ms,
+    })
+}
+
+/// Whether `item` is an event this device could not decrypt.
+fn item_is_utd(item: &Arc<TimelineItem>) -> bool {
+    item.as_event().is_some_and(|event| {
+        matches!(
+            event.content(),
+            TimelineItemContent::MsgLike(msg_like)
+                if matches!(msg_like.kind, MsgLikeKind::UnableToDecrypt(_))
+        )
+    })
+}
+
+/// The remote event id of `item`, when it has one.
+fn item_event_id(item: &Arc<TimelineItem>) -> Option<String> {
+    item.as_event().and_then(|event| event.event_id()).map(|id| id.to_string())
+}
+
+/// A `set` that made an undecryptable row readable (finding 6/46/124, open
+/// timelines). C++ decides the notification for it once, so it needs what a
+/// live append carries: the verdict the account's rules give the DECRYPTED
+/// event, which the ciphertext could not have, and `backlog` when the event
+/// reached the server before the timeline opened.
+async fn annotate_decrypted_set(
+    room: &matrix_sdk::Room,
+    context: &mut Option<Option<matrix_sdk::room::PushContext>>,
+    diff: &VectorDiff<Arc<TimelineItem>>,
+    value: &mut serde_json::Value,
+    opened_ms: u64,
+    now_ms: u64,
+) {
+    let VectorDiff::Set { value: item, .. } = diff else { return };
+    // Paired with the payload's `item` slot exactly as a push_back is.
+    let as_append = VectorDiff::PushBack { value: Arc::clone(item) };
+    annotate_push_verdicts(room, context, &as_append, value).await;
+    // Advisory only: `unsigned.age` is the age when the item was received, so
+    // judging it now can only err towards "new". C++ (emitDecryptedOnce) ORs
+    // in what it recorded at FIRST sight of the undecryptable copy, which is
+    // the authority for whether this was history.
+    if !arrived_since_open(item, opened_ms, now_ms) {
+        if let Some(slot) = value.get_mut("item").and_then(|slot| slot.as_object_mut()) {
+            slot.insert("backlog".to_owned(), true.into());
+        }
+    }
+}
+
 /// Adds the account's push-rule verdict to the remote events of a live append,
 /// the diffs C++ notifies for (see push_verdict). `context` holds one push
 /// context per batch of diffs, fetched on first need; `Some(None)` means the
@@ -3674,6 +4230,12 @@ fn fill_diff_json(
     own_user: &str,
     registry: &TimelineRegistry,
 ) -> serde_json::Value {
+    let room_id = envelope
+        .get("room_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    let room_id = room_id.as_str();
     let base = |op: &str| {
         let mut v = envelope.clone();
         v["op"] = op.into();
@@ -3682,29 +4244,29 @@ fn fill_diff_json(
     match diff {
         VectorDiff::Append { values } => {
             let mut v = base("append");
-            v["items"] = values.iter().map(|i| item_to_json(i, own_user, registry)).collect();
+            v["items"] = values.iter().map(|i| item_to_json(i, room_id, own_user, registry)).collect();
             v
         }
         VectorDiff::PushBack { value } => {
             let mut v = base("push_back");
-            v["item"] = item_to_json(value, own_user, registry);
+            v["item"] = item_to_json(value, room_id, own_user, registry);
             v
         }
         VectorDiff::PushFront { value } => {
             let mut v = base("push_front");
-            v["item"] = item_to_json(value, own_user, registry);
+            v["item"] = item_to_json(value, room_id, own_user, registry);
             v
         }
         VectorDiff::Insert { index, value } => {
             let mut v = base("insert");
             v["index"] = (*index).into();
-            v["item"] = item_to_json(value, own_user, registry);
+            v["item"] = item_to_json(value, room_id, own_user, registry);
             v
         }
         VectorDiff::Set { index, value } => {
             let mut v = base("set");
             v["index"] = (*index).into();
-            v["item"] = item_to_json(value, own_user, registry);
+            v["item"] = item_to_json(value, room_id, own_user, registry);
             v
         }
         VectorDiff::Remove { index } => {
@@ -3722,7 +4284,7 @@ fn fill_diff_json(
         }
         VectorDiff::Reset { values } => {
             let mut v = base("reset");
-            v["items"] = values.iter().map(|i| item_to_json(i, own_user, registry)).collect();
+            v["items"] = values.iter().map(|i| item_to_json(i, room_id, own_user, registry)).collect();
             v
         }
     }
@@ -3785,8 +4347,59 @@ fn fetch_missing_reply_details<'a, I>(
 }
 
 /// Convert one SDK timeline item into the UI-safe FFI payload.
+/// Whether a thread's latest reply counts as read (finding 134). Our own
+/// reply, or our threaded receipt on it, always does. So does our UNTHREADED
+/// receipt (room "Mark as read", the notification action, another client):
+/// by spec it covers every thread up to its event, and matrix-sdk-ui fills a
+/// thread summary from `Thread(root)` receipts only. Its position against a
+/// thread reply is judged by timestamp — the reply is hidden from the live
+/// timeline, so there is no shared index — and only when the receipt's event
+/// is known locally (`unthreaded_cover_ms` is `None` otherwise), so an
+/// unknown stays unread.
+pub(crate) fn thread_latest_reply_read(
+    sent_by_us: bool,
+    threaded_receipt_on_latest: bool,
+    latest_reply_ts_ms: u64,
+    unthreaded_cover_ms: Option<u64>,
+) -> bool {
+    sent_by_us
+        || threaded_receipt_on_latest
+        || unthreaded_cover_ms.is_some_and(|cover| cover >= latest_reply_ts_ms)
+}
+
+/// The cover `thread_latest_reply_read` needs: the newest `origin_server_ts`
+/// among the events our own unthreaded `m.read` and `m.read.private` point at,
+/// read from the state store and the event cache — never a request.
+async fn load_unthreaded_read_cover(room: &matrix_sdk::Room, own_user: &UserId) -> Option<u64> {
+    use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType as StoredReceipt};
+    let mut cover: Option<u64> = None;
+    let mut cache: Option<matrix_sdk::event_cache::RoomEventCache> = None;
+    let mut _drop_handles = None;
+    for receipt_type in [StoredReceipt::Read, StoredReceipt::ReadPrivate] {
+        let Ok(Some((event_id, _receipt))) = room
+            .load_user_receipt(receipt_type, ReceiptThread::Unthreaded, own_user)
+            .await
+        else {
+            continue;
+        };
+        if cache.is_none() {
+            let Ok((room_cache, handles)) = room.event_cache().await else { return cover };
+            cache = Some(room_cache);
+            _drop_handles = Some(handles);
+        }
+        let Some(room_cache) = cache.as_ref() else { continue };
+        let Ok(Some(event)) = room_cache.find_event(&event_id).await else { continue };
+        if let Some(ts) = event.timestamp() {
+            let ts = u64::from(ts.get());
+            cover = Some(cover.map_or(ts, |current| current.max(ts)));
+        }
+    }
+    cover
+}
+
 fn item_to_json(
     item: &TimelineItem,
+    room_id: &str,
     own_user: &str,
     registry: &TimelineRegistry,
 ) -> serde_json::Value {
@@ -3804,7 +4417,7 @@ fn item_to_json(
             })
         }
         TimelineItemKind::Event(event) => {
-            event_item_to_json(&item.unique_id().0, event, own_user, registry)
+            event_item_to_json(&item.unique_id().0, event, room_id, own_user, registry)
         }
     }
 }
@@ -3957,6 +4570,7 @@ fn failed_state_parse_body(event_type: &str, error_display: &str, actor: &str) -
 fn event_item_to_json(
     unique_id: &str,
     event: &EventTimelineItem,
+    room_id: &str,
     own_user: &str,
     registry: &TimelineRegistry,
 ) -> serde_json::Value {
@@ -4140,13 +4754,18 @@ fn event_item_to_json(
                         }
                     }
                     if let TimelineEventItemId::EventId(latest_id) = &latest.identifier {
-                        // Conservative unread hint: read only when our threaded receipt points at
-                        // the latest reply, or we sent it.
-                        let read = latest.sender.as_str() == own_user
-                            || summary.public_read_receipt_event_id.as_deref()
+                        // Conservative unread hint: read only when we sent the latest reply,
+                        // our threaded receipt points at it, or our UNTHREADED receipt is at
+                        // an event no older than it (finding 134).
+                        let read = thread_latest_reply_read(
+                            latest.sender.as_str() == own_user,
+                            summary.public_read_receipt_event_id.as_deref()
                                 == Some(&**latest_id)
-                            || summary.private_read_receipt_event_id.as_deref()
-                                == Some(&**latest_id);
+                                || summary.private_read_receipt_event_id.as_deref()
+                                    == Some(&**latest_id),
+                            u64::from(latest.timestamp.get()),
+                            registry.unthreaded_read_cover_ms(room_id),
+                        );
                         out["thread_unread"] =
                             (!read && summary.num_replies > 0).into();
                     }
@@ -4303,10 +4922,11 @@ fn event_item_to_json(
                     crate::location::fill_location(
                         &mut out,
                         &geo,
-                        description.unwrap_or("Live location"),
+                        live_location_body(description),
                         description,
                         Some("m.self"),
                     );
+                    // The marker C++ labels in the UI language (finding 140).
                     out["locationLive"] = true.into();
                     // `is_live()` checks the flag and `ts + timeout`, distinguishing "sharing
                     // now" from "shared earlier and stopped".
@@ -7428,8 +8048,7 @@ mod tests {
             "@alice:example.org".to_owned(),
             "not a user id".to_owned(),
             "@bob:example.org".to_owned(),
-        ])
-        .expect("valid ids should produce mentions");
+        ]);
         let content =
             RoomMessageEventContent::text_markdown("hi").add_mentions(mentions);
         let value = serde_json::to_value(&content).expect("serialize");
@@ -7442,11 +8061,91 @@ mod tests {
         assert!(ids.contains(&"@alice:example.org"));
         assert!(ids.contains(&"@bob:example.org"));
 
-        // No valid ids → no Mentions → no m.mentions in the payload.
-        assert!(super::mentions_from_ids(vec!["nope".to_owned()]).is_none());
-        let plain = RoomMessageEventContent::text_markdown("hi");
-        let plain_value = serde_json::to_value(&plain).expect("serialize");
-        assert!(plain_value.get("m.mentions").is_none());
+        // No valid ids → an EMPTY Mentions, never none (see the next test).
+        let none_valid = super::mentions_from_ids(vec!["nope".to_owned()]);
+        assert!(none_valid.user_ids.is_empty() && !none_valid.room);
+    }
+
+    // Finding 152: a message with no pill went out with NO m.mentions key, so
+    // every recipient's legacy display-name / username / @room body rules ran
+    // on it ("ask Max about it" highlighted Max), and on every edit of it too.
+    // Every composed send path builds its content through these two helpers;
+    // the old code attached mentions only `if let Some(..)`, which an empty
+    // list never produced.
+    #[test]
+    fn a_message_with_no_pill_still_declares_that_it_mentions_nobody() {
+        use super::{outgoing_content, outgoing_content_without_relation, parse_body_spec};
+        use serde_json::json;
+        let spec = parse_body_spec("").unwrap();
+        for ids in [vec![], vec!["not a user id".to_owned()]] {
+            let room = serde_json::to_value(outgoing_content(
+                "ask Max about it @room",
+                &spec,
+                ids.clone(),
+            ))
+            .unwrap();
+            assert_eq!(room["m.mentions"], json!({}), "room/scheduled send: {room}");
+            let reply = serde_json::to_value(outgoing_content_without_relation(
+                "ask Max about it",
+                &spec,
+                ids,
+            ))
+            .unwrap();
+            assert_eq!(reply["m.mentions"], json!({}), "reply / edit base: {reply}");
+        }
+        // A real pill is still carried exactly.
+        let pill = serde_json::to_value(outgoing_content(
+            "hi",
+            &spec,
+            vec!["@max:example.org".to_owned(), "@room".to_owned()],
+        ))
+        .unwrap();
+        assert_eq!(pill["m.mentions"]["user_ids"], json!(["@max:example.org"]));
+        assert_eq!(pill["m.mentions"]["room"], json!(true));
+        // And an attachment (its caption is a body too) says the same.
+        let config = super::attachment_config(None, None, Some("Max".to_owned()), None);
+        let caption_mentions = config.mentions.expect("an attachment always carries m.mentions");
+        assert!(caption_mentions.user_ids.is_empty() && !caption_mentions.room);
+    }
+
+    // The edit path: ruma's make_replacement copies the content's mentions into
+    // m.new_content and puts only NEWLY added users at the top level. With no
+    // mentions on the content it emitted neither, so a "* ..." edit naming Max
+    // re-ran the legacy rules and pinged Max again.
+    #[test]
+    fn an_edit_carries_m_mentions_and_pings_only_newly_added_users() {
+        use super::{outgoing_content_without_relation, parse_body_spec};
+        use serde_json::json;
+        use matrix_sdk::ruma::events::room::message::ReplacementMetadata;
+        use matrix_sdk::ruma::events::Mentions;
+        use matrix_sdk::ruma::{owned_event_id, owned_user_id};
+        let spec = parse_body_spec("").unwrap();
+        let target = owned_event_id!("$orig:example.org");
+
+        // An edit with no pill, of a message that had none either.
+        let edit = outgoing_content_without_relation("ask Max, fixed", &spec, vec![])
+            .make_replacement(ReplacementMetadata::new(target.clone(), None));
+        let value = serde_json::to_value(&edit).unwrap();
+        assert_eq!(value["m.mentions"], json!({}), "top level: {value}");
+        assert_eq!(value["m.new_content"]["m.mentions"], json!({}), "{value}");
+        assert_eq!(value["m.relates_to"]["rel_type"], json!("m.replace"));
+
+        // Adding Bob to a message that already mentioned Alice pings Bob only.
+        let edit = outgoing_content_without_relation(
+            "alice and bob",
+            &spec,
+            vec!["@alice:example.org".to_owned(), "@bob:example.org".to_owned()],
+        )
+        .make_replacement(ReplacementMetadata::new(
+            target,
+            Some(Mentions::with_user_ids([owned_user_id!("@alice:example.org")])),
+        ));
+        let value = serde_json::to_value(&edit).unwrap();
+        assert_eq!(value["m.mentions"]["user_ids"], json!(["@bob:example.org"]));
+        assert_eq!(
+            value["m.new_content"]["m.mentions"]["user_ids"],
+            json!(["@alice:example.org", "@bob:example.org"])
+        );
     }
 
     // Mention sends: the plain body carries the display text; formatted_body
@@ -8428,12 +9127,315 @@ mod thread_utd_tests {
         };
 
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
-        let row = event_item_to_json(&utd.0, &utd.1, "@me:morpheus.localhost", &registry);
+        let row = event_item_to_json(
+            &utd.0, &utd.1, "!room:morpheus.localhost", "@me:morpheus.localhost", &registry,
+        );
         assert_eq!(row["undecryptable"], true);
         assert_eq!(row["event_id"], REPLY);
         assert_eq!(
             row["thread_root_id"], ROOT,
             "the room timeline row must name the thread it belongs to"
         );
+    }
+}
+
+#[cfg(test)]
+mod live_tail_tests {
+    //! Finding 151: a remote event the SDK INSERTS above a local echo (a
+    //! pending, uploading or failed send) is a live arrival, and must get the
+    //! push verdict and backlog mark a `push_back` gets.
+    use super::{LiveTail, RemoteEventItem};
+    use crate::push_verdict::{live_append_slots, BacklogMarker, ItemFacts};
+    use matrix_sdk_ui::eyeball_im::{Vector, VectorDiff};
+    use serde_json::json;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Row {
+        id: &'static str,
+        remote: bool,
+        live: bool,
+    }
+    impl RemoteEventItem for Row {
+        fn is_remote_event(&self) -> bool {
+            self.remote
+        }
+    }
+    fn remote(id: &'static str) -> Row {
+        Row { id, remote: true, live: true }
+    }
+    fn local(id: &'static str) -> Row {
+        Row { id, remote: false, live: true }
+    }
+    fn tail(rows: &[Row]) -> LiveTail<Row> {
+        LiveTail::new(rows.iter().cloned().collect::<Vector<_>>())
+    }
+    fn facts(row: &Row) -> Option<ItemFacts> {
+        row.remote.then(|| ItemFacts {
+            event_id: row.id.to_owned(),
+            timestamp_ms: 2_000,
+            age_ms: None,
+        })
+    }
+
+    #[test]
+    fn only_a_set_that_decrypts_the_same_event_is_a_late_decryption() {
+        // `live == false` stands for "undecryptable" in this fixture.
+        let utd = |row: &Row| !row.live;
+        let id = |row: &Row| row.remote.then(|| row.id.to_owned());
+        let cipher = Row { id: "$e", remote: true, live: false };
+        let mirror = tail(&[remote("$a"), cipher.clone()]);
+        // The SDK's in-place decryption of $e.
+        let decrypt = VectorDiff::Set { index: 1, value: remote("$e") };
+        assert!(mirror.decrypts_in_place(&decrypt, utd, id));
+        // A set of another event at that slot, a set that is still
+        // undecryptable, an edit of a readable row, and a non-set: no.
+        let other = VectorDiff::Set { index: 1, value: remote("$f") };
+        assert!(!mirror.decrypts_in_place(&other, utd, id));
+        let still = VectorDiff::Set { index: 1, value: cipher.clone() };
+        assert!(!mirror.decrypts_in_place(&still, utd, id));
+        let readable = VectorDiff::Set { index: 0, value: remote("$a") };
+        assert!(!mirror.decrypts_in_place(&readable, utd, id));
+        let push = VectorDiff::PushBack { value: remote("$e") };
+        assert!(!mirror.decrypts_in_place(&push, utd, id));
+        // Out of range: nothing, and no panic.
+        let far = VectorDiff::Set { index: 9, value: remote("$e") };
+        assert!(!mirror.decrypts_in_place(&far, utd, id));
+    }
+
+    #[test]
+    fn an_insert_above_a_failed_echo_is_judged_as_a_live_append() {
+        let mut mirror = tail(&[remote("$a"), remote("$b"), local("echo")]);
+        let insert = VectorDiff::Insert { index: 2, value: remote("$new") };
+        // What the bridge sends for it: op insert, the row under `item`.
+        let mut payload = json!({ "op": "insert", "index": 2, "item": { "event_id": "$new" } });
+
+        // The old code paired nothing for an insert: no verdict, no backlog.
+        assert!(live_append_slots(&insert, &mut payload).is_empty());
+
+        let judged = mirror
+            .classify_and_apply(&insert, |row| row.live)
+            .expect("an arrival above the echo region is a live append");
+        assert_eq!(judged, VectorDiff::PushBack { value: remote("$new") });
+        let slots = live_append_slots(&judged, &mut payload);
+        assert_eq!(slots.len(), 1, "the verdict slot is the insert's own `item`");
+        assert_eq!(slots[0].0.id, "$new");
+
+        // And the backlog mark judges it: new, so not backlog...
+        let mut backlog = BacklogMarker::new(1_000, std::iter::empty());
+        backlog.begin_batch();
+        backlog.mark(&judged, &mut payload, 3_000, facts);
+        assert!(payload["item"].get("backlog").is_none());
+        // ...but the same event delivered again IS backlog.
+        let mut again = json!({ "op": "insert", "index": 3, "item": { "event_id": "$new" } });
+        backlog.mark(&judged, &mut again, 3_000, facts);
+        assert_eq!(again["item"]["backlog"], json!(true));
+
+        // The mirror moved: the next arrival lands at index 3, still above the echo.
+        let next = VectorDiff::Insert { index: 3, value: remote("$next") };
+        assert!(mirror.classify_and_apply(&next, |row| row.live).is_some());
+    }
+
+    #[test]
+    fn a_virtual_item_below_the_slot_does_not_hide_an_arrival() {
+        // A read marker or date divider after the last event: the SDK still
+        // inserts the arrival right after the last remote EVENT.
+        let mut mirror =
+            tail(&[remote("$a"), Row { id: "read-marker", remote: false, live: false }]);
+        let insert = VectorDiff::Insert { index: 1, value: remote("$new") };
+        assert!(mirror.classify_and_apply(&insert, |row| row.live).is_some());
+    }
+
+    #[test]
+    fn history_and_echoes_are_not_live_appends() {
+        // Between two remote events: back-filled or out of order, not an arrival.
+        let mut mirror = tail(&[remote("$a"), remote("$b"), local("echo")]);
+        let middle = VectorDiff::Insert { index: 1, value: remote("$old") };
+        assert!(mirror.classify_and_apply(&middle, |row| row.live).is_none());
+        // A local echo is never one.
+        let echo = VectorDiff::Insert { index: 4, value: local("echo2") };
+        assert!(mirror.classify_and_apply(&echo, |row| row.live).is_none());
+        // Only ever inserts: a push_back is already handled by live_append_slots.
+        let push = VectorDiff::PushBack { value: remote("$c") };
+        assert!(mirror.classify_and_apply(&push, |row| row.live).is_none());
+    }
+
+    #[test]
+    fn with_no_remote_event_above_it_only_an_event_from_after_the_open_counts() {
+        // Nothing remote anywhere: position alone cannot tell back-pagination
+        // into an empty timeline from an arrival, so the time rule decides.
+        let mut mirror = tail(&[local("echo")]);
+        let old = Row { id: "$old", remote: true, live: false };
+        assert!(mirror
+            .classify_and_apply(&VectorDiff::Insert { index: 0, value: old }, |row| row.live)
+            .is_none());
+        let mut mirror = tail(&[local("echo")]);
+        let new = VectorDiff::Insert { index: 0, value: remote("$new") };
+        assert!(mirror.classify_and_apply(&new, |row| row.live).is_some());
+    }
+
+    #[test]
+    fn a_diff_the_mirror_cannot_apply_stops_classification_without_panicking() {
+        let mut mirror = tail(&[remote("$a"), local("echo")]);
+        // Out of range: the SDK and the mirror disagree.
+        assert!(mirror
+            .classify_and_apply(&VectorDiff::Remove { index: 9 }, |row| row.live)
+            .is_none());
+        let insert = VectorDiff::Insert { index: 1, value: remote("$new") };
+        assert!(mirror.classify_and_apply(&insert, |row| row.live).is_none());
+        // A reset does not resurrect it either: one wrong guess is enough.
+        let reset = VectorDiff::Reset { values: Vector::new() };
+        assert!(mirror.classify_and_apply(&reset, |row| row.live).is_none());
+    }
+}
+
+#[cfg(test)]
+mod thread_read_tests {
+    use super::{cover_flips, thread_latest_reply_read, thread_receipt_type, TimelineRegistry};
+    use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    // Finding 134: "Mark as read" (room list, notification action, Mark space
+    // read, another client) sends an UNTHREADED receipt, which by spec covers
+    // every thread; the thread dot read only threaded receipts and stayed lit.
+    #[test]
+    fn an_unthreaded_receipt_at_or_after_the_latest_reply_reads_the_thread() {
+        let reply_ts = 1_000;
+        // Old rule: neither ours nor a threaded receipt on it -> unread.
+        assert!(!thread_latest_reply_read(false, false, reply_ts, None));
+        // An unthreaded receipt on an event no older than the reply covers it.
+        assert!(thread_latest_reply_read(false, false, reply_ts, Some(1_000)));
+        assert!(thread_latest_reply_read(false, false, reply_ts, Some(5_000)));
+        // One on an older event does not: the reply came after it.
+        assert!(!thread_latest_reply_read(false, false, reply_ts, Some(999)));
+        // The existing reasons still hold on their own.
+        assert!(thread_latest_reply_read(true, false, reply_ts, None));
+        assert!(thread_latest_reply_read(false, true, reply_ts, Some(1)));
+    }
+
+    #[test]
+    fn a_cover_change_repaints_only_the_threads_it_crosses() {
+        // Read up to t=2000: a reply at 1500 flips, one at 2500 does not.
+        assert!(cover_flips(None, Some(2_000), 1_500));
+        assert!(!cover_flips(None, Some(2_000), 2_500));
+        // Moving forward past a thread already covered changes nothing for it.
+        assert!(!cover_flips(Some(2_000), Some(3_000), 1_500));
+        assert!(cover_flips(Some(2_000), Some(3_000), 2_500));
+    }
+
+    #[test]
+    fn the_cover_belongs_to_one_room() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        assert_eq!(registry.unthreaded_read_cover_ms("!a:x"), None);
+        assert_eq!(registry.set_unthreaded_read_cover("!a:x", Some(7)), None);
+        assert_eq!(registry.unthreaded_read_cover_ms("!a:x"), Some(7));
+        // Another room never inherits it (a stale payload of the last room).
+        assert_eq!(registry.unthreaded_read_cover_ms("!b:x"), None);
+        assert_eq!(registry.set_unthreaded_read_cover("!a:x", Some(9)), Some(7));
+        assert_eq!(registry.set_unthreaded_read_cover("!b:x", None), None);
+        assert_eq!(registry.unthreaded_read_cover_ms("!a:x"), None);
+    }
+
+    // Finding 66 (thread half): "Do not send read receipts" sent NOTHING for a
+    // thread and still reported success, so this device's thread dots and the
+    // server's thread counts never cleared. It now sends a private receipt,
+    // like the room path.
+    #[test]
+    fn do_not_send_read_receipts_sends_a_private_thread_receipt() {
+        assert_eq!(thread_receipt_type(0), ReceiptType::Read);
+        assert_eq!(thread_receipt_type(1), ReceiptType::ReadPrivate);
+        assert_eq!(thread_receipt_type(2), ReceiptType::ReadPrivate);
+    }
+}
+
+#[cfg(test)]
+mod live_location_tests {
+    use super::live_location_body;
+
+    // Finding 140: no English text for C++ to show untranslated; the
+    // `locationLive` marker carries the meaning and the sender's words stay.
+    #[test]
+    fn a_live_location_without_a_description_has_an_empty_body() {
+        assert_eq!(live_location_body(None), "");
+        assert_eq!(live_location_body(Some("On my way")), "On my way");
+    }
+}
+
+#[cfg(test)]
+mod thread_auto_subscription_tests {
+    //! Finding 132, option (b): after our own thread send, an MSC4306
+    //! automatic subscription, only on a server that advertises it.
+    use super::{server_supports_thread_subscriptions, thread_root_of_content};
+    use matrix_sdk::ruma::api::FeatureFlag;
+    use serde_json::json;
+    use std::collections::BTreeSet;
+
+    /// A thread send that finishes after sign-out must not leave a watcher
+    /// holding the old session's Client: shutdown() bumps the lifecycle and
+    /// then drains, so a watcher registered for the old lifecycle afterwards
+    /// is aborted at once, and one registered before is aborted by the drain.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_watcher_from_a_departed_session_is_never_kept() {
+        use super::TimelineRegistry;
+        use std::collections::VecDeque;
+        use std::sync::{atomic::Ordering, Arc, Mutex};
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let lifecycle = registry.lifecycle();
+        let pending = || tokio::spawn(std::future::pending::<()>());
+
+        // Registered while current: kept, and aborted by the drain.
+        let kept = pending();
+        assert!(registry.register_thread_auto_subscription(kept.abort_handle(), lifecycle));
+        // What shutdown() does, in its order.
+        registry.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
+        registry.abort_thread_auto_subscriptions();
+        assert!(kept.await.expect_err("aborted").is_cancelled());
+
+        // A send that finished after the bump registers for the old
+        // lifecycle: refused and aborted on the spot, not left in the list.
+        let late = pending();
+        assert!(!registry.register_thread_auto_subscription(late.abort_handle(), lifecycle));
+        assert!(late.await.expect_err("aborted").is_cancelled());
+        assert!(registry.thread_auto_subscriptions.lock().unwrap().is_empty());
+
+        // A watcher of the new session is not touched by a stale one.
+        let current = registry.lifecycle();
+        let fresh = pending();
+        assert!(registry.register_thread_auto_subscription(fresh.abort_handle(), current));
+        let stale = pending();
+        assert!(!registry.register_thread_auto_subscription(stale.abort_handle(), lifecycle));
+        assert_eq!(registry.thread_auto_subscriptions.lock().unwrap().len(), 1);
+        assert!(!fresh.is_finished());
+        fresh.abort();
+    }
+
+    #[test]
+    fn only_a_server_that_advertises_msc4306_is_asked() {
+        let mut features = BTreeSet::new();
+        assert!(!server_supports_thread_subscriptions(&features));
+        features.insert(FeatureFlag::from("org.matrix.msc4308"));
+        assert!(!server_supports_thread_subscriptions(&features));
+        features.insert(FeatureFlag::from("org.matrix.msc4306"));
+        assert!(server_supports_thread_subscriptions(&features));
+    }
+
+    #[test]
+    fn only_a_thread_relation_names_the_thread_it_was_sent_in() {
+        let reply = json!({
+            "msgtype": "m.text", "body": "hi",
+            "m.relates_to": {
+                "rel_type": "m.thread", "event_id": "$root",
+                "is_falling_back": true,
+                "m.in_reply_to": { "event_id": "$root" }
+            }
+        });
+        assert_eq!(thread_root_of_content(&reply), Some("$root"));
+        // A plain rich reply, an edit and an unrelated message are not
+        // thread sends.
+        let rich = json!({ "body": "x", "m.relates_to": { "m.in_reply_to": { "event_id": "$a" } } });
+        assert_eq!(thread_root_of_content(&rich), None);
+        let edit = json!({ "body": "x", "m.relates_to": { "rel_type": "m.replace", "event_id": "$a" } });
+        assert_eq!(thread_root_of_content(&edit), None);
+        assert_eq!(thread_root_of_content(&json!({ "body": "x" })), None);
     }
 }

@@ -43,6 +43,13 @@ struct RoomInfo {
     }
     int unreadCount = 0;
     int highlightCount = 0;
+    // Local wall-clock ms (QDateTime::currentMSecsSinceEpoch) at which the
+    // Rust room payload last wrote this room's counters; 0 when no payload has.
+    // Lets a consumer tell counters that already reflect a row it holds from
+    // stale ones that predate it. Deliberately NOT part of operator==: it
+    // moves on every payload, and replaceRoom would then announce a change for
+    // every room on every room-list diff.
+    qint64 countsWrittenAtMs = 0;
     bool markedUnread = false;
     bool hasUnreadMessages = false;
     // The room's REMAINING unread is explained by threads alone (main timeline
@@ -61,6 +68,9 @@ struct RoomInfo {
     // Favourites backed by the Matrix `m.favourite` room tag; Lightning keeps
     // no list of its own. False on backends without tags.
     bool isFavourite = false;
+    // The Matrix `m.lowpriority` room tag, from the SDK. False on backends
+    // without tags.
+    bool lowPriority = false;
     bool isDirect = false;
     QString directUserId;
     // Every target user this room's m.direct mapping lists; authoritative for
@@ -68,6 +78,9 @@ struct RoomInfo {
     // more than one and must not take an arbitrary member's avatar. Empty on
     // backends that only provide directUserId.
     QStringList directUserIds;
+    // Joined plus invited members, as matrix-sdk counts "active" members
+    // (DmRoomDefinition::TwoMembers). 0 = not reported (Mock/HTTP backends).
+    int activeMemberCount = 0;
     QString canonicalAlias;
     QString inviterUserId;
     QString inviterDisplayName;
@@ -133,8 +146,11 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         // skips dataChanged, and the row moves section while reporting its old
         // category.
         && a.isFavourite == b.isFavourite
+        // Same reason as isFavourite: the row sorts by it.
+        && a.lowPriority == b.lowPriority
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
+        && a.activeMemberCount == b.activeMemberCount
         && a.canonicalAlias == b.canonicalAlias
         && a.inviterUserId == b.inviterUserId
         && a.inviterDisplayName == b.inviterDisplayName

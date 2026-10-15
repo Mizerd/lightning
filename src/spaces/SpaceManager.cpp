@@ -486,6 +486,11 @@ QVariantList SpaceManager::directChildRoomsDetailed(
             || it->membership != RoomInfo::Joined) {
             continue;
         }
+        // The shared rule, as the Space tile above applies it: a muted room
+        // draws no dot and no red mention, a marked-unread room draws a dot,
+        // and a thread-only room carries no number (section 8).
+        const int mode = m_modeOf ? m_modeOf(it->id)
+                                  : roomunread::kModeAllMessages;
         out.append(QVariantMap{
             { QStringLiteral("roomId"),           it->id },
             { QStringLiteral("name"),             it->name },
@@ -496,9 +501,13 @@ QVariantList SpaceManager::directChildRoomsDetailed(
             { QStringLiteral("encrypted"),
               it->encrypted && it->encryptionKnown },
             { QStringLiteral("identityColorKey"), identityColorKey(*it) },
-            { QStringLiteral("hasUnread"),        it->hasUnreadMessages },
-            { QStringLiteral("unreadCount"),      it->unreadCount },
-            { QStringLiteral("highlightCount"),   it->highlightCount },
+            { QStringLiteral("hasUnread"),
+              roomunread::countsAsUnread(*it, mode) },
+            { QStringLiteral("markedUnread"),     it->markedUnread },
+            { QStringLiteral("unreadCount"),
+              roomunread::visibleUnreadCount(*it, mode) },
+            { QStringLiteral("highlightCount"),
+              roomunread::mentionCount(*it, mode) },
             // The rail's inline room reveal sorts on this; without it the
             // comparator sees `undefined` and silently does nothing.
             { QStringLiteral("lastActivity"),     it->lastActivity },
@@ -1142,8 +1151,7 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
               h.value(QStringLiteral("childrenCount")).toLongLong() },
             // ONE unread rule for the row badge and the section total.
             { QStringLiteral("hasUnread"),
-              roomMode(id) != roomunread::kModeMute
-                  && (it->hasUnreadMessages || it->unreadCount > 0) },
+              roomunread::countsAsUnread(*it, roomMode(id)) },
             { QStringLiteral("unreadCount"),
               roomunread::visibleUnreadCount(*it, roomMode(id)) },
             { QStringLiteral("highlightCount"),

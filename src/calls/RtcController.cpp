@@ -673,6 +673,18 @@ int RtcController::participantCount(const QString &roomId) const
     return it->participants.size();
 }
 
+int RtcController::authoritativeParticipantCount(const QString &roomId) const
+{
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend())
+        return -1;
+    if (it->source != QLatin1String("store")
+        && it->source != QLatin1String("server")
+        && it->source != QLatin1String("server-none"))
+        return -1;
+    return it->slotClosed ? 0 : int(it->participants.size());
+}
+
 bool RtcController::hasLiveSession(const QString &roomId) const
 {
     const auto it = m_sessions.constFind(roomId);

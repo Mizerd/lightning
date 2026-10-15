@@ -179,10 +179,40 @@ public:
     // Ring policy inputs. Backlog suppression defaults to true so a starting
     // app never rings for cold-start backlog; the sync owner lowers it once
     // live.
+    // Lowering it re-announces a ring that arrived while it was raised and is
+    // still live, with its real remaining time: a call that reached us during
+    // the initial sync is not lost to it.
     void setBacklogSuppressed(bool suppressed);
     void setSenderIgnoredCheck(std::function<bool(const QString &)> check);
     void setRoomMutedCheck(std::function<bool(const QString &)> check);
+    /// The account's own verdict on ringing in `roomId` (its push rules: the
+    /// master rule and the like). False keeps the ring silent exactly as a
+    /// muted room does; unset rings.
+    void setRingPolicyCheck(std::function<bool(const QString &roomId)> check);
+    /// What the room's MatrixRTC session looks like now, for a live RTC ring
+    /// in `roomId` (MSC4075 has no answer or hangup events, so memberships
+    /// are the only word on either). `ownMembershipJoinedAtMs`: when the
+    /// newest of OUR user's memberships from ANOTHER device was created (ms
+    /// since epoch), 0 for none. Only one created after the ring began ends
+    /// it, as answered elsewhere and never missed: a membership a crashed
+    /// device left behind must not silence a real ring.
+    /// `memberCount`: everyone in the session, from an AUTHORITATIVE read
+    /// (-1 when the read cannot say, e.g. a failed or store-only one); once
+    /// it has been seen non-empty during this ring, reaching zero means the
+    /// caller gave up and the ring ends as missed. A session that has never
+    /// shown a member ends nothing, because the ring can arrive before the
+    /// caller's membership.
+    void noteRtcSession(const QString &roomId, qint64 ownMembershipJoinedAtMs,
+                        int memberCount);
+    /// How long before the ring an own membership may claim to have been
+    /// created and still count as answering it (client clocks differ).
+    static constexpr qint64 kOwnMembershipSkewMs = 5000;
     bool shouldRing() const;
+    /// shouldRing()'s gates for an announcement that does not ring
+    /// (callStartedNotice): the backlog gate, an ignored sender, a muted
+    /// room and the account's ring policy. A surface shows the quiet notice
+    /// only when this holds.
+    bool noticeAllowed(const QString &roomId, const QString &senderId) const;
 
 Q_SIGNALS:
     void audioStateChanged();
@@ -196,6 +226,12 @@ Q_SIGNALS:
     // giving up.
     void incomingCallEnded(const QString &roomId, const QString &callId,
                            int reason, bool missed);
+    // A MatrixRTC announcement that does not ring us: a group call's
+    // `notification`, or a `ring` that mentions neither us nor the room
+    // (MSC4075). Never enters Ringing; a surface may show it as a quiet
+    // "call started" notice, as Element does. `eventId` is the announcement.
+    void callStartedNotice(const QString &roomId, const QString &eventId,
+                           const QString &senderId, qint64 remainingMs);
     // A signaling send was rejected by the server; category is the coarse
     // classify_room_error set, never raw error text.
     void sendFailed(const QString &category);
@@ -226,6 +262,18 @@ private:
         // Outbound: the invite was sent, so a media failure needs a wire
         // hangup rather than only a local end.
         bool inviteDispatched = false;
+        // Inbound: incomingCallStarted went out while the backlog gate was
+        // open, so the surface has had its chance to announce this ring.
+        bool announcedLive = false;
+        // Inbound: when the ring's validity runs out (ms since epoch), so a
+        // later announcement reports what is really left.
+        qint64 ringDeadlineMs = 0;
+        // Inbound RTC: when the ring began (the announcement's
+        // origin_server_ts), against which an own membership is judged.
+        qint64 ringStartedAtMs = 0;
+        // RTC ring: the room's session has shown at least one member since
+        // the ring began (see noteRtcSession).
+        bool rtcSessionSeen = false;
         // Inbound: candidates trickled while ringing, before the engine has a
         // session; dropping them loses most usable candidates. Bounded and
         // drained right after createAnswer().
@@ -244,6 +292,10 @@ private:
     void handleSelectAnswer(const CallSignal &signal);
     void handleRtcNotification(const CallSignal &signal);
     void handleRtcDecline(const CallSignal &signal);
+    // Whether a MatrixRTC announcement rings this account rather than only
+    // announcing a call. See handleRtcNotification().
+    bool rtcNotificationRingsUs(const CallSignal &signal) const;
+    void rememberNotice(const QString &eventId);
     // A slot so tests can drive expiry via QMetaObject::invokeMethod.
     Q_SLOT void onLifetimeExpired();
     void onMediaOfferReady(const QString &callId, const QString &sdp);
@@ -320,4 +372,8 @@ private:
     bool m_backlogSuppressed = true;
     std::function<bool(const QString &)> m_senderIgnoredCheck;
     std::function<bool(const QString &)> m_roomMutedCheck;
+    std::function<bool(const QString &)> m_ringPolicyCheck;
+    // Bounded memory of announcements already reported as callStartedNotice,
+    // so a sync re-delivery is not a second notice.
+    QStringList m_recentNotices;
 };

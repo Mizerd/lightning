@@ -37,6 +37,8 @@
 #include "app/CloseBehavior.h"
 #include "app/TrayIcon.h"
 #include "notifications/InviteNoticeTracker.h"
+#include "notifications/NotificationManager.h"
+#include "app/NotificationNotices.h"
 #include "text/SpellChecker.h"
 
 #include <QTimer>
@@ -100,6 +102,7 @@
 #include <QObject>
 #include <QRect>
 #include <QString>
+#include <QPointer>
 #include <QSet>
 #include <QStringList>
 #include <QUrl>
@@ -109,6 +112,8 @@
 class MatrixClient;
 class NotificationManager;
 class QQuickItem;
+class QQuickWindow;
+class QWindow;
 class ReverseListProxyModel;
 class SecretStore;
 
@@ -852,9 +857,22 @@ public Q_SLOTS:
     Q_INVOKABLE void setSpaceMuted(const QString &spaceId, bool mute);
     // Whether every joined room in the Space is muted; false for no rooms.
     Q_INVOKABLE bool spaceIsMuted(const QString &spaceId) const;
-    // Mark every joined room in the Space (including subspaces) read, via
-    // the room list's own Mark as read path.
+    // Mark the Space's unread joined rooms (including subspaces) read, via
+    // the room list's own Mark as read path, with Home's filter: rooms the
+    // user marked unread and rooms with nothing unread are left alone.
     Q_INVOKABLE void markSpaceRead(const QString &spaceId);
+    // The application's main window. Found by itself when it first shows
+    // (Main.qml's ApplicationWindow is the only one); QML may also register
+    // it explicitly. Read receipts and attention requests follow THIS
+    // window, never the call's picture-in-picture or full-screen windows.
+    Q_INVOKABLE void registerMainWindow(QObject *window);
+    // Whether keyboard focus (`focus`, normally QGuiApplication::
+    // focusWindow()) is on `main` or on something `main` opened, such as a
+    // popup or menu window. A Qt Quick window of its own (the call's
+    // full-screen or picture-in-picture window) is not, even when Qt made
+    // `main` its transient parent.
+    static bool focusBelongsToMainWindow(const QWindow *main,
+                                         const QWindow *focus);
     /// "Jump to date" (MSC3030): jump the open room to the first event at or
     /// after `timestampMs`. Returns the op id, or 0 when the backend cannot
     /// ask; a server without the endpoint reports
@@ -1337,9 +1355,35 @@ private:
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
-    /// Event ids already notified via a thread timeline, so the room copy
-    /// does not notify again. Bounded; cleared wholesale.
-    QSet<QString> m_notifiedThreadEventIds;
+    /// Event ids already handed to the notification and Activity paths, from
+    /// any producer (a thread copy, the room's sync, an SDK insert observed
+    /// live, a re-delivery after a sliding-sync reset). Bounded; forgets the
+    /// oldest first.
+    notices::RecentIds m_notifiedEventIds{2048};
+    // Rooms listed as joined; a room that later lists as left (left, kicked,
+    // banned) has its cards withdrawn.
+    QSet<QString> m_joinedRoomIds;
+    // The main window (see registerMainWindow).
+    QPointer<QQuickWindow> m_mainWindow;
+    QQuickWindow *mainWindow();
+    void refreshMainWindowState();
+    // Taskbar flash / Dock bounce while the main window is not in front.
+    void alertMainWindow();
+    // eventAppended and liveEventObserved: notification + Activity Center.
+    void handleLiveEvent(const QString &composedRoomId,
+                         const TimelineEvent &event);
+    NotificationManager::Context notificationContextFor(
+        const QString &roomId, const TimelineEvent &event,
+        bool fromThread) const;
+    // The preview level for a notice about `roomId`: the encrypted-room level
+    // where it applies, the stricter one while the room's encryption is
+    // unknown or the room is not listed (or there is no room).
+    int noticePreviewFor(const QString &roomId) const;
+    // The account's master rule is known and on.
+    bool masterMuteIsOn() const;
+    // The session's notification bookkeeping, reset on sign-out and on any
+    // account change (add-account included, which sees no loggedOut).
+    void resetSessionNotificationState();
     // Rooms whose members were fetched this session (once per room).
     QSet<QString> m_memberHydratedRooms;
     // Rooms whose MSC2346 bridge state was read -> whether the network was
@@ -1468,6 +1512,9 @@ private:
     std::unique_ptr<class ActivityModel> m_activity;
     std::unique_ptr<class MediaHistoryModel> m_mediaHistory;
     bool m_activitySeeded = false;
+    // A failed seed retries with a bounded backoff.
+    QTimer m_activitySeedRetryTimer;
+    int m_activitySeedAttempts = 0;
     /// In-flight "jump to date" requests: op id -> room.
     QHash<quint64, QString> m_pendingDateJumps;
     /// Periodic, idempotent local search index sweep (rather than hooks in
@@ -1522,7 +1569,18 @@ private:
     // The call whose ring was actually announced; only that one can become
     // a missed-call notice. Plus a per-sender ring cooldown.
     QString m_announcedCallId;
-    QHash<QString, qint64> m_lastCallRingBySender;
+    QString m_announcedCaller;
+    bool m_announcedVideo = false;
+    // MatrixRTC rings' declared intent, by ring id; true for video.
+    QHash<QString, bool> m_callVideoIntent;
+    // Bounds announcements per sender without dropping a redial.
+    notices::RingAnnounceLimiter m_ringLimiter;
+    // Per room, the newest quiet "call started" card, so only its own
+    // lifetime timer withdraws it.
+    QHash<QString, quint64> m_callNoticeGeneration;
+    quint64 m_callNoticeSerial = 0;
+    // Ends an RTC ring answered on another of our devices, or abandoned.
+    void noteRtcSessionForRing(const QString &roomId);
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<ThreadController> m_thread;
@@ -1600,6 +1658,13 @@ private:
     ImageCropper m_imageCrop;
     TrayIcon m_tray;
     SpellChecker m_spell;
+    // Applies the tray settings to the icon; also on a tray host appearing.
+    void applyTrayState();
+    // The tooltip's account: display name or localpart, empty when signed
+    // out.
+    void refreshTrayAccountLabel();
+    // The last Dock / taskbar badge written; -1 before the first.
+    int m_lastBadgeNumber = -1;
     // Push unread state to the tray from the local room snapshot; never
     // issues requests.
     void refreshTrayUnread();
@@ -1625,6 +1690,10 @@ private:
     // SAS verification state cache.
     QString m_verificationFlowId;
     QString m_verificationOtherUser;
+    // The request card on screen (keyed, so it can be withdrawn) and the
+    // flow last announced (once per flow).
+    QString m_verificationNoticeKey;
+    QString m_verificationNotifiedFlow;
     QString m_verificationOtherDevice;
     bool    m_verificationIsSelf = false;
     QString m_verificationState;

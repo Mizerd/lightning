@@ -606,6 +606,10 @@ public:
     // to the server ("Local setting: it does not change this room's server
     // push rules"). It decides on this device and is never sent.
     bool roomNotificationModeDeviceOnly(const QString &roomId) const;
+    /// True only when a mode key is stored for the room (account or legacy
+    /// device key). roomNotificationMode() returns 0 for an absent key, so
+    /// this is the only way to tell "all messages" from "never configured".
+    bool hasStoredRoomNotificationMode(const QString &roomId) const;
     // Rooms with a mode stored under the active account's own key (never the
     // legacy device-global ones). Empty without an account.
     QStringList accountRoomNotificationModeRooms() const;

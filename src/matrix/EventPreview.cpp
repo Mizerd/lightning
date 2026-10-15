@@ -2,11 +2,36 @@
 
 #include "matrix/TimelineEvent.h"
 
+#include <QCoreApplication>
 #include <QRegularExpression>
 
 #include <algorithm>
 
 namespace matrix::preview {
+
+namespace {
+
+// Context "EventPreview": translate() rather than tr() because these are free
+// functions. With no translator installed translate() returns the source.
+QString t(const char *source)
+{
+    return QCoreApplication::translate("EventPreview", source);
+}
+
+// A count with plural forms. A catalogue without the entry yields the source
+// "%n image(s)"; English then gets a real plural instead of "(s)".
+QString countText(const char *source, const QString &englishOne,
+                  const QString &englishMany, int n)
+{
+    const QString raw = QCoreApplication::translate("EventPreview", source,
+                                                    nullptr, n);
+    if (raw == QString::fromLatin1(source).replace(QLatin1String("%n"),
+                                                   QString::number(n)))
+        return (n == 1 ? englishOne : englishMany).arg(n);
+    return raw;
+}
+
+} // namespace
 
 QString stripReplyFallback(const QString &body)
 {
@@ -64,13 +89,13 @@ QString normalizePreviewText(const QString &text, int maxChars)
 
 QString undecryptablePreview()
 {
-    return QStringLiteral("Unable to decrypt");
+    return t(QT_TRANSLATE_NOOP("EventPreview", "Unable to decrypt"));
 }
 
 QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
 {
     if (event.redacted)
-        return QStringLiteral("Message removed");
+        return t(QT_TRANSLATE_NOOP("EventPreview", "Message removed"));
     if (event.undecryptable)
         return undecryptablePreview();
     // An MSC4274 gallery: the sender's caption, else what it holds. The row's
@@ -82,35 +107,50 @@ QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
         const bool allImages = std::all_of(
             event.galleryItems.cbegin(), event.galleryItems.cend(),
             [](const GalleryItem &g) { return g.kind == QLatin1String("image"); });
-        return QString::number(event.galleryItems.size())
-            + (allImages ? QStringLiteral(" images") : QStringLiteral(" attachments"));
+        const int n = int(event.galleryItems.size());
+        return allImages
+            ? countText(QT_TRANSLATE_NOOP("EventPreview", "%n image(s)"),
+                        QStringLiteral("%1 image"), QStringLiteral("%1 images"), n)
+            : countText(QT_TRANSLATE_NOOP("EventPreview", "%n attachment(s)"),
+                        QStringLiteral("%1 attachment"),
+                        QStringLiteral("%1 attachments"), n);
     }
 
     switch (event.type) {
+    case TimelineEvent::Location:
+        // A live location's body is the sender's description, or empty: the
+        // bridge no longer writes an English label into it.
+        if (event.locationLive) {
+            const QString description = normalizePreviewText(event.body);
+            return description.isEmpty()
+                ? t(QT_TRANSLATE_NOOP("EventPreview", "Live location"))
+                : description;
+        }
+        return normalizePreviewText(event.body);
     case TimelineEvent::Image:
         return event.mediaMimetype.compare(QLatin1String("image/gif"),
                                            Qt::CaseInsensitive) == 0
-            ? QStringLiteral("GIF")
+            ? t(QT_TRANSLATE_NOOP("EventPreview", "GIF"))
             : (event.mediaFilename.isEmpty()
-                   ? QStringLiteral("Image")
+                   ? t(QT_TRANSLATE_NOOP("EventPreview", "Image"))
                    : normalizePreviewText(event.mediaFilename));
     case TimelineEvent::File:
         return event.mediaFilename.isEmpty()
-            ? QStringLiteral("File")
-            : QStringLiteral("File: ")
-                  + normalizePreviewText(event.mediaFilename);
+            ? t(QT_TRANSLATE_NOOP("EventPreview", "File"))
+            : t(QT_TRANSLATE_NOOP("EventPreview", "File: %1"))
+                  .arg(normalizePreviewText(event.mediaFilename));
     case TimelineEvent::Video:
         return event.mediaFilename.isEmpty()
-            ? QStringLiteral("Video")
+            ? t(QT_TRANSLATE_NOOP("EventPreview", "Video"))
             : normalizePreviewText(event.mediaFilename);
     case TimelineEvent::Audio:
         return event.mediaIsVoice
-            ? QStringLiteral("Voice message")
+            ? t(QT_TRANSLATE_NOOP("EventPreview", "Voice message"))
             : (event.mediaFilename.isEmpty()
-                   ? QStringLiteral("Audio")
+                   ? t(QT_TRANSLATE_NOOP("EventPreview", "Audio"))
                    : normalizePreviewText(event.mediaFilename));
     case TimelineEvent::Sticker:
-        return QStringLiteral("Sticker");
+        return t(QT_TRANSLATE_NOOP("EventPreview", "Sticker"));
     case TimelineEvent::Poll: {
         // Never the MSC3381 multi-line fallback; prefer the typed question,
         // else the fallback's first line.
@@ -119,8 +159,8 @@ QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
             question = event.body.section(QLatin1Char('\n'), 0, 0);
         const QString normalized = normalizePreviewText(question);
         return normalized.isEmpty()
-            ? QStringLiteral("Poll")
-            : QStringLiteral("Poll: ") + normalized;
+            ? t(QT_TRANSLATE_NOOP("EventPreview", "Poll"))
+            : t(QT_TRANSLATE_NOOP("EventPreview", "Poll: %1")).arg(normalized);
     }
     case TimelineEvent::StateChange:
         // The room list showed "@alice:example.org updated room settings."

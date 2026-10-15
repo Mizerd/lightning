@@ -10,8 +10,8 @@
 // plain verdict, run on demand, plus a real test notification.
 //
 // What it can and cannot know is part of the contract. It reads: whether a
-// desktop notification service answers on the session bus (Linux) or the tray
-// can show a balloon (Windows, macOS), Lightning's own switch, the account's
+// desktop notification service is on the session bus or can be started by it
+// (Linux) or the tray can show a balloon (Windows, macOS), Lightning's own switch, the account's
 // master mute, and the open room's mode. It CANNOT read the operating
 // system's notification permission or its Focus / Do Not Disturb state on any
 // platform, so that check is always "unknown" and says so; only the test
@@ -37,8 +37,17 @@ public:
         bool masterMute = false;
         // Empty: no room is open, so the room check is left out.
         QString roomId;
-        // -1 unknown, 0 all messages, 1 mentions and keywords, 2 muted.
+        // -1 NOTHING IS STORED for this room on this device (it follows the
+        // account default), 0 all messages, 1 mentions and keywords, 2 muted,
+        // 3 follows the account default explicitly.
         int roomMode = -1;
+        // The account's default level for this room's kind (direct message or
+        // room): -1 unknown, 0 all messages, 1 mentions and keywords only. A
+        // room that follows the default is only as loud as this.
+        int accountDefaultLevel = -1;
+        // Lightning's own tray icon exists and is visible right now. A tray
+        // balloon needs it; without it the tray path delivers nothing.
+        bool trayIconShown = false;
         // "linux", "windows" or "macos"; only picks the wording.
         QString platform;
     };
@@ -63,6 +72,9 @@ public:
     static QString currentPlatform();
 
     Q_INVOKABLE void run(const QString &roomId);
+    // Forget the last results (an account switch: they described the other
+    // account).
+    Q_INVOKABLE void reset();
     // Shows a real notification through the normal delivery path.
     Q_INVOKABLE void sendTest();
 

@@ -37,6 +37,7 @@
 #include "calls/CameraPortal.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
+#include "calls/OneToOneDm.h"
 // Unconditional: the refusal wording names the capture element even in builds
 // without a media engine. Only a constexpr accessor is used, so this adds no
 // GStreamer or link dependency.
@@ -428,6 +429,8 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onCallReactionReceived);
     connect(m_client, &MatrixClient::rtcSendFinished, this,
             &SfuCallController::onRtcSendFinished);
+    connect(m_client, &MatrixClient::callSignalReceived, this,
+            &SfuCallController::onCallSignal);
     // Log key send results (counts only, never the key); a distribution that
     // reached nobody otherwise looks like a dead call.
     connect(m_client, &MatrixClient::rtcMediaKeySent, this,
@@ -1780,6 +1783,13 @@ bool SfuCallController::startsCallForAnnouncement(
     return true;
 }
 
+QString SfuCallController::announcementTypeFor(const RoomInfo &room)
+{
+    return calls::oneToOneDmPeer(room).isEmpty()
+        ? QStringLiteral("notification")
+        : QStringLiteral("ring");
+}
+
 void SfuCallController::refuseJoin(const QString &message, bool announce)
 {
     // A call already running stays as it is: Failed would read as inactive
@@ -2149,16 +2159,28 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
 
     // Announce the call to the room. `m.call.member` is a state event and
     // renders nothing in the timeline; the MessageLike announcement is what
-    // CallEventDelegate draws. `notification`, not `ring`: ring makes other
-    // clients ring audibly. Related to our membership event so receivers can
-    // tie it to this session.
+    // CallEventDelegate draws. `ring` only in a 1:1 DM, where the call is
+    // for the other person; `notification` elsewhere, because ring makes
+    // every member's client ring audibly. Related to our membership event so
+    // receivers can tie it to this session.
     if (m_announceOnPublish && m_client && !m_membershipEventId.isEmpty()) {
         m_announceOnPublish = false;
+        const QString type =
+            announcementTypeFor(m_client->roomInfo(m_roomId));
         const quint64 op = m_client->rtcNotify(
-            m_roomId, QStringLiteral("notification"), m_announceIntent,
-            kAnnounceLifetimeMs, m_membershipEventId);
+            m_roomId, type, m_announceIntent, kAnnounceLifetimeMs,
+            m_membershipEventId);
+        // A 1:1 ring (announcementTypeFor's own rule): remember whom it
+        // rang, so that person's decline can end the call.
+        const QString peer =
+            calls::oneToOneDmPeer(m_client->roomInfo(m_roomId));
+        if (!peer.isEmpty()) {
+            m_announceOp = op;
+            m_announcePeer = peer;
+        }
         qCInfo(lcSfuCall) << "call announced to the room op=" << op
-                          << "intent=" << m_announceIntent;
+                          << "intent=" << m_announceIntent
+                          << "type=" << type;
     }
     // Empty means no MSC4140: cleanup relies on the membership's short
     // `expires` plus the re-publish cadence in refreshMembership(). Both are
@@ -4402,6 +4424,10 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_refreshOp = 0;
     m_delayedRestartOp = 0;
     m_lastPublishMs = 0;
+    m_announceOp = 0;
+    m_announceEventId.clear();
+    m_announcePeer.clear();
+    m_pendingDeclineTarget.clear();
     resetKeyLane();
     // "Leave and rejoin" is advice about this call; once it has ended the
     // notice is withdrawn (only if it is still the one showing).
@@ -5750,7 +5776,18 @@ void SfuCallController::onRtcSendFinished(quint64 opId, bool ok,
                                           const QString &category,
                                           const QString &eventId)
 {
-    Q_UNUSED(eventId);
+    // Our ring's answer carries the event id a decline will target.
+    if (opId != 0 && opId == m_announceOp) {
+        m_announceOp = 0;
+        const QString pending = m_pendingDeclineTarget;
+        m_pendingDeclineTarget.clear();
+        if (ok)
+            m_announceEventId = eventId;
+        // A decline that arrived first, now that we know what it named.
+        if (ok && !pending.isEmpty() && pending == eventId && active())
+            endCallDeclinedIfAlone();
+        return;
+    }
     // Shared with every RTC send; only our outstanding reaction op is ours.
     if (opId == 0 || opId != m_reactionOp)
         return;
@@ -5761,6 +5798,46 @@ void SfuCallController::onRtcSendFinished(quint64 opId, bool ok,
     qCWarning(lcSfuCall) << "call reaction not sent category=" << category;
     // Nothing will come back to draw; allow an immediate retry.
     m_lastReactionSentMs = 0;
+}
+
+void SfuCallController::onCallSignal(const CallSignal &signal)
+{
+    // The person our 1:1 ring was for declined it (MSC4075 `m.rtc.decline`
+    // naming our announcement). Element ends the call there; so does this,
+    // but only while nobody else is in it: someone who already joined is a
+    // call in progress, not a ring to give up on.
+    if (signal.kind != CallSignal::Kind::RtcDecline || signal.own
+        || !active() || m_roomId.isEmpty() || signal.roomId != m_roomId
+        || m_announcePeer.isEmpty() || signal.sender != m_announcePeer
+        || signal.targetEventId.isEmpty())
+        return;
+    if (m_announceEventId.isEmpty()) {
+        // The decline can outrun our own send's answer (the peer's client
+        // saw the ring through sync first). Keep the one that matters, from
+        // the one person rung, until the answer names our event.
+        if (m_announceOp != 0)
+            m_pendingDeclineTarget = signal.targetEventId;
+        return;
+    }
+    if (signal.targetEventId != m_announceEventId)
+        return;
+    endCallDeclinedIfAlone();
+}
+
+void SfuCallController::endCallDeclinedIfAlone()
+{
+    if (m_participantModel) {
+        for (int row = 0; row < m_participantModel->rowCount(); ++row) {
+            if (!m_participantModel
+                     ->data(m_participantModel->index(row),
+                            CallParticipantModel::LocalRole)
+                     .toBool())
+                return;
+        }
+    }
+    qCInfo(lcSfuCall) << "our ring was declined; leaving the call";
+    teardown(State::Ended);
+    Q_EMIT callFailed(tr("The call was declined."));
 }
 
 void SfuCallController::onCallReactionReceived(const QString &roomId,
@@ -6203,7 +6280,7 @@ void SfuCallController::setMembershipForTest(const QString &roomId,
 }
 
 quint64 SfuCallController::beginMembershipPublishForTest(
-    const QString &roomId, const QString &focusUrl)
+    const QString &roomId, const QString &focusUrl, bool announce)
 {
     // The tail of join(), in the same order and through the same calls, so
     // the answer reaches the production onMembershipPublished().
@@ -6212,8 +6289,8 @@ quint64 SfuCallController::beginMembershipPublishForTest(
     supersedeOwedRetractionFor(roomId);
     m_roomId = roomId;
     m_focusUrl = focusUrl;
-    // Tests never announce the call.
-    m_announceOnPublish = false;
+    m_announceOnPublish = announce;
+    m_announceIntent = QStringLiteral("audio");
     setState(State::Preparing);
     m_publishOp = m_client->rtcPublishMembership(roomId, focusUrl,
                                                  QStringLiteral("audio"));

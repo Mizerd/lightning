@@ -37,6 +37,24 @@ struct DiffOutcome {
     int index = -1;              // Inserted / Changed / Removed
     int length = -1;             // Truncated: new length
     QList<TimelineEvent> items;  // Appended / Prepended / Inserted / Changed / Reset
+
+    // Facts for the notification path, which the model signals above cannot
+    // carry. None of them changes what the mirror holds.
+    //
+    // Inserted: a remote event that landed after the last remote item, with
+    // only local echoes (pending, uploading or failed sends) or virtual rows
+    // after it. matrix-sdk-ui inserts a new remote event there instead of
+    // pushing it back while an echo sits at the bottom, so it is a live
+    // arrival exactly like an append. A pagination insert never qualifies: it
+    // lands before every remote item already loaded. Also set when the bridge
+    // marked the diff `live_append` (rust/src/timeline.rs judges it against
+    // its own copy of the vector and the timeline's open time).
+    bool liveRemoteInsert = false;
+    // Changed: the same event went from undecryptable to readable, or from
+    // present to redacted. Matched on event id, so a Set that reuses a slot
+    // for another event is neither.
+    bool becameDecrypted = false;
+    bool becameRedacted = false;
 };
 
 // Row kind for one bridge `msgtype` (the Rust vocabulary: "text", "notice",
@@ -47,9 +65,40 @@ struct DiffOutcome {
 TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype);
 
 // The account's push-rule verdict from an event payload (`push_notify`,
-// `push_highlight`), shared by both producers like rowTypeForMsgtype. A
-// payload without `push_notify` leaves the event's verdict Unknown.
+// `push_highlight`, `push_sound`), shared by both producers like
+// rowTypeForMsgtype. A payload without `push_notify` leaves the event's
+// verdict Unknown and both tweaks false.
 void readPushVerdict(const QJsonObject &payload, TimelineEvent &event);
+
+// One `timeline_event` payload from the sync handlers (a room with no open
+// timeline, or the open room's copy of an event its live timeline also
+// shows) as a TimelineEvent. Pure: the caller fills the sender's display
+// name and the undecryptable placeholder, which need the client's member
+// cache and its translation context. An unknown msgtype becomes a text row,
+// unlike the live ingest, because a side surface has nothing better to show.
+TimelineEvent syncEventFromPayload(const QJsonObject &obj, const QString &roomId);
+
+// Where a sync-handler event goes.
+enum class SyncRoute {
+    // A room with no open timeline: into the background mirror (bounded,
+    // de-duplicated) and out through eventAppended.
+    MirrorAndAppend,
+    // A room with no open timeline, but a row the mirror must not hold: a
+    // thread reply (CLAUDE.md section 8: never a main-timeline row), an edit
+    // (its "* " fallback), or a poll start (no answers until the SDK timeline
+    // aggregates it). Still announced through eventAppended, de-duplicated by
+    // id because the mirror cannot see it again.
+    AppendUnmirrored,
+    // The open room's thread reply. The live timeline hides threaded events,
+    // so no diff will ever announce it; it goes out on liveEventObserved for
+    // notifications and the Activity Center only, never to TimelineModel and
+    // never into the mirror.
+    ObserveOnly,
+    // The open room's other events: its SDK timeline announces them. Only the
+    // room-list preview is updated.
+    PreviewOnly,
+};
+SyncRoute syncRouteFor(bool roomHasLiveTimeline, const TimelineEvent &event);
 
 // Convert one Rust item payload into a TimelineEvent. Virtual rows
 // (date_divider / read_marker / timeline_start) map to the corresponding

@@ -46,17 +46,27 @@ NotificationTroubleshooter::probeDeliveryPath()
 {
 #ifdef HAVE_QT_DBUS
     QDBusConnection bus = QDBusConnection::sessionBus();
-    if (bus.isConnected() && bus.interface()
-        && bus.interface()->isServiceRegistered(
-               QStringLiteral("org.freedesktop.Notifications"))) {
-        return DesktopService;
+    if (bus.isConnected() && bus.interface()) {
+        const QString name = QStringLiteral("org.freedesktop.Notifications");
+        // A daemon that is not running yet but is D-Bus activatable (dunst,
+        // mako, xfce4-notifyd ...) is started by the first Notify call.
+        if (bus.interface()->isServiceRegistered(name)
+            || bus.interface()->activatableServiceNames().value().contains(name)) {
+            return DesktopService;
+        }
     }
 #endif
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    // On Linux Qt's tray balloon goes through the very same notification
+    // daemon, and the icon may not exist: it is no fallback to count on.
+    return NoPath;
+#else
     if (QSystemTrayIcon::isSystemTrayAvailable()
         && QSystemTrayIcon::supportsMessages()) {
         return TrayBalloon;
     }
     return NoPath;
+#endif
 }
 
 QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
@@ -68,14 +78,25 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
     case DesktopService:
         out.append(check(QStringLiteral("delivery"),
                          tr("A notification service is running"), Pass,
-                         tr("Your desktop's notification service answered.")));
+                         tr("A notification service is available on your desktop's session "
+                            "bus. Only the test notification can show that it "
+                            "displays.")));
         break;
     case TrayBalloon:
-        out.append(check(QStringLiteral("delivery"),
-                         tr("Notifications use the tray icon"), Pass,
-                         tr("Lightning shows notifications as balloons from its "
-                            "tray icon on this system. They need the icon to be "
-                            "visible.")));
+        if (in.trayIconShown) {
+            out.append(check(QStringLiteral("delivery"),
+                             tr("Notifications use the tray icon"), Pass,
+                             tr("Lightning shows notifications as balloons from "
+                                "its tray icon on this system, and the icon is "
+                                "showing.")));
+        } else {
+            out.append(check(
+                QStringLiteral("delivery"),
+                tr("The tray icon is not showing"), Fail,
+                tr("Notifications can only appear as balloons from Lightning's "
+                   "tray icon here, and the icon is hidden. Turn on keeping "
+                   "Lightning in the tray, or start a notification service.")));
+        }
         break;
     case NoPath:
         out.append(check(
@@ -133,6 +154,14 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
                             "notifications for any room, to any of your "
                             "devices."),
                          QStringLiteral("unmute")));
+    } else if (in.accountDefaultLevel == 1 && !in.roomId.isEmpty()
+               && (in.roomMode == -1 || in.roomMode == 3)) {
+        out.append(check(QStringLiteral("account"),
+                         tr("Your account default is mentions and keywords "
+                            "only"), Warn,
+                         tr("The master mute is off, but ordinary messages in "
+                            "rooms without a setting of their own stay quiet. "
+                            "Change it under Default alerts above.")));
     } else {
         out.append(check(QStringLiteral("account"),
                          tr("Your account is not muted"), Pass,
@@ -155,10 +184,26 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
             out.append(check(QStringLiteral("room"),
                              tr("This room notifies for every message"), Pass,
                              tr("Nothing is overriding it.")));
+        } else if (in.accountDefaultLevel == 1) {
+            out.append(check(QStringLiteral("room"),
+                             tr("This room follows your defaults, which are "
+                                "mentions only"), Warn,
+                             tr("It has no setting of its own, so ordinary "
+                                "messages here stay quiet. Change the default "
+                                "above, or set this room under Room "
+                                "information, Notifications.")));
+        } else if (in.accountDefaultLevel == 0) {
+            out.append(check(QStringLiteral("room"),
+                             tr("This room notifies for every message"), Pass,
+                             tr("It has no setting of its own and follows your "
+                                "account default, which is all messages.")));
         } else {
             out.append(check(QStringLiteral("room"),
-                             tr("This room follows your defaults"), Pass,
-                             tr("It has no setting of its own.")));
+                             tr("This room follows your defaults"), Unknown,
+                             tr("It has no setting of its own, and your "
+                                "account default could not be read, so "
+                                "whether ordinary messages notify is not "
+                                "known.")));
         }
     }
     return out;
@@ -171,6 +216,15 @@ void NotificationTroubleshooter::run(const QString &roomId)
         in = m_provider(roomId);
     m_checks = evaluate(in);
     m_hasRun = true;
+    Q_EMIT checksChanged();
+}
+
+void NotificationTroubleshooter::reset()
+{
+    if (m_checks.isEmpty() && !m_hasRun)
+        return;
+    m_checks.clear();
+    m_hasRun = false;
     Q_EMIT checksChanged();
 }
 

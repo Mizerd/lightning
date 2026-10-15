@@ -452,9 +452,11 @@ setWindowActive()`, which re-evaluates.
 false` for every landing, including one that `positionViewAtNavigationTarget()`
 clamps to the live edge. `nearBottom` (the receipt gate) is bound to
 `stickToBottom`, so the pending receipt was cancelled and no later event
-re-latched it without a gesture. The "New messages" divider, suppressed only
-while pinned, then grew 30 px and the anchor pushed the new message under the
-bottom edge. On Wayland a notification click without an activation token does
+re-latched it without a gesture. The "New messages" divider, then suppressed
+only while pinned, grew 30 px and the anchor pushed the new message under the
+bottom edge. (Since 2026-10-15 the divider shows for the whole visit, pinned
+or not, so its height no longer changes with following; the automatic receipt
+stopped moving `m.fully_read`, which is what made that suppression necessary.) On Wayland a notification click without an activation token does
 not raise the window, so the user alt-tabs back, which is the report's wording.
 The landing now sets `stickToBottom = atBottomEdge()` after it positions.
 Landings into history and the first-unread landing (never clamped to the edge)
