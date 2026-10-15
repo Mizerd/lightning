@@ -23,6 +23,10 @@
 #include "calls/ScreenCastPortal.h"
 #include <QSettings>
 #include <QTemporaryDir>
+#ifdef Q_OS_UNIX
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "app/SettingsManager.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
@@ -539,6 +543,23 @@ public:
                                ok ? QString() : QStringLiteral("network"),
                                ok ? int(send.devices.size()) : 0, send.index);
     }
+    /// A PARTIAL delivery, as rtc_key_sent reports it since F6: ok, with the
+    /// devices the key missed named in `undelivered` (KeyLaneCall's user ids).
+    void answerKeySendPartial(const KeySend &send, const QStringList &missed)
+    {
+        QVariantList undelivered;
+        for (const QString &device : missed) {
+            undelivered.append(QVariantMap{
+                { QStringLiteral("user_id"),
+                  QLatin1Char('@') + device.toLower()
+                      + QStringLiteral(":example.org") },
+                { QStringLiteral("device_id"), device } });
+        }
+        const int delivered = int(send.devices.size() - missed.size());
+        Q_EMIT rtcMediaKeySent(send.op, delivered > 0,
+                               QStringLiteral("partial"), delivered,
+                               send.index, undelivered);
+    }
     QList<KeySend> keySends;
     bool refuseSends = false;
 };
@@ -613,6 +634,69 @@ struct KeyLaneCall {
     }
     int newest() const { return call.newestKeyIndexForTest(); }
     int adopted() const { return call.adoptedKeyIndexForTest(); }
+};
+
+// ── The camera portal ──
+
+/// A connected call whose camera goes through a wired CameraPortal, with the
+/// media engine and the portal's D-Bus request replaced by the controller's
+/// test stand-ins (setCameraPathForTest): a sandbox with a usable portal and
+/// no device node, so the route is the portal. The portal's answers are
+/// emitted by hand. Records every publish with whether its descriptor was
+/// still open when handed over, then closes it as the engine would.
+struct CameraPortalCall {
+    RecordingCallClient client;
+    SfuCallController call;
+    CameraPortal portal;
+    QList<int> published;
+    QList<bool> publishedOpen;
+    int requests = 0;
+
+    CameraPortalCall()
+    {
+        call.setClient(&client);
+        call.setCameraPortal(&portal);
+        call.setMembershipForTest(QStringLiteral("!cam:example.org"),
+                                  QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setCameraRouteForTest(/*viaPortal=*/false,
+                                   /*portalReportedCamera=*/false,
+                                   /*deviceNodeVisible=*/false);
+        call.setCameraPathForTest(
+            [this](int fd) {
+                published.append(fd);
+                publishedOpen.append(fdOpen(fd));
+#ifdef Q_OS_UNIX
+                if (fd >= 0)
+                    ::close(fd);
+#endif
+            },
+            [this] { ++requests; }, /*sandboxed=*/true,
+            /*portalUsable=*/true);
+    }
+    static bool fdOpen(int fd)
+    {
+#ifdef Q_OS_UNIX
+        return fd >= 0 && ::fcntl(fd, F_GETFD) != -1;
+#else
+        Q_UNUSED(fd);
+        return false;
+#endif
+    }
+    /// A real descriptor standing for the portal's PipeWire remote: the read
+    /// end of a pipe (the write end is closed at once).
+    static int portalFd()
+    {
+#ifdef Q_OS_UNIX
+        int ends[2] = {-1, -1};
+        if (::pipe(ends) != 0)
+            return -1;
+        ::close(ends[1]);
+        return ends[0];
+#else
+        return -1;
+#endif
+    }
 };
 
 // ── Reconnecting ──
@@ -1353,6 +1437,146 @@ private Q_SLOTS:
         QCOMPARE(c.lastSend().devices,
                  (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
         QCOMPARE(c.adopted(), first);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+    }
+
+    // F6 (2026-09-29): a PARTIAL to-device delivery is reported ok, and every
+    // device in that send used to count as a holder, so the ones it missed
+    // were never sent the key again and were cut off at the next switch.
+    void aPartialKeyDeliveryIsSentAgainToTheDevicesItMissed()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
+        const qsizetype sends = c.client.keySends.size();
+        c.client.answerKeySendPartial(c.lastSend(),
+                                      { QStringLiteral("BDEV") });
+
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QVERIFY2(c.client.keySends.size() == sends + 1,
+                 "B never got the key and was not sent it again: the partial "
+                 "answer counted it as a holder");
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("BDEV") });
+        QCOMPARE(c.lastSend().index, first);
+        // A is not sent it twice.
+        c.client.answerKeySend(c.lastSend(), true);
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.client.keySends.size(), sends + 1);
+    }
+
+    // Review L1: a device the key keeps missing is re-sent it with a doubling
+    // per-device backoff (the first retry at once), reset by a delivery that
+    // reaches it. Without it every reconcile re-sends to an unreachable
+    // device for the length of the call.
+    void aDeviceTheKeyKeepsMissingIsReSentWithABackoff()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.call.setKeyResendBackoffBaseMsForTest(300);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const QStringList missB{ QStringLiteral("BDEV") };
+        c.client.answerKeySendPartial(c.lastSend(), missB);
+
+        // First miss: retried at once.
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.lastSend().devices, missB);
+        const qsizetype afterFirstRetry = c.client.keySends.size();
+        // Second miss (the device named undelivered): held back for the base
+        // gap...
+        c.client.answerKeySendPartial(c.lastSend(), missB);
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QVERIFY2(c.client.keySends.size() == afterFirstRetry,
+                 "a device that missed the key twice was sent it again at once");
+        QVERIFY(c.call.keyResendsHeldBackForTest() >= 1);
+        // ...and sent once it has passed.
+        QTest::qWait(350);
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.client.keySends.size(), afterFirstRetry + 1);
+        QCOMPARE(c.lastSend().devices, missB);
+        // Third miss doubles the gap (600 ms): still held at 350 ms.
+        c.client.answerKeySendPartial(c.lastSend(), missB);
+        QTest::qWait(350);
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.client.keySends.size(), afterFirstRetry + 1);
+        QTest::qWait(350);
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.client.keySends.size(), afterFirstRetry + 2);
+        // A delivery resets it: B's NEXT miss is retried at once again.
+        // (Answering the same send twice proves nothing: its op is already
+        // answered and the second answer is not this call's. A new send is
+        // needed: A leaves, and the rotation goes to B alone.)
+        c.client.answerKeySend(c.lastSend(), true);
+        c.sfuLeave(QStringLiteral("ADEV"));
+        QCOMPARE(c.lastSend().devices, missB);
+        c.client.answerKeySendPartial(c.lastSend(), missB);
+        const qsizetype afterReset = c.client.keySends.size();
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QVERIFY2(c.client.keySends.size() == afterReset + 1,
+                 "a delivery did not reset the backoff: the next miss waited");
+        QCOMPARE(c.lastSend().devices, missB);
+    }
+
+    // Recheck L-d: a send that failed as a WHOLE (no device named: the
+    // transport, the homeserver) holds no device back.
+    void aWholeSendFailureHoldsNoDeviceBack()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.call.setKeyResendBackoffBaseMsForTest(10000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        for (int i = 0; i < 3; ++i) {
+            const qsizetype before = c.client.keySends.size();
+            c.client.answerKeySend(c.lastSend(), false); // names nobody
+            QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+            QVERIFY2(c.client.keySends.size() == before + 1,
+                     "a transport failure backed every device off");
+        }
+        QCOMPARE(c.call.keyResendsHeldBackForTest(), 0);
+    }
+
+    // ...and a partial answer that missed every holder of the key in use
+    // cannot start the switch: it would cut exactly those peers off.
+    void aPartialAnswerThatMissedTheKeyInUseHoldersDoesNotStartTheSwitch()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("DDEV") });
+        c.call.setKeyTimingForTest(100, 0, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.client.answerKeySend(c.lastSend(), true);
+
+        // A joiner after the grace: a fresh key to all three, A and B hold
+        // the key in use.
+        c.sfuJoin(QStringLiteral("DDEV"), QStringLiteral("PA_D1"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                               QStringLiteral("DDEV") }));
+        c.client.answerKeySendPartial(
+            c.lastSend(), { QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        QTest::qWait(400);
+        QVERIFY2(c.adopted() == first,
+                 "switched on an answer that reached only the joiner: A and B "
+                 "never got the new key and were cut off");
+
+        // The retry reaches them, and the switch follows.
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.lastSend().index, second);
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
         c.client.answerKeySend(c.lastSend(), true);
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
@@ -5251,6 +5475,129 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
     }
 
+    // The camera-portal state machine, driven end to end without an engine
+    // (open item 2026-09-12: startCameraCapture() and publishCameraTrack()
+    // were wholly inside the media guard, so this target could never reach
+    // m_cameraAwaitingPortal). On the old controller setCameraOn() is a no-op
+    // here, so every case below fails at its first request count.
+    //
+    // The grant publishes, and the descriptor reaches the publisher open.
+    void aPortalCameraPublishesOnTheGrantWithTheDescriptorItWasGiven()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 1);
+        QVERIFY(c.call.cameraAwaitingPortalForTest());
+        QVERIFY2(c.call.cameraOn(), "the button does not answer the press");
+        QVERIFY2(c.published.isEmpty(),
+                 "a camera was declared before the portal granted it");
+
+        const int fd = CameraPortalCall::portalFd();
+        QVERIFY(fd >= 0);
+        Q_EMIT c.portal.ready(fd);
+        QCOMPARE(c.published, QList<int>{ fd });
+        QVERIFY2(c.publishedOpen.value(0),
+                 "the controller closed the descriptor it handed over");
+        QVERIFY(!c.call.cameraAwaitingPortalForTest());
+        QVERIFY(c.call.cameraOn());
+        QVERIFY(c.call.cameraViaPortalForTest());
+        QCOMPARE(c.call.cameraPublishesForTest(), 1);
+    }
+
+    // The second press: off during the dialog, the late grant is closed and
+    // not published; on again asks again and publishes the new grant.
+    void aGrantForACameraTurnedOffDuringTheDialogIsClosedNotPublished()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 1);
+        c.call.setCameraOn(false);
+        QVERIFY(!c.call.cameraAwaitingPortalForTest());
+        QVERIFY(!c.call.cameraOn());
+
+        const int late = CameraPortalCall::portalFd();
+        QVERIFY(late >= 0);
+        Q_EMIT c.portal.ready(late);
+        QVERIFY2(c.published.isEmpty(),
+                 "a camera the user switched off was published anyway");
+        QVERIFY2(!CameraPortalCall::fdOpen(late),
+                 "the late grant's PipeWire descriptor leaked");
+
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 2);
+        const int fd = CameraPortalCall::portalFd();
+        Q_EMIT c.portal.ready(fd);
+        QCOMPARE(c.published, QList<int>{ fd });
+        QVERIFY(c.call.cameraOn());
+    }
+
+    // Leaving while the dialog is open: the request is abandoned with the
+    // call, and a grant that arrives after is closed and publishes nothing.
+    void leavingDuringTheCameraDialogAbandonsItAndClosesALateGrant()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraOn(true);
+        QVERIFY(c.call.cameraAwaitingPortalForTest());
+        c.call.leave();
+        QVERIFY2(!c.call.cameraAwaitingPortalForTest(),
+                 "the call ended with the camera still waiting on the portal");
+        QVERIFY(!c.call.cameraOn());
+        QVERIFY(!c.portal.busy());
+
+        const int late = CameraPortalCall::portalFd();
+        Q_EMIT c.portal.ready(late);
+        QVERIFY(c.published.isEmpty());
+        QVERIFY2(!CameraPortalCall::fdOpen(late),
+                 "a grant for a call that ended leaked its descriptor");
+    }
+
+    // A grant that lands while the camera is still wanted but the call has
+    // stopped being active (no teardown has run yet): closed, and the camera
+    // control unwound rather than left lit with no track.
+    void aGrantAfterTheCallStoppedBeingActiveIsClosedAndUnwound()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraOn(true);
+        QVERIFY(c.call.cameraAwaitingPortalForTest());
+        c.call.setCallStateForTest(SfuCallController::State::Idle);
+        QVERIFY(!c.call.active());
+
+        const int fd = CameraPortalCall::portalFd();
+        Q_EMIT c.portal.ready(fd);
+        QVERIFY(c.published.isEmpty());
+        QVERIFY2(!CameraPortalCall::fdOpen(fd),
+                 "the grant's descriptor leaked on the inactive-call exit");
+        QVERIFY(!c.call.cameraAwaitingPortalForTest());
+        QVERIFY2(!c.call.cameraOn(),
+                 "the camera stayed lit with nothing published");
+    }
+
+    // A declined dialog unwinds the control with no message.
+    void aDeclinedCameraDialogUnwindsTheControlSilently()
+    {
+        CameraPortalCall c;
+        QSignalSpy failed(&c.call, &SfuCallController::callFailed);
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 1);
+        Q_EMIT c.portal.cancelled();
+        QVERIFY(!c.call.cameraAwaitingPortalForTest());
+        QVERIFY(!c.call.cameraOn());
+        QVERIFY(c.published.isEmpty());
+        QCOMPARE(failed.count(), 0);
+    }
+
     // The fall-back latch is per call: it must not make the next call skip
     // the portal ("earlier in this call" would be false). Fails without the
     // resets in teardown() and join().
@@ -6781,6 +7128,89 @@ private Q_SLOTS:
         QCOMPARE(apps.shareAudioApps(),
                  (QStringList{ QStringLiteral("vlc.exe"),
                                QStringLiteral("mpv.exe") }));
+    }
+
+    // The share's sound has its own mute (its `sharevalve`, 2026-09-14 seam):
+    // a control, a status line that says so while it is in force, and a
+    // lifetime of one share.
+    void theShareSoundCanBeMutedOnItsOwnForOneShare()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        QVERIFY(!call.shareAudioMuted());
+        QSignalSpy changed(&call, &SfuCallController::mediaStateChanged);
+        QSignalSpy status(&call, &SfuCallController::shareAudioStatusChanged);
+        call.setShareAudioMuted(true);
+        QVERIFY(call.shareAudioMuted());
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(status.count(), 1);
+        QVERIFY2(!call.microphoneMuted(),
+                 "muting the share's sound muted the microphone");
+        // Idempotent.
+        call.setShareAudioMuted(true);
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(QMetaObject::invokeMethod(&call, "toggleShareAudioMuted"));
+        QVERIFY(!call.shareAudioMuted());
+        call.setShareAudioMuted(true);
+
+        // The QML control binds the property.
+        const QMetaObject *meta = call.metaObject();
+        const int index = meta->indexOfProperty("shareAudioMuted");
+        QVERIFY(index >= 0);
+        QVERIFY(meta->property(index).isWritable());
+        QVERIFY(meta->property(index).hasNotifySignal());
+
+        // The share (here the whole call) ending ends the mute: the next
+        // share starts with its sound on.
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.leave();
+        QVERIFY2(!call.shareAudioMuted(),
+                 "a mute made in one share carried into the next");
+
+        using In = SfuCallController::ShareAudioStatusInput;
+        In in;
+        in.supported = true;
+        in.mode = 1;
+        in.systemExcludesUs = true;
+        in.muted = true;
+        QVERIFY2(!SfuCallController::shareAudioStatusText(in).contains(
+                     QStringLiteral("Muted")),
+                 "a mute was reported with no share running");
+        in.trackLive = true;
+        const QString muted = SfuCallController::shareAudioStatusText(in);
+        QVERIFY2(muted.contains(QStringLiteral("Muted")), qPrintable(muted));
+        QVERIFY2(muted.contains(QStringLiteral("except Lightning")),
+                 qPrintable(muted));
+    }
+
+    // Review L3: a daemon restart replaces the share's sound track, but at
+    // most three times per share (a restart loop must not cost the far end a
+    // new track every ten seconds), and the budget is the share's: it comes
+    // back with the next one. Requests for any track but the running one
+    // are ignored.
+    void shareAudioRebuildsAreCappedPerShare()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!share:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setScreenSharingForTest(true);
+        call.setShareAudioCidForTest(QStringLiteral("share-audio-1"));
+        const auto ask = [&call](const QString &cid) {
+            return QMetaObject::invokeMethod(&call, "onShareAudioRebuildWanted",
+                                             Qt::DirectConnection,
+                                             Q_ARG(QString, cid));
+        };
+        QVERIFY(ask(QStringLiteral("some-older-track")));
+        QCOMPARE(call.shareAudioRebuildsForTest(), 0);
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(ask(QStringLiteral("share-audio-1")));
+        QCOMPARE(call.shareAudioRebuildsForTest(), 3);
+        // The share ends (here with the call): the budget is reset.
+        call.leave();
+        QCOMPARE(call.shareAudioRebuildsForTest(), 0);
     }
 
     // What the status line says is a pure function of the choice and of what

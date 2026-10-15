@@ -105,6 +105,12 @@ Popup {
             anchors.bottomMargin: AppTheme.spacing24 + overlayBar.height
             fillMode: VideoOutput.PreserveAspectFit
         }
+        // The expanded view of a video the software renderer cannot draw.
+        SoftwareVideoNotice {
+            objectName: "videoViewerSoftwareNotice"
+            anchors.fill: expandedOutput
+            shown: !!root.player
+        }
         TapHandler {
             id: overlayTap
             // Taps toggle instantly (exclusive tap signals would delay the

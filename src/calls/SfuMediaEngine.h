@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <mutex>
 
 #include <QHash>
@@ -603,6 +604,47 @@ public:
     {
         m_testMicSource = description;
     }
+    /// Test-only: the microphone's start is still running on its pool thread.
+    bool microphoneStartingForTest() const { return microphoneStarting(); }
+    /// Test-only: starts the pool thread reported back to THIS session's
+    /// microphone (a stale report is dropped and not counted).
+    int microphoneStartsReportedForTest() const { return m_micStartsReported; }
+    /// Test-only: a device switch waiting for the microphone's start.
+    bool microphoneSwapDeferredForTest() const
+    {
+        return m_micSwapDeferred.has_value();
+    }
+    /// Test-only: how long a switch waits for a start before replacing it.
+    void setMicrophoneStartAbandonMsForTest(int ms) { m_micStartAbandonMs = ms; }
+    /// Test-only: the "no RTP" watchdog's delay, and its last verdict:
+    /// "starting", "flowing", "muted" or "none" (empty before any).
+    void setMicrophoneRtpCheckMsForTest(int ms) { m_micRtpCheckMs = ms; }
+    QString lastMicrophoneRtpVerdictForTest() const
+    {
+        return m_lastMicRtpVerdict;
+    }
+    /// Test-only: microphone source restarts finished on the pool thread.
+    int microphoneSourceRestartsDoneForTest() const
+    {
+        return m_micSourceRestartsDone->load();
+    }
+    /// Test-only: buffers the live microphone capture has delivered.
+    quint64 microphoneCapturedForTest() const
+    {
+        return m_micCaptured ? m_micCaptured->load() : 0;
+    }
+    /// Test-only: a capture restart, as handleCaptureError() schedules one.
+    void restartMicrophoneForTest()
+    {
+        m_micRestartPending = true;
+        restartMicrophone(m_micCid, m_generation.load());
+    }
+    bool microphoneRestartPendingForTest() const { return m_micRestartPending; }
+    /// Test-only: webrtcdsp's mode still to be applied after the start.
+    bool microphoneNoiseModeDeferredForTest() const
+    {
+        return m_micNoiseModeAfterStart;
+    }
     /// Test-only: the video source description in test-source mode.
     void setVideoSourceForTest(const QString &description)
     {
@@ -691,6 +733,11 @@ public:
             const QList<lightning::shareaudio::Stream> &)> enumerate,
         const lightning::shareaudio::BranchOptions &options);
     void rescanShareAudioSourcesForTest() { rescanShareAudioSources(); }
+    /// Shortens the gap between two share-audio rebuild requests.
+    void setShareAudioRebuildGapMsForTest(qint64 ms)
+    {
+        m_shareAudioRebuildGapMs = ms;
+    }
     void setShareAudioBranchCapForTest(int cap) { m_shareAudioCap = cap; }
     /// Each branch start sleeps this long on its pool thread first, as a
     /// pipewiresrc waiting on its daemon does.
@@ -788,6 +835,12 @@ public:
     /// cannot touch the next session.
     void noteTeardownComplete(const QString &cid, quint64 generation);
 
+    /// The microphone bin's start (its capture opening the sound server) runs
+    /// on a GStreamer pool thread (publishAudio()); this reports back on the
+    /// GUI thread, for the session and microphone it was started for only.
+    /// Public only for that callback.
+    void noteMicrophoneStarted(const QString &cid, quint64 generation,
+                               bool ok, qint64 tookMs);
     /// A share-audio branch's start, finished on a pool thread, reported on
     /// the GUI thread. Public only for that callback. A failed branch was
     /// already taken out; it is retried after a cool-down.
@@ -802,6 +855,12 @@ public:
 
     /// Real mute: stops publishing, never attenuates.
     void setMicrophoneMuted(bool muted);
+    /// Mute the share's sound alone (its own `sharevalve`), never the
+    /// microphone. Applies to a running share track at once and to every one
+    /// built afterwards, until changed. The level meter sits before the valve,
+    /// so a muted share still reports what it hears.
+    void setShareAudioMuted(bool muted);
+    bool shareAudioMuted() const { return m_shareAudioMuted; }
     /// Own microphone gain, 0..200 (see audioFactorPercent()), applied by a
     /// `volume` element in the send chain before the encoder. Not a mute:
     /// zero gain still publishes RTP.
@@ -998,6 +1057,15 @@ Q_SIGNALS:
     void shareAudioReport(bool live, bool perApplication, bool excludesUs,
                           const QStringList &carried,
                           const QStringList &failed, bool limitReached);
+    /// The audio daemon closed EVERY capture of the per-application share
+    /// track `cid` in one scan (it restarted). The owner should replace the
+    /// track with a fresh one rather than rely on the in-place recapture
+    /// alone: after such restarts the receiver heard nothing in 4 of 10 runs
+    /// while this side's meter, RTP and the far end's decryption all looked
+    /// healthy (2026-10-07, open item), and the fault outlived later in-place
+    /// changes. Rate-limited (kShareAudioRebuildMinGapMs). Queued: never
+    /// emitted from inside a scan.
+    void shareAudioRebuildWanted(const QString &cid);
 
 private:
     struct Peer {
@@ -1194,6 +1262,7 @@ private:
     /// deafened comes up silenced.
     std::atomic<bool> m_outputMuted{false};
     bool m_microphoneMuted = false;
+    bool m_shareAudioMuted = false;
     /// When the capture first fell to or below kMicSilenceCeilingDb, or -1
     /// while audible. Not judged while muted.
     qint64 m_micSilentSinceMs = -1;
@@ -1414,8 +1483,18 @@ private:
     /// `keep`. Any thread. webrtcbin never removes a src pad, so this, not
     /// pad-removed, is how a track LiveKit retires stops playing. Returns how
     /// many bins went.
+    /// `subscriberWebrtc` is the subscriber webrtcbin the CALLER holds (a
+    /// streaming-thread caller passes its callback's own element; the GUI
+    /// thread passes m_subscriber.webrtc), only for the diagnostic count.
     int retireReceiveBins(const QSet<QString> &transceiverMids, GstPad *keep,
-                          const char *reason);
+                          const char *reason,
+                          GstElement *subscriberWebrtc = nullptr);
+    /// rtpjitterbuffers inside `webrtc`'s rtpbin (one per remote SSRC ever
+    /// seen, as autoremove is off), or -1 without one. Reads no engine state,
+    /// so any thread holding a reference to `webrtc` may call it.
+    static int subscriberJitterbufferCount(GstElement *webrtc);
+    /// Live entries in m_receiveBins. Any thread.
+    int receiveBinCount() const;
     /// Unparent and stop one receive bin off the streaming thread.
     /// `announce` emits remoteTrackRemoved (not for a rebuild).
     void teardownReceiveBin(const ReceiveBin &entry, bool announce = true);
@@ -1477,6 +1556,16 @@ private:
     /// started with its output blocked, and swapped in front of the valve once
     /// it delivers; see swapMicrophoneFront().
     void swapMicrophoneFront(const MicrophoneCapture &capture);
+    /// Whether the running microphone's start is still in flight and has not
+    /// been taken over by a device switch (see m_micStartAbandonMs).
+    bool microphoneStarting() const
+    {
+        return m_micStartPending && m_micStartPending->load()
+            && !m_micStartTakenOver;
+    }
+    /// What a start in flight put off (a restart, webrtcdsp's mode, the RTP
+    /// verdict): run when the start reports, or when a switch takes it over.
+    void runMicrophoneStartDeferrals(const QString &cid, quint64 generation);
     void abandonMicrophoneSwap(const char *why);
     /// Drops the pending switch's references without touching its elements:
     /// they go down with the publish bin (unpublish, teardown).
@@ -1493,6 +1582,57 @@ private:
         bool currentFailed = false;  // the old capture erred meanwhile
     };
     PendingMicSwap m_micSwap;
+    /// The microphone's off-thread start (see publishAudio()): true until the
+    /// pool thread has finished it. Shared with that thread.
+    std::shared_ptr<std::atomic<bool>> m_micStartPending;
+    /// A device switch asked for while the start was in flight, applied when
+    /// it reports (swapMicrophoneFront() must not change the front of a bin
+    /// another thread is starting).
+    std::optional<MicrophoneCapture> m_micSwapDeferred;
+    /// A capture restart asked for while the start was in flight: the
+    /// restart's own state change would race the start's (both on pool
+    /// threads), so it runs when the start reports. m_micRestartPending stays
+    /// set meanwhile.
+    bool m_micRestartAfterStart = false;
+    /// A noise-suppression change made during the start: the denoiser's mode
+    /// is set at once (a property), webrtcdsp's (which can replace the
+    /// element) when the start reports.
+    bool m_micNoiseModeAfterStart = false;
+    /// ...and its webrtcdsp had negotiated before the property reached it,
+    /// so it is replaced (forced) after the start.
+    bool m_micNoiseDspForceAfterStart = false;
+    /// When the running microphone's start was dispatched (monotonic ms).
+    qint64 m_micStartDispatchedMs = 0;
+    /// A device switch replaced the capture of a start that never finished:
+    /// the bin is live through the new front, though its first start still
+    /// holds its state lock (so it is still detached at teardown).
+    bool m_micStartTakenOver = false;
+    /// The pending switch is the one replacing a stuck start's capture.
+    bool m_micSwapReplacesStart = false;
+    /// The live capture front once a switch has completed (`micfront<serial>`),
+    /// or empty for the bin's own first front. A restart touches only this
+    /// front's source, and errors from any other front (one being retired,
+    /// e.g. a stuck start's) are not the live microphone's.
+    QString m_micLiveFront;
+    /// Source restarts the pool thread has finished (test diagnostics).
+    std::shared_ptr<std::atomic<int>> m_micSourceRestartsDone =
+        std::make_shared<std::atomic<int>>(0);
+    /// Past this, a device switch no longer waits for a start that has not
+    /// finished: the stuck capture is replaced by the new one (the swap starts
+    /// it beside, off this thread, and retires the stuck front when the new
+    /// one delivers).
+    int m_micStartAbandonMs = 5000;
+    /// RTP leaving the running microphone's bin, and the delay of the "no RTP"
+    /// verdict (checkMicrophoneRtp()).
+    std::shared_ptr<std::atomic<quint64>> m_micRtpOut;
+    int m_micRtpCheckMs = 3000;
+    /// The verdict was put off because the start had not finished; it is
+    /// given m_micRtpCheckMs after the start reports.
+    bool m_micRtpVerdictOwed = false;
+    QString m_lastMicRtpVerdict;
+    void checkMicrophoneRtp(const QString &cid, quint64 generation);
+    /// Test-only: microphone starts the pool thread reported.
+    int m_micStartsReported = 0;
     quint64 m_micSwapSerial = 0;
     quint64 m_micResolveSeq = 0;
     int m_micSwaps = 0;
@@ -1685,6 +1825,13 @@ private:
     /// dropped if the share it was for has gone (generation).
     bool m_shareAudioScanInFlight = false;
     quint64 m_shareAudioGeneration = 0;
+    /// When shareAudioRebuildWanted was last asked for (monotonic ms), or -1,
+    /// and the least gap between two. Per engine, not per share: a restart
+    /// loop must not rebuild the track on every turn.
+    qint64 m_shareAudioRebuildAskedMs = -1;
+    qint64 m_shareAudioRebuildGapMs = 10000;
+    /// The daemon closed every watched capture of the running share at once.
+    void noteShareAudioDaemonRestart(int closed);
     /// Test seam: a scripted listing instead of PipeWire/WASAPI, enumerated
     /// synchronously, with audiotestsrc branches.
     std::function<lightning::shareaudio::Enumeration(

@@ -81,6 +81,15 @@ enum class DspSwitch {
     /// switching WebRTC off at once left that second unsuppressed (measured
     /// live, 2026-10-06). Into Off or WebRTC the switch is always at once.
     WaitForDenoiser,
+    /// The chain is still starting on another thread: a webrtcdsp swap would
+    /// add and start an element under that start, so none is made. A
+    /// webrtcdsp not negotiated yet (the normal case while a live chain
+    /// starts: caps come with its first buffer) takes the new configuration
+    /// as a PROPERTY, which is all it needs, since it reads it when it
+    /// negotiates. One already negotiated, or that negotiates meanwhile, is
+    /// reported deferred (applyMode()'s `dspDeferred`) and the caller replaces
+    /// it after the start with applyDspMode(..., forceReplace = true).
+    Later,
 };
 
 /// Whether a switch to `mode` under DspSwitch::WaitForDenoiser leaves
@@ -98,10 +107,14 @@ constexpr bool dspWaitsForDenoiser(Mode mode)
 /// without a denoiser always switches webrtcdsp at once: nothing would ever
 /// report. Returns a short description of what it did, for the log.
 QString applyMode(GstElement *binOrPipeline, Mode mode,
-                  DspSwitch when = DspSwitch::Now);
+                  DspSwitch when = DspSwitch::Now,
+                  bool *dspDeferred = nullptr);
 
 /// The webrtcdsp half of applyMode(), for a switch that waited for the
-/// denoiser. GUI thread.
-QString applyDspMode(GstElement *binOrPipeline, Mode mode);
+/// denoiser. GUI thread. `forceReplace` replaces a negotiated webrtcdsp even
+/// when its property already reads right (a property set after it negotiated
+/// never reached its processing: DspSwitch::Later).
+QString applyDspMode(GstElement *binOrPipeline, Mode mode,
+                     bool forceReplace = false);
 
 } // namespace calls::noise

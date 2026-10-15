@@ -2817,6 +2817,77 @@ fn device_refresh_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// The first forced re-query after a device lookup missed, and the ceiling of
+/// its doubling gap.
+const DEVICE_MISS_BASE_SECS: u64 = 10;
+const DEVICE_MISS_CEILING_SECS: u64 = 300;
+/// Bound on [`device_miss_marks`]: a call never names more devices.
+const MAX_DEVICE_MISS_MARKS: usize = 4 * MAX_MEMBERS;
+
+/// Whether a device that is missing from the store may cost another
+/// `/keys/query` now. The first miss is asked at once; after `misses`
+/// consecutive misses the gap doubles from [`DEVICE_MISS_BASE_SECS`] to
+/// [`DEVICE_MISS_CEILING_SECS`]. Reset (the mark removed) on the first lookup
+/// that finds the device. Without it a membership naming a device the server
+/// does not have costs one query per key send for the whole call, the shape of
+/// the forced `/state` read before its backoff (round-history, 2026-09-2x).
+pub(crate) fn device_miss_refresh_due(elapsed_secs: Option<u64>, misses: u32) -> bool {
+    let Some(secs) = elapsed_secs else {
+        return true;
+    };
+    if misses == 0 {
+        return true;
+    }
+    let shift = (misses - 1).min(16);
+    let gap = DEVICE_MISS_BASE_SECS
+        .saturating_mul(1u64 << shift)
+        .min(DEVICE_MISS_CEILING_SECS);
+    secs >= gap
+}
+
+/// Devices a lookup missed: when, and how many times in a row. Keyed
+/// `user\u{1f}device`, bounded by [`MAX_DEVICE_MISS_MARKS`].
+fn device_miss_marks()
+    -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>
+{
+    static MARKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
+    > = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Records one device lookup in the miss marks. Found: the mark goes (the
+/// backoff resets). Missing after a query that was actually made: one more
+/// miss, timed from now. Missing with the query skipped (still backing off):
+/// untouched — moving the clock there would push the next query back on every
+/// send, so it would never come due. Bounded: the oldest mark makes room.
+pub(crate) fn note_device_lookup(
+    marks: &mut std::collections::HashMap<String, (std::time::Instant, u32)>,
+    key: &str,
+    found: bool,
+    queried: bool,
+    now: std::time::Instant,
+) {
+    if found {
+        marks.remove(key);
+        return;
+    }
+    if !queried {
+        return;
+    }
+    if marks.len() >= MAX_DEVICE_MISS_MARKS && !marks.contains_key(key) {
+        if let Some(oldest) = marks
+            .iter()
+            .min_by_key(|(_, (at, _))| *at)
+            .map(|(k, _)| k.clone())
+        {
+            marks.remove(&oldest);
+        }
+    }
+    let misses = marks.get(key).map_or(0, |(_, m)| *m);
+    marks.insert(key.to_owned(), (now, misses.saturating_add(1)));
+}
+
 /// When we last reported that an Olm to-device message from a peer would
 /// not decrypt. Kept apart from [`device_refresh_marks`] so reporting and
 /// refreshing cannot suppress each other. Only written for users already
@@ -2865,21 +2936,14 @@ pub(crate) fn send_media_key(
     if !outbound_media_key_ok(&key_base64) {
         return Err("media key must be 16 bytes".to_owned());
     }
-    // Parsed first so a malformed list fails synchronously.
-    let targets: Vec<(String, String)> =
-        serde_json::from_str::<Vec<serde_json::Value>>(&targets_json)
-            .map_err(|_| "invalid targets".to_owned())?
-            .into_iter()
-            .filter_map(|value| {
-                let user = value.get("user_id")?.as_str()?;
-                let device = value.get("device_id")?.as_str()?;
-                Some((
-                    sane(user, MAX_WIRE_LEN)?.to_owned(),
-                    sane(device, MAX_WIRE_LEN)?.to_owned(),
-                ))
-            })
-            .take(MAX_MEMBERS)
-            .collect();
+    // Parsed first so a malformed list fails synchronously. A named target
+    // this send will not try (an id that fails sane(), or one past
+    // MAX_MEMBERS) is still reported undelivered with the strings the caller
+    // gave, so the caller never counts it a holder; a row with no string ids
+    // cannot be named back and is only skipped.
+    let rows = serde_json::from_str::<Vec<serde_json::Value>>(&targets_json)
+        .map_err(|_| "invalid targets".to_owned())?;
+    let (targets, dropped) = split_key_targets(&rows);
     if targets.is_empty() {
         return Err("no targets".to_owned());
     }
@@ -2914,14 +2978,17 @@ pub(crate) fn send_media_key(
         });
 
         // Resolve target devices. An unresolvable device is skipped, never
-        // substituted: sending a key to the wrong device is worse.
+        // substituted: sending a key to the wrong device is worse. It is
+        // reported as undelivered, so the caller does not count it a holder.
         let mut resolved = Vec::new();
+        let mut unresolved: Vec<(String, String)> = dropped;
         for (user, device) in &targets {
             // Never send our own device its own key.
             if user == &own_user && device == &own_device {
                 continue;
             }
             let Ok(user_id) = matrix_sdk::ruma::UserId::parse(user) else {
+                unresolved.push((user.clone(), device.clone()));
                 continue;
             };
             let device_id: matrix_sdk::ruma::OwnedDeviceId =
@@ -2952,18 +3019,48 @@ pub(crate) fn send_media_key(
             // downloaded is absent, and the key would go to nobody.
             // `request_user_identity` does a real `/keys/query`, so the second lookup
             // succeeds. Only on a miss.
+            // A device the server keeps not having backs off (doubling, reset
+            // when found): see device_miss_refresh_due().
+            let miss_key = format!("{user}\u{1f}{device}");
+            let mut queried = false;
             if !matches!(found, Ok(Some(_))) {
-                let _ = client.encryption().request_user_identity(&user_id).await;
-                found =
-                    client.encryption().get_device(&user_id, &device_id).await;
+                let due = match device_miss_marks().lock() {
+                    Ok(marks) => match marks.get(&miss_key) {
+                        Some((at, misses)) => device_miss_refresh_due(
+                            Some(at.elapsed().as_secs()),
+                            *misses,
+                        ),
+                        None => true,
+                    },
+                    // A poisoned lock must not disable the refresh.
+                    Err(_) => true,
+                };
+                if due {
+                    let _ = client.encryption().request_user_identity(&user_id).await;
+                    found =
+                        client.encryption().get_device(&user_id, &device_id).await;
+                    queried = true;
+                }
+            }
+            let found_now = matches!(found, Ok(Some(_)));
+            if let Ok(mut marks) = device_miss_marks().lock() {
+                note_device_lookup(
+                    &mut marks,
+                    &miss_key,
+                    found_now,
+                    queried,
+                    std::time::Instant::now(),
+                );
             }
             if let Ok(Some(device)) = found {
                 resolved.push(device);
+            } else {
+                unresolved.push((user.clone(), device.clone()));
             }
         }
 
-        let (ok, category, delivered) = if resolved.is_empty() {
-            (false, "no_devices".to_owned(), 0usize)
+        let report = if resolved.is_empty() {
+            key_send_report(0, &[], &unresolved, Some("no_devices"))
         } else {
             let total = resolved.len();
             let raw = matrix_sdk::ruma::serde::Raw::new(&content)
@@ -2981,27 +3078,35 @@ pub(crate) fn send_media_key(
                         )
                         .await;
                     match result {
-                        // The SDK returns the devices it could not reach, so partial delivery is
-                        // visible.
-                        Ok(failures) => (
-                            failures.len() < total,
-                            if failures.is_empty() {
-                                String::new()
-                            } else {
-                                "partial".to_owned()
-                            },
-                            total - failures.len(),
-                        ),
-                        Err(err) => (
-                            false,
-                            classify_room_error(&err.to_string()).to_owned(),
+                        // The SDK returns the devices it could not reach, so
+                        // partial delivery is visible, and is passed on
+                        // device by device.
+                        Ok(failures) => {
+                            let failures: Vec<(String, String)> = failures
+                                .into_iter()
+                                .map(|(user, device)| {
+                                    (user.to_string(), device.to_string())
+                                })
+                                .collect();
+                            key_send_report(total, &failures, &unresolved, None)
+                        }
+                        Err(err) => key_send_report(
                             0,
+                            &[],
+                            &unresolved,
+                            Some(classify_room_error(&err.to_string())),
                         ),
                     }
                 }
-                None => (false, "invalid".to_owned(), 0),
+                None => key_send_report(0, &[], &unresolved, Some("invalid")),
             }
         };
+        let KeySendReport {
+            ok,
+            category,
+            delivered,
+            undelivered,
+        } = report;
 
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -3015,10 +3120,89 @@ pub(crate) fn send_media_key(
             "ok": ok,
             "category": category,
             "delivered": delivered,
+            "undelivered": undelivered,
             "key_index": key_index,
         }));
     });
     Ok(())
+}
+
+/// How many target rows one send reads at all; also the cap on what it
+/// reports undelivered.
+const MAX_KEY_TARGET_ROWS: usize = 4 * MAX_MEMBERS;
+
+/// Splits the caller's target rows into the ones this send tries (sane ids,
+/// at most MAX_MEMBERS) and the named ones it drops, as given, so they can be
+/// reported undelivered. Rows without string ids are skipped. Pure.
+pub(crate) fn split_key_targets(
+    rows: &[serde_json::Value],
+) -> (Vec<(String, String)>, Vec<(String, String)>) {
+    let mut tried = Vec::new();
+    let mut dropped = Vec::new();
+    for value in rows.iter().take(MAX_KEY_TARGET_ROWS) {
+        let (Some(user), Some(device)) = (
+            value.get("user_id").and_then(|v| v.as_str()),
+            value.get("device_id").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        match (sane(user, MAX_WIRE_LEN), sane(device, MAX_WIRE_LEN)) {
+            (Some(user), Some(device)) if tried.len() < MAX_MEMBERS => {
+                tried.push((user.to_owned(), device.to_owned()));
+            }
+            _ => dropped.push((user.to_owned(), device.to_owned())),
+        }
+    }
+    (tried, dropped)
+}
+
+/// What one media key send reports back: counts and public device ids only.
+#[derive(Debug, PartialEq)]
+pub(crate) struct KeySendReport {
+    pub ok: bool,
+    pub category: String,
+    pub delivered: usize,
+    /// `{user_id, device_id}` for every NAMED target the key did NOT reach:
+    /// one the SDK reported failed (withheld, no Olm session), one that could
+    /// not be resolved, and one this send did not try (an id failing sane(),
+    /// or past MAX_MEMBERS; see split_key_targets()). A partial delivery is `ok` (somebody holds the key), so
+    /// without this list the caller would count every target a holder and
+    /// cut the failed ones off at the next switch (2026-09-29, F6).
+    pub undelivered: Vec<serde_json::Value>,
+}
+
+/// Fold one send's outcome into its report. Pure. `sent` is how many
+/// resolved devices the send went to (0 when it never went out), `failures`
+/// the SDK's undelivered list, `unresolved` the targets skipped before the
+/// send, and `failed_category` set when the send as a whole failed.
+pub(crate) fn key_send_report(
+    sent: usize,
+    failures: &[(String, String)],
+    unresolved: &[(String, String)],
+    failed_category: Option<&str>,
+) -> KeySendReport {
+    let delivered = if failed_category.is_some() {
+        0
+    } else {
+        sent.saturating_sub(failures.len())
+    };
+    let undelivered: Vec<serde_json::Value> = unresolved
+        .iter()
+        .chain(failures.iter())
+        .take(MAX_KEY_TARGET_ROWS)
+        .map(|(user, device)| json!({ "user_id": user, "device_id": device }))
+        .collect();
+    let category = match failed_category {
+        Some(category) => category.to_owned(),
+        None if undelivered.is_empty() => String::new(),
+        None => "partial".to_owned(),
+    };
+    KeySendReport {
+        ok: failed_category.is_none() && delivered > 0,
+        category,
+        delivered,
+        undelivered,
+    }
 }
 
 /// Inbound media key, decrypted by Olm. The sender and Olm-verified device
@@ -3403,6 +3587,123 @@ mod tests {
     // We send only 16-byte media keys: sable-core drops any other length
     // ("ignoring a call media key that is not 16 bytes"), so a 32-byte key
     // left a Sable participant deaf to us (live, 2026-10-13).
+    // F6 (2026-09-29): a PARTIAL delivery is ok (somebody holds the key) and
+    // must still name the devices it missed, or the caller counts them as
+    // holders and cuts them off at the next switch.
+    #[test]
+    fn a_partial_key_delivery_names_every_device_it_missed() {
+        let pair = |u: &str, d: &str| (u.to_owned(), d.to_owned());
+        let failed = [pair("@b:x", "BDEV")];
+        let skipped = [pair("@c:x", "CDEV")];
+        let report = key_send_report(2, &failed, &skipped, None);
+        assert!(report.ok, "one of two devices got it");
+        assert_eq!(report.category, "partial");
+        assert_eq!(report.delivered, 1);
+        assert_eq!(
+            report.undelivered,
+            vec![
+                json!({ "user_id": "@c:x", "device_id": "CDEV" }),
+                json!({ "user_id": "@b:x", "device_id": "BDEV" }),
+            ]
+        );
+
+        // A clean send reports nothing undelivered.
+        let clean = key_send_report(2, &[], &[], None);
+        assert!(clean.ok);
+        assert_eq!(clean.category, "");
+        assert!(clean.undelivered.is_empty());
+
+        // Every device failed: not ok, nothing delivered, all named.
+        let none = key_send_report(1, &failed, &[], None);
+        assert!(!none.ok);
+        assert_eq!(none.delivered, 0);
+        assert_eq!(none.undelivered.len(), 1);
+
+        // A send that failed as a whole keeps its own category.
+        let refused = key_send_report(0, &[], &skipped, Some("no_devices"));
+        assert!(!refused.ok);
+        assert_eq!(refused.category, "no_devices");
+        assert_eq!(refused.undelivered.len(), 1);
+
+        // Bounded like the rows a send reads.
+        let many: Vec<(String, String)> = (0..(MAX_KEY_TARGET_ROWS + 5))
+            .map(|i| pair("@u:x", &format!("D{i}")))
+            .collect();
+        assert_eq!(
+            key_send_report(1, &many, &[], None).undelivered.len(),
+            MAX_KEY_TARGET_ROWS
+        );
+    }
+
+    // Review L2: a target the send does not even try (an insane id, or past
+    // MAX_MEMBERS) is reported undelivered under the strings the caller gave,
+    // or the caller counts it a holder. Rows with no string ids cannot be
+    // named and are skipped.
+    #[test]
+    fn targets_a_send_drops_are_still_named_back() {
+        let row = |u: &str, d: &str| json!({ "user_id": u, "device_id": d });
+        let long = "D".repeat(MAX_WIRE_LEN + 1);
+        let mut rows = vec![
+            row("@a:x", "ADEV"),
+            row("@b:x", &long),
+            json!({ "user_id": "@c:x" }),
+            json!(42),
+        ];
+        for i in 0..(MAX_MEMBERS + 2) {
+            rows.push(row("@m:x", &format!("M{i}")));
+        }
+        let (tried, dropped) = split_key_targets(&rows);
+        assert_eq!(tried.len(), MAX_MEMBERS);
+        assert_eq!(tried[0], ("@a:x".to_owned(), "ADEV".to_owned()));
+        assert!(dropped.contains(&("@b:x".to_owned(), long.clone())));
+        // The overflow is named back too: every M beyond the cap.
+        let overflow = dropped.iter().filter(|(u, _)| u == "@m:x").count();
+        assert_eq!(overflow, 3);
+        assert_eq!(dropped.len(), 4);
+        let report = key_send_report(1, &[], &dropped, None);
+        assert_eq!(report.undelivered.len(), 4);
+        assert_eq!(report.category, "partial");
+    }
+
+    // Recheck L-c: a lookup whose query was SKIPPED (still backing off)
+    // leaves the mark alone, or every send would push the next query back
+    // and it would never come due. A made query counts; finding resets.
+    #[test]
+    fn only_a_query_actually_made_counts_as_a_miss() {
+        let mut marks = std::collections::HashMap::new();
+        let t0 = std::time::Instant::now();
+        note_device_lookup(&mut marks, "u\u{1f}D", false, true, t0);
+        assert_eq!(marks.get("u\u{1f}D").map(|(_, m)| *m), Some(1));
+        let later = t0 + std::time::Duration::from_secs(5);
+        note_device_lookup(&mut marks, "u\u{1f}D", false, false, later);
+        let (at, misses) = marks["u\u{1f}D"];
+        assert_eq!(misses, 1, "a skipped query was counted");
+        assert_eq!(at, t0, "a skipped query moved the clock");
+        note_device_lookup(&mut marks, "u\u{1f}D", false, true, later);
+        assert_eq!(marks["u\u{1f}D"].1, 2);
+        note_device_lookup(&mut marks, "u\u{1f}D", true, false, later);
+        assert!(marks.is_empty(), "finding the device did not reset it");
+    }
+
+    // Review L1: the forced /keys/query for a device the store does not have
+    // backs off per device, doubling to a ceiling; the first miss asks at once.
+    #[test]
+    fn a_missing_device_is_re_queried_with_a_doubling_backoff() {
+        assert!(device_miss_refresh_due(None, 0));
+        assert!(device_miss_refresh_due(Some(0), 0));
+        // One miss: 10 s.
+        assert!(!device_miss_refresh_due(Some(9), 1));
+        assert!(device_miss_refresh_due(Some(10), 1));
+        // Two: 20 s; three: 40 s.
+        assert!(!device_miss_refresh_due(Some(19), 2));
+        assert!(device_miss_refresh_due(Some(20), 2));
+        assert!(!device_miss_refresh_due(Some(39), 3));
+        // Ceiling, and no overflow for a long run.
+        assert!(!device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS - 1), 30));
+        assert!(device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS), 30));
+        assert!(device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS), u32::MAX));
+    }
+
     #[test]
     fn only_a_sixteen_byte_media_key_goes_on_the_wire() {
         use base64::Engine as _;
@@ -4335,7 +4636,6 @@ mod tests {
         }
     }
 
-    #[test]
     // A device that is present but stale must still be refreshed: its rotated
     // keys would otherwise make the recipient drop the media key while the
     // sender sees success.

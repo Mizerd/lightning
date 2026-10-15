@@ -1289,6 +1289,214 @@ ApplicationWindow {
                  "given is too small for it");
     }
 
+    // The same explanation for every other video surface (the inline player,
+    // its full-window viewer): one component, placed over the VideoOutput,
+    // shown only on the software renderer and only while the host says a
+    // picture should be there; a surface too small for the sentence keeps the
+    // icon and puts the sentence in its accessible name.
+    void aVideoSurfaceOutsideTheCallExplainsTheSoftwareRendererToo()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+
+Item {
+    width: 640
+    height: 360
+    property alias big: big
+    property alias small: small
+    property bool playing: true
+    SoftwareVideoNotice { id: big; anchors.fill: parent; shown: parent.playing }
+    SoftwareVideoNotice { id: small; width: 120; height: 40 }
+}
+)"), QUrl(QStringLiteral("qrc:/softwarevideonoticetest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        QQuickWindow window;
+        window.resize(640, 360);
+        auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(rootItem);
+        rootItem->setParentItem(window.contentItem());
+        auto *big = owner->property("big").value<QQuickItem *>();
+        auto *small = owner->property("small").value<QQuickItem *>();
+        QVERIFY(big && small);
+
+        QVERIFY(!controller.softwareRenderer());
+        QVERIFY2(!big->isVisible(),
+                 "the notice covers video on a machine that draws it");
+        controller.setSoftwareRenderer(true);
+        QTRY_VERIFY(big->isVisible());
+        auto *text = big->findChild<QQuickItem *>(
+            QStringLiteral("softwareVideoNoticeText"));
+        QVERIFY(text && text->isVisible());
+        QVERIFY(text->property("text").toString().contains(
+            QStringLiteral("graphics acceleration")));
+        // Inside the surface it explains.
+        auto *plate = big->findChild<QQuickItem *>(
+            QStringLiteral("softwareVideoNoticePlate"));
+        QVERIFY(plate);
+        const QRectF inBig = plate->mapRectToItem(big, plate->boundingRect());
+        QVERIFY2(QRectF(0, 0, big->width(), big->height()).contains(inBig),
+                 "the notice draws outside the video it explains");
+
+        // The host says no picture is due (paused before the first frame,
+        // closed): nothing to explain.
+        owner->setProperty("playing", false);
+        QTRY_VERIFY(!big->isVisible());
+
+        // Too small for the sentence: the icon stays, the words go to the
+        // accessible name.
+        QVERIFY(small->isVisible());
+        auto *smallText = small->findChild<QQuickItem *>(
+            QStringLiteral("softwareVideoNoticeText"));
+        QVERIFY(smallText && !smallText->isVisible());
+        auto *smallPlate = small->findChild<QQuickItem *>(
+            QStringLiteral("softwareVideoNoticePlate"));
+        QVERIFY(smallPlate);
+        QVERIFY(smallPlate->width() <= small->width());
+        QVERIFY(smallPlate->height() <= small->height());
+    }
+
+    // The inline video card and its full-window viewer carry that notice
+    // over their own VideoOutput, driven by whether a picture is due there.
+    // Before 2026-10-15 neither had one (findChild returns null).
+    void theVideoCardAndItsViewerExplainTheSoftwareRenderer()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+
+Item {
+    width: 640
+    height: 360
+    property alias card: card
+    property alias viewer: viewer
+    property QtObject fakePlayer: QtObject {}
+    VideoPlayerCard {
+        id: card
+        width: 480
+        height: 270
+        mediaKey: "fixture-software-video"
+        ownerKey: "fixture-owner"
+    }
+    VideoViewerOverlay { id: viewer }
+}
+)"), QUrl(QStringLiteral("qrc:/videosoftwarenoticetest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *card = owner->property("card").value<QQuickItem *>();
+        auto *viewer = owner->property("viewer").value<QObject *>();
+        QVERIFY(card && viewer);
+
+        auto *cardNotice = card->findChild<QQuickItem *>(
+            QStringLiteral("videoCardSoftwareNotice"));
+        QVERIFY2(cardNotice != nullptr,
+                 "the inline video card has no software-renderer notice");
+        // Over the output it explains, which fills the card.
+        QCOMPARE(cardNotice->width(), card->width());
+        QCOMPARE(cardNotice->height(), card->height());
+        // Shown exactly when the card expects a picture.
+        const auto agrees = [&] {
+            return cardNotice->property("shown").toBool()
+                == card->property("pictureExpected").toBool();
+        };
+        QVERIFY(agrees());
+        // A loaded source (a short sound from the tree: what matters is a
+        // source that loads, not its picture): a picture is expected, and on
+        // the software renderer the notice says why there is none.
+        QObject *player = nullptr;
+        for (QObject *o : card->findChildren<QObject *>()) {
+            if (o->inherits("QMediaPlayer"))
+                player = o;
+        }
+        QVERIFY2(player != nullptr, "the card has no MediaPlayer");
+        card->setProperty("fetchState", QStringLiteral("idle"));
+        player->setProperty("source",
+                            QUrl::fromLocalFile(QStringLiteral(
+                                QML_DIR "/../data/sounds/connected.wav")));
+        if (!QTest::qWaitFor(
+                [card] { return card->property("pictureExpected").toBool(); },
+                10000))
+            QSKIP("this Qt Multimedia could not load the fixture source");
+        QVERIFY(agrees());
+        QVERIFY2(!cardNotice->property("active").toBool(),
+                 "the notice covers video on a machine that draws it");
+        controller.setSoftwareRenderer(true);
+        QVERIFY2(cardNotice->property("active").toBool(),
+                 "a card expecting a picture on the software renderer says "
+                 "nothing");
+        controller.setSoftwareRenderer(false);
+
+        card->setProperty("fetchState", QStringLiteral("failed"));
+        QVERIFY(!card->property("pictureExpected").toBool());
+        QVERIFY(agrees());
+        controller.setSoftwareRenderer(true);
+        QVERIFY2(!cardNotice->property("active").toBool(),
+                 "the notice speaks over a card that is showing a failure");
+
+        // The viewer: due whenever it holds a player (it is open).
+        QObject *viewerNotice = nullptr;
+        for (QObject *o : viewer->findChildren<QObject *>()) {
+            if (o->objectName() == QLatin1String("videoViewerSoftwareNotice"))
+                viewerNotice = o;
+        }
+        if (!viewerNotice) {
+            // A Popup's content lives under its contentItem.
+            if (auto *content = viewer->property("contentItem")
+                                    .value<QQuickItem *>()) {
+                viewerNotice = content->findChild<QQuickItem *>(
+                    QStringLiteral("videoViewerSoftwareNotice"));
+            }
+        }
+        QVERIFY2(viewerNotice != nullptr,
+                 "the full-window video viewer has no software-renderer "
+                 "notice");
+        QVERIFY(!viewerNotice->property("active").toBool());
+        viewer->setProperty("player", QVariant::fromValue(
+                                          owner->property("fakePlayer")
+                                              .value<QObject *>()));
+        QVERIFY(viewerNotice->property("active").toBool());
+        controller.setSoftwareRenderer(false);
+        QVERIFY2(!viewerNotice->property("active").toBool(),
+                 "the notice covers video on a machine that draws it");
+        viewer->setProperty("player", QVariant());
+    }
+
+    // The composer's video chips build no poster player on the software
+    // renderer: it would decode for nothing and leave a blank chip, where
+    // the chip's own videocam glyph (shown whenever the Loader is inactive)
+    // identifies it. The chip lives deep in the composer's attachment strip,
+    // so this reads the Loader's condition and the glyph's.
+    void theComposerVideoChipKeepsItsGlyphOnTheSoftwareRenderer()
+    {
+        const QString src = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
+        const int loader = src.indexOf(QStringLiteral("id: chipVideoLoader"));
+        QVERIFY2(loader > 0, "the composer's video chip Loader moved");
+        const int activeAt = src.indexOf(QStringLiteral("active:"), loader);
+        const int end = src.indexOf(QStringLiteral("property bool posterFailed"),
+                                    activeAt);
+        QVERIFY(activeAt > 0 && end > activeAt);
+        const QString active = src.mid(activeAt, end - activeAt);
+        QVERIFY2(active.contains(QStringLiteral("app.softwareRenderer")),
+                 qPrintable(QStringLiteral("the chip's poster player ignores "
+                                           "the software renderer: %1")
+                                .arg(active)));
+        QVERIFY2(src.contains(QStringLiteral("!chipVideoLoader.active")),
+                 "the videocam glyph no longer shows for an inactive poster");
+    }
+
     // A call that carries audio but cannot draw video must say so. Qt Quick's
     // software renderer has no video node, so frames arrive and the tiles
     // believe they have a picture while drawing nothing.
@@ -3154,6 +3362,78 @@ ApplicationWindow {
             QCOMPARE(owner->property("asked").toInt(), 1);
             QCOMPARE(call->shareAudioMode(), 1);
         }
+    }
+
+    // The share's sound can be muted from the call bar while a share carries
+    // sound, and only then; the row drives the controller's property and
+    // says which way it will go.
+    void theCallBarMutesTheShareSoundWhileASharePlaysIt()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 800
+    height: 600
+    property alias menu: m
+    CallShareOptionsMenu { id: m }
+}
+)"), QUrl(QStringLiteral("qrc:/sharesoundmutetest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        QMetaObject::invokeMethod(menu, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        auto *mute = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioMuteItem"));
+        QVERIFY2(mute != nullptr, "the share-sound mute row is missing");
+        if (!call->shareAudioSupported())
+            QSKIP("no loopback capture element here, so the sound rows are "
+                  "absent");
+        call->setShareAudioMode(1);
+        QVERIFY2(!mute->isVisible(), "a mute row with no share running");
+        call->setScreenSharingForTest(true);
+        QTRY_VERIFY(mute->isVisible());
+        const QString unmutedText = mute->property("text").toString();
+
+        QMetaObject::invokeMethod(mute, "triggered");
+        QCoreApplication::processEvents();
+        QVERIFY(call->shareAudioMuted());
+        QVERIFY2(!call->microphoneMuted(),
+                 "the share-sound row muted the microphone");
+        QVERIFY2(mute->property("text").toString() != unmutedText,
+                 "the row does not say the sound is now muted");
+        QMetaObject::invokeMethod(mute, "triggered");
+        QCoreApplication::processEvents();
+        QVERIFY(!call->shareAudioMuted());
+
+        // Applications with none chosen carries no sound either.
+        call->setShareAudioCanChooseAppsForTest(true);
+        QVERIFY(call->shareAudioApps().isEmpty());
+        call->setShareAudioMode(2);
+        QCOMPARE(call->shareAudioMode(), 2);
+        QTRY_VERIFY2(!mute->isVisible(),
+                     "a mute row for a share that carries no app");
+        call->setShareAudioMode(1);
+        QTRY_VERIFY(mute->isVisible());
+
+        // "No sound" has nothing to mute.
+        call->setShareAudioMode(0);
+        QTRY_VERIFY(!mute->isVisible());
+        call->setScreenSharingForTest(false);
     }
 
     // The application list: a chosen application is listed and ticked even

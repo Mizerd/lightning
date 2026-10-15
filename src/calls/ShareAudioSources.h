@@ -214,8 +214,14 @@ QString levelElementName();
 /// description names its own capture element (`name=sharesrc`) and nothing is
 /// appended to it here. `withLevel` adds a `level` meter (posting once a
 /// second) so a share carrying silence can be told from one carrying sound.
+/// `muted` builds the track with its valve closed (shareValveElementName()),
+/// so a rebuilt share keeps the user's mute.
 QString encodedTrackDescription(const QString &sourceDescription,
-                                quint32 ssrc, bool withLevel = false);
+                                quint32 ssrc, bool withLevel = false,
+                                bool muted = false);
+
+/// The share track's own valve: muting it never touches the microphone's.
+QString shareValveElementName();
 
 /// Windows: drops every pid whose ancestor (per `parentOf`) is also listed,
 /// because include-process-tree on the ancestor already captures it and a

@@ -431,39 +431,7 @@ void SfuCallController::setClient(MatrixClient *client)
     // Log key send results (counts only, never the key); a distribution that
     // reached nobody otherwise looks like a dead call.
     connect(m_client, &MatrixClient::rtcMediaKeySent, this,
-            [this](quint64 op, bool ok, const QString &category, int delivered,
-                   int keyIndex) {
-                // Only this call's sends may change its key state: an answer
-                // to the previous call's send can land after a rejoin.
-                const auto it = m_keySendOps.constFind(op);
-                const bool thisCall = it != m_keySendOps.cend();
-                const KeySend send = thisCall ? it.value() : KeySend{};
-                if (thisCall)
-                    m_keySendOps.remove(op);
-                if (ok) {
-                    qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
-                                      << "delivered=" << delivered
-                                      << "thisCall=" << thisCall;
-                    // Somebody holds this key; see adoptNewestKey().
-                    if (thisCall && delivered > 0)
-                        m_deliveredKeyIndex = keyIndex;
-                    // The switch counts from here, not from the dispatch.
-                    if (thisCall && delivered > 0)
-                        startUseKeyDelay(send.serial, send.reachesKeyInUse);
-                    return;
-                }
-                qCWarning(lcSfuCall)
-                    << "media key NOT sent index=" << keyIndex
-                    << "category=" << category << "delivered=" << delivered
-                    << "thisCall=" << thisCall;
-                // Those devices do not hold the newest key after all, so the
-                // next reconciliation sends it to them again. They stay
-                // recipients: if one leaves, we still rotate.
-                if (thisCall && send.serial == m_newestKey.serial) {
-                    for (const QString &device : send.devices)
-                        m_keyHolders.remove(device);
-                }
-            });
+            &SfuCallController::onMediaKeySent);
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { teardown(State::Ended); });
 }
@@ -610,8 +578,45 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                 rebuildShareAudioApplications();
                 Q_EMIT shareAudioStatusChanged();
             });
+    connect(m_engine, &SfuMediaEngine::shareAudioRebuildWanted, this,
+            &SfuCallController::onShareAudioRebuildWanted);
 #else
     Q_UNUSED(engine);
+#endif
+}
+
+void SfuCallController::onShareAudioRebuildWanted(const QString &cid)
+{
+    // The policy outside the media guard, so it is testable without one.
+    if (!active() || !m_screenSharing || cid.isEmpty()
+        || cid != m_shareAudioCid)
+        return;
+    // A daemon that keeps restarting must not cost the far end a new track
+    // every ten seconds for the whole share: the in-place recapture carries
+    // on regardless.
+    if (m_shareAudioRebuilds >= kMaxShareAudioRebuildsPerShare) {
+        qCInfo(lcSfuCall) << "screen share audio NOT republished after the "
+                             "audio daemon restarted: already done"
+                          << m_shareAudioRebuilds
+                          << "times in this share; recapturing in place";
+        return;
+    }
+    ++m_shareAudioRebuilds;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine.isNull())
+        return;
+    // As a changed choice the running bin cannot express does
+    // (applyShareAudioToRunningShare()): the old track goes, a new one with
+    // the same choice and mute is published.
+    qCInfo(lcSfuCall) << "screen share audio republished after the audio "
+                         "daemon restarted";
+    unpublishTrack(m_shareAudioCid);
+    m_shareAudioCid.clear();
+    resetShareAudioLevel();
+    publishShareAudioTrack();
+    Q_EMIT shareAudioStatusChanged();
+#else
+    Q_UNUSED(cid);
 #endif
 }
 
@@ -729,7 +734,7 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
             return;
         }
         m_cameraAwaitingPortal = false;
-        if (!active() || m_engine.isNull() || !m_client) {
+        if (!active() || !cameraEngineReady() || !m_client) {
             // The call ended while the dialog was open.
             closePortalFd(pipewireFd);
             abandonPendingCamera();
@@ -888,6 +893,45 @@ bool SfuCallController::cameraDeviceNodeVisible() const
 #else
     return false;
 #endif
+}
+
+bool SfuCallController::cameraEngineReady() const
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull())
+        return true;
+#endif
+    return static_cast<bool>(m_cameraPublisherForTest);
+}
+
+bool SfuCallController::cameraSandboxed() const
+{
+    if (m_cameraSandboxedForTest >= 0)
+        return m_cameraSandboxedForTest == 1;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    return runningSandboxed();
+#else
+    return false;
+#endif
+}
+
+bool SfuCallController::cameraPortalUsable() const
+{
+    if (m_cameraPortal.isNull())
+        return false;
+    if (m_cameraPortalUsableForTest >= 0)
+        return m_cameraPortalUsableForTest == 1;
+    return CameraPortal::available() && CameraPortal::cameraPresent();
+}
+
+void SfuCallController::requestCameraAccess()
+{
+    if (m_cameraRequestForTest) {
+        m_cameraRequestForTest();
+        return;
+    }
+    if (m_cameraPortal)
+        m_cameraPortal->requestAccess();
 }
 
 void SfuCallController::fallBackToDeviceCamera(const QString &category)
@@ -1774,6 +1818,23 @@ void SfuCallController::resetKeyLane()
     m_adoptedKeyRecipients.clear();
     m_deliveredKeyIndex = -1;
     m_keySendOps.clear();
+    m_keyResendBackoff.clear();
+    m_keyResendsHeldBack = 0;
+}
+
+void SfuCallController::noteKeyDeliveryFailed(const QString &device)
+{
+    KeyResendBackoff &backoff = m_keyResendBackoff[device];
+    ++backoff.failures;
+    // The first failure is retried at once (a transient one is the common
+    // case); from the second the gap doubles.
+    qint64 gap = 0;
+    if (backoff.failures >= 2) {
+        const int shift = qMin(backoff.failures - 2, 16);
+        gap = qMin<qint64>(qint64(m_keyResendBaseMs) << shift,
+                           kKeyResendCeilingMs);
+    }
+    backoff.notBeforeMs = m_keyClock.elapsed() + gap;
 }
 
 bool SfuCallController::join(const QString &roomId, bool withVideo)
@@ -3623,10 +3684,24 @@ void SfuCallController::distributeKeyIfNeeded()
         const QString device = keyTargetDevice(t);
         const auto r = m_keyRecipients.constFind(device);
         const bool isNew = r == m_keyRecipients.cend() || r.value() != t.session;
-        if (isNew)
+        if (isNew) {
             ++joined;
-        if (isNew || !m_keyHolders.contains(device))
+            // A joiner, or back with a new SFU session: not a re-send.
+            if (r != m_keyRecipients.cend())
+                m_keyResendBackoff.remove(device);
             needKey.append(t);
+            continue;
+        }
+        if (m_keyHolders.contains(device))
+            continue;
+        // A re-send to a device that missed the key: per-device backoff.
+        const auto backoff = m_keyResendBackoff.constFind(device);
+        if (backoff != m_keyResendBackoff.cend()
+            && m_keyClock.elapsed() < backoff->notBeforeMs) {
+            ++m_keyResendsHeldBack;
+            continue;
+        }
+        needKey.append(t);
     }
 
     const bool switchPending = keySwitchPending();
@@ -3773,7 +3848,7 @@ void SfuCallController::sendNewestKeyTo(const QList<KeyTarget> &targets)
         // Checked before the insert below: whether this device held the key
         // in use before this send.
         if (m_adoptedKeyRecipients.contains(device))
-            send.reachesKeyInUse = true;
+            send.keyInUseHolders.append(device);
         m_keyRecipients.insert(device, t.session);
         m_keyHolders.insert(device, t.session);
         if (inUse)
@@ -3786,6 +3861,99 @@ void SfuCallController::sendNewestKeyTo(const QList<KeyTarget> &targets)
     // so churn cannot postpone it.
     if (!inUse && !keySwitchPending())
         m_keySwitchFallbackTimer.start();
+}
+
+void SfuCallController::onMediaKeySent(quint64 op, bool ok,
+                                       const QString &category, int delivered,
+                                       int keyIndex,
+                                       const QVariantList &undelivered)
+{
+    // Only this call's sends may change its key state: an answer to the
+    // previous call's send can land after a rejoin.
+    const auto it = m_keySendOps.constFind(op);
+    const bool thisCall = it != m_keySendOps.cend();
+    const KeySend send = thisCall ? it.value() : KeySend{};
+    if (thisCall)
+        m_keySendOps.remove(op);
+    // The devices this answer says the key did not reach, in the holder
+    // map's own form.
+    QSet<QString> missed;
+    for (const QVariant &row : undelivered) {
+        const QVariantMap pair = row.toMap();
+        KeyTarget t;
+        t.userId = pair.value(QStringLiteral("user_id")).toString();
+        t.deviceId = pair.value(QStringLiteral("device_id")).toString();
+        if (!t.userId.isEmpty() && !t.deviceId.isEmpty())
+            missed.insert(keyTargetDevice(t));
+    }
+    if (ok) {
+        qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
+                          << "delivered=" << delivered
+                          << "undelivered=" << missed.size()
+                          << "thisCall=" << thisCall;
+        if (!thisCall)
+            return;
+        // A partial delivery: those devices do not hold the key after all,
+        // so the next reconciliation sends it to them again (backed off per
+        // device, see m_keyResendBackoff). They stay recipients, exactly as a
+        // failed send's do.
+        for (const QString &device : send.devices) {
+            if (missed.contains(device))
+                noteKeyDeliveryFailed(device);
+            else
+                m_keyResendBackoff.remove(device);
+        }
+        if (send.serial == m_newestKey.serial) {
+            for (const QString &device : std::as_const(missed)) {
+                if (send.devices.contains(device))
+                    m_keyHolders.remove(device);
+            }
+        }
+        if (delivered <= 0)
+            return;
+        // Somebody holds this key; see adoptNewestKey().
+        m_deliveredKeyIndex = keyIndex;
+        // The switch counts from here, not from the dispatch, and only an
+        // answer that reached a holder of the key in use can start it.
+        //
+        // A holder this answer MISSED is not waited for beyond that: the
+        // fallback (kKeySwitchFallbackMs after the dispatch) still switches,
+        // and a holder whose re-send has not landed by then is cut off until
+        // it does. matrix-js-sdk does the same (its useKeyDelay runs after
+        // `await sendKey` however many recipients failed); waiting longer
+        // would keep a leaver able to decrypt us for as long as one device
+        // stays unreachable.
+        bool reachesKeyInUse = false;
+        for (const QString &device : send.keyInUseHolders) {
+            if (!missed.contains(device)) {
+                reachesKeyInUse = true;
+                break;
+            }
+        }
+        startUseKeyDelay(send.serial, reachesKeyInUse);
+        return;
+    }
+    qCWarning(lcSfuCall) << "media key NOT sent index=" << keyIndex
+                         << "category=" << category
+                         << "delivered=" << delivered
+                         << "thisCall=" << thisCall;
+    // Those devices do not hold the newest key after all, so the next
+    // reconciliation sends it to them again. They stay recipients: if one
+    // leaves, we still rotate.
+    // Backed off only for the devices the answer names: a send that failed
+    // as a whole (no device list: the transport, the homeserver) is not any
+    // one device's fault, and holding every device back for it would delay
+    // the whole call's next attempt.
+    if (thisCall) {
+        for (const QString &device : std::as_const(missed)) {
+            if (send.devices.contains(device))
+                noteKeyDeliveryFailed(device);
+        }
+    }
+    if (thisCall && send.serial == m_newestKey.serial) {
+        for (const QString &device : send.devices)
+            m_keyHolders.remove(device);
+    }
 }
 
 void SfuCallController::startUseKeyDelay(quint64 serial, bool reachesKeyInUse)
@@ -4498,17 +4666,17 @@ void SfuCallController::toggleDeafened() { setDeafened(!m_deafened); }
 
 void SfuCallController::startCameraCapture()
 {
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (m_engine.isNull() || !m_client)
+    // Outside the media guard, with cameraEngineReady() standing for the
+    // engine, so the portal state machine is testable without one.
+    if (!cameraEngineReady() || !m_client)
         return;
 
     // Choose the camera route. Linux only in practice: elsewhere CameraPortal
     // is unavailable and this resolves to Direct.
-    const bool sandboxed = runningSandboxed();
+    const bool sandboxed = cameraSandboxed();
     const bool deviceNode = cameraDeviceNodeVisible();
     const bool portalWired = !m_cameraPortal.isNull();
-    const bool portalUsable = portalWired && CameraPortal::available()
-        && CameraPortal::cameraPresent();
+    const bool portalUsable = cameraPortalUsable();
     LinuxCameraRoute route =
         linuxCameraRoute(sandboxed, portalUsable, deviceNode);
     // The portal already gave this camera nothing (see
@@ -4562,12 +4730,26 @@ void SfuCallController::startCameraCapture()
     // declared to the SFU until it grants, or other clients wait on a track
     // that never arrives.
     m_cameraAwaitingPortal = true;
-    m_cameraPortal->requestAccess();
-#endif
+    requestCameraAccess();
 }
 
 void SfuCallController::publishCameraTrack(int pipewireFd)
 {
+    if (m_cameraPublisherForTest && m_client) {
+        bool engine = false;
+#ifdef HAVE_LIGHTNING_WEBRTC
+        engine = !m_engine.isNull();
+#endif
+        if (!engine) {
+            // The test stand-in owns the descriptor as the engine would.
+            m_cameraViaPortal = pipewireFd >= 0;
+            ++m_cameraPublishesForTest;
+            m_cameraPublisherForTest(pipewireFd);
+            m_cameraCid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            m_publishedTrackIds.append(m_cameraCid);
+            return;
+        }
+    }
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (m_engine.isNull() || !m_client) {
         closePortalFd(pipewireFd);
@@ -4609,15 +4791,18 @@ void SfuCallController::abandonPendingCamera()
 
 void SfuCallController::setCameraOn(bool on)
 {
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (m_cameraOn == on || !active() || m_engine.isNull() || !m_client)
+    // Outside the media guard (cameraEngineReady() stands for the engine), so
+    // the portal unwinds are testable; without either it is inert, as before.
+    if (m_cameraOn == on || !active() || !cameraEngineReady() || !m_client)
         return;
     if (m_state == State::Reconnecting) {
         // No session to publish into: record the intent, which the rejoin
         // honours (publishTracks()).
         m_cameraOn = on;
+#ifdef HAVE_LIGHTNING_WEBRTC
         if (!on)
             clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
+#endif
         Q_EMIT mediaStateChanged();
         return;
     }
@@ -4637,15 +4822,16 @@ void SfuCallController::setCameraOn(bool on)
         // Unpublish the camera track by id; "the last published track" may be
         // the screen share.
         unpublishTrack(m_cameraCid);
+        if (m_cameraPublisherForTest)
+            m_cameraCid.clear();
+#ifdef HAVE_LIGHTNING_WEBRTC
         // The self-view sink keeps its last frame; see clearLocalVideoSurface().
         clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
+#endif
     }
     // Tell the SFU too, or other clients keep seeing the camera.
     applyVideoState();
     Q_EMIT mediaStateChanged();
-#else
-    Q_UNUSED(on);
-#endif
 }
 
 void SfuCallController::toggleCamera() { setCameraOn(!m_cameraOn); }
@@ -4756,6 +4942,9 @@ void SfuCallController::publishShareAudioTrack()
     m_shareAudioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
     resetShareAudioLevel();
+    // Before the bin is built, so a track re-published mid-share (a mode
+    // change) keeps the user's mute from its first buffer.
+    m_engine->setShareAudioMuted(m_shareAudioMuted);
     m_engine->publishShareAudio(audioCid, selection);
     Q_EMIT shareAudioStatusChanged();
 #endif
@@ -4814,9 +5003,32 @@ void SfuCallController::resetShareAudioLevel()
         Q_EMIT shareAudioStatusChanged();
 }
 
+void SfuCallController::setShareAudioMuted(bool muted)
+{
+    if (m_shareAudioMuted == muted)
+        return;
+    m_shareAudioMuted = muted;
+    qCInfo(lcSfuCall) << "screen share audio muted=" << muted;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull())
+        m_engine->setShareAudioMuted(muted);
+#endif
+    Q_EMIT mediaStateChanged();
+    Q_EMIT shareAudioStatusChanged();
+}
+
+void SfuCallController::toggleShareAudioMuted()
+{
+    setShareAudioMuted(!m_shareAudioMuted);
+}
+
 void SfuCallController::shareAudioShareEnded()
 {
     resetShareAudioLevel();
+    // A mute belongs to the share it was made in, and so does the rebuild
+    // budget.
+    setShareAudioMuted(false);
+    m_shareAudioRebuilds = 0;
     if (m_shareAudioRestorePending) {
         // The picker chose this window's application for the share that just
         // ended; the choice the user had before comes back.
@@ -5118,6 +5330,7 @@ QString SfuCallController::shareAudioStatus() const
     for (const QString &key : m_shareAudioFailed)
         in.failedLabels.append(m_shareAudioAppLabels.value(key, key));
     in.limitReached = m_shareAudioLimitReached;
+    in.muted = m_shareAudioMuted;
     return shareAudioStatusText(in);
 }
 
@@ -5147,6 +5360,10 @@ QString SfuCallController::shareAudioStatusText(const ShareAudioStatusInput &in)
     // While sharing: say when something is not reaching the far end, which
     // is what a person on the other side would otherwise have to report.
     QStringList notes;
+    // Said first: it is the one reason the far end hears nothing that the
+    // user chose.
+    if (in.muted)
+        notes << tr("Muted: nobody else hears it.");
     if (!in.failedLabels.isEmpty()) {
         notes << tr("%1 couldn't be captured.")
                      .arg(in.failedLabels.join(QStringLiteral(", ")));

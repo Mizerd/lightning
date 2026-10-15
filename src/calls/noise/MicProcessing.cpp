@@ -271,8 +271,11 @@ const char *unavailableKey(Unavailable reason)
     return "";
 }
 
-QString applyMode(GstElement *root, Mode mode, DspSwitch when)
+QString applyMode(GstElement *root, Mode mode, DspSwitch when,
+                  bool *dspDeferred)
 {
+    if (dspDeferred)
+        *dspDeferred = false;
     if (!root || !GST_IS_BIN(root))
         return QStringLiteral("no chain");
     QStringList did;
@@ -284,8 +287,41 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when)
         denoiser = true;
         did << QStringLiteral("denoise=%1").arg(QLatin1String(modeKey(mode)));
     }
-    if (denoiser && when == DspSwitch::WaitForDenoiser
-        && dspWaitsForDenoiser(mode)) {
+    if (when == DspSwitch::Later && denoiser && dspWaitsForDenoiser(mode)) {
+        // As under WaitForDenoiser: webrtcdsp keeps suppressing until the new
+        // backend runs (the denoiser reports through the caller).
+        did << QStringLiteral("dsp waits for the denoiser");
+    } else if (when == DspSwitch::Later) {
+        // Property only, never a replacement (see DspSwitch::Later).
+        GstElement *dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
+        if (!dsp) {
+            did << QStringLiteral("no dsp");
+        } else {
+            const auto negotiated = [dsp] {
+                GstPad *sink = gst_element_get_static_pad(dsp, "sink");
+                GstCaps *caps = sink ? gst_pad_get_current_caps(sink) : nullptr;
+                const bool yes = caps != nullptr;
+                if (caps)
+                    gst_caps_unref(caps);
+                if (sink)
+                    gst_object_unref(sink);
+                return yes;
+            };
+            bool deferred = negotiated();
+            if (!deferred) {
+                g_object_set(dsp, "noise-suppression",
+                             dspSuppressesNoise(mode) ? TRUE : FALSE, nullptr);
+                // Negotiated in between: the property may have missed it.
+                deferred = negotiated();
+            }
+            did << (deferred ? QStringLiteral("dsp replaced after the start")
+                             : QStringLiteral("dsp configured"));
+            if (dspDeferred)
+                *dspDeferred = deferred;
+            gst_object_unref(dsp);
+        }
+    } else if (denoiser && when == DspSwitch::WaitForDenoiser
+               && dspWaitsForDenoiser(mode)) {
         // webrtcdsp keeps suppressing until the new backend runs.
         did << QStringLiteral("dsp waits for the denoiser");
     } else {
@@ -294,7 +330,7 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when)
     return did.join(QLatin1Char(' '));
 }
 
-QString applyDspMode(GstElement *root, Mode mode)
+QString applyDspMode(GstElement *root, Mode mode, bool forceReplace)
 {
     if (!root || !GST_IS_BIN(root))
         return QStringLiteral("no chain");
@@ -313,6 +349,10 @@ QString applyDspMode(GstElement *root, Mode mode)
                 did << QStringLiteral("dsp replaced (late)");
             else
                 did << QStringLiteral("dsp configured");
+        } else if (forceReplace) {
+            did << (scheduleDspSwap(dsp, want, /*force=*/true)
+                        ? QStringLiteral("dsp replaced (forced)")
+                        : QStringLiteral("dsp unlinked, left alone"));
         } else if (dspSuppresses(dsp) != want) {
             did << (scheduleDspSwap(dsp, want, /*force=*/false)
                         ? QStringLiteral("dsp replaced")

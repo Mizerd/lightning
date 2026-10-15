@@ -63,6 +63,10 @@ struct RetireStats {
     std::atomic<int> waitedOnGathering{0};
     /// webrtcbins that reached NULL.
     std::atomic<int> stopped{0};
+    /// Retirements that outlived the soft bound and kept waiting.
+    std::atomic<int> outlivedSoftBound{0};
+    /// Left running at quit because they were still gathering (drain()).
+    std::atomic<int> leftRunningAtQuit{0};
 };
 
 class Retirer
@@ -70,13 +74,21 @@ class Retirer
 public:
     /// An unanswered STUN or TURN-over-UDP server holds gathering for about
     /// 2 s (measured, libnice 0.1.23); TURN over TCP or TLS waits out
-    /// libnice's 7.9 s reliable timer. The bound covers both. Past it, and
-    /// past kQuitBudgetMs at quit, webrtcbin is stopped mid-gathering anyway:
-    /// the upstream double free (gstreamer#5138) is still reachable there if
-    /// a candidate lands during the stop. Delete this class once every
-    /// shipped GStreamer carries the upstream fix (!11758).
+    /// libnice's 7.9 s reliable timer. Past this a retirement is reported as
+    /// slow but NOT stopped: gathering that outlives it is almost always a
+    /// server name still resolving (a resolver timing out takes 5 s per
+    /// attempt and nameserver), and that server's candidates would land
+    /// exactly during a stop, which is the upstream double free
+    /// (gstreamer#5138). Delete this class once every shipped GStreamer
+    /// carries the upstream fix (!11758).
     static constexpr int kGatheringBoundMs = 10000;
-    /// What the destructor may spend at quit before stopping the rest anyway.
+    /// Past this a retired webrtcbin is stopped mid-gathering anyway, so one
+    /// that never finishes cannot hold its sockets and threads for the rest
+    /// of the session. Covers a resolver's worst case (3 nameservers x 2
+    /// attempts x 5 s) and that server's own gathering after it.
+    static constexpr int kGatheringHardBoundMs = 60000;
+    /// What the destructor may spend at quit. A webrtcbin still gathering
+    /// after it is NOT stopped (see drain()).
     static constexpr int kQuitBudgetMs = 2000;
     /// How long retire() waits for callbacks already running.
     static constexpr int kCallbackWaitMs = 2000;
@@ -92,8 +104,13 @@ public:
     /// has ended. `pipeline` must be `webrtc`'s parent.
     void retire(GstElement *pipeline, GstElement *webrtc);
 
-    /// Waits up to `budgetMs` for everything retired, then stops the rest
-    /// synchronously and waits for jobs in flight. Needs no event loop.
+    /// Waits up to `budgetMs` for everything retired, then stops what is no
+    /// longer gathering synchronously and waits for jobs in flight. Needs no
+    /// event loop. A webrtcbin STILL gathering at the end of the budget is
+    /// left running, its references deliberately leaked: this runs at quit
+    /// (the engines live as long as the application), the process ending
+    /// reclaims it, and stopping it is the one thing that can crash
+    /// (gstreamer#5138). Our callbacks on it are already gated off.
     void drain(int budgetMs);
 
     int retiringForTest() const { return m_stats->retiring.load(); }
@@ -104,7 +121,22 @@ public:
         return m_stats->waitedOnGathering.load();
     }
     int stoppedForTest() const { return m_stats->stopped.load(); }
-    void setBoundForTest(int ms) { m_boundMs = ms; }
+    int outlivedSoftBoundForTest() const
+    {
+        return m_stats->outlivedSoftBound.load();
+    }
+    int leftRunningAtQuitForTest() const
+    {
+        return m_stats->leftRunningAtQuit.load();
+    }
+    /// Sets the HARD bound (the stop), and the soft one to no more than it.
+    void setBoundForTest(int ms)
+    {
+        m_boundMs = ms;
+        m_softBoundMs = qMin(m_softBoundMs, ms);
+    }
+    /// Sets the soft bound (the report) alone.
+    void setSoftBoundForTest(int ms) { m_softBoundMs = ms; }
 
 private:
     struct Entry {
@@ -114,6 +146,7 @@ private:
         std::shared_ptr<std::atomic<int>> replied;
         int sent = 0;
         bool waitCounted = false;
+        bool softBoundReported = false;
         QElapsedTimer age;
     };
     enum class Step { Wait, Ready };
@@ -126,7 +159,8 @@ private:
     std::vector<Entry> m_entries;
     std::shared_ptr<RetireStats> m_stats = std::make_shared<RetireStats>();
     QTimer m_timer;
-    int m_boundMs = kGatheringBoundMs;
+    int m_boundMs = kGatheringHardBoundMs;
+    int m_softBoundMs = kGatheringBoundMs;
 };
 
 } // namespace lightning::webrtc

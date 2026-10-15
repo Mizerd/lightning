@@ -31,6 +31,11 @@ Item {
     signal closeRequested()
 
     readonly property bool ready: player.source.toString().length > 0
+    // A picture belongs on the card now: a source, not failed, not still
+    // loading (the spinner has that). On Qt Quick's software renderer the
+    // VideoOutput draws nothing, and SoftwareVideoNotice says why.
+    readonly property bool pictureExpected:
+        ready && fetchState !== "failed" && !buffering
     readonly property bool buffering:
         player.mediaStatus === MediaPlayer.LoadingMedia
         || player.mediaStatus === MediaPlayer.StalledMedia
@@ -246,6 +251,14 @@ Item {
                                        cardRatio))
             fillMode: mismatch <= 1.2 ? VideoOutput.PreserveAspectCrop
                                       : VideoOutput.PreserveAspectFit
+        }
+
+        // Why the output above stays black on the software renderer. Before
+        // the controls, so they stay on top of it.
+        SoftwareVideoNotice {
+            objectName: "videoCardSoftwareNotice"
+            anchors.fill: output
+            shown: root.pictureExpected
         }
 
         HoverHandler { id: cardHover }

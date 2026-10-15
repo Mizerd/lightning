@@ -127,6 +127,15 @@ public:
     void setTestSourceMode(bool on) { m_testSources = on; }
     /// Pretend the microphone has this many channels (multi-input path).
     void setDeviceChannelsForTest(int channels) { m_testChannels = channels; }
+    /// In test-source mode, the microphone element instead of the sine
+    /// (e.g. one whose start blocks, as a stalled sound server's does).
+    void setMicrophoneSourceForTest(const QString &element)
+    {
+        m_testMicSource = element;
+    }
+    /// Starts reported to the session they were made for (a stale one,
+    /// for a session already ended, is dropped and not counted).
+    int startsReportedForTest() const { return m_startsReported; }
     void setLimitMsForTest(int ms) { m_limitOverrideMs = ms; }
     /// The description the last start actually handed GStreamer.
     QString lastDescriptionForTest() const { return m_lastDescription; }
@@ -183,6 +192,8 @@ private:
     bool m_callActive = false;
     bool m_testSources = false;
     int m_testChannels = 0;
+    QString m_testMicSource;
+    int m_startsReported = 0;
     int m_limitOverrideMs = 0;
     Mode m_mode = Mode::Idle;
     double m_level = 0.0;

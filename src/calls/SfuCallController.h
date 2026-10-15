@@ -33,6 +33,8 @@
 //   * Every asynchronous reply is checked against a join generation.
 #pragma once
 
+#include <functional>
+
 #include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
@@ -120,6 +122,11 @@ class SfuCallController : public QObject
     /// (its level meter, the last few seconds).
     Q_PROPERTY(bool shareAudioHeard READ shareAudioHeard
                    NOTIFY shareAudioStatusChanged)
+    /// The running share's sound is muted for everyone else (its own valve;
+    /// the microphone is untouched). Lasts for one share: a new share starts
+    /// with its sound on.
+    Q_PROPERTY(bool shareAudioMuted READ shareAudioMuted
+                   WRITE setShareAudioMuted NOTIFY mediaStateChanged)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
     /// Whether any remote participant's frames are arriving undecryptable.
@@ -258,6 +265,9 @@ public:
     QVariantList shareAudioApplications() const;
     QString shareAudioStatus() const;
     bool shareAudioHeard() const { return m_shareAudioHeard; }
+    bool shareAudioMuted() const { return m_shareAudioMuted; }
+    void setShareAudioMuted(bool muted);
+    Q_INVOKABLE void toggleShareAudioMuted();
     /// Adds or removes one application from the choice (and switches to
     /// mode 2 when adding). `label` names it while it is not playing.
     Q_INVOKABLE void setShareAudioAppChosen(const QString &key,
@@ -293,6 +303,7 @@ public:
         bool heard = true;           // ... which heard sound recently
         QStringList failedLabels;    // applications whose capture failed
         bool limitReached = false;   // the per-share branch limit left one out
+        bool muted = false;          // the user muted the running share's sound
     };
     static QString shareAudioStatusText(const ShareAudioStatusInput &in);
 
@@ -652,6 +663,17 @@ public:
     {
         m_shareAudioCanChooseForTest = on ? 1 : 0;
     }
+    /// Share-audio rebuilds granted this share (see onShareAudioRebuildWanted).
+    int shareAudioRebuildsForTest() const { return m_shareAudioRebuilds; }
+    /// Pretend a screen share is running (or not), so the call bar's share
+    /// controls can be tested without a portal, engine or SFU.
+    void setScreenSharingForTest(bool on)
+    {
+        if (m_screenSharing == on)
+            return;
+        m_screenSharing = on;
+        Q_EMIT mediaStateChanged();
+    }
     /// Arm the share-audio cid a running share would hold, so the cleanup in
     /// onEngineFailed can be tested without a portal, engine or SFU.
     void setShareAudioCidForTest(const QString &cid)
@@ -712,6 +734,10 @@ public:
         }
         return ms;
     }
+    /// Shorten the per-device re-send backoff's base gap.
+    void setKeyResendBackoffBaseMsForTest(int ms) { m_keyResendBaseMs = ms; }
+    /// Re-sends the per-device backoff held back this call.
+    int keyResendsHeldBackForTest() const { return m_keyResendsHeldBack; }
     /// Shorten the switch delay, the join grace and (when not negative) the
     /// switch fallback so tests run quickly.
     void setKeyTimingForTest(int useKeyDelayMs, int joinKeyGraceMs,
@@ -748,6 +774,27 @@ public:
         m_cameraAwaitingPortal = true;
         m_cameraOn = true;
     }
+    /// Test-only: drive the camera-portal state machine with no media engine
+    /// and no session bus (open item 2026-09-12). `publish` stands in for
+    /// SfuMediaEngine::publishVideo() and receives the descriptor it would own
+    /// (-1 for the direct route); `request` stands in for
+    /// CameraPortal::requestAccess(), so the wired portal's signals can be
+    /// emitted by hand. `sandboxed` and `portalUsable` replace the
+    /// environment and D-Bus probes.
+    void setCameraPathForTest(std::function<void(int)> publish,
+                              std::function<void()> request, bool sandboxed,
+                              bool portalUsable)
+    {
+        m_cameraPublisherForTest = std::move(publish);
+        m_cameraRequestForTest = std::move(request);
+        m_cameraSandboxedForTest = sandboxed ? 1 : 0;
+        m_cameraPortalUsableForTest = portalUsable ? 1 : 0;
+    }
+    /// Test-only: the camera is on and waiting for the portal's answer.
+    bool cameraAwaitingPortalForTest() const { return m_cameraAwaitingPortal; }
+    /// Test-only: camera publishes handed to the setCameraPathForTest()
+    /// stand-in.
+    int cameraPublishesForTest() const { return m_cameraPublishesForTest; }
     /// Test-only: the camera fell back from the portal to the device node.
     bool cameraFellBackForTest() const { return m_cameraFellBack; }
     /// Test-only: the route the running (or pending) camera uses.
@@ -836,6 +883,10 @@ private Q_SLOTS:
                                   const QString &sdp);
     void onEngineLocalCandidate(int target, const QString &candidateInit);
     void onEngineFailed(const QString &category);
+    /// SfuMediaEngine::shareAudioRebuildWanted: replace the running share's
+    /// sound track with a fresh one (new bin, new SSRC), keeping the choice
+    /// and the mute. Ignored for any track but the running one.
+    void onShareAudioRebuildWanted(const QString &cid);
     /// One peer connection's ICE transport (SfuMediaEngine::
     /// transportStateChanged): "failed" (or "disconnected" for longer than a
     /// grace) reconnects a connected call; "connected" on a rejoined session
@@ -1109,6 +1160,15 @@ private:
     void abandonPendingCamera();
     /// Whether a V4L2 device node is visible (or the test override).
     bool cameraDeviceNodeVisible() const;
+    /// Whether something can publish a camera: the media engine, or the test
+    /// stand-in (setCameraPathForTest). Without either the camera path is
+    /// inert, exactly as before the stand-in existed.
+    bool cameraEngineReady() const;
+    /// The camera-route inputs, each with its test override.
+    bool cameraSandboxed() const;
+    bool cameraPortalUsable() const;
+    /// Ask the wired portal for the camera (or the test stand-in).
+    void requestCameraAccess();
     /// The portal camera produced nothing and the device node is reachable:
     /// retire the portal track and publish the camera directly. See
     /// cameraFailureStep().
@@ -1142,6 +1202,12 @@ private:
     bool m_cameraFellBack = false;
     /// -1: scan /dev; 0/1: setCameraRouteForTest()'s answer.
     int m_deviceNodeVisibleForTest = -1;
+    /// setCameraPathForTest(): -1 asks the environment / the bus.
+    int m_cameraSandboxedForTest = -1;
+    int m_cameraPortalUsableForTest = -1;
+    std::function<void(int)> m_cameraPublisherForTest;
+    std::function<void()> m_cameraRequestForTest;
+    int m_cameraPublishesForTest = 0;
     QPointer<SettingsManager> m_settings;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -1181,6 +1247,12 @@ private:
     bool m_withVideo = false;
 
     bool m_micMuted = false;
+    /// See shareAudioMuted. Outside the media guard so it is testable.
+    bool m_shareAudioMuted = false;
+    /// Share-audio tracks replaced after a daemon restart, this share; at
+    /// most kMaxShareAudioRebuildsPerShare (onShareAudioRebuildWanted()).
+    int m_shareAudioRebuilds = 0;
+    static constexpr int kMaxShareAudioRebuildsPerShare = 3;
     bool m_deafened = false;
     bool m_micMutedBeforeDeafen = false;
     bool m_cameraOn = false;
@@ -1435,6 +1507,27 @@ private:
     QHash<QString, QString> m_keyHolders;
     /// Devices that were sent the key our frames use now.
     QSet<QString> m_adoptedKeyRecipients;
+    /// Re-sends of a key a device missed, per device (keyTargetDevice()):
+    /// consecutive failed deliveries and the earliest m_keyClock time the next
+    /// re-send may go. The first retry goes at once; then the gap doubles from
+    /// m_keyResendBaseMs to kKeyResendCeilingMs (a minute: a peer that comes
+    /// back must not wait longer to hear us). Only a failure the answer
+    /// attributes to the device counts; a send that failed as a whole (the
+    /// transport, the server) says nothing about any one device. Reset when a delivery to the
+    /// device succeeds, when it returns with a new SFU session, and per call.
+    /// Rotations and joiners are never held back. Modelled on the forced
+    /// /state read's backoff: a device that can never be reached must not
+    /// cost a send on every reconcile for the length of the call.
+    struct KeyResendBackoff {
+        int failures = 0;
+        qint64 notBeforeMs = 0;
+    };
+    QHash<QString, KeyResendBackoff> m_keyResendBackoff;
+    int m_keyResendBaseMs = 5000;
+    static constexpr int kKeyResendCeilingMs = 60000;
+    /// Re-sends held back by that backoff, for diagnostics and tests.
+    int m_keyResendsHeldBack = 0;
+    void noteKeyDeliveryFailed(const QString &device);
     /// Index allocator, kept across calls: a rejoin keeps its LiveKit
     /// identity, and receivers keep the previous session's keys under it, so
     /// restarting at 1 would reuse those indices with new keys. Wraps at 16,
@@ -1481,10 +1574,18 @@ private:
     struct KeySend {
         quint64 serial = 0;
         QStringList devices;
-        /// It went to a device that was sent the key our frames used at
-        /// dispatch, so its answer can start the switch.
-        bool reachesKeyInUse = false;
+        /// The devices among `devices` that were sent the key our frames used
+        /// at dispatch: an answer that reached one of them can start the
+        /// switch. A device the answer names undelivered does not count.
+        QStringList keyInUseHolders;
     };
+    /// One media key send answered. `undelivered` names, as
+    /// `{user_id, device_id}`, the targets the key did not reach; a partial
+    /// delivery is `ok` and only those lose their holder mark, so the next
+    /// reconciliation sends them the key again (2026-09-29, F6).
+    void onMediaKeySent(quint64 op, bool ok, const QString &category,
+                        int delivered, int keyIndex,
+                        const QVariantList &undelivered);
     /// This call's key sends still awaiting an answer. An answer to any other
     /// op (a previous call's) changes nothing. Grows by one per send and
     /// shrinks per answer; cleared once per call (resetKeyLane()).

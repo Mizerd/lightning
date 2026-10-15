@@ -79,9 +79,17 @@ private:
     int m_port = 0;
 };
 
-// Long enough for any retirement: the bound plus a stopping webrtcbin.
-constexpr int kRetiredWithinMs =
+// How long a retirement in these tests takes: their silent STUN/TURN servers
+// hold gathering only for libnice's own timers (about 2 s over UDP, 7.9 s over
+// TCP), which the SOFT bound covers, and the webrtcbin stops as soon as that
+// gathering ends. Not the hard bound (kGatheringHardBoundMs, 60 s): a test
+// that needed it would be measuring a gathering that never ends, and should
+// shorten the bound with setRetireBoundForTest() instead of waiting a minute.
+constexpr int kRetiredOnceGatheringEndsWithinMs =
     lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
+static_assert(kRetiredOnceGatheringEndsWithinMs
+                  < lightning::webrtc::Retirer::kGatheringHardBoundMs,
+              "the wait is meant to be shorter than the hard bound");
 
 // Element Desktop 1.12.29's legacy video offer, captured 2026-09-25 from an
 // m.call.invite (candidates removed, ice-pwd replaced).
@@ -461,6 +469,149 @@ private:
 
 } // namespace
 
+namespace {
+/// A capture whose start blocks the thread that starts it, as one opening a
+/// sound server that does not answer does (~8.7 s measured, 2026-09-29).
+struct SlowStartMic11 {
+    GstBin parent;
+};
+struct SlowStartMic11Class {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStartMic11, slow_start_mic11, GST_TYPE_BIN)
+
+constexpr int kSlowMicStartMs = 2500;
+
+GstStateChangeReturn slowStartMic11ChangeState(GstElement *element,
+                                               GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        g_usleep(gulong(kSlowMicStartMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_start_mic11_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_start_mic11_init(SlowStartMic11 *self)
+{
+    GstElement *device = gst_element_factory_make("audiotestsrc", nullptr);
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("src", inner));
+    gst_object_unref(inner);
+}
+
+void slow_start_mic11_class_init(SlowStartMic11Class *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-start microphone (test)",
+        "Source/Audio", "A capture whose sound server answers late",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStartMic11ChangeState;
+}
+
+bool registerSlowStartMic11()
+{
+    static const bool registered = gst_element_register(
+        nullptr, "lightningslowstartmic11", GST_RANK_NONE,
+        slow_start_mic11_get_type());
+    return registered;
+}
+
+const QString kSlowFront = QStringLiteral(
+    "lightningslowstartmic11 name=micsrc ! audioconvert ! audioresample");
+
+/// A capture that starts at once and then blocks the thread that STOPS it,
+/// as one whose sound server stopped answering mid-call does.
+struct SlowStopMic11 {
+    GstBin parent;
+};
+struct SlowStopMic11Class {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStopMic11, slow_stop_mic11, GST_TYPE_BIN)
+
+GstStateChangeReturn slowStopMic11ChangeState(GstElement *element,
+                                              GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+        g_usleep(gulong(kSlowMicStartMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_stop_mic11_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_stop_mic11_init(SlowStopMic11 *self)
+{
+    GstElement *device = gst_element_factory_make("audiotestsrc", nullptr);
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("src", inner));
+    gst_object_unref(inner);
+}
+
+void slow_stop_mic11_class_init(SlowStopMic11Class *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-stop microphone (test)",
+        "Source/Audio", "A capture whose sound server stopped answering",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStopMic11ChangeState;
+}
+
+/// An output whose device opening blocks the thread that opens it.
+struct SlowOpenSink11 {
+    GstBin parent;
+};
+struct SlowOpenSink11Class {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowOpenSink11, slow_open_sink11, GST_TYPE_BIN)
+
+GstStateChangeReturn slowOpenSink11ChangeState(GstElement *element,
+                                               GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_NULL_TO_READY)
+        g_usleep(gulong(kSlowMicStartMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_open_sink11_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_open_sink11_init(SlowOpenSink11 *self)
+{
+    GstElement *sink = gst_element_factory_make("fakesink", nullptr);
+    g_object_set(sink, "sync", FALSE, nullptr);
+    gst_bin_add(GST_BIN(self), sink);
+    GstPad *inner = gst_element_get_static_pad(sink, "sink");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("sink", inner));
+    gst_object_unref(inner);
+}
+
+void slow_open_sink11_class_init(SlowOpenSink11Class *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-open output (test)", "Sink/Audio",
+        "An output whose sound server answers late", "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowOpenSink11ChangeState;
+}
+
+bool registerSlowOpenSink11()
+{
+    static const bool registered = gst_element_register(
+        nullptr, "lightningslowopensink11", GST_RANK_NONE,
+        slow_open_sink11_get_type());
+    return registered;
+}
+
+bool registerSlowStopMic11()
+{
+    static const bool registered = gst_element_register(
+        nullptr, "lightningslowstopmic11", GST_RANK_NONE,
+        slow_stop_mic11_get_type());
+    return registered;
+}
+} // namespace
+
 class CallMediaLoopbackTest : public QObject
 {
     Q_OBJECT
@@ -627,9 +778,9 @@ private Q_SLOTS:
         // gathering.
         caller.close(second);
         QTRY_COMPARE_WITH_TIMEOUT(caller.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QTRY_COMPARE_WITH_TIMEOUT(callee.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(caller.teardownsWhileGatheringForTest(), 0);
         QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
     }
@@ -935,7 +1086,7 @@ private Q_SLOTS:
         // session is still gathering.
         engine.close(QStringLiteral("good-after-bad"));
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
     }
 
@@ -965,7 +1116,7 @@ private Q_SLOTS:
         engine.createOffer(callId);
         QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
         QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
                  "gathering had already ended when the call closed, so this "
@@ -997,7 +1148,7 @@ private Q_SLOTS:
         engine.createOffer(callId);
         QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
         QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
                  "the close did not see the gathering the offer started");
@@ -1067,6 +1218,241 @@ private Q_SLOTS:
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 1);
     }
 
+    /// Past the soft bound a retirement is REPORTED and keeps waiting: a
+    /// gathering that outlives libnice's own timers is a server name still
+    /// resolving, whose candidates would land during a stop (gstreamer#5138).
+    /// Before 2026-10-15 the 10 s bound was the stop itself; with it at 300
+    /// ms, as here, the silent server's ~2 s gathering was stopped midway
+    /// (aWebrtcbinStillGatheringAtTheBoundIsStoppedAnyway).
+    void aWebrtcbinStillGatheringPastTheSoftBoundKeepsWaiting()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setRetireSoftBoundForTest(300);
+        engine.setIceServers(stun.asStunServer(), QString(), QString());
+        const QString callId = QStringLiteral("close-past-the-soft-bound");
+        bool closed = false;
+        connect(&engine, &CallMediaBackend::localCandidate, this,
+                [&](const QString &id, const QString &, const QString &, int) {
+                    if (id != callId || closed)
+                        return;
+                    closed = true;
+                    engine.close(callId);
+                });
+        engine.createOffer(callId);
+        QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredOnceGatheringEndsWithinMs);
+        QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
+                 "gathering had already ended at the close, so this run "
+                 "proved nothing");
+        QCOMPARE(engine.retiresPastTheSoftBoundForTest(), 1);
+        QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+    }
+
+    /// At quit a webrtcbin still gathering when the budget runs out is left
+    /// for the process to end, not stopped mid-gathering (the crash).
+    void aWebrtcbinStillGatheringAtQuitIsLeftRatherThanStopped()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setIceServers(stun.asStunServer(), QString(), QString());
+        const QString callId = QStringLiteral("quit-while-gathering");
+        bool closed = false;
+        connect(&engine, &CallMediaBackend::localCandidate, this,
+                [&](const QString &id, const QString &, const QString &, int) {
+                    if (id != callId || closed)
+                        return;
+                    closed = true;
+                    engine.close(callId);
+                });
+        engine.createOffer(callId);
+        QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
+        // libnice gives up on the silent server only after about 2 s.
+        engine.drainRetiredForTest(100);
+        if (engine.retiresLeftRunningAtQuitForTest() == 0
+            && engine.teardownsWhileGatheringForTest() == 0)
+            QSKIP("gathering had already ended before the budget ran out");
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+        QCOMPARE(engine.retiresLeftRunningAtQuitForTest(), 1);
+        QCOMPARE(engine.retiringWebrtcForTest(), 0);
+    }
+
+    /// 3c in the 1:1 lane: the capture's start blocked the GUI thread for as
+    /// long as the sound server took. It is started on a pool thread now, and
+    /// reports back to the call it was started for. Fails on the old backend,
+    /// whose createOffer() returned only after the capture had started.
+    void theOneToOneMicrophoneIsStartedOffTheGuiThread()
+    {
+        QVERIFY(registerSlowStartMic11());
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setMicrophoneFrontForTest(kSlowFront);
+        const QString callId = QStringLiteral("slow-mic-call");
+        QElapsedTimer took;
+        took.start();
+        engine.createOffer(callId);
+        QVERIFY2(took.elapsed() < kSlowMicStartMs / 2,
+                 qPrintable(QStringLiteral("createOffer() blocked %1 ms on "
+                                           "the microphone's start")
+                                .arg(took.elapsed())));
+        QVERIFY(engine.microphoneFrontStartingForTest());
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneFrontStartsReportedForTest(),
+                                  1, 3 * kSlowMicStartMs);
+        QVERIFY(!engine.microphoneFrontStartingForTest());
+        engine.close(callId);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredOnceGatheringEndsWithinMs);
+    }
+
+    /// Hanging up on a call whose capture is RUNNING and whose sound server
+    /// then stops answering: close() stopped the pipeline, capture included,
+    /// on the GUI thread. The capture leaves first and stops off it now.
+    /// Fails on the old backend: close() took the capture's ~2.5 s stop.
+    void closingAOneToOneCallNeverWaitsOnTheCapturesStop()
+    {
+        QVERIFY(registerSlowStopMic11());
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setMicrophoneFrontForTest(QStringLiteral(
+            "lightningslowstopmic11 name=micsrc ! audioconvert "
+            "! audioresample"));
+        const QString callId = QStringLiteral("slow-stop-hangup");
+        engine.createOffer(callId);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneFrontStartsReportedForTest(),
+                                  1, 5000);
+        QElapsedTimer took;
+        took.start();
+        engine.close(callId);
+        QVERIFY2(took.elapsed() < kSlowMicStartMs / 2,
+                 qPrintable(QStringLiteral("close() waited %1 ms on the "
+                                           "capture's stop")
+                                .arg(took.elapsed())));
+        QTest::qWait(kSlowMicStartMs + 500);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredOnceGatheringEndsWithinMs);
+    }
+
+    /// Recheck L-h + M2 in the 1:1 lane: a speaker switch ran inside an IDLE
+    /// probe, on the GUI thread whenever the pad was idle, so opening the
+    /// new output on a silent sound server froze the window; and two picks
+    /// in a row must not race. The first pick here is slow to open; the
+    /// switch returns at once, the second pick wins, and one output is left.
+    void twoOneToOneSpeakerPicksNeverBlockAndTheLastWins()
+    {
+        QVERIFY(registerSlowOpenSink11());
+        const QString callId = QStringLiteral("speaker-race-1");
+        GstCallMediaBackend caller;
+        GstCallMediaBackend callee;
+        caller.setTestToneMode(true);
+        callee.setTestToneMode(true);
+        QString speaker = QStringLiteral("fakesink sync=false name=outsink");
+        callee.setAudioDeviceResolver([&speaker] {
+            GstCallMediaBackend::AudioDevicePlan plan;
+            plan.speakerSink = speaker;
+            return plan;
+        });
+        bool callerConnected = false;
+        bool calleeConnected = false;
+        QString failure;
+        connect(&caller, &CallMediaBackend::offerReady, &callee,
+                [&](const QString &id, const QString &sdp) {
+                    callee.createAnswer(id, sdp);
+                });
+        connect(&callee, &CallMediaBackend::answerReady, &caller,
+                [&](const QString &id, const QString &sdp) {
+                    caller.setRemoteAnswer(id, sdp);
+                });
+        connect(&caller, &CallMediaBackend::localCandidate, &callee,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    callee.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        connect(&callee, &CallMediaBackend::localCandidate, &caller,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    caller.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        connect(&caller, &CallMediaBackend::connected, this,
+                [&](const QString &) { callerConnected = true; });
+        connect(&callee, &CallMediaBackend::connected, this,
+                [&](const QString &) { calleeConnected = true; });
+        const auto noteFailure = [&](const QString &, const QString &why) {
+            failure = why;
+        };
+        connect(&caller, &CallMediaBackend::failed, this, noteFailure);
+        connect(&callee, &CallMediaBackend::failed, this, noteFailure);
+        caller.createOffer(callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            (callerConnected && calleeConnected) || !failure.isEmpty(),
+            qPrintable(QStringLiteral("no connection; failure=%1")
+                           .arg(failure)),
+            45000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QTRY_VERIFY_WITH_TIMEOUT(callee.receivedAudioPacketsForTest() > 50,
+                                 15000);
+        QCOMPARE(callee.receiveOutputsForTest(),
+                 QStringList{ QStringLiteral("fakesink") });
+
+        QElapsedTimer took;
+        took.start();
+        speaker = QStringLiteral("lightningslowopensink11 name=outsink");
+        callee.audioDevicesChanged();
+        speaker = QStringLiteral("fakesink sync=false async=false "
+                                 "name=outsink");
+        callee.audioDevicesChanged();
+        QVERIFY2(took.elapsed() < kSlowMicStartMs / 2,
+                 qPrintable(QStringLiteral("two speaker picks held the GUI "
+                                           "thread %1 ms")
+                                .arg(took.elapsed())));
+        QTRY_COMPARE_WITH_TIMEOUT(callee.speakerSwapsForTest(), 1,
+                                  3 * kSlowMicStartMs);
+        QTest::qWait(500);
+        QCOMPARE(callee.speakerSwapsForTest(), 1);
+        QCOMPARE(callee.receiveOutputsForTest(),
+                 QStringList{ QStringLiteral("fakesink") });
+        // And it plays: decoded audio keeps reaching the (new) output.
+        callee.resetReceivedPeakForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(callee.receivedPeakForTest() > 0.0, 10000);
+        caller.close(callId);
+        callee.close(callId);
+    }
+
+    /// Hanging up while that start is in flight: close() does not wait for
+    /// it, and its late report is dropped (session serial and front).
+    void closingAOneToOneCallWhileItsMicrophoneStartsDoesNotWait()
+    {
+        QVERIFY(registerSlowStartMic11());
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setMicrophoneFrontForTest(kSlowFront);
+        const QString callId = QStringLiteral("slow-mic-hangup");
+        engine.createOffer(callId);
+        QVERIFY(engine.microphoneFrontStartingForTest());
+        QElapsedTimer took;
+        took.start();
+        engine.close(callId);
+        QVERIFY2(took.elapsed() < kSlowMicStartMs / 2,
+                 qPrintable(QStringLiteral("close() waited %1 ms for the "
+                                           "microphone's start")
+                                .arg(took.elapsed())));
+        // A new call while the old start is still running: not its report.
+        engine.setMicrophoneFrontForTest(QString());
+        engine.createOffer(QStringLiteral("next-call"));
+        QTest::qWait(kSlowMicStartMs + 1000);
+        QCOMPARE(engine.microphoneFrontStartsReportedForTest(), 1);
+        engine.close(QStringLiteral("next-call"));
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredOnceGatheringEndsWithinMs);
+    }
+
     /// Only webrtcbin waits. Everything else of the call stops inside
     /// close(), so nothing is heard (or sent) after hanging up while the
     /// webrtcbin finishes gathering.
@@ -1128,9 +1514,9 @@ private Q_SLOTS:
         }
         caller.close(callId);
         QTRY_COMPARE_WITH_TIMEOUT(callee.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QTRY_COMPARE_WITH_TIMEOUT(caller.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
         QCOMPARE(caller.teardownsWhileGatheringForTest(), 0);
     }

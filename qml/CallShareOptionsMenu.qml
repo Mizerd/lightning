@@ -95,6 +95,28 @@ AppMenu {
         }
     }
 
+    // Mute the running share's sound alone, never the microphone. Only while a
+    // share is carrying sound: before one there is nothing to mute, and the
+    // three choices above already say "No sound". Lasts for this share.
+    AppMenuItem {
+        objectName: "shareAudioMuteItem"
+        readonly property bool _muted:
+            !!app.groupCall && app.groupCall.shareAudioMuted
+        // Applications mode with none chosen carries no sound: nothing to
+        // mute (the status line already says so).
+        visible: root._soundSupported && !!app.groupCall
+                 && app.groupCall.screenSharing && root._soundMode !== 0
+                 && !(root._soundMode === 2
+                      && app.groupCall.shareAudioApps.length === 0)
+        height: visible ? implicitHeight : 0
+        iconName: _muted ? "volume_off" : "volume_up"
+        text: _muted ? qsTr("Unmute share sound") : qsTr("Mute share sound")
+        onTriggered: root.actAndStayOpen(function () {
+            if (app.groupCall)
+                app.groupCall.toggleShareAudioMuted();
+        })
+    }
+
     // What the sound carries, in words, including "nothing is being heard"
     // during a share. Not a row: sized to the menu so it wraps, and it does
     // not vote in AppMenu's width fit.

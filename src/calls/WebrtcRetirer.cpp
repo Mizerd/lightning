@@ -318,6 +318,17 @@ void Retirer::poll()
             finish(*it, /*expired=*/true, /*async=*/true);
             it = m_entries.erase(it);
         } else {
+            if (!it->softBoundReported && it->age.elapsed() >= m_softBoundMs) {
+                // Still gathering past every timer libnice has of its own: a
+                // server name still resolving, most likely. Its candidates
+                // would land during a stop now, so keep waiting.
+                it->softBoundReported = true;
+                m_stats->outlivedSoftBound.fetch_add(1);
+                qCWarning(lcRetire)
+                    << "a closed call's ICE gathering is still running after"
+                    << it->age.elapsed() << "ms; its webrtcbin keeps waiting "
+                    << "(stopped at the latest after" << m_boundMs << "ms)";
+            }
             ++it;
         }
     }
@@ -343,9 +354,27 @@ void Retirer::drain(int budgetMs)
             break;
         QThread::msleep(10);
     }
-    // Out of budget: stop them anyway and accept the rare race at quit.
-    for (Entry &entry : m_entries)
-        finish(entry, /*expired=*/true, /*async=*/false);
+    // Out of budget. One that has stopped gathering in the meantime stops
+    // now; one still gathering is left running for the process to end, as
+    // stopping it is the crash (gstreamer#5138). Its references are leaked
+    // on purpose: an unref would only defer the same stop.
+    for (Entry &entry : m_entries) {
+        if (gatheringState(entry.webrtc)
+            != GST_WEBRTC_ICE_GATHERING_STATE_GATHERING) {
+            // Not gathering (its barriers merely had not answered): no
+            // candidate can land during this stop, so it is neither the
+            // crash window nor an expired bound, and is not reported as one.
+            finish(entry, /*expired=*/false, /*async=*/false);
+            continue;
+        }
+        m_stats->leftRunningAtQuit.fetch_add(1);
+        m_stats->retiring.fetch_sub(1);
+        qCWarning(lcRetire) << "a closed call's webrtcbin is still gathering "
+                               "at quit; left for the process to end rather "
+                               "than stopped mid-gathering";
+        entry.webrtc = nullptr;
+        entry.pipeline = nullptr;
+    }
     m_entries.clear();
     // Jobs already on the pool thread; a moment more even if the budget went.
     const qint64 deadline = qMax<qint64>(budgetMs, clock.elapsed() + 500);

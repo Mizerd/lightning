@@ -1474,10 +1474,16 @@ Item {
                                 id: chipVideoLoader
                                 anchors.fill: parent
                                 // Bounded decoders: only the first few video
-                                // chips get a poster player.
+                                // chips get a poster player. None on Qt
+                                // Quick's software renderer, which draws no
+                                // video: the chip keeps its videocam glyph
+                                // rather than an unexplained blank, and no
+                                // decoder runs for nothing.
                                 active: chipLayout.isVideoChip
                                         && chipLayout.hasLocalFile
                                         && index < 4
+                                        && !(typeof app !== "undefined" && app
+                                             && app.softwareRenderer === true)
                                 property bool posterFailed: false
                                 sourceComponent: Item {
                                     VideoOutput {

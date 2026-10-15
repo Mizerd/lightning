@@ -33,6 +33,7 @@
 #include <gst/video/video-event.h>
 
 #include <atomic>
+#include <cstring>
 #include <cerrno>
 #include <fcntl.h>
 #include <memory>
@@ -241,9 +242,17 @@ private:
     bool m_sawBinding = false;
 };
 
-// Long enough for any retirement: the bound plus a stopping webrtcbin.
-constexpr int kRetiredWithinMs =
+// How long a retirement in these tests takes: their silent STUN/TURN servers
+// hold gathering only for libnice's own timers (about 2 s over UDP, 7.9 s over
+// TCP), which the SOFT bound covers, and the webrtcbin stops as soon as that
+// gathering ends. Not the hard bound (kGatheringHardBoundMs, 60 s): a test
+// that needed it would be measuring a gathering that never ends, and should
+// shorten the bound with setRetireBoundForTest() instead of waiting a minute.
+constexpr int kRetiredOnceGatheringEndsWithinMs =
     lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
+static_assert(kRetiredOnceGatheringEndsWithinMs
+                  < lightning::webrtc::Retirer::kGatheringHardBoundMs,
+              "the wait is meant to be shorter than the hard bound");
 
 /// A camera shaped like v4l2src on a raw-only (YUYV) device: before it is
 /// opened it offers its template, which lists image/jpeg as v4l2src's does
@@ -340,6 +349,227 @@ void slow_start_cam_class_init(SlowStartCamClass *klass)
         GST_ELEMENT_CLASS(klass), "Slow-start camera (test)", "Source/Video",
         "A pipewiresrc-shaped camera whose start blocks", "Lightning");
     GST_ELEMENT_CLASS(klass)->change_state = slowStartCamChangeState;
+}
+
+/// A microphone whose start blocks the thread that starts it, as a capture
+/// opening a sound server that does not answer does (measured 2026-09-29:
+/// ~8.7 s with pipewire-pulse stopped). A live audiotestsrc inside a bin.
+struct SlowStartMic {
+    GstBin parent;
+};
+struct SlowStartMicClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStartMic, slow_start_mic, GST_TYPE_BIN)
+
+GstStateChangeReturn slowStartMicChangeState(GstElement *element,
+                                             GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        g_usleep(gulong(kSlowStartCamMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_start_mic_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_start_mic_init(SlowStartMic *self)
+{
+    GstElement *device =
+        gst_element_factory_make("audiotestsrc", "slowmicdevice");
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    GstPad *ghost = gst_ghost_pad_new("src", inner);
+    gst_object_unref(inner);
+    gst_element_add_pad(GST_ELEMENT(self), ghost);
+}
+
+void slow_start_mic_class_init(SlowStartMicClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-start microphone (test)",
+        "Source/Audio", "A capture whose sound server answers late",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStartMicChangeState;
+}
+
+bool registerSlowStartMic()
+{
+    static const bool registered =
+        gst_element_register(nullptr, "lightningslowstartmic", GST_RANK_NONE,
+                             slow_start_mic_get_type());
+    return registered;
+}
+
+/// A microphone that starts at once and whose STOP blocks the thread that
+/// stops it (PLAYING->PAUSED), as one whose sound server stalled does.
+struct SlowStopMic {
+    GstBin parent;
+};
+struct SlowStopMicClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStopMic, slow_stop_mic, GST_TYPE_BIN)
+
+constexpr int kSlowStopMicMs = 1000;
+
+GstStateChangeReturn slowStopMicChangeState(GstElement *element,
+                                            GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_PLAYING_TO_PAUSED)
+        g_usleep(gulong(kSlowStopMicMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_stop_mic_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_stop_mic_init(SlowStopMic *self)
+{
+    GstElement *device =
+        gst_element_factory_make("audiotestsrc", "slowstopmicdevice");
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("src", inner));
+    gst_object_unref(inner);
+}
+
+void slow_stop_mic_class_init(SlowStopMicClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-stop microphone (test)",
+        "Source/Audio", "A capture whose sound server stalls its stop",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStopMicChangeState;
+}
+
+/// A microphone whose start blocks for good, as far as one test is concerned
+/// (a sound server that never answers): 10 s in READY->PAUSED.
+struct StuckStartMic {
+    GstBin parent;
+};
+struct StuckStartMicClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(StuckStartMic, stuck_start_mic, GST_TYPE_BIN)
+
+constexpr int kStuckStartMicMs = 10000;
+
+GstStateChangeReturn stuckStartMicChangeState(GstElement *element,
+                                              GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        g_usleep(gulong(kStuckStartMicMs) * 1000);
+    return GST_ELEMENT_CLASS(stuck_start_mic_parent_class)
+        ->change_state(element, transition);
+}
+
+void stuck_start_mic_init(StuckStartMic *self)
+{
+    GstElement *device =
+        gst_element_factory_make("audiotestsrc", "stuckmicdevice");
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("src", inner));
+    gst_object_unref(inner);
+}
+
+void stuck_start_mic_class_init(StuckStartMicClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Stuck-start microphone (test)",
+        "Source/Audio", "A capture whose sound server never answers",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = stuckStartMicChangeState;
+}
+
+bool registerStuckStartMic()
+{
+    static const bool registered =
+        gst_element_register(nullptr, "lightningstuckstartmic", GST_RANK_NONE,
+                             stuck_start_mic_get_type());
+    return registered;
+}
+
+bool registerSlowStopMic()
+{
+    static const bool registered =
+        gst_element_register(nullptr, "lightningslowstopmic", GST_RANK_NONE,
+                             slow_stop_mic_get_type());
+    return registered;
+}
+
+/// Counts GStreamer's "Trying to dispose element ..., but it is in <state>
+/// instead of the NULL state": an element whose last reference went while it
+/// still ran, i.e. a refcount/ownership bug, and the precursor of a crash in
+/// its streaming thread.
+struct LiveDisposeCounter {
+    static std::atomic<int> &count()
+    {
+        static std::atomic<int> n{0};
+        return n;
+    }
+    static void handler(const gchar *domain, GLogLevelFlags level,
+                        const gchar *message, gpointer previous)
+    {
+        if (message && strstr(message, "Trying to dispose element"))
+            count().fetch_add(1);
+        g_log_default_handler(domain, level, message, previous);
+    }
+    guint id = 0;
+    LiveDisposeCounter()
+    {
+        count().store(0);
+        id = g_log_set_handler("GStreamer", GLogLevelFlags(G_LOG_LEVEL_CRITICAL
+                                                           | G_LOG_LEVEL_WARNING),
+                               handler, nullptr);
+    }
+    ~LiveDisposeCounter() { g_log_remove_handler("GStreamer", id); }
+};
+
+/// An output whose device opening blocks the thread that opens it, as one on
+/// a sound server that does not answer does: a fakesink in a bin, sleeping
+/// in NULL->READY.
+struct SlowOpenSink {
+    GstBin parent;
+};
+struct SlowOpenSinkClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowOpenSink, slow_open_sink, GST_TYPE_BIN)
+
+GstStateChangeReturn slowOpenSinkChangeState(GstElement *element,
+                                             GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_NULL_TO_READY)
+        g_usleep(gulong(kSlowStartCamMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_open_sink_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_open_sink_init(SlowOpenSink *self)
+{
+    GstElement *sink = gst_element_factory_make("fakesink", nullptr);
+    g_object_set(sink, "sync", FALSE, nullptr);
+    gst_bin_add(GST_BIN(self), sink);
+    GstPad *inner = gst_element_get_static_pad(sink, "sink");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("sink", inner));
+    gst_object_unref(inner);
+}
+
+void slow_open_sink_class_init(SlowOpenSinkClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-open output (test)", "Sink/Audio",
+        "An output whose sound server answers late", "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowOpenSinkChangeState;
+}
+
+bool registerSlowOpenSink()
+{
+    static const bool registered =
+        gst_element_register(nullptr, "lightningslowopensink", GST_RANK_NONE,
+                             slow_open_sink_get_type());
+    return registered;
 }
 
 /// A camera that starts at once and then blocks the thread that STOPS it, as
@@ -2275,9 +2505,9 @@ private slots:
         QCOMPARE(sender.pendingTeardownsForTest(), 0);
         // And every webrtcbin reaches NULL, none while it was gathering.
         QTRY_COMPARE_WITH_TIMEOUT(sender.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QTRY_COMPARE_WITH_TIMEOUT(receiver.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(sender.teardownsWhileGatheringForTest(), 0);
         QCOMPARE(receiver.teardownsWhileGatheringForTest(), 0);
     }
@@ -3752,6 +3982,46 @@ private slots:
                  "share audio could not be republished under the cid its own "
                  "failure had taken");
         QCOMPARE(engine.publisherTrackSlotsForTest(), 2);
+        engine.stop();
+    }
+
+    // The share's sound mutes on its own valve: the microphone is untouched,
+    // and a share track built while muted (a mode change mid-share re-publishes
+    // it) comes up muted. Before 2026-10-15 nothing drove `sharevalve`.
+    void theShareSoundMutesOnItsOwnValveAndARebuildKeepsIt()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-mic"));
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"));
+        QTRY_VERIFY(engine.hasPublishedBinForTest(
+            QStringLiteral("cid-share-audio")));
+        const QString valve = lightning::shareaudio::shareValveElementName();
+        const auto drop = [&engine](const QString &cid, const QString &name) {
+            return engine.publishedBinPropertyForTest(cid, name,
+                                                      QStringLiteral("drop"));
+        };
+        QCOMPARE(drop(QStringLiteral("cid-share-audio"), valve),
+                 QStringLiteral("false"));
+
+        engine.setShareAudioMuted(true);
+        QCOMPARE(drop(QStringLiteral("cid-share-audio"), valve),
+                 QStringLiteral("true"));
+        QVERIFY2(drop(QStringLiteral("cid-mic"), QStringLiteral("micvalve"))
+                     == QStringLiteral("false"),
+                 "muting the share's sound closed the microphone's valve");
+
+        engine.unpublish(QStringLiteral("cid-share-audio"));
+        engine.publishShareAudio(QStringLiteral("cid-share-audio-2"));
+        QTRY_VERIFY(engine.hasPublishedBinForTest(
+            QStringLiteral("cid-share-audio-2")));
+        QVERIFY2(drop(QStringLiteral("cid-share-audio-2"), valve)
+                     == QStringLiteral("true"),
+                 "a share track rebuilt while muted came up audible");
+        engine.setShareAudioMuted(false);
+        QCOMPARE(drop(QStringLiteral("cid-share-audio-2"), valve),
+                 QStringLiteral("false"));
         engine.stop();
     }
 
@@ -6194,6 +6464,144 @@ private slots:
 #endif
     }
 
+    // 2026-10-07 (Flatpak RC, open item): after a daemon restart mid-share
+    // the receiver heard nothing in 4 of 10 runs while every sender-side
+    // indicator was healthy, and only the NEXT restart healed it. The daemon
+    // closing EVERY capture of the share in one scan is that restart (one
+    // application leaving closes one), and asks the owner for a fresh track,
+    // once per gap, queued so the scan finishes on the bin it started with.
+    void aDaemonRestartUnderAShareAsksForAFreshShareAudioTrack()
+    {
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = {
+            scriptedStream(QStringLiteral("37"), QStringLiteral("tonea")),
+            scriptedStream(QStringLiteral("38"), QStringLiteral("toneb")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("37")) >= 0);
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("38")) >= 0);
+        QSignalSpy wanted(&engine, &SfuMediaEngine::shareAudioRebuildWanted);
+        engine.setShareAudioSuppressRetireEosForTest(true);
+
+        const auto watch = [&engine](const QString &id, int pair[2]) {
+            QCOMPARE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0,
+                                  pair),
+                     0);
+            engine.setShareAudioConnectionForTest(id, pair[0]);
+        };
+        int a[2] = { -1, -1 };
+        int b[2] = { -1, -1 };
+        watch(QStringLiteral("37"), a);
+        watch(QStringLiteral("38"), b);
+
+        // One application's connection goes: an application leaving, not a
+        // restart. Recaptured in place, no new track.
+        ::close(a[1]);
+        engine.rescanShareAudioSourcesForTest();
+        QCoreApplication::processEvents();
+        QCOMPARE(wanted.count(), 0);
+
+        // Every capture still standing closes in one scan: the daemon went.
+        // (37's recapture has no watched connection, as a test source.)
+        ::close(b[1]);
+        int c[2] = { -1, -1 };
+        const int recaptured =
+            engine.shareAudioBranchIndexForTest(QStringLiteral("37"));
+        QVERIFY(recaptured >= 0);
+        watch(QStringLiteral("37"), c);
+        ::close(c[1]);
+        engine.rescanShareAudioSourcesForTest();
+        QVERIFY2(wanted.isEmpty(),
+                 "asked for a new track from inside the scan that still "
+                 "uses the old one");
+        QTRY_COMPARE_WITH_TIMEOUT(wanted.count(), 1, 2000);
+        QCOMPARE(wanted.at(0).at(0).toString(),
+                 QStringLiteral("cid-share-audio"));
+
+        // A restart loop does not rebuild on every turn.
+        int d[2] = { -1, -1 };
+        int e[2] = { -1, -1 };
+        const QString again37 = QStringLiteral("37");
+        const QString again38 = QStringLiteral("38");
+        if (engine.shareAudioBranchIndexForTest(again37) >= 0
+            && engine.shareAudioBranchIndexForTest(again38) >= 0) {
+            watch(again37, d);
+            watch(again38, e);
+            ::close(d[1]);
+            ::close(e[1]);
+            engine.rescanShareAudioSourcesForTest();
+            QTest::qWait(100);
+            QCOMPARE(wanted.count(), 1);
+        }
+        engine.stop();
+        for (int fd : { a[0], b[0], c[0], d[0], e[0] }) {
+            if (fd >= 0)
+                ::close(fd);
+        }
+#else
+        QSKIP("PipeWire is Linux-only");
+#endif
+    }
+
+    // Review L4: a branch still STARTING is in neither count. Its connection
+    // was opened after anything a restart could have closed, so it must not
+    // make "every established capture closed at once" look like one app
+    // leaving. Fails when starting branches are counted (2 watched, 1 closed).
+    void aBranchStillStartingDoesNotHideADaemonRestart()
+    {
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = {
+            scriptedStream(QStringLiteral("37"), QStringLiteral("tonea")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("37")) >= 0);
+        QVERIFY(!engine.shareAudioBranchStartingForTest(QStringLiteral("37")));
+
+        // A second application appears; its start is slow.
+        engine.setShareAudioStartDelayForTest(3000);
+        listing->live.append(
+            scriptedStream(QStringLiteral("38"), QStringLiteral("toneb")));
+        engine.rescanShareAudioSourcesForTest();
+        QVERIFY(engine.shareAudioBranchStartingForTest(QStringLiteral("38")));
+
+        QSignalSpy wanted(&engine, &SfuMediaEngine::shareAudioRebuildWanted);
+        engine.setShareAudioSuppressRetireEosForTest(true);
+        int a[2] = { -1, -1 };
+        int b[2] = { -1, -1 };
+        QCOMPARE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, a), 0);
+        QCOMPARE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, b), 0);
+        engine.setShareAudioConnectionForTest(QStringLiteral("37"), a[0]);
+        engine.setShareAudioConnectionForTest(QStringLiteral("38"), b[0]);
+        // The established capture's connection goes; the starting one's not.
+        ::close(a[1]);
+        engine.rescanShareAudioSourcesForTest();
+        QTRY_COMPARE_WITH_TIMEOUT(wanted.count(), 1, 2000);
+        engine.stop();
+        QTest::qWait(3500);   // the slow starts finish on their pool threads
+        ::close(a[0]);
+        ::close(b[0]);
+        ::close(b[1]);
+#else
+        QSKIP("PipeWire is Linux-only");
+#endif
+    }
+
     // F3 (Flatpak RC): every video frame was its own queued event to the GUI
     // thread, so a GUI stall collected every frame it missed — 900 frames of
     // a 1080p share's self-view in a 30 s stall, RSS 1.1 -> 7.5 GB, host
@@ -7114,6 +7522,498 @@ private slots:
         QTest::qWait(2 * kSlowStartCamMs + 500);
     }
 
+    // 3c (2026-09-29): with the sound server not answering, the GUI thread
+    // sat ~8.7 s in the microphone's start, publishAudio()'s synchronous
+    // sync_state_with_parent. It runs on a pool thread now and reports back.
+    // Fails on the old engine, where publishAudio() returns after the start.
+    void theMicrophoneIsStartedOffTheGuiThread()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        const QString cid = QStringLiteral("cid-slow-mic");
+        QElapsedTimer took;
+        took.start();
+        engine.publishAudio(cid);
+        const qint64 ms = took.elapsed();
+        QVERIFY(engine.hasPublishedBinForTest(cid));
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("publishAudio() blocked %1 ms on "
+                                           "the microphone's start")
+                                .arg(ms)));
+        QVERIFY(engine.microphoneStartingForTest());
+        // And it starts, and says so once.
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneStartingForTest(),
+                                 3 * kSlowStartCamMs);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneStartsReportedForTest(), 1,
+                                  2000);
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY(bin);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [bin] {
+                GstState state = GST_STATE_VOID_PENDING;
+                gst_element_get_state(bin, &state, nullptr, 0);
+                return state == GST_STATE_PLAYING;
+            }(),
+            5000);
+        engine.stop();
+    }
+
+    // The call ends while the microphone is still starting: stop() must not
+    // wait on the start (it would be the same freeze, at hang-up), the late
+    // start must say nothing to the session that ended (generation guard),
+    // and its encrypt probe, gated, must touch nothing of the engine's.
+    void aCallLeftWhileTheMicrophoneStartsNeitherWaitsNorHearsFromIt()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        engine.setEncryptionRequired(true);
+        engine.setOutboundKey(3, QByteArray(32, 'k'));
+        engine.publishAudio(QStringLiteral("cid-slow-mic"));
+        QVERIFY(engine.microphoneStartingForTest());
+
+        QElapsedTimer took;
+        took.start();
+        engine.stop();
+        const qint64 ms = took.elapsed();
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("stop() waited %1 ms for a "
+                                           "microphone still starting")
+                                .arg(ms)));
+        const quint64 encryptedAtStop = engine.framesEncrypted();
+        // A new session while the old start is still in flight: its report
+        // belongs to nobody now.
+        engine.start();
+        QTest::qWait(kSlowStartCamMs + 1500);
+        QCOMPARE(engine.microphoneStartsReportedForTest(), 0);
+        QVERIFY2(engine.framesEncrypted() == encryptedAtStop,
+                 "the detached microphone encrypted frames after its call "
+                 "ended: its probe is not gated");
+        engine.stop();
+    }
+
+    // The same start outliving the ENGINE. NOT A PROOF without ASan (the
+    // gated probe would be a silent use-after-free otherwise); it proves the
+    // destructor does not wait for the start and nothing reports into it.
+    void anEngineDestroyedWhileTheMicrophoneStartsLeavesItInert()
+    {
+        QVERIFY(registerSlowStartMic());
+        auto *engine = new SfuMediaEngine;
+        engine->setTestSourceMode(true);
+        engine->setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine->start();
+        engine->setEncryptionRequired(true);
+        engine->setOutboundKey(3, QByteArray(32, 'k'));
+        engine->publishAudio(QStringLiteral("cid-slow-mic"));
+        QElapsedTimer took;
+        took.start();
+        engine->stop();
+        const qint64 ms = took.elapsed();
+        delete engine;
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("stop() waited %1 ms for a "
+                                           "microphone still starting")
+                                .arg(ms)));
+        // The start completes now; its report finds no engine.
+        QTest::qWait(kSlowStartCamMs + 1500);
+    }
+
+    // A device switch while the microphone is still starting waits for the
+    // start (a second front started beside a bin another thread is starting
+    // would race it), then applies.
+    void aMicrophoneSwitchDuringItsStartWaitsForIt()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-slow-mic"));
+        QVERIFY(engine.microphoneStartingForTest());
+        // The new pick (its own source starts at once).
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("audiotestsrc is-live=true wave=sine freq=330 "
+                           "volume=0.05"));
+        engine.refreshMicrophoneCapture();
+        QVERIFY2(engine.microphoneSwapDeferredForTest(),
+                 "a switch changed the front of a bin still starting");
+        QCOMPARE(engine.microphoneSwapsForTest(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneSwapDeferredForTest(),
+                                 3 * kSlowStartCamMs);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneSwapsForTest(), 1, 5000);
+        engine.stop();
+    }
+
+    // Review M1 (phase 2): the "no RTP" watchdog fired while the start was
+    // still in flight, said "STILL STARTING" and never gave a verdict. It is
+    // owed now, and given the same delay after the start reports. The check
+    // runs at 1 s here, the slow start takes 2.5 s.
+    void theMicrophoneRtpVerdictIsGivenAfterASlowStart()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneRtpCheckMsForTest(1000);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-slow-mic"));
+        QTRY_COMPARE_WITH_TIMEOUT(engine.lastMicrophoneRtpVerdictForTest(),
+                                  QStringLiteral("starting"), 2000);
+        // The start reports at ~2.5 s; the verdict follows a second later.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            engine.lastMicrophoneRtpVerdictForTest()
+                != QStringLiteral("starting"),
+            "the watchdog never gave a verdict after the slow start", 6000);
+        QCOMPARE(engine.lastMicrophoneRtpVerdictForTest(),
+                 QStringLiteral("flowing"));
+        engine.stop();
+    }
+
+    // Review L1 (phase 2): a capture restart asked for during the start waits
+    // for it, stays PENDING meanwhile (so a second one is not scheduled on
+    // top), and runs when the start reports.
+    void aMicrophoneRestartDuringItsStartRunsAfterIt()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-slow-mic"));
+        QVERIFY(engine.microphoneStartingForTest());
+        const int before = engine.microphoneRestartsForTest();
+        engine.restartMicrophoneForTest();
+        QCOMPARE(engine.microphoneRestartsForTest(), before);
+        QVERIFY2(engine.microphoneRestartPendingForTest(),
+                 "a deferred restart was marked done before it ran");
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneStartingForTest(),
+                                 3 * kSlowStartCamMs);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneRestartsForTest(),
+                                  before + 1, 2000);
+        QVERIFY(!engine.microphoneRestartPendingForTest());
+        engine.stop();
+        QTest::qWait(kSlowStartCamMs + 500);   // the restarted source's start
+    }
+
+    // Review L3 (phase 2): a noise-suppression change during the start never
+    // REPLACES webrtcdsp (that adds and starts an element in a bin another
+    // thread is starting). Master build, 2026-10-15: the first version put
+    // the whole dsp half off until after the start, where the dsp had
+    // negotiated, so the change became a replacement under an IDLE probe that
+    // a chain blocked at an unnegotiated webrtcbin never runs: the property
+    // stayed "true" (aModeChangeReachesTheRunningMicrophone failed). A dsp
+    // not negotiated yet, as it is while a live chain starts, takes the
+    // change as a PROPERTY at once, the same element, and nothing is left for
+    // after the start but a check.
+    void aNoiseModeChangeDuringTheMicrophoneStartConfiguresItsDspInPlace()
+    {
+        GstElementFactory *factory = gst_element_factory_find("webrtcdsp");
+        if (!factory)
+            QSKIP("webrtcdsp is not in this GStreamer");
+        gst_object_unref(factory);
+        QVERIFY(registerSlowStartMic());
+        const QString cid = QStringLiteral("cid-slow-mic");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setNoiseSuppressionMode(calls::noise::Mode::WebRtc);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        engine.publishAudio(cid);
+        QVERIFY(engine.microphoneStartingForTest());
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY(bin);
+        GstElement *dspBefore = gst_bin_get_by_name(GST_BIN(bin), "micdsp");
+        QVERIFY(dspBefore);
+        engine.setNoiseSuppressionMode(calls::noise::Mode::Off);
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdenoise"), QStringLiteral("mode")),
+                 QStringLiteral("off"));
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdsp"),
+                     QStringLiteral("noise-suppression")),
+                 QStringLiteral("false"));
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneNoiseModeDeferredForTest(),
+                                 3 * kSlowStartCamMs);
+        QTest::qWait(300);
+        GstElement *dspAfter = gst_bin_get_by_name(GST_BIN(bin), "micdsp");
+        QVERIFY2(dspAfter == dspBefore,
+                 "webrtcdsp was replaced for a change it had taken in time");
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdsp"),
+                     QStringLiteral("noise-suppression")),
+                 QStringLiteral("false"));
+        if (dspAfter)
+            gst_object_unref(dspAfter);
+        gst_object_unref(dspBefore);
+        engine.stop();
+    }
+
+
+    // Master build, 2026-10-15: a SIGSEGV in a capture's streaming thread
+    // (gst_base_src_negotiate) after GStreamer's "Trying to dispose element
+    // micsrc, but it is in PAUSED". retireFront() stopped the replaced front
+    // and only THEN took it out of the bin; a state change of the bin running
+    // meanwhile (here the call ending right after a switch) set the stopped
+    // element back up to PAUSED as it iterated its children, and once the
+    // element was removed the iterator held its last reference. A stop that
+    // blocks (as a stalled sound server's does) opens the window wide.
+    // Fails on that code: live disposes counted (and usually the crash).
+    void aReplacedMicrophoneIsNeverDisposedWhileItRuns()
+    {
+        QVERIFY(registerSlowStopMic());
+        LiveDisposeCounter disposes;
+        {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setMicrophoneSourceForTest(
+                QStringLiteral("lightningslowstopmic"));
+            engine.start();
+            engine.publishAudio(QStringLiteral("cid-mic"));
+            QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneStartingForTest(), 5000);
+            QTRY_VERIFY_WITH_TIMEOUT(engine.microphoneCapturedForTest() > 5,
+                                     5000);
+            engine.setMicrophoneSourceForTest(
+                QStringLiteral("audiotestsrc is-live=true wave=sine freq=330 "
+                               "volume=0.05"));
+            engine.refreshMicrophoneCapture();
+            QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneSwapsForTest(), 1, 5000);
+            // The old front is being retired (its stop blocks ~1 s); the
+            // call ends now, so the bin's own NULL runs at the same time.
+            engine.stop();
+            QTest::qWait(4 * kSlowStopMicMs);
+        }
+        QTest::qWait(kSlowStopMicMs);
+        QCOMPARE(LiveDisposeCounter::count().load(), 0);
+    }
+
+    // Review L4 (phase 2): a device switch does not wait for ever on a start
+    // that never finishes: past the bound (500 ms here) the chosen device
+    // replaces the stuck capture, and carries audio, while the stuck start
+    // (10 s) has not ended. Over a negotiated loopback: a lone engine's
+    // webrtcbin blocks its unnegotiated sink pad after the first buffer, so
+    // nothing upstream keeps moving there (the master run found these
+    // assertions racing that block).
+    void aDeviceSwitchReplacesAStuckMicrophoneStart()
+    {
+        QVERIFY(registerStuckStartMic());
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setMicrophoneStartAbandonMsForTest(500);
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("lightningstuckstartmic"));
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        sender.start();
+        receiver.start();
+        QElapsedTimer since;
+        since.start();
+        sender.publishAudio(QStringLiteral("first"));
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("audiotestsrc is-live=true wave=sine freq=330 "
+                           "volume=0.05"));
+        // Within the bound: deferred, then applied at the bound.
+        sender.refreshMicrophoneCapture();
+        QVERIFY(sender.microphoneSwapDeferredForTest());
+        QTRY_COMPARE_WITH_TIMEOUT(sender.microphoneSwapsForTest(), 1, 5000);
+        QVERIFY2(!sender.microphoneStartingForTest(),
+                 "the switch took the stuck start over but the engine still "
+                 "treats the microphone as starting");
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            kStuckStartMicMs - 2000);
+        // Recheck L-b: the capture that took over carries audio while the
+        // stuck start is STILL blocked.
+        const quint64 captured = sender.microphoneCapturedForTest();
+        QTest::qWait(300);
+        QVERIFY2(sender.microphoneCapturedForTest() > captured,
+                 "the capture that took over delivers nothing");
+        QVERIFY(since.elapsed() < kStuckStartMicMs);
+        sender.stop();
+        receiver.stop();
+    }
+
+    // Recheck N1: the live capture failing while a switch is pending is
+    // restarted when that switch is abandoned. After an earlier completed
+    // switch the live front is `micfront<N>`, and the abandon path reported
+    // the failure with no front, which the replaced-front guard dropped: a
+    // failed microphone never restarted. Fails on that code (no restart).
+    // Over a negotiated loopback, so the chain keeps moving.
+    void aLiveMicrophoneFailedDuringAnAbandonedSwitchIsRestarted()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setCaptureRestartDelayForTest(50);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        // A first switch completes: the live front is now a switched-in one.
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("audiotestsrc is-live=true wave=sine freq=330 "
+                           "volume=0.05"));
+        sender.refreshMicrophoneCapture();
+        QTRY_COMPARE_WITH_TIMEOUT(sender.microphoneSwapsForTest(), 1, 5000);
+        // A second switch, to a device whose start outlasts the swap timeout.
+        sender.setMicrophoneSwapTimeoutForTest(400);
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        sender.refreshMicrophoneCapture();
+        // The live capture fails meanwhile: recorded for after the switch.
+        const int restartsDone = sender.microphoneSourceRestartsDoneForTest();
+        sender.restartMicrophoneForTest();
+        QCOMPARE(sender.microphoneSourceRestartsDoneForTest(), restartsDone);
+        QTRY_COMPARE_WITH_TIMEOUT(sender.microphoneSwapsAbandonedForTest(), 1,
+                                  3000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            sender.microphoneSourceRestartsDoneForTest() > restartsDone,
+            "the live microphone that failed during the switch was never "
+            "restarted",
+            3000);
+        const quint64 captured = sender.microphoneCapturedForTest();
+        QTest::qWait(300);
+        QVERIFY2(sender.microphoneCapturedForTest() > captured,
+                 "the restarted microphone delivers nothing");
+        sender.stop();
+        receiver.stop();
+        QTest::qWait(kSlowStartCamMs + 500);
+    }
+
+    // Recheck M1: a capture restart after a takeover restarts the LIVE front
+    // only. "micsrc" alone could name the stuck front's source, and syncing
+    // the whole bin (which is not PLAYING: its first start is still blocked)
+    // waited on that start's state lock: a dead microphone. Fails on the old
+    // restart, which did not finish before the stuck start ended. Over a
+    // negotiated loopback, so the live front is not blocked downstream.
+    void aRestartAfterATakeoverKeepsTheNewMicrophoneLive()
+    {
+        QVERIFY(registerStuckStartMic());
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setMicrophoneStartAbandonMsForTest(300);
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("lightningstuckstartmic"));
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        sender.start();
+        receiver.start();
+        QElapsedTimer since;
+        since.start();
+        sender.publishAudio(QStringLiteral("first"));
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("audiotestsrc is-live=true wave=sine freq=330 "
+                           "volume=0.05"));
+        sender.refreshMicrophoneCapture();
+        QTRY_COMPARE_WITH_TIMEOUT(sender.microphoneSwapsForTest(), 1, 2000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            kStuckStartMicMs - 3000);
+        const int restartsDone = sender.microphoneSourceRestartsDoneForTest();
+        sender.restartMicrophoneForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            sender.microphoneSourceRestartsDoneForTest() > restartsDone, 1500);
+        QVERIFY2(since.elapsed() < kStuckStartMicMs,
+                 "the restart only finished once the stuck start had");
+        const quint64 captured = sender.microphoneCapturedForTest();
+        QTest::qWait(300);
+        QVERIFY2(sender.microphoneCapturedForTest() > captured,
+                 "the restart stopped the live microphone");
+        sender.stop();
+        receiver.stop();
+    }
+
+    // The switch's NEW capture starts off the GUI thread too, and a call that
+    // ends while it is starting neither waits for it nor completes the switch
+    // afterwards (serial and session checks in completeMicrophoneSwap()).
+    void aSwitchToASlowMicrophoneNeverBlocksAndDiesWithTheCall()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-mic"));
+        QTRY_VERIFY_WITH_TIMEOUT(!engine.microphoneStartingForTest(), 5000);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        QElapsedTimer took;
+        took.start();
+        engine.refreshMicrophoneCapture();
+        engine.stop();
+        QVERIFY2(took.elapsed() < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("a switch and a hang-up waited %1 "
+                                           "ms on the new capture's start")
+                                .arg(took.elapsed())));
+        QTest::qWait(kSlowStartCamMs + 1000);
+        QCOMPARE(engine.microphoneSwapsForTest(), 0);
+    }
+
+    // Review L6 (phase 2): unpublishing the microphone while its start is in
+    // flight does not wait for it either, and the late start reports nothing.
+    void unpublishingTheMicrophoneDuringItsStartDoesNotWait()
+    {
+        QVERIFY(registerSlowStartMic());
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowstartmic"));
+        engine.start();
+        const QString cid = QStringLiteral("cid-slow-mic");
+        engine.publishAudio(cid);
+        QVERIFY(engine.microphoneStartingForTest());
+        QElapsedTimer took;
+        took.start();
+        engine.unpublish(cid);
+        QVERIFY2(took.elapsed() < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("unpublish() waited %1 ms for the "
+                                           "start")
+                                .arg(took.elapsed())));
+        QVERIFY(!engine.hasPublishedBinForTest(cid));
+        QVERIFY(!engine.microphoneStartingForTest());
+        QTest::qWait(kSlowStartCamMs + 1000);
+        QCOMPARE(engine.microphoneStartsReportedForTest(), 0);
+        engine.stop();
+    }
+
     // Review of camfix-2: the takeover is for PORTAL cameras only. A direct
     // camera (or a share) that never delivered has no ProbeGate, so it must
     // keep the counted teardown path that stop() and the destructor wait for;
@@ -7722,6 +8622,138 @@ private slots:
                                   5000);
         sender.stop();
         receiver.stop();
+    }
+
+    // A speaker switch during a stall: the IDLE probe ran the whole switch on
+    // the thread that added it whenever the pad was idle (nearly always: a
+    // 20 ms buffer is pushed in microseconds), i.e. on the GUI thread, so
+    // opening the new output on a silent sound server froze the window. The
+    // switch runs on a pool thread now, the pad blocked meanwhile, and the
+    // new output opens outside the chain. Fails on the old engine whenever
+    // that pad was idle.
+    void aSpeakerSwitchNeverWaitsOnTheOutputOpening()
+    {
+        QVERIFY(registerSlowOpenSink());
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setSpeakerSinkForTest(QStringLiteral("lightningslowopensink"));
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QElapsedTimer took;
+        took.start();
+        receiver.setPreferredDevices({}, {}, {QStringLiteral("other-output"),
+                                              QStringLiteral("Other output")});
+        QCoreApplication::processEvents();
+        QVERIFY2(took.elapsed() < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("the speaker switch held the GUI "
+                                           "thread %1 ms")
+                                .arg(took.elapsed())));
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.speakerSwapsForTest(), 1,
+                                  3 * kSlowStartCamMs);
+        // The track plays through the new output: buffers reach ITS pad.
+        GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+        GstElement *outsink = gst_bin_get_by_name(GST_BIN(bin), "outsink");
+        QVERIFY(outsink);
+        static std::atomic<int> reachedNew{0};
+        reachedNew.store(0);
+        countBuffersAt(outsink, &reachedNew);
+        gst_object_unref(outsink);
+        QTRY_VERIFY2_WITH_TIMEOUT(reachedNew.load() > 10,
+                                  "nothing reached the new output", 10000);
+
+        // A switch still opening its output when the call ends: stop() does
+        // not wait for it, and it is never completed afterwards.
+        receiver.setPreferredDevices({}, {}, {QStringLiteral("third-output"),
+                                              QStringLiteral("Third output")});
+        QCoreApplication::processEvents();
+        took.restart();
+        receiver.stop();
+        QVERIFY2(took.elapsed() < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("stop() waited %1 ms for an output "
+                                           "still opening")
+                                .arg(took.elapsed())));
+        QTest::qWait(kSlowStartCamMs + 1000);
+        QCOMPARE(receiver.speakerSwapsForTest(), 1);
+        sender.stop();
+    }
+
+    // Recheck M2: two speaker picks in a row on an idle pad ran two switches
+    // concurrently on pool threads (a double remove, a failed link, an
+    // orphaned PLAYING sink, a random winner). They are serialized per chain
+    // now: the first (slow to open) is discarded unlinked, the last pick
+    // wins, and exactly one output is left.
+    void twoSpeakerPicksInARowLeaveOneOutputAndTheLastWins()
+    {
+        QVERIFY(registerSlowOpenSink());
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        receiver.setSpeakerSinkForTest(QStringLiteral("lightningslowopensink"));
+        receiver.setPreferredDevices({}, {}, {QStringLiteral("output-a"),
+                                              QStringLiteral("Output A")});
+        receiver.setSpeakerSinkForTest(QStringLiteral("fakesink sync=false"));
+        receiver.setPreferredDevices({}, {}, {QStringLiteral("output-b"),
+                                              QStringLiteral("Output B")});
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.speakerSwapsForTest(), 1,
+                                  3 * kSlowStartCamMs);
+        QTest::qWait(500);
+        QCOMPARE(receiver.speakerSwapsForTest(), 1);
+        GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+        QVERIFY(bin);
+        // Exactly one output, and it is the last pick (a fakesink, not the
+        // slow output's bin).
+        int outputs = 0;
+        QString factory;
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            gchar *name = gst_element_get_name(element);
+            if (g_strcmp0(name, "outsink") == 0) {
+                ++outputs;
+                if (GstElementFactory *f = gst_element_get_factory(element))
+                    factory = QString::fromUtf8(GST_OBJECT_NAME(f));
+            }
+            g_free(name);
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+        QCOMPARE(outputs, 1);
+        QCOMPARE(factory, QStringLiteral("fakesink"));
+        int sinks = 0;
+        GstIterator *sinkIt = gst_bin_iterate_sinks(GST_BIN(bin));
+        GValue sinkItem = G_VALUE_INIT;
+        while (gst_iterator_next(sinkIt, &sinkItem) == GST_ITERATOR_OK) {
+            ++sinks;
+            g_value_reset(&sinkItem);
+        }
+        g_value_unset(&sinkItem);
+        gst_iterator_free(sinkIt);
+        QVERIFY2(sinks == 1, "an output was orphaned in the chain");
+        receiver.stop();
+        sender.stop();
     }
 
     // A speaker picked during a group call moves every received track to it
@@ -8652,7 +9684,7 @@ private slots:
         engine.publishAudio(QStringLiteral("cid-gathering"));
         QTRY_VERIFY_WITH_TIMEOUT(stopped, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
         QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
                  "gathering had already ended when the call stopped, so this "
@@ -8717,9 +9749,9 @@ private slots:
         }
         sender.stop();
         QTRY_COMPARE_WITH_TIMEOUT(receiver.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QTRY_COMPARE_WITH_TIMEOUT(sender.retiringWebrtcForTest(), 0,
-                                  kRetiredWithinMs);
+                                  kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(receiver.teardownsWhileGatheringForTest(), 0);
         QCOMPARE(sender.teardownsWhileGatheringForTest(), 0);
     }

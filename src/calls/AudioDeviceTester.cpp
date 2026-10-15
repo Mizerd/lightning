@@ -103,6 +103,7 @@ struct AudioDeviceTester::Relay {
         Mode mode = Mode::Idle;
         bool testSources = false;
         int testChannels = 0;
+        QString testMicSource;
         SfuMediaEngine::DeviceChoice microphone;
         SfuMediaEngine::DeviceChoice speaker;
         int gainPercent = 100;
@@ -264,9 +265,11 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
     SfuMediaEngine::OutputSink output;
     if (plan.mode != Mode::Tone) {
         if (plan.testSources) {
-            capture.source = QStringLiteral(
-                "audiotestsrc is-live=true wave=sine freq=440 volume=0.5 "
-                "name=micsrc");
+            capture.source = plan.testMicSource.isEmpty()
+                ? QStringLiteral(
+                      "audiotestsrc is-live=true wave=sine freq=440 volume=0.5 "
+                      "name=micsrc")
+                : QStringLiteral("%1 name=micsrc").arg(plan.testMicSource);
         } else {
             capture = SfuMediaEngine::resolveMicrophoneCapture(plan.microphone);
         }
@@ -539,6 +542,7 @@ bool AudioDeviceTester::start(Mode mode)
     plan.mode = mode;
     plan.testSources = m_testSources;
     plan.testChannels = m_testChannels;
+    plan.testMicSource = m_testMicSource;
     if (!m_testSources && m_devices) {
         const CallDeviceController::Selection mic =
             m_devices->microphoneSelection();
@@ -740,6 +744,7 @@ void AudioDeviceTester::onStarted(quint64 generation)
 {
     if (generation != m_generation)
         return;
+    ++m_startsReported;
     qCInfo(lcDeviceTest) << "audio device test: running mode=" << modeName();
 }
 

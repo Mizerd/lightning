@@ -1192,6 +1192,8 @@ set(APP_QML_FILES
     qml/CallStage.qml
     qml/CallTileGrid.qml
     qml/CallShareTile.qml
+    # Why a video surface outside the call is empty on the software renderer.
+    qml/SoftwareVideoNotice.qml
     qml/VoiceConnectedBar.qml
     qml/RoomCallBanner.qml
     qml/CallEventDelegate.qml

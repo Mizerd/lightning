@@ -59,6 +59,50 @@ QString parseError(const QString &description)
 
 } // namespace
 
+#ifdef HAVE_LIGHTNING_WEBRTC
+namespace {
+/// A capture whose start blocks the thread that starts it, as one opening a
+/// sound server that does not answer does.
+struct SlowTestMic {
+    GstBin parent;
+};
+struct SlowTestMicClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowTestMic, slow_test_mic, GST_TYPE_BIN)
+
+constexpr int kSlowTestMicMs = 2500;
+
+GstStateChangeReturn slowTestMicChangeState(GstElement *element,
+                                            GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        g_usleep(gulong(kSlowTestMicMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_test_mic_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_test_mic_init(SlowTestMic *self)
+{
+    GstElement *device = gst_element_factory_make("audiotestsrc", nullptr);
+    g_object_set(device, "is-live", TRUE, "volume", 0.05, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    gst_element_add_pad(GST_ELEMENT(self), gst_ghost_pad_new("src", inner));
+    gst_object_unref(inner);
+}
+
+void slow_test_mic_class_init(SlowTestMicClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-start microphone (test)",
+        "Source/Audio", "A capture whose sound server answers late",
+        "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowTestMicChangeState;
+}
+} // namespace
+#endif
+
 class AudioDeviceTesterTest : public QObject
 {
     Q_OBJECT
@@ -289,6 +333,42 @@ private Q_SLOTS:
         delete tester;
         // Readings queued before the delete must find no receiver.
         QTest::qWait(300);
+    }
+
+    // The issue #12 family in Settings: the microphone test's start (a
+    // capture opening a sound server that does not answer) runs on a worker
+    // thread, and a test stopped meanwhile never hears from it (generation).
+    // Here the capture's start blocks 2.5 s; the GUI thread must not.
+    void aMicrophoneTestNeverWaitsOnASlowSoundServer()
+    {
+        if (!gstreamerWithMeter())
+            QSKIP("GStreamer or its `level` element is absent");
+        static const bool registered = gst_element_register(
+            nullptr, "lightningslowtestmic", GST_RANK_NONE,
+            slow_test_mic_get_type());
+        QVERIFY(registered);
+        AudioDeviceTester tester;
+        tester.setTestSourceMode(true);
+        tester.setRuntimeAvailable(true);
+        tester.setMicrophoneSourceForTest(
+            QStringLiteral("lightningslowtestmic"));
+        QElapsedTimer took;
+        took.start();
+        QVERIFY(tester.startMicrophoneTest(false));
+        tester.stop();
+        QVERIFY2(took.elapsed() < kSlowTestMicMs / 2,
+                 qPrintable(QStringLiteral("starting and stopping waited %1 "
+                                           "ms on the capture")
+                                .arg(took.elapsed())));
+        // The abandoned start finishes and is not adopted or reported.
+        QTest::qWait(kSlowTestMicMs + 1000);
+        QVERIFY(!tester.pipelineRunningForTest());
+        QCOMPARE(tester.startsReportedForTest(), 0);
+        // A test that runs to its start is reported.
+        tester.setMicrophoneSourceForTest(QString());
+        QVERIFY(tester.startMicrophoneTest(false));
+        QTRY_COMPARE_WITH_TIMEOUT(tester.startsReportedForTest(), 1, 8000);
+        tester.stop();
     }
 
     // The descriptions a real device produces (not the test sources) parse:

@@ -1,6 +1,7 @@
 #include <QTest>
 #include <QVariantMap>
 
+#include "calls/RtpVp8Payloader.h"
 #include "calls/ShareAudioSources.h"
 
 using namespace lightning::shareaudio;
@@ -447,6 +448,29 @@ private slots:
         const QHash<qint64, qint64> cycle{ { 7, 8 }, { 8, 7 } };
         QCOMPARE(dropDescendants({ 7 }, cycle), (QList<qint64>{ 7 }));
         QCOMPARE(dropDescendants({ 9, 9 }, {}), (QList<qint64>{ 9 }));
+    }
+
+    // The share's own mute: built closed when asked, and after the meter, so
+    // a muted share still says whether it hears anything.
+    void aMutedShareTrackIsBuiltWithItsValveClosedAfterTheMeter()
+    {
+        const QString src = QStringLiteral("audiotestsrc name=sharesrc");
+        const QString open = encodedTrackDescription(src, 1, true);
+        QVERIFY2(open.contains(QStringLiteral("valve name=%1 drop=false")
+                                   .arg(shareValveElementName())),
+                 qPrintable(open));
+        const QString muted = encodedTrackDescription(src, 1, true, true);
+        QVERIFY2(muted.contains(QStringLiteral("valve name=%1 drop=true")
+                                    .arg(shareValveElementName())),
+                 qPrintable(muted));
+        QVERIFY(muted.indexOf(levelElementName())
+                < muted.indexOf(shareValveElementName()));
+        QVERIFY(muted.indexOf(shareValveElementName())
+                < muted.indexOf(QStringLiteral("opusenc")));
+        // The MTU and ssrc still land where they did.
+        QVERIFY(muted.contains(QStringLiteral("ssrc=(uint)1")));
+        QVERIFY(muted.contains(
+            QStringLiteral("mtu=%1").arg(lightning::rtp::kRtpPayloadMtu)));
     }
 
     // A share carrying silence must be distinguishable from one carrying

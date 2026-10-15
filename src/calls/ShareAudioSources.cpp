@@ -373,8 +373,13 @@ QString mixedSourceDescription(const QList<Stream> &streams,
     return chains.join(QLatin1Char('\n'));
 }
 
+QString shareValveElementName()
+{
+    return QStringLiteral("sharevalve");
+}
+
 QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc,
-                                bool withLevel)
+                                bool withLevel, bool muted)
 {
     // Not the microphone chain: no `webrtcdsp` (AGC and noise suppression
     // damage music), stereo rather than mono, and music-grade Opus
@@ -393,8 +398,9 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc,
                // silence must be distinguishable from one carrying sound.
                "%3"
                // Its own valve, so muting share audio can never touch the
-               // microphone. Not yet driven by any control.
-               "! valve name=sharevalve drop=false "
+               // microphone (SfuMediaEngine::setShareAudioMuted). After the
+               // meter, so a muted share still says whether it hears sound.
+               "! valve name=%5 drop=%6 "
                "! opusenc name=shareaudioenc audio-type=generic "
                "bitrate=128000 "
                "! rtpopuspay pt=111 ssrc=%2 mtu=%4 "
@@ -403,13 +409,16 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc,
                "! capsfilter caps=\"application/x-rtp,media=audio,"
                "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
                "encoding-params=(string)2,ssrc=(uint)%2\"")
+        // One pass, so nothing substituted is scanned for markers again.
         .arg(sourceDescription, QString::number(ssrc),
              withLevel ? QStringLiteral("! level name=%1 "
                                         "interval=1000000000 "
                                         "post-messages=true ")
                              .arg(levelElementName())
-                       : QString())
-        .arg(lightning::rtp::kRtpPayloadMtu);
+                       : QString(),
+             QString::number(lightning::rtp::kRtpPayloadMtu),
+             shareValveElementName(),
+             muted ? QStringLiteral("true") : QStringLiteral("false"));
 }
 
 QSet<qint64> ancestorsOf(qint64 pid, const QHash<qint64, qint64> &parentOf)

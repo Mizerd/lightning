@@ -2,9 +2,11 @@
 
 #include "calls/CaptureClock.h"
 #include "calls/RtpVp8Payloader.h"
+#include "calls/SerialSinkSwap.h"
 #include "calls/GstBootstrap.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QLoggingCategory>
 #include <QMetaObject>
 #include <QMutex>
@@ -55,6 +57,72 @@ void marshal(GstCallMediaBackend *backend, Fn &&fn)
         return;
     QMetaObject::invokeMethod(backend, std::forward<Fn>(fn),
                               Qt::QueuedConnection);
+}
+
+GstPadProbeReturn dropAllProbe(GstPad *, GstPadProbeInfo *, gpointer)
+{
+    return GST_PAD_PROBE_DROP;
+}
+
+/// Removes `front` from `pipeline` now and stops it on a pool thread, under
+/// its state lock, so a start of it still queued finds it parentless.
+void stopRemovedFrontAsync(GstBin *pipeline, GstElement *front)
+{
+    gst_object_ref(front);
+    const bool locked = g_rec_mutex_trylock(GST_STATE_GET_LOCK(front));
+    gst_bin_remove(pipeline, front);
+    if (locked)
+        GST_STATE_UNLOCK(front);
+    gst_element_call_async(
+        front,
+        [](GstElement *element, gpointer) {
+            GST_STATE_LOCK(element);
+            gst_element_set_state(element, GST_STATE_NULL);
+            GST_STATE_UNLOCK(element);
+        },
+        nullptr, nullptr);
+    gst_object_unref(front);
+}
+
+/// One capture start on a pool thread.
+struct FrontStart {
+    GstCallMediaBackend *backend = nullptr; // only handed to marshal()
+    quint64 serial = 0;
+    quint64 frontSerial = 0;
+    bool chosen = false;
+    std::shared_ptr<std::atomic<bool>> pending;
+};
+
+void frontStartAsync(GstElement *front, gpointer data)
+{
+    auto *ctx = static_cast<FrontStart *>(data);
+    QElapsedTimer took;
+    took.start();
+    // Parent checked and state changed under the front's state lock, which
+    // the detach (try) and the stop take: a front already removed is left.
+    GST_STATE_LOCK(front);
+    bool ok = false;
+    if (GstObject *parent = gst_object_get_parent(GST_OBJECT(front))) {
+        gst_element_set_locked_state(front, FALSE);
+        ok = gst_element_sync_state_with_parent(front);
+        gst_object_unref(parent);
+    }
+    GST_STATE_UNLOCK(front);
+    const qint64 ms = took.elapsed();
+    ctx->pending->store(false);
+    GstCallMediaBackend *backend = ctx->backend;
+    const quint64 serial = ctx->serial;
+    const quint64 frontSerial = ctx->frontSerial;
+    const bool chosen = ctx->chosen;
+    marshal(backend, [backend, serial, frontSerial, ok, chosen, ms] {
+        backend->noteMicrophoneFrontStarted(serial, frontSerial, ok, chosen,
+                                            ms);
+    });
+}
+
+void frontStartFree(gpointer data)
+{
+    delete static_cast<FrontStart *>(data);
 }
 
 // Context for promise callbacks: keeps the webrtcbin alive until the promise
@@ -322,70 +390,28 @@ bool applyBinding(GstElement *bin, const char *name,
     return set;
 }
 
-// A receive track's sink being replaced (a speaker switch), handed to an IDLE
-// probe on the track's `outvol` src pad: the swap runs when no buffer is in
-// flight there, so the decode chain never sees an unlinked pad (a not-linked
-// return posts an error, and an error ends the call).
-struct SinkSwap {
-    GstElement *bin = nullptr; // the receive bin; owns one ref
-    QByteArray description;
-    lightning::calls::DeviceBinding binding;
-    // The backend's test counter, shared: the probe can outlive a call.
-    std::shared_ptr<std::atomic<int>> swaps;
-};
-
-void sinkSwapFree(gpointer data)
+/// The new output for a received track (a speaker switch), built on the
+/// switch's pool thread (lightning::calls::sinkswap): parsed, its latency
+/// settled like the SFU lane's, its device bound.
+GstElement *buildReplacementSink(const QByteArray &description,
+                                 const lightning::calls::DeviceBinding &binding)
 {
-    auto *swap = static_cast<SinkSwap *>(data);
-    if (swap->bin)
-        gst_object_unref(swap->bin);
-    delete swap;
-}
-
-GstPadProbeReturn swapSinkWhenIdle(GstPad *pad, GstPadProbeInfo *,
-                                   gpointer data)
-{
-    auto *swap = static_cast<SinkSwap *>(data);
     GError *error = nullptr;
-    GstElement *next = gst_parse_bin_from_description(
-        swap->description.constData(), TRUE, &error);
-    if (error) {
-        g_error_free(error);
+    GstElement *next = gst_parse_bin_from_description(description.constData(),
+                                                      TRUE, &error);
+    if (error || !next) {
+        if (error)
+            g_error_free(error);
         if (next)
-            gst_object_unref(next);
-        qCWarning(lcCallMedia) << "speaker switch: the new output could not "
-                                  "be built; keeping the current one";
-        return GST_PAD_PROBE_REMOVE;
+            gst_object_unref(gst_object_ref_sink(next));
+        return nullptr;
     }
-    if (!next)
-        return GST_PAD_PROBE_REMOVE;
+    next = GST_ELEMENT(gst_object_ref_sink(next));
     // Without it the new sink gets no latency and drops buffers as late:
     // choppy audio on the new output (measured on the SFU lane).
     g_object_set(next, "async-handling", TRUE, nullptr);
-    applyBinding(next, "outsink", swap->binding);
-    if (GstPad *peer = gst_pad_get_peer(pad)) {
-        GstElement *old = gst_pad_get_parent_element(peer);
-        gst_pad_unlink(pad, peer);
-        gst_object_unref(peer);
-        if (old) {
-            gst_element_set_state(old, GST_STATE_NULL);
-            gst_bin_remove(GST_BIN(swap->bin), old);
-            gst_object_unref(old);
-        }
-    }
-    if (!gst_bin_add(GST_BIN(swap->bin), next))
-        return GST_PAD_PROBE_REMOVE; // sunk and dropped by gst_bin_add
-    GstPad *sinkPad = gst_element_get_static_pad(next, "sink");
-    const bool linked =
-        sinkPad && gst_pad_link(pad, sinkPad) == GST_PAD_LINK_OK;
-    if (sinkPad)
-        gst_object_unref(sinkPad);
-    gst_element_sync_state_with_parent(next);
-    if (linked && swap->swaps)
-        swap->swaps->fetch_add(1);
-    if (!linked)
-        qCWarning(lcCallMedia) << "speaker switch: the new output did not link";
-    return GST_PAD_PROBE_REMOVE;
+    applyBinding(next, "outsink", binding);
+    return next;
 }
 
 // One get-stats walk, reduced to the numbers the 1:1 stats line prints.
@@ -755,12 +781,19 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     gst_bus_set_sync_handler(bus, busSyncHandler, busCtx, busCtxFree);
     gst_object_unref(bus);
 
+    // The capture is started apart, off this thread (startMicrophoneFrontAsync):
+    // its source opening a sound server that does not answer blocked the GUI
+    // thread for as long as the server took (issue #12 family). Locked out of
+    // the pipeline's own state change until then.
+    m_session.serial = ++m_sessionSerial;
+    gst_element_set_locked_state(front, TRUE);
     if (gst_element_set_state(pipeline, GST_STATE_PLAYING)
         == GST_STATE_CHANGE_FAILURE) {
         qCWarning(lcCallMedia) << "pipeline refused to start";
         destroySessionLocked();
         return false;
     }
+    startMicrophoneFrontAsync(front, !plan.microphoneFront.isEmpty());
     qCInfo(lcCallMedia) << "media session started offerer=" << offerer
                         << "testTone=" << m_testTone
                         << "chosenMicrophone=" << !plan.microphoneFront.isEmpty()
@@ -791,6 +824,21 @@ void GstCallMediaBackend::destroySessionLocked()
     }
     if (m_statsTimer)
         m_statsTimer->stop();
+    // The capture leaves first, started or not, and is stopped off this
+    // thread: the pipeline's NULL below would otherwise wait on its state
+    // lock (a start in flight) or on its own stop (a capture whose sound
+    // server stopped answering mid-call), on this thread. Its output drops
+    // everything first, so nothing it still pushes meets an unlinked pad.
+    detachStartingFront();
+    if (GstElement *front = m_session.micFront; front && m_session.pipeline) {
+        if (GstPad *out = gst_element_get_static_pad(front, "src")) {
+            gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
+                              dropAllProbe, nullptr, nullptr);
+            gst_object_unref(out);
+        }
+        stopRemovedFrontAsync(GST_BIN(m_session.pipeline), front);
+        m_session.micFront = nullptr;
+    }
     // Never a plain set_state(NULL) (GitHub #3): the pipeline stops here, its
     // webrtcbin once ICE gathering has ended. Takes both references.
     m_retirer.retire(m_session.pipeline, m_session.webrtc);
@@ -978,9 +1026,11 @@ GstElement *GstCallMediaBackend::buildMicrophoneFront(
     QString front = plan.microphoneFront;
     if (front.isEmpty()) {
         front = m_testTone
-            ? QStringLiteral("audiotestsrc is-live=true wave=sine freq=440 "
-                             "volume=0.05 name=micsrc "
-                             "! audioconvert ! audioresample")
+            ? (m_testFront.isEmpty()
+                   ? QStringLiteral("audiotestsrc is-live=true wave=sine "
+                                    "freq=440 volume=0.05 name=micsrc "
+                                    "! audioconvert ! audioresample")
+                   : m_testFront)
             // autoaudiosrc for "system default", which keeps following the
             // default. Bounded and leaky: a default queue holds a second and
             // never drains it, which becomes permanent latency.
@@ -1077,36 +1127,46 @@ bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
                                   "not be built; keeping the current one";
         return false;
     }
-    // Stop the outgoing capture BEFORE unlinking it. Stopped first, its
-    // threads see FLUSHING and end quietly; unlinked first, a live source
-    // gets not-linked, which posts an error, and an error ends the call.
-    if (GstElement *old = m_session.micFront) {
-        gst_element_set_state(old, GST_STATE_NULL);
-        gst_element_unlink(old, valve);
-        gst_bin_remove(GST_BIN(pipeline), old); // drops the pipeline's ref
+    // The outgoing capture leaves the pipeline at once and is stopped off
+    // this thread (a capture whose server stalled blocks its stop too). Its
+    // output drops everything first, so a push in flight never meets an
+    // unlinked pad (not-linked posts an error, and an error ends the call),
+    // and once removed it has no bus to post on. One still starting is
+    // detached the same way.
+    if (m_session.frontStarting && m_session.frontStarting->load()) {
+        detachStartingFront();
+    } else if (GstElement *old = m_session.micFront) {
+        if (GstPad *out = gst_element_get_static_pad(old, "src")) {
+            gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
+                              dropAllProbe, nullptr, nullptr);
+            gst_object_unref(out);
+        }
+        stopRemovedFrontAsync(GST_BIN(pipeline), old);
         m_session.micFront = nullptr;
     }
     const auto install = [&](GstElement *front) {
         if (!gst_bin_add(GST_BIN(pipeline), front))
             return false; // sunk and dropped by gst_bin_add
-        if (!gst_element_link(front, valve)
-            || !gst_element_sync_state_with_parent(front)) {
-            gst_element_set_state(front, GST_STATE_NULL);
+        if (!gst_element_link(front, valve)) {
             gst_bin_remove(GST_BIN(pipeline), front);
             return false;
         }
         m_session.micFront = front;
         return true;
     };
+    const bool chosen = !plan.microphoneFront.isEmpty();
     bool ok = install(next);
-    if (!ok && !plan.microphoneFront.isEmpty()) {
+    if (!ok && chosen) {
         qCWarning(lcCallMedia) << "microphone switch: the chosen device would "
-                                  "not start; using the system default";
+                                  "not link; using the system default";
         if (GstElement *fallback = buildMicrophoneFront(AudioDevicePlan{}))
             install(fallback);
     }
     if (!m_session.micFront)
         return false;
+    // Started off this thread; a chosen device that will not start falls
+    // back to the default there (noteMicrophoneFrontStarted()).
+    startMicrophoneFrontAsync(m_session.micFront, ok && chosen);
     // The clock hold watches the capture's own pad (CaptureClock.h); the RTP
     // half stays on the payloader.
     if (GstElement *source =
@@ -1121,6 +1181,89 @@ bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
     if (ok)
         m_micSwaps.fetch_add(1);
     return ok;
+}
+
+QStringList GstCallMediaBackend::receiveOutputsForTest() const
+{
+    QStringList out;
+    if (!m_session.pipeline)
+        return out;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        gchar *name = gst_element_get_name(element);
+        if (g_strcmp0(name, "outsink") == 0) {
+            GstElementFactory *factory = gst_element_get_factory(element);
+            out << QString::fromUtf8(factory ? GST_OBJECT_NAME(factory)
+                                             : "?");
+        }
+        g_free(name);
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return out;
+}
+
+void GstCallMediaBackend::startMicrophoneFrontAsync(GstElement *front,
+                                                    bool chosenDevice)
+{
+    auto pending = std::make_shared<std::atomic<bool>>(true);
+    m_session.frontStarting = pending;
+    m_session.frontSerial = ++m_frontSerial;
+    auto *ctx = new FrontStart{this, m_session.serial, m_session.frontSerial,
+                               chosenDevice, pending};
+    gst_element_call_async(front, frontStartAsync, ctx, frontStartFree);
+}
+
+void GstCallMediaBackend::detachStartingFront()
+{
+    if (!m_session.frontStarting || !m_session.frontStarting->load()
+        || !m_session.micFront || !m_session.pipeline)
+        return;
+    qCInfo(lcCallMedia) << "the microphone is still starting; it is detached "
+                           "and stopped off the GUI thread";
+    stopRemovedFrontAsync(GST_BIN(m_session.pipeline), m_session.micFront);
+    m_session.micFront = nullptr;
+    m_session.frontStarting.reset();
+    m_session.frontSerial = 0;
+}
+
+void GstCallMediaBackend::noteMicrophoneFrontStarted(quint64 serial,
+                                                     quint64 frontSerial,
+                                                     bool ok,
+                                                     bool chosenDevice,
+                                                     qint64 tookMs)
+{
+    // Another call, or a capture since replaced: nothing to say.
+    if (!m_sessionActive || serial != m_session.serial
+        || frontSerial != m_session.frontSerial || !m_session.micFront)
+        return;
+    ++m_frontStartsReported;
+    if (tookMs >= 500) {
+        qCWarning(lcCallMedia)
+            << "call diagnosis: starting the microphone took" << tookMs
+            << "ms (the sound server was slow to answer); the window stayed "
+               "responsive meanwhile";
+    }
+    if (ok)
+        return;
+    if (chosenDevice) {
+        qCWarning(lcCallMedia) << "the chosen microphone would not start; "
+                                  "using the system default";
+        AudioDevicePlan fallback;
+        {
+            QMutexLocker lock(&m_planMutex);
+            fallback = m_plan;
+        }
+        fallback.microphoneFront.clear();
+        fallback.microphoneBinding = {};
+        swapMicrophoneLocked(fallback);
+        return;
+    }
+    qCWarning(lcCallMedia) << "the microphone did not start; its capture "
+                              "reports why";
 }
 
 void GstCallMediaBackend::swapSpeakersLocked(const AudioDevicePlan &plan)
@@ -1171,16 +1314,21 @@ void GstCallMediaBackend::swapSpeakersLocked(const AudioDevicePlan &plan)
         GstObject *bin = gst_object_get_parent(GST_OBJECT(volume));
         GstPad *pad = gst_element_get_static_pad(volume, "src");
         if (bin && pad) {
-            auto *swap = new SinkSwap;
-            swap->bin = GST_ELEMENT(bin); // takes the parent's ref
-            bin = nullptr;
-            swap->description = description;
-            swap->binding = plan.speakerBinding;
-            swap->swaps = m_speakerSwaps;
-            // Runs at once if the pad is idle, otherwise right after the
-            // buffer in flight.
-            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_IDLE, swapSinkWhenIdle,
-                              swap, sinkSwapFree);
+            // Off this thread and one at a time per chain, the newest pick
+            // winning (SerialSinkSwap.h): closing the old output and opening
+            // the new one wait on the sound server, and this is the GUI
+            // thread.
+            lightning::calls::sinkswap::Request request;
+            const lightning::calls::DeviceBinding binding = plan.speakerBinding;
+            request.build = [description, binding] {
+                return buildReplacementSink(description, binding);
+            };
+            request.swaps = m_speakerSwaps;
+            request.warn = [](const char *why) {
+                qCWarning(lcCallMedia) << "speaker switch:" << why;
+            };
+            lightning::calls::sinkswap::request(GST_ELEMENT(bin), pad,
+                                                std::move(request));
         }
         if (bin)
             gst_object_unref(bin);

@@ -65,6 +65,8 @@ constexpr const char *kComponents[] = {
     "ShareAudioAppList",
     "ShareAudioAppsDialog",
     "CallShareOptionsMenu",
+    // Why a video surface is empty on the software renderer.
+    "SoftwareVideoNotice",
     "ScreenSharePicker",
     "MediaBrowser",          // room media/files/links over all history
     "ContextView",           // read-only message context (app.eventContext)

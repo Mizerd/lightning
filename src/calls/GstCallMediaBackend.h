@@ -94,6 +94,17 @@ public:
     int retiresThatWaitedOnGatheringForTest() const
     { return m_retirer.waitedOnGatheringForTest(); }
     void setRetireBoundForTest(int ms) { m_retirer.setBoundForTest(ms); }
+    /// Test-only: the soft bound (reported, not stopped) alone.
+    void setRetireSoftBoundForTest(int ms)
+    { m_retirer.setSoftBoundForTest(ms); }
+    /// Test-only: retirements that outlived the soft bound and kept waiting.
+    int retiresPastTheSoftBoundForTest() const
+    { return m_retirer.outlivedSoftBoundForTest(); }
+    /// Test-only: what the destructor does at quit, with this budget.
+    void drainRetiredForTest(int budgetMs) { m_retirer.drain(budgetMs); }
+    /// Test-only: webrtcbins left running at quit because still gathering.
+    int retiresLeftRunningAtQuitForTest() const
+    { return m_retirer.leftRunningAtQuitForTest(); }
 
     /// "audio:sendrecv video:inactive", one entry per media section, with
     /// ":port0" for a rejected one. No addresses, ids or codecs: loggable.
@@ -133,6 +144,9 @@ public:
     /// Test-only: microphone fronts and receive sinks replaced mid-call.
     int microphoneSwapsForTest() const { return m_micSwaps.load(); }
     int speakerSwapsForTest() const { return m_speakerSwaps->load(); }
+    /// Test-only: the factory of every element named "outsink" in the live
+    /// call's pipeline (one per received track when nothing is orphaned).
+    QStringList receiveOutputsForTest() const;
     /// Test-only, test-tone mode: the loudest decoded sample (0..1) the
     /// receive chain produced since the last reset.
     double receivedPeakForTest() const
@@ -174,6 +188,15 @@ private:
         // clock hold its replacement re-attaches to (CaptureClock.h).
         GstElement *micFront = nullptr;
         std::shared_ptr<lightning::calls::CaptureClockHold> clockHold;
+        /// The capture's start runs on a pool thread (a sound server that
+        /// does not answer blocks it, ~8.7 s measured on the GUI thread):
+        /// true until that start has finished. Shared with the job.
+        std::shared_ptr<std::atomic<bool>> frontStarting;
+        /// Which session a start's report belongs to (m_sessionSerial).
+        quint64 serial = 0;
+        /// Which capture: a serial per front started (m_frontSerial), never
+        /// its address, which a later front can reuse.
+        quint64 frontSerial = 0;
         // Periodic RTP statistics; see requestStats().
         int statsReports = 0;
         quint64 lastInboundAudioPackets = 0;
@@ -189,6 +212,36 @@ private:
     // Replaces the live capture with `plan`'s; false when the new one would
     // not start (the default is put back).
     bool swapMicrophoneLocked(const AudioDevicePlan &plan);
+    /// Starts `front` (already in the pipeline and linked) on a pool thread;
+    /// the answer comes back through noteMicrophoneFrontStarted().
+    void startMicrophoneFrontAsync(GstElement *front, bool chosenDevice);
+    /// A front whose start is still in flight leaves the pipeline at once and
+    /// is stopped on a pool thread, so nothing on this thread ever waits on
+    /// its state lock (teardown, a switch).
+    void detachStartingFront();
+public:
+    /// The capture start's report, on this object's thread; acts only for
+    /// the session and front it was started for. Public only for that
+    /// callback.
+    void noteMicrophoneFrontStarted(quint64 serial, quint64 frontSerial,
+                                    bool ok, bool chosenDevice, qint64 tookMs);
+    /// Test-only: the capture's start is still in flight.
+    bool microphoneFrontStartingForTest() const
+    {
+        return m_session.frontStarting && m_session.frontStarting->load();
+    }
+    /// Test-only: capture starts reported to the session they belong to.
+    int microphoneFrontStartsReportedForTest() const
+    {
+        return m_frontStartsReported;
+    }
+    /// Test-only, test-tone mode: the capture description used instead of
+    /// the test sine (e.g. a source whose start blocks).
+    void setMicrophoneFrontForTest(const QString &description)
+    {
+        m_testFront = description;
+    }
+private:
     void swapSpeakersLocked(const AudioDevicePlan &plan);
     // The receive sink description for `plan`, or the test fakesink.
     QString receiveSinkDescription(const AudioDevicePlan &plan) const;
@@ -253,6 +306,10 @@ private:
     // arrived also reached the decoder (written on a streaming thread).
     std::atomic<quint64> m_decodedBuffers{0};
     bool m_testTone = false;
+    QString m_testFront;
+    quint64 m_sessionSerial = 0;
+    quint64 m_frontSerial = 0;
+    int m_frontStartsReported = 0;
     AudioDeviceResolver m_resolveDevices;
     // The plan the live call uses. Read by onPadAdded on a GStreamer thread,
     // so guarded; written on this object's thread.

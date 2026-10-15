@@ -2432,8 +2432,11 @@ Q_SIGNALS:
                                 const QString &delayedCategory);
     void rtcMembershipRetracted(quint64 opId, bool ok,
                                 const QString &category);
+    /// `undelivered`: `{user_id, device_id}` maps for every target the key
+    /// did NOT reach (a partial delivery is still `ok`). Public ids only.
     void rtcMediaKeySent(quint64 opId, bool ok, const QString &category,
-                         int delivered, int keyIndex);
+                         int delivered, int keyIndex,
+                         const QVariantList &undelivered = {});
     /// A media key from another device, already Olm-decrypted. `sender` is
     /// vouched for by the SDK; `claimedDeviceId` is only a claim. The key is
     /// base64 raw bytes: C++ memory only, never QML or logs.

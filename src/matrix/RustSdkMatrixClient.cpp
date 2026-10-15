@@ -10463,7 +10463,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("delivered")).toInt(),
-            event.value(QStringLiteral("key_index")).toInt());
+            event.value(QStringLiteral("key_index")).toInt(),
+            event.value(QStringLiteral("undelivered")).toArray()
+                .toVariantList());
         return true;
     }
     if (type == QLatin1String("rtc_key_received")) {
