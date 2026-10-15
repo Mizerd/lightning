@@ -697,7 +697,7 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
              QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning-0.8.0.msi"));
     QVERIFY(!result.plan.arguments.at(1).contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments.at(2), QStringLiteral("/qb"));
-    QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vomus"));
+    QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vemus"));
     // A per-user MSI (the default) keeps exactly this vector and never
     // elevates.
     QVERIFY(!result.plan.elevates);
@@ -754,7 +754,7 @@ void UpdaterHelperArgsTest::perMachineMsiPlanAddsAllUsersAndElevates()
     QCOMPARE(result.plan.arguments,
              (QStringList{QStringLiteral("/i"),
                           QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning.msi"),
-                          QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vomus"),
+                          QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vemus"),
                           QStringLiteral("ALLUSERS=1")}));
     // Started through ShellExecuteEx "runas": one UAC prompt for an update
     // the person asked for. Never pkexec, which is the Linux meaning.
@@ -938,7 +938,7 @@ void UpdaterHelperArgsTest::windowsCommandLineRoundTripsThroughCommandLineToArgv
     QTest::addColumn<QStringList>("arguments");
     QTest::newRow("msi-machine-plain") << QStringList{
         QStringLiteral("/i"), QStringLiteral("C:\\Users\\x\\Lightning.msi"),
-        QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vomus"),
+        QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vemus"),
         QStringLiteral("ALLUSERS=1")};
     // The staging directory lives under the profile, and profiles have spaces.
     QTest::newRow("path-with-spaces") << QStringList{

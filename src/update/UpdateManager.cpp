@@ -1057,6 +1057,14 @@ QString UpdateManager::explainInstallError(const QString &token)
                   "update.");
     }
 
+    // The setup EXE found Lightning still running (exit 32, its own
+    // EXIT_APP_RUNNING) and stopped before changing anything.
+    if (key == QLatin1String("installer-exit-32")) {
+        return tr("Lightning was still running, so the installer stopped "
+                  "before changing anything. Close every Lightning window, "
+                  "including the one in the tray, and try the update again.");
+    }
+
     // The installer ran and refused; the exit code is the detail to report.
     if (key.startsWith(QLatin1String("installer-exit-"))) {
         const QString code = key.mid(QStringLiteral("installer-exit-").size());

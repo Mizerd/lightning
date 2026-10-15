@@ -52,6 +52,9 @@ SetCompressor /SOLID lzma
 ; asked for both scopes at once.
 !define EXIT_ELEVATION_UNAVAILABLE 5
 !define EXIT_BAD_COMMAND_LINE 87
+; Lightning.exe from the target directory is still running. ERROR_SHARING_
+; VIOLATION, the very error that would otherwise surface halfway through.
+!define EXIT_APP_RUNNING 32
 
 Name "Lightning ${PRODUCT_VERSION}"
 OutFile "${OUTPUT_FILE}"
@@ -159,6 +162,72 @@ Page custom ModePageCreate ModePageLeave
   Pop $2
   Pop $1
 !macroend
+
+
+; ---------------------------------------------------------------------------
+; A running Lightning, shared by the installer and the uninstaller.
+; ---------------------------------------------------------------------------
+
+; A running Lightning.exe is mapped into memory and cannot be opened for
+; writing: CreateFile answers ERROR_SHARING_VIOLATION (32). Asking exactly
+; that, and nothing else, keeps "locked" apart from "not writable by this
+; copy" (a per-machine directory seen by an unelevated copy answers 5), so
+; the second is left to fail where it always did. The System plugin is what
+; this script already uses; no other plugin is needed.
+;
+; Without this the uninstaller removed the shortcuts and registry entries
+; first and RMDir /r then skipped every locked file, leaving a half-removed
+; install that no longer appeared in Settings -> Apps; and the installer
+; copied part of the payload before File /r failed.
+;
+; Interactive: Retry / Cancel. Silent: wait up to 15 s (the updater exits the
+; app and starts this setup, and the process may still be unwinding), then
+; quit with ${EXIT_APP_RUNNING} having changed nothing.
+!macro LIGHTNING_RUNNING_GUARD UN
+Function ${UN}RequireLightningClosed
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $0 0
+  guardRetry:
+  IfFileExists "$INSTDIR\Lightning.exe" 0 guardDone
+  StrCpy $1 "$INSTDIR\Lightning.exe"
+  ; GENERIC_WRITE, FILE_SHARE_READ|WRITE, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL.
+  ; The result is read as `i` on purpose: kernel32 handles are 32-bit
+  ; significant even in a 64-bit process (they are sign-extended), so the low
+  ; 32 bits of INVALID_HANDLE_VALUE read back as -1. Reading it as `p` was not
+  ; shown to print -1 in this NSIS build, so it is not used.
+  System::Call 'kernel32::CreateFileW(w r1, i 0x40000000, i 3, p 0, i 3, i 0x80, p 0) i .r2 ?e'
+  Pop $3
+  ${If} $2 != -1
+    System::Call 'kernel32::CloseHandle(i r2) i'
+    Goto guardDone
+  ${EndIf}
+  ${If} $3 != 32
+    Goto guardDone
+  ${EndIf}
+  ${If} ${Silent}
+    IntOp $0 $0 + 1
+    ${If} $0 > 30
+      SetErrorLevel ${EXIT_APP_RUNNING}
+      Quit
+    ${EndIf}
+    Sleep 500
+    Goto guardRetry
+  ${EndIf}
+  MessageBox MB_ICONEXCLAMATION|MB_RETRYCANCEL "Lightning is still running.$\r$\n$\r$\nClose Lightning, including any copy in the notification area, then choose Retry. Nothing has been changed." IDRETRY guardRetry
+  SetErrorLevel ${EXIT_APP_RUNNING}
+  Quit
+  guardDone:
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+!macroend
+!insertmacro LIGHTNING_RUNNING_GUARD ""
+!insertmacro LIGHTNING_RUNNING_GUARD "un."
 
 ; ---------------------------------------------------------------------------
 ; Scope
@@ -303,6 +372,14 @@ Function .onInit
       ${EndIf}
     ${EndIf}
   ${EndIf}
+
+  ; Upgrading over a running copy: stop before a single file is written. An
+  ; unelevated copy about to hand over to an elevated one leaves the check to
+  ; that copy, which runs this same code with the rights to ask.
+  ${If} $InstallScope != "machine"
+  ${OrIf} $R3 == 1
+    Call RequireLightningClosed
+  ${EndIf}
 FunctionEnd
 
 ; The elevated copy was started from a page the user has already seen.
@@ -373,6 +450,12 @@ Function ModePageLeave
 
   Call ApplyScope
 
+  ; .onInit skips the check for an unelevated copy while the scope is still
+  ; undecided; the directory is known now. (A per-machine directory seen
+  ; unelevated answers access denied, not "in use", and passes; the elevated
+  ; copy checks it.)
+  Call RequireLightningClosed
+
   ${If} $InstallScope == "machine"
     !insertmacro LIGHTNING_IS_ELEVATED
     Pop $R3
@@ -401,6 +484,8 @@ FunctionEnd
 
 Section "Lightning application (required)" SEC_APP
   SectionIn RO
+  ; Lightning may have been started while the Welcome page was open.
+  Call RequireLightningClosed
   SetOutPath "$INSTDIR"
   ; The payload must be able to fail. `File /r` fails with a sharing
   ; violation on any mapped file (Lightning running, or a DLL held by the
@@ -516,9 +601,15 @@ Function un.onInit
   ${Else}
     SetShellVarContext current
   ${EndIf}
+
+  ; Before anything is removed. Reached only by a copy that can act: the
+  ; unelevated per-machine copy has already handed over and quit above.
+  Call un.RequireLightningClosed
 FunctionEnd
 
 Section "Uninstall"
+  ; Lightning may have been started while the Confirm page was open.
+  Call un.RequireLightningClosed
   IfFileExists "$INSTDIR\.lightning-install-root" 0 unsafe_uninstall
   IfFileExists "$INSTDIR\Lightning.exe" 0 unsafe_uninstall
   Delete "$DESKTOP\Lightning.lnk"

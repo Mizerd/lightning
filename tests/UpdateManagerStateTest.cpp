@@ -385,6 +385,7 @@ private slots:
     void everyInstallTypeBuildsArgumentsTheHelperAccepts();
     void windowsInstallersHandTheHelperTheirInstallScope();
     void declinedElevationIsExplainedNotCalledARefusal();
+    void aRunningLightningIsExplainedNotCalledARefusal();
     void initTestCase();
     void init();
 
@@ -2367,6 +2368,16 @@ void UpdateManagerStateTest::windowsInstallersHandTheHelperTheirInstallScope()
         QVERIFY(!arguments.contains(QStringLiteral("--install-scope")));
         QVERIFY(updater::parseUpdaterArgs(arguments).ok());
     }
+}
+
+void UpdateManagerStateTest::aRunningLightningIsExplainedNotCalledARefusal()
+{
+    const QString running = UpdateManager::explainInstallError(QStringLiteral("installer-exit-32"));
+    const QString refused = UpdateManager::explainInstallError(QStringLiteral("installer-exit-1603"));
+    QVERIFY(running.contains(QStringLiteral("still running")));
+    QVERIFY(running.contains(QStringLiteral("before changing anything")));
+    QVERIFY(!running.contains(QStringLiteral("32")));
+    QVERIFY(running != refused);
 }
 
 void UpdateManagerStateTest::declinedElevationIsExplainedNotCalledARefusal()

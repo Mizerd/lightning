@@ -264,12 +264,16 @@ StrategyResult planWindowsMsi(const UpdaterArguments &args)
     result.plan.requiresExternalProcess = true;
     result.plan.program = windowsSystemExecutable(QStringLiteral("msiexec.exe"));
     // /i installs or upgrades; /qb shows a basic progress UI (the user asked
-    // for this and should see it); REINSTALLMODE=vomus re-caches every file so
-    // a same-version repair replaces files. Per-machine: see the header.
+    // for this and should see it). REINSTALLMODE=vemus: v re-caches the
+    // package, and e replaces a file of EQUAL version too ("o" replaces only
+    // an older one). The MSI removes the previous product after installing
+    // (generate-windows-wix.py), so a file whose bytes changed at the same
+    // version, a Qt or MinGW rebuild, would otherwise stay stale. Per-machine:
+    // see the header.
     result.plan.arguments = {QStringLiteral("/i"),
                              windowsNativePath(args.artifactPath),
                              QStringLiteral("/qb"),
-                             QStringLiteral("REINSTALLMODE=vomus")};
+                             QStringLiteral("REINSTALLMODE=vemus")};
     if (args.installScope == InstallScope::Machine) {
         result.plan.arguments << kMsiPerMachineProperty;
         result.plan.elevateOnWindows = true;
