@@ -164,6 +164,7 @@ config-tests:
     # Flathub builds offline from cargo-sources.json; nothing else reads it.
     - python3 ./packaging-ci/tests/test-cargo-sources-lock.py
     - python3 ./packaging-ci/tests/test-msi-payload-completeness.py
+    - python3 ./packaging-ci/tests/test-msi-upgrade-rules.py
     - python3 ./packaging-ci/tests/test-release-notes-policy.py
     # On Wayland the window icon comes from the desktop entry alone; Qt's
     # setWindowIcon() is inert there.

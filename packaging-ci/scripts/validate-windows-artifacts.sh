@@ -320,6 +320,33 @@ for plugin in "${gst_plugins[@]}"; do
         die "MSI payload does not carry the GStreamer plugin $plugin; calls would refuse after an MSI install"
 done
 
+# --- Major upgrade ------------------------------------------------------------
+#
+# A versioned file the File table lists WITHOUT its version loses to the copy
+# already installed, and the upgrade then deletes it with the old product: the
+# 0.10.2 candidate upgraded from 0.10.1 without Lightning.exe and 132 other
+# files while msiexec reported success. Every PE version the generator read
+# must be in the table, and the old product must go only after the new one is
+# installed, so a component both share is dereferenced rather than deleted.
+versioned_expected="$(jq -er '.versioned_files' "$REPORTS/msi-identity.json")"
+versioned_actual="$(awk -F'\t' 'NR > 3 { sub(/\r$/, ""); if ($5 != "") n++ } END { print n + 0 }' "$REPORTS/msi-File.idt")"
+(( versioned_expected > 0 )) || die "the MSI generator found no versioned file in the stage"
+[[ "$versioned_actual" == "$versioned_expected" ]] || \
+    die "MSI File table carries $versioned_actual file versions, the stage has $versioned_expected versioned files"
+for exe in Lightning.exe lightning-updater.exe; do
+    awk -F'\t' -v f="$exe" -v want="$version.0" 'NR > 3 { sub(/\r$/, ""); split($3, n, "|"); name = (n[2] != "" ? n[2] : n[1]); if (name == f && $5 == want) found = 1 } END { exit !found }' \
+        "$REPORTS/msi-File.idt" || die "MSI File table does not record $exe as version $version.0"
+done
+msiinfo export "$msi" InstallExecuteSequence >"$REPORTS/msi-InstallExecuteSequence.idt"
+sequence_of() {
+    awk -F'\t' -v a="$1" 'NR > 3 { sub(/\r$/, ""); if ($1 == a) print $3 }' "$REPORTS/msi-InstallExecuteSequence.idt"
+}
+rep_seq="$(sequence_of RemoveExistingProducts)"
+finalize_seq="$(sequence_of InstallFinalize)"
+[[ -n "$rep_seq" && -n "$finalize_seq" ]] || die "MSI InstallExecuteSequence lacks RemoveExistingProducts or InstallFinalize"
+(( rep_seq > finalize_seq )) || \
+    die "MSI removes the old product at $rep_seq, before InstallFinalize ($finalize_seq); an upgrade would delete shared files"
+
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 
 # --- Install scope (issue #14) -----------------------------------------------
@@ -342,9 +369,14 @@ done
 tr -d '\r' <"$REPORTS/msi-CustomAction.idt" | \
     grep -Fxq $'LightningPerMachineProgramsDir\t51\tProgramsDir\t[ProgramFiles64Folder]\t' || \
     die "MSI has no per-machine directory action; ALLUSERS=1 would install per-machine into a per-user path"
+# wixl places a Before= action at either 1 or 901 from one build to the next;
+# both are legal, so assert the ordering rather than a number.
 for table in InstallExecuteSequence InstallUISequence; do
     grep -Eq $'^LightningPerMachineProgramsDir\tALLUSERS=1\t' "$REPORTS/msi-${table}.idt" || \
         die "MSI $table does not run the per-machine directory action under ALLUSERS=1"
+    awk -F'\t' '{ sub(/\r$/, "") } $1 == "LightningPerMachineProgramsDir" { a = $3 } $1 == "CostFinalize" { c = $3 }
+        END { exit !(a != "" && c != "" && a + 0 < c + 0) }' "$REPORTS/msi-${table}.idt" || \
+        die "MSI $table runs the per-machine directory action after CostFinalize"
 done
 # The scope marker the updater reads (src/update/InstallType.cpp) and the
 # Start-menu shortcut, one component per scope under opposite conditions.

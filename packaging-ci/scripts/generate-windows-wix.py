@@ -6,6 +6,7 @@ import hashlib
 import json
 import pathlib
 import re
+import struct
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -30,6 +31,45 @@ def wix_id(prefix: str, value: str) -> str:
 
 def guid(value: uuid.UUID) -> str:
     return str(value).upper()
+
+
+# The RT_VERSION resource: the UTF-16 key "VS_VERSION_INFO", padded to a
+# 32-bit boundary, then VS_FIXEDFILEINFO (dwSignature, dwStrucVersion 1.0,
+# then the file version). Anchoring on the key keeps a stray signature in code
+# or data from being read as the version.
+VERSION_INFO_KEY = "VS_VERSION_INFO\0".encode("utf-16-le")
+FIXED_FILE_INFO = struct.pack("<II", 0xFEEF04BD, 0x00010000)
+
+
+def pe_file_version(path: pathlib.Path) -> str | None:
+    """The PE file version ("a.b.c.d") Windows Installer will read from disk.
+
+    The File table must carry it. wixl leaves Version empty, and an empty
+    Version makes Windows Installer treat the new file as unversioned, which
+    always loses to the versioned copy already installed. On a major upgrade
+    every versioned component (Lightning.exe included, 0.10.1.0 -> 0.10.2.0)
+    was then "disallowed since the same component with higher versioned
+    keyfile exists", and removing the old product deleted the files: 133
+    missing, measured on Windows 11 with the 0.10.2 candidate.
+    """
+    with path.open("rb") as handle:
+        if handle.read(2) != b"MZ":
+            return None
+        data = handle.read()
+    index = -1
+    key = data.find(VERSION_INFO_KEY)
+    while key >= 0 and index < 0:
+        # The fixed info follows the key within its 32-bit padding.
+        candidate = data.find(FIXED_FILE_INFO, key + len(VERSION_INFO_KEY),
+                              key + len(VERSION_INFO_KEY) + 4 + len(FIXED_FILE_INFO))
+        if candidate >= 0:
+            index = candidate
+        else:
+            key = data.find(VERSION_INFO_KEY, key + 1)
+    if index < 0:
+        return None
+    ms, ls = struct.unpack_from("<II", data, index + len(FIXED_FILE_INFO))
+    return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
 
 
 def main() -> None:
@@ -81,6 +121,19 @@ def main() -> None:
         "Description": f"Lightning {args.version} ({args.signing_state})",
         "Manufacturer": args.manufacturer,
     })
+    # The old product is removed AFTER the new one is installed, so a component
+    # both versions share (one per staged path, same GUID) is only
+    # dereferenced and never deleted. Under the default afterInstallValidate
+    # the removal runs after CostFinalize has already disallowed every
+    # component whose installed keyfile is the higher version, so those are
+    # registered, never copied, and then deleted with the old product. This
+    # relies on the component rules the GUIDs below follow: one file per
+    # component, keyed by its path, with its real version recorded.
+    #
+    # The cost: a file whose bytes change while its version does not (a
+    # toolchain or Qt rebuild at the same version; libwinpthread carries a
+    # placeholder 1.0.0.0) is not replaced on upgrade. 0.10.1 -> 0.10.2 has
+    # none; the updater's REINSTALLMODE covers its own path.
     ET.SubElement(product, tag("MajorUpgrade"), {
         "DowngradeErrorMessage": "A newer version of Lightning is already installed.",
     })
@@ -102,10 +155,17 @@ def main() -> None:
         "Id": "LightningPerMachineProgramsDir", "Property": "ProgramsDir",
         "Value": "[ProgramFiles64Folder]",
     })
-    for sequence in ("InstallExecuteSequence", "InstallUISequence"):
-        ET.SubElement(ET.SubElement(product, tag(sequence)), tag("Custom"), {
+    sequences = {name: ET.SubElement(product, tag(name))
+                 for name in ("InstallExecuteSequence", "InstallUISequence")}
+    for sequence in sequences.values():
+        ET.SubElement(sequence, tag("Custom"), {
             "Action": "LightningPerMachineProgramsDir", "Before": "CostFinalize",
         }).text = "ALLUSERS=1"
+    # Where MajorUpgrade's Schedule="afterInstallFinalize" would put it; wixl
+    # 0.106 has no Schedule property and ignores it with a GLib warning.
+    ET.SubElement(sequences["InstallExecuteSequence"], tag("RemoveExistingProducts"), {
+        "After": "InstallFinalize",
+    })
 
     target = ET.SubElement(product, tag("Directory"), {"Id": "TARGETDIR", "Name": "SourceDir"})
     ET.SubElement(target, tag("Directory"), {"Id": "ProgramFiles64Folder"})
@@ -117,6 +177,7 @@ def main() -> None:
 
     directory_nodes = {pathlib.PurePosixPath("."): install}
     component_ids: list[str] = []
+    versioned_files = 0
     for path in sorted((p for p in args.stage.rglob("*") if p.is_file()), key=lambda p: p.as_posix().casefold()):
         relative = pathlib.PurePosixPath(path.relative_to(args.stage).as_posix())
         parent = pathlib.PurePosixPath(".")
@@ -137,10 +198,15 @@ def main() -> None:
             "Guid": guid(uuid.uuid5(COMPONENT_NAMESPACE, relative.as_posix().casefold())),
             "Win64": "yes",
         })
-        ET.SubElement(component, tag("File"), {
+        file_attributes = {
             "Id": wix_id("FIL", relative.as_posix()), "Source": str(path),
             "Name": path.name, "KeyPath": "yes",
-        })
+        }
+        version = pe_file_version(path)
+        if version is not None:
+            file_attributes["DefaultVersion"] = version
+            versioned_files += 1
+        ET.SubElement(component, tag("File"), file_attributes)
 
     # ALLUSERS is "1" per-machine and unset per-user (Windows Installer resets
     # ALLUSERS=2 to one of those), so these conditions partition every install.
@@ -222,6 +288,7 @@ def main() -> None:
         "component_guid_strategy": "UUIDv5 of lowercase staged relative path",
         "product_code_strategy": "UUIDv5 of semantic version and source commit",
         "install_scopes": ["per-user (default)", "per-machine (ALLUSERS=1)"],
+        "versioned_files": versioned_files,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
