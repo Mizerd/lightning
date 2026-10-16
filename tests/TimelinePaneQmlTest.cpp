@@ -27,8 +27,11 @@
 #include <QImage>
 
 #include "app/AppController.h"
+#include "app/RoomDiscoveryController.h"
+#include "app/RoomInfoController.h"
 #include "auth/AuthManager.h"
 #include "media/MediaImageProvider.h"
+#include "models/ContextController.h"
 #include "models/PaginationController.h"
 #include "models/ReverseListProxyModel.h"
 #include "models/RoomListModel.h"
@@ -36,6 +39,7 @@
 #include "models/TimelineScrollController.h"
 #include "threads/ThreadController.h"
 #include "matrix/MockMatrixClient.h"
+#include "spaces/SpaceManager.h"
 
 namespace {
 // Every QTRY here waits for a state that must eventually hold, so this is a
@@ -8957,14 +8961,15 @@ private Q_SLOTS:
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
 
-        // 60 messages with the marker a third of the way from the newest end,
-        // so landing is a real move.
+        // 60 messages with the marker near the oldest end, so it is well
+        // above the viewport at the live edge (a marker on screen offers no
+        // pill) and landing is a real move.
         QList<TimelineEvent> events =
             textFixture(roomId, 60, QStringLiteral("u"), QStringLiteral("body"));
         TimelineEvent marker;
         marker.roomId = roomId;
         marker.type = TimelineEvent::ReadMarker;
-        events.insert(40, marker);
+        events.insert(10, marker);
 
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
                                           events, /*paginationPages=*/0,
@@ -8973,7 +8978,7 @@ private Q_SLOTS:
         QVERIFY(timeline != nullptr);
 
         // The model found the marker, so the pill is offered.
-        QCOMPARE(controller.timeline()->readMarkerRow(), 40);
+        QCOMPARE(controller.timeline()->readMarkerRow(), 10);
         auto *pill = root->findChild<QQuickItem *>(
             QStringLiteral("jumpToFirstUnreadButton"));
         QVERIFY2(pill != nullptr, "the pill does not exist");
@@ -8998,6 +9003,21 @@ private Q_SLOTS:
         // and stopped following the bottom.
         QVERIFY(!timeline->property("stickToBottom").toBool());
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
+        // And the divider is ON SCREEN. Moving "toward" it is not landing on
+        // it: the old offset put it a quarter viewport below the bottom edge,
+        // showing only older messages (break-it B060), and passed every
+        // assertion above.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("firstUnreadOnScreen").toBool(),
+            qPrintable(QStringLiteral(
+                "the pill landed with the divider off screen (marker view row "
+                "%1, viewport rows %2..%3)")
+                .arg(timeline->property("firstUnreadViewRow").toInt())
+                .arg(timeline->property("viewportNewestRow").toInt())
+                .arg(timeline->property("viewportOldestRow").toInt())),
+            2000);
+        // On screen, it needs no pill.
+        QTRY_VERIFY_WITH_TIMEOUT(!pill->isVisible(), 2000);
     }
 
     // The room was opened with unread messages but the marker lies above the
@@ -9053,13 +9073,15 @@ private Q_SLOTS:
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
 
+        // The marker well above the viewport at the live edge: a marker on
+        // screen offers no pill, which is not what this case is about.
         const QList<TimelineEvent> plain =
-            textFixture(roomId, 30, QStringLiteral("g"), QStringLiteral("body"));
+            textFixture(roomId, 60, QStringLiteral("g"), QStringLiteral("body"));
         QList<TimelineEvent> withMarker = plain;
         TimelineEvent marker;
         marker.roomId = roomId;
         marker.type = TimelineEvent::ReadMarker;
-        withMarker.insert(20, marker);
+        withMarker.insert(5, marker);
 
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
                                           withMarker, /*paginationPages=*/3,
@@ -10399,6 +10421,609 @@ private Q_SLOTS:
         controller.setCurrentRoomId(general);
         QCoreApplication::processEvents();
         QCOMPARE(root->property("infoOpen").toBool(), false);
+    }
+
+    // ── break-it round 2026-10-16: timeline navigation and Space Home ──────
+
+    // A marker on screen needs no jump. Scrolled above it, the pill comes back
+    // pointing DOWN at it. Back at the live edge after it has been on screen,
+    // the reader has passed their place and the pill stays away even once
+    // live messages push the divider out of view (break-it B060: the pill
+    // showed over the divider, after Jump to latest and at the bottom of a
+    // read room; its chevron always pointed up).
+    void theFirstUnreadPillFollowsWhereTheMarkerIs()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+
+        // The marker two rows from the newest: on screen at the live edge.
+        QList<TimelineEvent> events =
+            textFixture(roomId, 60, QStringLiteral("s"), QStringLiteral("body"));
+        TimelineEvent marker;
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.insert(58, marker);
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), 58);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        auto *icon = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadIcon"));
+        QVERIFY(pill != nullptr);
+        QVERIFY2(icon != nullptr, "the pill's chevron has no objectName");
+        QVERIFY(timeline->property("stickToBottom").toBool());
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("firstUnreadOnScreen").toBool(),
+            "fixture: the marker is not on screen at the live edge", 2000);
+        QVERIFY2(!pill->isVisible(),
+                 "the divider is on screen and the pill still offers a jump "
+                 "to it");
+
+        // Above the marker: it lies below the viewport.
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(maxY > minY + 600.0,
+                 "fixture is too short to scroll the marker off screen");
+        QVERIFY(QMetaObject::invokeMethod(timeline, "goToEarliestLoaded"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("firstUnreadBelow").toBool(),
+            "the marker did not leave the bottom of the viewport", 2000);
+        QVERIFY(!timeline->property("stickToBottom").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(pill->isVisible(), 2000);
+        QCOMPARE(icon->property("name").toString(),
+                 QStringLiteral("expand_more"));
+
+        // Back at the live edge, then live messages push the marker above the
+        // viewport while following.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "goToLatest"));
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                 3000);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QList<TimelineEvent> live =
+            textFixture(roomId, 40, QStringLiteral("slive"),
+                        QStringLiteral("live"), /*baseSecondsAgo=*/1300);
+        for (const TimelineEvent &e : live)
+            mock->appendEventForTest(roomId, e);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !timeline->property("firstUnreadOnScreen").toBool()
+                && !timeline->property("firstUnreadBelow").toBool(),
+            "fixture: the live messages did not push the marker above the "
+            "viewport", 3000);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+        QTest::qWait(100);
+        QVERIFY2(!pill->isVisible(),
+                 "the reader passed the divider and is at the live edge, and "
+                 "the pill still offers to go back to it");
+    }
+
+    // A reader deep in history has the marker in the newest rows the row
+    // window withholds. The pill must bring them back and land, not spend its
+    // attempt budget on a row that does not exist and log "target unresolved"
+    // (break-it B033, logged twice in the tester's run).
+    void theFirstUnreadPillReachesAMarkerTheRowWindowWithholds()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QList<TimelineEvent> events = textFixture(
+            roomId, 900, QStringLiteral("rw"), QStringLiteral("window body"));
+        TimelineEvent marker;
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.insert(880, marker);
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), 880);
+        QTRY_COMPARE_WITH_TIMEOUT(timeline->property("count").toInt(), 901,
+                                  10000);
+
+        // Deep in history, with the window applied as the settle timer does.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY(timeline->setProperty("contentY", maxY * 0.6));
+        QCoreApplication::processEvents();
+        QQmlExpression apply(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ updateVisibleRowRange();"
+                           " applyRowWindow(); updateVisibleRowRange();"
+                           " return rowWindowSkip; })()"));
+        const int skip = apply.evaluate().toInt();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QVERIFY2(skip > 0,
+                 "no window was established, so the defect is unreachable "
+                 "here");
+        QVERIFY2(timeline->property("firstUnreadViewRow").toInt() < 0,
+                 "fixture: the marker is not among the withheld newest rows");
+
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(pill->isVisible(), 2000);
+        const int unresolvedBefore =
+            timeline->property("diagNavigationUnresolved").toInt();
+        QMetaObject::invokeMethod(pill, "click");
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("navigationPendingRow").toInt() < 0, 5000);
+        QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(),
+                 unresolvedBefore);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("firstUnreadOnScreen").toBool(),
+            "the pill did not bring the divider on screen", 3000);
+    }
+
+    // The jump pill stays up whenever the row window withholds the newest
+    // rows, whatever follow-latest says: the bottom of the view is not the
+    // newest message then. A dispatched jump-to-live trim sets stickToBottom
+    // before its reset restores the live edge, and nothing else would show
+    // that the view is not at the end (break-it B020, secondary half).
+    void theJumpPillStaysWhileTheWindowWithholdsTheNewestRows()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6);
+        QVERIFY(timeline != nullptr);
+        QQuickItem *root = paneRootOf(timeline);
+        QVERIFY(root != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+        QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
+                 "no window was established, so the case is unreachable here");
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(pill != nullptr);
+        QVERIFY(pill->isVisible());
+
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QCoreApplication::processEvents();
+        QVERIFY(timeline->property("rowWindowSkip").toInt() > 0);
+        QVERIFY2(pill->isVisible(),
+                 "the window still withholds the newest rows and the jump "
+                 "pill hid on follow-latest alone");
+    }
+
+    // A find match among the rows the window withholds lands ON SCREEN. The
+    // old jump released the window and positioned in the same turn, against
+    // rows the Column had not positioned yet (y == 0), so it clamped to the
+    // newest edge and the match was nowhere in view (break-it B021,
+    // secondary half).
+    void aFindMatchBehindTheRowWindowLandsOnScreen()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.6);
+        QVERIFY(timeline != nullptr);
+        QQuickItem *root = paneRootOf(timeline);
+        QVERIFY(root != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+        const int skip = timeline->property("rowWindowSkip").toInt();
+        QVERIFY2(skip > 100,
+                 qPrintable(QStringLiteral(
+                     "window skip %1 is too small to put a match far enough "
+                     "from the live edge").arg(skip)));
+
+        // Half way into the withheld rows: far enough from the newest end
+        // that landing at the bottom cannot pass for landing on it. Three
+        // digits, so the body is unique among 900 rows.
+        const int target = 899 - skip / 2;
+        QVERIFY(target >= 100);
+        const QString eventId = QStringLiteral("$win%1").arg(target);
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        auto *field = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        QVERIFY(field != nullptr);
+        QVERIFY(field->setProperty(
+            "text", QStringLiteral("window probe %1").arg(target)));
+        QCOMPARE(controller.timeline()->property("searchResultCount").toInt(),
+                 1);
+        QCOMPARE(controller.timeline()->property("searchCurrentEventId")
+                     .toString(), eventId);
+
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("navigationPendingRow").toInt() < 0, 5000);
+        QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
+        QCOMPARE(timeline->property("rowWindowSkip").toInt(), 0);
+        QQmlExpression where(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ updateVisibleRowRange();"
+                           " return [viewRowForStableId('%1'),"
+                           " viewportNewestRow, viewportOldestRow]; })()")
+                .arg(eventId));
+        QVariantList at;
+        const bool onScreen = QTest::qWaitFor([&] {
+            at = where.evaluate().toList();
+            return at.size() == 3 && at.value(0).toInt() >= 0
+                && at.value(0).toInt() >= at.value(1).toInt()
+                && at.value(0).toInt() <= at.value(2).toInt();
+        }, 2000);
+        QVERIFY2(!where.hasError(),
+                 where.error().toString().toUtf8().constData());
+        QVERIFY2(onScreen,
+                 qPrintable(QStringLiteral(
+                     "the match (view row %1) is not on screen (rows %2..%3)")
+                     .arg(at.value(0).toInt()).arg(at.value(1).toInt())
+                     .arg(at.value(2).toInt())));
+    }
+
+    // While Find is open, the model re-emits searchChanged whenever the match
+    // count moves (here a live message that also matches), keeping the
+    // selection by event id. The view must not land on the match again: the
+    // reader scrolled away on purpose (break-it B092, the QML half).
+    void aMatchCountChangeDoesNotPullTheReaderBackToTheMatch()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QList<TimelineEvent> events = textFixture(
+            roomId, 80, QStringLiteral("rs"), QStringLiteral("plain text"));
+        events[10].body = QStringLiteral("needle one");
+        events[40].body = QStringLiteral("needle two");
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        auto *field = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        QVERIFY(field != nullptr);
+        QVERIFY(field->setProperty("text", QStringLiteral("needle")));
+        QCOMPARE(controller.timeline()->property("searchResultCount").toInt(),
+                 2);
+        QCOMPARE(controller.timeline()->property("searchCurrentEventId")
+                     .toString(), QStringLiteral("$rs40"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("navigationPendingRow").toInt() < 0, 3000);
+
+        // The reader scrolls away, to the oldest loaded rows.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "goToEarliestLoaded"));
+        QTest::qWait(100);
+        QQmlExpression top(qmlContext(timeline), timeline,
+                           QStringLiteral("eventIdAtViewRow("
+                                          "viewRowAtPhysicalTop())"));
+        const QString topBefore = top.evaluate().toString();
+        QVERIFY2(!top.hasError(), top.error().toString().toUtf8().constData());
+        QVERIFY(!topBefore.isEmpty());
+        QVERIFY2(topBefore != QStringLiteral("$rs40"),
+                 "fixture: the oldest rows are the match's rows");
+
+        TimelineEvent live =
+            textFixture(roomId, 1, QStringLiteral("rslive"),
+                        QStringLiteral("needle three"), /*baseSecondsAgo=*/100)
+                .first();
+        mock->appendEventForTest(roomId, live);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            controller.timeline()->property("searchResultCount").toInt(), 3,
+            2000);
+        QCOMPARE(controller.timeline()->property("searchCurrentEventId")
+                     .toString(), QStringLiteral("$rs40"));
+        QTest::qWait(300);
+        QCOMPARE(top.evaluate().toString(), topBefore);
+
+        // An explicit step still lands, on the next match.
+        QVERIFY(QMetaObject::invokeMethod(root, "stepFind",
+                                          Q_ARG(QVariant, true)));
+        QCOMPARE(controller.timeline()->property("searchCurrentEventId")
+                     .toString(), live.eventId);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            top.evaluate().toString() != topBefore, 3000);
+    }
+
+    // Whitespace is not a query: the model trims it and searches nothing,
+    // so the counter must not claim "No matches" (break-it B103).
+    void whitespaceIsNotAFindQuery()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("ws"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        auto *field = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        auto *counter = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindCount"));
+        QVERIFY(field != nullptr);
+        QVERIFY(counter != nullptr);
+
+        QVERIFY(field->setProperty("text", QStringLiteral("   ")));
+        QCoreApplication::processEvents();
+        QCOMPARE(controller.timeline()->property("searchResultCount").toInt(),
+                 0);
+        QCOMPARE(counter->property("text").toString(), QString());
+
+        // A real miss still says so.
+        QVERIFY(field->setProperty("text", QStringLiteral("zzzq-none")));
+        QCoreApplication::processEvents();
+        QCOMPARE(counter->property("text").toString(),
+                 QStringLiteral("No matches"));
+    }
+
+    // "Jump to latest" in the context view lands the LIVE timeline on the
+    // newest message. latestRequested had no consumer, so closing the overlay
+    // uncovered the timeline wherever it had been left (break-it B120).
+    void contextViewJumpToLatestSettlesTheLiveTimeline()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 80, QStringLiteral("cx"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(maxY > minY + 600.0, "fixture is not scrollable");
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(timeline->setProperty("contentY", maxY));
+        QCoreApplication::processEvents();
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(pill != nullptr);
+        QVERIFY(pill->isVisible());
+
+        ContextController *context = controller.eventContext();
+        QVERIFY(context != nullptr);
+        QVERIFY(!context->active());
+        // ContextController::jumpToLatest() closes the view and emits this
+        // (ContextControllerTest covers that half).
+        QVERIFY(QMetaObject::invokeMethod(context, "latestRequested"));
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                 2000);
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
+        QVERIFY(!pill->isVisible());
+    }
+
+    // A pending invite opened as the current room (from Activity) shows the
+    // invite card with Accept / Decline instead of a timeline and a composer
+    // that cannot send before joining (break-it B037). The room's membership
+    // reaches the pane through the room list's record (findRoom); it is
+    // injected here so the pane's half stands on its own.
+    void aPendingInviteShowsTheInviteCardInsteadOfTheComposer()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("iv"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *card = root->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewCard"));
+        auto *composer = root->findChild<QQuickItem *>(
+            QStringLiteral("messageComposer"));
+        QVERIFY2(card != nullptr, "there is no invite card");
+        QVERIFY(composer != nullptr);
+        QVERIFY2(!card->isVisible(), "a joined room shows the invite card");
+        QVERIFY(composer->isVisible());
+
+        QVariantMap room = root->property("currentRoom").toMap();
+        room.insert(QStringLiteral("membership"), QStringLiteral("invited"));
+        room.insert(QStringLiteral("inviter"), QStringLiteral("Sam <b>x</b>"));
+        QVERIFY(root->setProperty("currentRoom", room));
+        QCoreApplication::processEvents();
+        QVERIFY(root->property("invitePreview").toBool());
+        QVERIFY2(card->isVisible(), "an invite shows no invite card");
+        QVERIFY2(!composer->isVisible(),
+                 "an invite still offers a composer that cannot send");
+
+        auto *inviter = root->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewInviter"));
+        auto *accept = root->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewAccept"));
+        auto *decline = root->findChild<QQuickItem *>(
+            QStringLiteral("invitePreviewDecline"));
+        QVERIFY(inviter != nullptr);
+        QVERIFY(accept != nullptr);
+        QVERIFY(decline != nullptr);
+        QCOMPARE(inviter->property("text").toString(),
+                 QStringLiteral("Sam <b>x</b> invited you to join"));
+        // Remote text is never markup.
+        QCOMPARE(inviter->property("textFormat").toInt(),
+                 static_cast<int>(Qt::PlainText));
+        QVERIFY(accept->isVisible() && accept->isEnabled());
+        QVERIFY(decline->isVisible() && decline->isEnabled());
+
+        // An accept in flight: both wait.
+        room.insert(QStringLiteral("invitePending"), true);
+        QVERIFY(root->setProperty("currentRoom", room));
+        QCoreApplication::processEvents();
+        QVERIFY(!accept->isEnabled());
+        QVERIFY(!decline->isEnabled());
+
+        // Joined: the ordinary room again.
+        room.insert(QStringLiteral("membership"), QStringLiteral("joined"));
+        room.insert(QStringLiteral("invitePending"), false);
+        QVERIFY(root->setProperty("currentRoom", room));
+        QCoreApplication::processEvents();
+        QVERIFY(!card->isVisible());
+        QVERIFY(composer->isVisible());
+    }
+
+    // Space Home inside the pane, as MainScreen shows it: no open room and a
+    // real active Space.
+    static QQuickItem *spaceHomeRoot(AppController &controller,
+                                     QQmlApplicationEngine &engine,
+                                     QQuickWindow &window,
+                                     const QString &spaceId)
+    {
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty() && !createdSpy.wait(kSignalTimeoutMs))
+            return nullptr;
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        if (!root)
+            return nullptr;
+        window.resize(900, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        // Not asserted: the offscreen platform may decline.
+        (void)QTest::qWaitForWindowExposed(&window, 2000);
+        controller.openSpaceHome(spaceId);
+        if (!QTest::qWaitFor([&] {
+                auto *pane = root->findChild<QQuickItem *>(
+                    QStringLiteral("spaceHomePane"));
+                return pane && pane->isVisible();
+            }, 3000))
+            return nullptr;
+        return root;
+    }
+
+    // Create room here and Add existing room both end in an m.space.child
+    // write. A member without the power to send it was offered both: Add
+    // failed after the click, and Create made the room and then failed to
+    // place it, leaving a stray top-level room (break-it B006).
+    void spaceHomeOffersNoChildPlacementWithoutThePower()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString spaceId = QStringLiteral("!space-team:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *root = spaceHomeRoot(controller, engine, window, spaceId);
+        QVERIFY2(root != nullptr, "Space Home did not open");
+        // Fixture: the mock's member snapshot grants no child management.
+        QVERIFY(!controller.roomInfo()->property("canManageSpaceChildren")
+                     .toBool());
+        auto *add = root->findChild<QQuickItem *>(
+            QStringLiteral("spaceAddRoomButton"));
+        auto *create = root->findChild<QQuickItem *>(
+            QStringLiteral("spaceCreateRoomButton"));
+        QVERIFY(add != nullptr);
+        QVERIFY(create != nullptr);
+        QTest::qWait(50);
+        QVERIFY2(!add->isVisible(),
+                 "Add existing room is offered without the power to add a "
+                 "child");
+        QVERIFY2(!create->isVisible(),
+                 "Create room here is offered without the power to place the "
+                 "room");
+    }
+
+    // "Room added — waiting for the server to confirm." is a pending state:
+    // it clears once the Space lists the room. Adding a room the Space already
+    // lists is a no-op success, so the notice must clear at once; it used to
+    // stay until the reader switched Space (break-it B052).
+    void spaceHomeClearsTheWaitingNoticeOnceTheChildIsListed()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString spaceId = QStringLiteral("!space-team:mock.local");
+        const QString child = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *root = spaceHomeRoot(controller, engine, window, spaceId);
+        QVERIFY2(root != nullptr, "Space Home did not open");
+        auto *notice = root->findChild<QQuickItem *>(
+            QStringLiteral("spaceHomeNotice"));
+        QVERIFY(notice != nullptr);
+        QVERIFY(!notice->isVisible());
+        QVERIFY2(controller.spaces()->includesRoom(spaceId, child),
+                 "fixture: the Space does not list the room");
+
+        controller.spaces()->addRoomToSpace(spaceId, child);
+        QCoreApplication::processEvents();
+        QVERIFY2(!notice->isVisible(),
+                 qPrintable(QStringLiteral("the Space lists the room and the "
+                                           "notice still reads \"%1\"")
+                                .arg(notice->property("text").toString())));
+
+        // A failure still says so, and stays.
+        QVERIFY(QMetaObject::invokeMethod(
+            controller.spaces(), "childAddFinished", Q_ARG(QString, spaceId),
+            Q_ARG(QString, QStringLiteral("!nope:mock.local")),
+            Q_ARG(bool, false)));
+        QCoreApplication::processEvents();
+        QVERIFY(notice->isVisible());
+        QCOMPARE(notice->property("text").toString(),
+                 QStringLiteral("The room could not be added to this Space."));
+    }
+
+    // A hierarchy answer queued just before the reader leaves Space Home must
+    // not call into the destroyed pane ("scheduleRebuild is not a function",
+    // "attempted to evaluate a function in an invalid context"; break-it
+    // B055). The queued work lives in child Timers that die with the pane.
+    void leavingSpaceHomeLeavesNoQueuedCallIntoIt()
+    {
+        QTest::failOnWarning(QRegularExpression(
+            QStringLiteral("is not a function|invalid context")));
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString spaceId = QStringLiteral("!space-team:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *root = spaceHomeRoot(controller, engine, window, spaceId);
+        QVERIFY2(root != nullptr, "Space Home did not open");
+
+        // The hierarchy changes, and in the same turn the reader opens a room.
+        QVERIFY(QMetaObject::invokeMethod(controller.discovery(),
+                                          "spaceChildrenChanged",
+                                          Q_ARG(QString, spaceId)));
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(150);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            root->findChild<QQuickItem *>(QStringLiteral("spaceHomePane"))
+                == nullptr, 2000);
     }
 };
 
