@@ -496,23 +496,37 @@ Item {
             // The Channels "Message Search" row opens the same dialog as
             // Ctrl+Shift+F.
             onMessageSearchRequested: messageSearchDialog.openDialog()
-            // Written back only after the drag ends: SplitView reports every
-            // pixel while dragging. The release produces no widthChanged, so
-            // the falling edge of `resizing` (below) is what saves.
-            onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()
+            // Written back only after a REAL divider drag, on the falling edge
+            // of `resizing` (a release produces no widthChanged). A width the
+            // layout forced (window squeezed, timeline minimum) is not a
+            // choice and must not overwrite the saved one; same `dragged`
+            // guard as the spaces rail.
+            onWidthChanged: if (!SplitView.view.resizing && widthSaver.dragged)
+                                widthSaver.restart()
             Connections {
                 target: roomsPanel.SplitView.view
                 function onResizingChanged() {
-                    if (!roomsPanel.SplitView.view.resizing)
+                    if (roomsPanel.SplitView.view.resizing)
+                        widthSaver.dragged = true
+                    else if (widthSaver.dragged)
                         widthSaver.restart()
                 }
             }
             Timer {
                 id: widthSaver
                 interval: 250
+                /// A real divider drag happened and has not been saved yet.
+                property bool dragged: false
                 onTriggered: {
-                    if (roomsPanel.visible && roomsPanel.width > 0)
-                        app.settings.roomListWidth = Math.round(roomsPanel.width)
+                    dragged = false
+                    if (!roomsPanel.visible || roomsPanel.width <= 0)
+                        return
+                    app.settings.roomListWidth = Math.round(roomsPanel.width)
+                    // SplitView writes preferredWidth while dragging, which
+                    // breaks the binding; restore it so the setting keeps
+                    // driving the pane.
+                    roomsPanel.SplitView.preferredWidth = Qt.binding(
+                        function() { return app.settings.roomListWidth })
                 }
             }
         }

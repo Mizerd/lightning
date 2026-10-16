@@ -147,13 +147,17 @@ Dialog {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            contentWidth: sourceText.paintedWidth
+            contentWidth: width
             contentHeight: sourceText.paintedHeight
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { thin: true }
-            ScrollBar.horizontal: AppScrollBar { thin: true }
+            // JSON lines are wrapped, never clipped: long strings (bodies,
+            // keys, base64) would otherwise be cut at the edge with only a
+            // faded bar to find the rest.
             TextEdit {
                 id: sourceText
+                width: parent.width
+                wrapMode: TextEdit.WrapAnywhere
                 objectName: "eventSourceText"
                 readOnly: true
                 selectByMouse: true

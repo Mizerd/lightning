@@ -125,7 +125,7 @@ ApplicationWindow {
         objectName: "menu"
         menuWidth: AppTheme.menuWidthMessage
 
-        AppMenuItem { objectName: "replyItem"; text: "Reply"; iconName: "reply"; accel: "R" }
+        AppMenuItem { objectName: "replyItem"; text: "Reply"; iconName: "reply"; accel: "R"; onTriggered: win.replyTriggers++ }
         AppMenuItem { objectName: "threadItem"; text: "Reply in thread"; iconName: "forum"; accel: "T" }
         AppMenuSeparator { objectName: "groupSeparator" }
         AppMenuItem { objectName: "copyItem"; text: "Copy text"; iconName: "content_copy"; accel: "Ctrl+C" }
@@ -196,6 +196,27 @@ ApplicationWindow {
     }
 
     function openMenu() { menu.popup(win.contentItem, 60, 40) }
+
+    // A control BEHIND the menu that owns active focus, as the header button
+    // does when a menu is opened by mouse. Keys that reach it are keys the
+    // menu failed to take.
+    property int replyTriggers: 0
+    property int backgroundActivations: 0
+    Button {
+        objectName: "backgroundButton"
+        x: 700; y: 620
+        text: "Behind"
+        onClicked: win.backgroundActivations++
+    }
+    function focusBackground() {
+        var b = win.contentItem.children
+        for (var i = 0; i < b.length; ++i)
+            if (b[i].objectName === "backgroundButton") {
+                b[i].forceActiveFocus()
+                return b[i].activeFocus
+            }
+        return false
+    }
 
     MenuKeycap { objectName: "keycapText"; keys: "ESC"; header: true; x: 24; y: 420 }
     MenuKeycap { objectName: "keycapIcon"; iconName: "keyboard_return"; x: 96; y: 420 }
@@ -464,6 +485,34 @@ private slots:
     {
         delete m_root;
         m_root = nullptr;
+    }
+
+    // A menu opened by mouse takes the keys: the fixture first proves a
+    // background control really holds focus (so the keys have somewhere wrong
+    // to go), then Down/Return drive the menu and nothing behind it.
+    void aMenuOpenedByMouseTakesTheKeys()
+    {
+        QVariant ok;
+        QMetaObject::invokeMethod(m_root, "focusBackground",
+                                  Q_RETURN_ARG(QVariant, ok));
+        QVERIFY2(ok.toBool(), "the background control must hold focus first");
+        m_root->setProperty("replyTriggers", 0);
+        m_root->setProperty("backgroundActivations", 0);
+        openMenu();
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        QTRY_VERIFY(menu->property("activeFocus").toBool());
+
+        // Native behaviour: nothing is pre-highlighted, and Return with no
+        // current row does nothing.
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QCOMPARE(m_root->property("replyTriggers").toInt(), 0);
+        QVERIFY(menu->property("opened").toBool());
+
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_root->property("replyTriggers").toInt(), 1);
+        QCOMPARE(m_root->property("backgroundActivations").toInt(), 0);
+        QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
     void keycapChipImplementsSpecTreatment()

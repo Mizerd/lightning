@@ -46,6 +46,9 @@ GridLayout {
     }
     function endCapture() {
         row.capturing = false
+        // Escape, Cancel and focus loss all end here: a rejected chord's
+        // message belongs to the capture that is over.
+        row.captureError = ""
     }
 
     ColumnLayout {

@@ -142,6 +142,24 @@ AnchoredPopup {
         search.forceActiveFocus()
     }
 
+    function chooseFirstResult() {
+        if (searchTimer.running) {
+            searchTimer.stop()
+            app.emojiCatalog.searchText = search.text
+        }
+        // Read row 0 from the MODEL, not a delegate: the reset above clears
+        // the grid's delegates and they are recreated on the next layout
+        // pass, so itemAtIndex(0) is null (or stale) right after a flush.
+        // 257 is EmojiCatalog::EmojiRole (Qt.UserRole + 1), which is exactly
+        // the `emoji` the delegate would have shown.
+        var m = app.emojiCatalog
+        if (m.rowCount() <= 0)
+            return
+        var first = m.data(m.index(0, 0), Qt.UserRole + 1)
+        if (first)
+            picker.choose(first)
+    }
+
     function choose(emoji) {
         if (!emoji || emoji.length === 0) return
         app.emojiCatalog.recordUse(emoji)
@@ -496,6 +514,12 @@ AnchoredPopup {
             selectByMouse: true
             onTextEdited: searchTimer.restart()
             Keys.onDownPressed: emojiGrid.forceActiveFocus()
+            // Enter picks the first result, as every other client's picker
+            // does. The query is applied after a 150 ms debounce, so a fast
+            // type-then-Enter flushes it first rather than choosing from the
+            // previous result list.
+            Keys.onReturnPressed: picker.chooseFirstResult()
+            Keys.onEnterPressed: picker.chooseFirstResult()
             Timer {
                 id: searchTimer
                 interval: 150
@@ -916,16 +940,23 @@ AnchoredPopup {
                 Repeater {
                     model: [
                         { keys: "", icon: "keyboard_return",
-                          label: qsTr("select"), minBar: 0 },
+                          label: qsTr("select"), minBar: 0,
+                          needsTarget: true },
                         { keys: "Alt+V", icon: "",
-                          label: qsTr("skin tones"), minBar: 180 },
+                          label: qsTr("skin tones"), minBar: 180,
+                          needsTarget: false },
                         { keys: "Esc", icon: "",
-                          label: qsTr("close"), minBar: 270 },
+                          label: qsTr("close"), minBar: 270,
+                          needsTarget: false },
                     ]
                     delegate: Row {
                         id: hint
                         required property var modelData
+                        // "select" is advertised only when Enter has a
+                        // target: a first result (search field) or the cell.
                         visible: footerBar.width >= hint.modelData.minBar
+                                 && (!hint.modelData.needsTarget
+                                     || emojiGrid.count > 0)
                         spacing: AppTheme.spacing4
                         MenuKeycap {
                             keys: hint.modelData.keys
@@ -996,9 +1027,33 @@ AnchoredPopup {
         // tiles are ToolButtons that accept left presses only.
         modal: true
         dim: false
+        // Without focus the popup is modal yet receives no key: Escape and
+        // typing went to a dead item behind it and the picker could not be
+        // closed from the keyboard. It takes focus on open and hands it back
+        // on close (the search field, which every cell path shares).
+        focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        onOpened: picker.toneOpened()
-        onClosed: picker.toneClosed()
+        // Step between tone tiles; Up/Down move a whole row.
+        function moveTone(from, delta) {
+            var n = tonePopup.variants.length
+            var to = from + delta
+            if (to < 0 || to >= n)
+                return
+            var b = toneRepeater.itemAt(to)
+            if (b)
+                b.forceActiveFocus(Qt.TabFocusReason)
+        }
+        onOpened: {
+            var first = toneRepeater.itemAt(0)
+            if (first)
+                first.forceActiveFocus(Qt.TabFocusReason)
+            picker.toneOpened()
+        }
+        onClosed: {
+            if (picker.visible && !picker.compact)
+                search.forceActiveFocus()
+            picker.toneClosed()
+        }
         background: Item {
             Rectangle {
                 id: tonePanel
@@ -1026,10 +1081,18 @@ AnchoredPopup {
         Grid {
             columns: tonePopup.toneColumns
             Repeater {
+                id: toneRepeater
                 model: tonePopup.variants
                 ToolButton {
                     id: toneButton
                     required property var modelData
+                    required property int index
+                    Keys.onLeftPressed: tonePopup.moveTone(index, -1)
+                    Keys.onRightPressed: tonePopup.moveTone(index, 1)
+                    Keys.onUpPressed: tonePopup.moveTone(index, -tonePopup.toneColumns)
+                    Keys.onDownPressed: tonePopup.moveTone(index, tonePopup.toneColumns)
+                    Keys.onReturnPressed: toneButton.clicked()
+                    Keys.onEnterPressed: toneButton.clicked()
                     width: tonePopup.toneCell; height: tonePopup.toneCell
                     text: modelData.emoji
                     font.pixelSize: AppTheme.textDisplay

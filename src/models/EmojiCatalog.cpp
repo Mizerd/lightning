@@ -407,12 +407,15 @@ QVariantList EmojiCatalog::completionsForPrefix(const QString &prefix,
     const int bound = limit > 0 ? limit : 12;
     const QStringList recents = m_settings ? m_settings->recentEmoji() : QStringList();
 
+    // Above all tiers: the query IS the name or a whole alias (":heart" is
+    // the red heart, not heart_eyes). It outranks recents too, because typing
+    // a complete shortcode is a request for that emoji and not a prefix.
     // Tier 0: the name or a whole alias starts with the query. Tier 1: any
     // word inside the name starts with it. Tier 2: an alias contains it
     // anywhere. Ties keep catalogue order (roughly Unicode order, e.g. 👍
     // before 👎), except a recently used emoji is promoted ahead of
     // non-recent ties in the same tier.
-    struct Candidate { int index; int tier; int recentRank; };
+    struct Candidate { int index; int tier; int recentRank; bool exact; };
     QList<Candidate> candidates;
     for (int i = 0; i < m_entries.size(); ++i) {
         const Entry &entry = m_entries.at(i);
@@ -445,10 +448,18 @@ QVariantList EmojiCatalog::completionsForPrefix(const QString &prefix,
         }
         if (tier < 0)
             continue;
-        candidates.append({ i, tier, static_cast<int>(recents.indexOf(entry.emoji)) });
+        // Spaces and underscores are one separator ("red heart" == "red_heart").
+        QString slug = name;
+        slug.replace(QLatin1Char(' '), QLatin1Char('_'));
+        const bool exact = name == needle || slug == needle
+            || aliases.contains(needle);
+        candidates.append({ i, tier, static_cast<int>(recents.indexOf(entry.emoji)),
+                            exact });
     }
     std::stable_sort(candidates.begin(), candidates.end(),
         [](const Candidate &a, const Candidate &b) {
+            if (a.exact != b.exact)
+                return a.exact;
             if (a.tier != b.tier)
                 return a.tier < b.tier;
             const bool aRecent = a.recentRank >= 0;

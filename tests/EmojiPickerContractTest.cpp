@@ -197,6 +197,58 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral(":shortcode:")));
     }
 
+    // B008: the tone popup is modal, so it must also OWN the keys. Without
+    // `focus: true` and a focused first tile, Escape and typing went to a dead
+    // item behind it and the picker could not be closed from the keyboard.
+    void theTonePopupTakesAndReturnsKeyboardFocus()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        const int at = picker.indexOf(QStringLiteral("id: tonePopup"));
+        QVERIFY(at > 0);
+        const QString tone = picker.mid(at);
+        QVERIFY2(tone.contains(QStringLiteral("focus: true")),
+                 "a modal tone popup without focus traps the keyboard");
+        const int opened = tone.indexOf(QStringLiteral("onOpened:"));
+        const int closed = tone.indexOf(QStringLiteral("onClosed:"));
+        QVERIFY(opened > 0 && closed > opened);
+        QVERIFY2(tone.mid(opened, closed - opened).contains(
+                     QStringLiteral("forceActiveFocus")),
+                 "opening must focus the first tone tile");
+        QVERIFY2(tone.mid(closed).contains(
+                     QStringLiteral("search.forceActiveFocus()")),
+                 "closing must hand focus back to the search field");
+        // Tiles are driven by arrows and Enter, not by Tab alone.
+        QVERIFY(tone.contains(QStringLiteral("Keys.onLeftPressed")));
+        QVERIFY(tone.contains(QStringLiteral("Keys.onReturnPressed")));
+    }
+
+    // B070: Enter in the search field picks the first result, and the
+    // "select" hint is advertised only while there is something to select.
+    void enterInTheSearchFieldPicksTheFirstResult()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral(
+            "Keys.onReturnPressed: picker.chooseFirstResult()")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "Keys.onEnterPressed: picker.chooseFirstResult()")));
+        const int fn = picker.indexOf(QStringLiteral("function chooseFirstResult()"));
+        QVERIFY(fn > 0);
+        const int end = picker.indexOf(QStringLiteral("function choose(emoji"), fn);
+        QVERIFY(end > fn);
+        const QString body = picker.mid(fn, end - fn);
+        // A pending debounced query is applied first, or Enter would choose
+        // from the previous result list.
+        QVERIFY(body.contains(QStringLiteral("searchTimer.running")));
+        // Row 0 comes from the model: a reset leaves no delegate to read.
+        QVERIFY2(!body.contains(QStringLiteral("itemAtIndex(")),
+                 "a delegate does not exist yet right after the flushed reset");
+        QVERIFY(body.contains(QStringLiteral("m.data(m.index(0, 0)")));
+        QVERIFY(body.contains(QStringLiteral("Qt.UserRole + 1")));
+        QVERIFY(body.contains(QStringLiteral("picker.choose(")));
+        QVERIFY2(picker.contains(QStringLiteral("emojiGrid.count > 0")),
+                 "the select hint must be gated on a target existing");
+    }
+
     // Behaviours the layout changes must not disturb (also pinned in
     // EmojiUiContractTest).
     void preservedInvariantsSurviveTheRedesign()

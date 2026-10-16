@@ -68,6 +68,11 @@ Menu {
     topPadding: AppTheme.menuPadding + _headerHeight
     overlap: 0
     cascade: true
+    // A Popup does not take active focus on its own, so a menu opened by
+    // mouse left the keys with whatever was behind it (Return then pressed a
+    // background button). With focus the menu drives Up/Down/Return itself;
+    // no row is pre-highlighted, as in native menus.
+    focus: true
 
     // Rows the menu creates itself (nested Menus) use AppMenuItem too.
     delegate: AppMenuItem {
