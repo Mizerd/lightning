@@ -173,6 +173,55 @@ private Q_SLOTS:
         QCOMPARE(c.plainBody, QStringLiteral("site and @Alice"));
     }
 
+    // Qt's HTML import underlines an anchor, and so does the toolbar's link
+    // toggle; neither is the user's underline, so no <u> goes inside an <a>.
+    // A real underline beside the link is untouched.
+    void aLinkOrPillIsNeverWrappedInUnderline()
+    {
+        QTextDocument doc;
+        QTextCursor cursor(&doc);
+        QTextCharFormat pill;
+        pill.setAnchor(true);
+        pill.setAnchorHref(QStringLiteral("https://matrix.to/#/@alex:example.org"));
+        pill.setFontUnderline(true);
+        cursor.insertText(QStringLiteral("@Alex"), pill);
+        cursor.insertText(QStringLiteral(" "), QTextCharFormat());
+        QTextCharFormat underlined;
+        underlined.setFontUnderline(true);
+        cursor.insertText(QStringLiteral("real"), underlined);
+
+        const Composed c = compose(doc);
+        QVERIFY2(!c.html.contains(QStringLiteral("<a href=\"https://matrix.to/#/@alex:example.org\"><u>")),
+                 qPrintable(c.html));
+        QVERIFY(c.html.contains(QStringLiteral("<u>real</u>")));
+
+        QTextDocument viaToolbar;
+        viaToolbar.setPlainText(QStringLiteral("site"));
+        RichComposition::toggleFormat(&viaToolbar, 0, 4, QStringLiteral("link"),
+                                      QStringLiteral("https://example.org/"));
+        QVERIFY2(!compose(viaToolbar).html.contains(QStringLiteral("<u>")),
+                 qPrintable(compose(viaToolbar).html));
+    }
+
+    // toggleFormat formats the selection or the word at the caret and does
+    // nothing otherwise; formatState reports which, so the toolbar can grey
+    // B/I/S/code/U instead of offering a button that does nothing (the empty
+    // composer is the case a user meets: "I clicked B and nothing happened").
+    void formatStateReportsWhetherAnInlineFormatHasATarget()
+    {
+        using RichComposition::formatState;
+        QTextDocument empty;
+        QVERIFY(!formatState(empty, 0, 0)
+                     .value(QStringLiteral("inlineTarget")).toBool());
+
+        QTextDocument doc;
+        doc.setPlainText(QStringLiteral("one  two"));
+        QVERIFY(formatState(doc, 0, 3)
+                    .value(QStringLiteral("inlineTarget")).toBool());
+        QVERIFY(formatState(doc, 1, 1)
+                    .value(QStringLiteral("inlineTarget")).toBool());
+    }
+
     void unsafeLinkTargetsSerializeAsPlainText()
     {
         QTextDocument doc;

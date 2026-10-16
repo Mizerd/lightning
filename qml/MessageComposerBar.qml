@@ -13,8 +13,26 @@ import MatrixClient
 Item {
     id: root
     focus: false
-    implicitHeight: composerCol.implicitHeight + AppTheme.spacing16
-                    + AppTheme.spacing4
+    implicitHeight: (root.postBlocked ? blockedBar.implicitHeight
+                                      : composerCol.implicitHeight)
+                    + AppTheme.spacing16 + AppTheme.spacing4
+
+    // The user cannot post here: the room was replaced (tombstone) or the
+    // server would refuse the event (no permission, not joined). Replaces the
+    // composer with the reason, as Element does, instead of letting a send
+    // fail with only Retry and Cancel. `canSendMessages` and
+    // `sendBlockedReason` come from RoomInfoController; an absent property is
+    // undefined, which counts as allowed.
+    readonly property bool roomReplaced: app.roomUpgrade.upgraded === true
+    readonly property bool postBlocked:
+        roomReplaced || app.roomInfo.canSendMessages === false
+    readonly property string postBlockedReason: {
+        if (roomReplaced)
+            return qsTr("This room has been replaced.")
+        var why = app.roomInfo.sendBlockedReason
+        return (typeof why === "string" && why.length > 0)
+                ? why : qsTr("You do not have permission to post in this room.")
+    }
 
     // The formatting toolbar is collapsed by default and opens from the format
     // toggle. Format shortcuts work regardless.
@@ -99,6 +117,12 @@ Item {
         event.accepted = true
         root.submitComposer()
     }
+    // Rich mode formats the selection or the word under the caret, never
+    // "what I type next" (a TextEdit has no per-keystroke format hook), so with
+    // neither the inline buttons have nothing to act on and are greyed. Absent
+    // means available (markdown mode inserts markers instead).
+    readonly property bool inlineFormatAvailable:
+        !root.richMode || root.formatFlags["inlineTarget"] !== false
     function refreshFormatState() {
         if (root.richMode) {
             formatFlags = app.richComposer.formatState(richInput.textDocument,
@@ -167,6 +191,7 @@ Item {
     property bool richSyncing: false
     function activeInput() { return root.richMode ? richInput : input }
     function submitComposer() {
+        root.flushRichMirror()
         if (root.richMode)
             app.richComposer.sendDocument(richInput.textDocument)
         else
@@ -200,6 +225,17 @@ Item {
         sendLaterDialog.openFor(snapshot)
     }
     onRichModeChanged: {
+        // A mirror still waiting belongs to the mode being left; apply it to
+        // the composer text before the other editor loads from it.
+        if (richMirrorTimer.running) {
+            richMirrorTimer.stop()
+            if (!root.richMode) {
+                root.richSyncing = true
+                app.composer.text =
+                    app.richComposer.toMarkdown(richInput.textDocument)
+                root.richSyncing = false
+            }
+        }
         // The other editor's ranges belong to the other document.
         root.spellUnderlines = []
         root.richSpellUnderlines = []
@@ -241,6 +277,35 @@ Item {
                                           app.composer.text)
             root.richSyncing = false
         }
+    }
+    // Up to this many characters the mirror runs on every change; beyond it
+    // the mirror waits for richMirrorTimer, and submit, a mode switch and
+    // the draft all flush it first.
+    readonly property int richMirrorSyncLimit: 2000
+    Timer {
+        id: richMirrorTimer
+        interval: 150
+        onTriggered: root.mirrorRichText()
+    }
+    // Everything that reads the markdown mirror of the rich document runs
+    // here, together, so none of it sees a stale composer.text.
+    function mirrorRichText() {
+        richMirrorTimer.stop()
+        if (!root.richMode || root.richSyncing)
+            return
+        root.richSyncing = true
+        app.composer.text = app.richComposer.toMarkdown(richInput.textDocument)
+        root.richSyncing = false
+        root.commandPopupDismissed = false
+        root.updateCommandPopupState()
+        root.emojiPopupDismissed = false
+        root.updateEmojiPopupState()
+        root.checkEmojiAutoConvert(richInput)
+    }
+    // A pending mirror applied now (no-op when none is waiting).
+    function flushRichMirror() {
+        if (richMirrorTimer.running)
+            root.mirrorRichText()
     }
     function applyFormat(format) {
         if (root.richMode) {
@@ -948,11 +1013,21 @@ Item {
             mentionPopup.tokenActive = false
             mentionPopup.close()
             // A recording belongs to its room; switching away discards it.
+            // Never silently: the user is told, because a minute of speech is
+            // gone. (Keeping it as the old room's pending draft needs the
+            // recorder to outlive the room switch, which its single-owner
+            // model does not allow.)
+            var discarded = root.voiceActive || root.pendingVoice !== null
             if (root.voiceActive)
                 app.cancelVoiceRecording()
             // Same for a finished, unsent recording; its file is deleted.
             root.voiceWantsPreview = false
             root.discardPendingVoice()
+            if (discarded) {
+                root.attachmentNotice =
+                    qsTr("Voice recording discarded when you left the room.")
+                noticeTimer.restart()
+            }
         }
     }
     // Recorder results. Only targets the recorder while recording, so binding
@@ -1405,8 +1480,63 @@ Item {
         z: 10
     }
 
+    Rectangle {
+        id: blockedBar
+        objectName: "composerBlockedBar"
+        visible: root.postBlocked
+        anchors {
+            left: parent.left; right: parent.right; bottom: parent.bottom
+            leftMargin: AppTheme.spacing20
+            rightMargin: AppTheme.spacing20
+            bottomMargin: AppTheme.spacing16
+        }
+        implicitHeight: blockedRow.implicitHeight + AppTheme.spacing12 * 2
+        height: implicitHeight
+        radius: AppTheme.radiusLg
+        color: AppTheme.chipInfoFill
+        border.color: AppTheme.chipInfoBorder
+        border.width: 1
+
+        RowLayout {
+            id: blockedRow
+            anchors.fill: parent
+            anchors.margins: AppTheme.spacing12
+            spacing: AppTheme.spacingS
+
+            Icon {
+                Layout.alignment: Qt.AlignVCenter
+                name: "info"
+                size: 18
+                color: AppTheme.chipInfoInk
+            }
+            Text {
+                objectName: "composerBlockedReason"
+                Layout.fillWidth: true
+                text: root.postBlockedReason
+                textFormat: Text.PlainText
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                font.family: AppTheme.uiFont
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+            AppButton {
+                objectName: "composerContinueButton"
+                visible: root.roomReplaced
+                text: qsTr("Continue in new room")
+                kind: "primary"
+                enabled: !app.roomUpgrade.busy
+                onClicked: app.roomUpgrade.continueToSuccessor()
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Continue in the new room")
+            }
+        }
+    }
+
     ColumnLayout {
         id: composerCol
+        visible: !root.postBlocked
         anchors {
             left: parent.left; right: parent.right; bottom: parent.bottom
             leftMargin: AppTheme.spacing20
@@ -1598,10 +1728,23 @@ Item {
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.maximumWidth: 140
+                                // The line elides at 140px; the whole reason
+                                // is one hover away.
+                                textFormat: Text.PlainText
+                                HoverHandler { id: chipErrorHover }
+                                ToolTip.visible: chipErrorHover.hovered
+                                                 && model.state === "failed"
+                                                 && (model.error || "").length > 0
+                                ToolTip.delay: 500
+                                ToolTip.text: model.error || ""
                             }
                         }
                         IconButton {
+                            // A failure Retry cannot fix (refused, too large)
+                            // offers only Remove; an absent role means
+                            // retryable.
                             visible: model.state === "failed"
+                                     && model.retryable !== false
                             implicitWidth: 20; implicitHeight: 20
                             radius: AppTheme.radiusSm
                             iconName: "refresh"
@@ -1922,6 +2065,7 @@ Item {
                             iconName: modelData.icon
                             iconSize: 18
                             enabled: app.currentRoomId !== ""
+                                     && root.inlineFormatAvailable
                             active: root.formatFlags[modelData.key] === true
                             Accessible.name: modelData.label
                             ToolTip.text: modelData.label
@@ -1976,6 +2120,7 @@ Item {
                         // so font.underline would not reach the label.
                         text: "U̲"
                         enabled: app.currentRoomId !== ""
+                                 && root.inlineFormatAvailable
                         Accessible.name: qsTr("Underline")
                         ToolTip.text: qsTr("Underline")
                         ToolTip.visible: hovered
@@ -2218,18 +2363,17 @@ Item {
                                 root.refreshRichBlank()
                                 if (root.richSyncing || !root.richMode)
                                     return
-                                // The markdown mirror (see root.richMode).
-                                root.richSyncing = true
-                                app.composer.text =
-                                    app.richComposer.toMarkdown(textDocument)
-                                root.richSyncing = false
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
-                                root.commandPopupDismissed = false
-                                root.updateCommandPopupState()
-                                root.emojiPopupDismissed = false
-                                root.updateEmojiPopupState()
-                                root.checkEmojiAutoConvert(richInput)
+                                // The markdown mirror (see root.richMode) and
+                                // what reads it. A long document is mirrored
+                                // behind a short debounce: toMarkdown is
+                                // superlinear (measured 0.6 ms at 1 KB, 42 ms at
+                                // 17 KB per call) and ran on every keystroke.
+                                if (richInput.length > root.richMirrorSyncLimit)
+                                    richMirrorTimer.restart()
+                                else
+                                    root.mirrorRichText()
                             }
                             onSelectionStartChanged: root.refreshFormatState()
                             onSelectionEndChanged: root.refreshFormatState()
@@ -2240,7 +2384,7 @@ Item {
                                 richSpellTimer.restart()
                             }
                             Keys.onReturnPressed: (event) => {
-                                if (commandPopup.visible) {
+                                if (commandPopup.visible && !commandPopup.returnSends) {
                                     commandPopup.accept()
                                     event.accepted = true
                                     return
@@ -2474,7 +2618,7 @@ Item {
                         Keys.onReturnPressed: (event) => {
                             // While a completion popup is open, Return picks
                             // the highlighted entry.
-                            if (commandPopup.visible) {
+                            if (commandPopup.visible && !commandPopup.returnSends) {
                                 commandPopup.accept()
                                 event.accepted = true
                                 return

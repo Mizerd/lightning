@@ -155,6 +155,11 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
         return refuse(tr("/%1 needs arguments: /%1 %2")
                           .arg(command->name, command->argsHint));
     }
+    // A command that takes no arguments refuses trailing text rather than
+    // running and silently dropping it: "/clear hello" must not wipe the
+    // draft, and the text the user typed stays where it is.
+    if (command->argsHint.isEmpty() && !parsed.args.isEmpty())
+        return refuse(tr("/%1 takes no arguments.").arg(command->name));
     const QString unavailable =
         tr("/%1 is not available from here.").arg(command->name);
 

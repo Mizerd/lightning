@@ -1814,6 +1814,23 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
+    // The composer is replaced by a reason only when something says the user
+    // cannot post (a tombstone, or RoomInfoController::canSendMessages ===
+    // false). A room with neither, and a backend that reports nothing (the
+    // mock), must keep the composer: an absent answer counts as allowed.
+    void theComposerIsNotReplacedWhenNothingBlocksPosting()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *bar = item("composerBar");
+        auto *blocked = item("composerBlockedBar");
+        QVERIFY(bar && blocked);
+        QVERIFY(!bar->property("postBlocked").toBool());
+        QVERIFY(!blocked->isVisible());
+        QVERIFY(item("composerInput") != nullptr);
+        QVERIFY(item("composerInput")->isVisible());
+    }
+
     // #42 "Drag and drop not working": real drag events on the PRODUCTION
     // composer bar, so the QML handler, the URL repair and the portal route are
     // what is under test. Each drop failed with "That file cannot be read."

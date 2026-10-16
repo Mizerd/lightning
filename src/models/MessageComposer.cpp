@@ -14,6 +14,8 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMimeData>
 
 namespace {
@@ -27,6 +29,10 @@ constexpr int kMaxPasteEdge = 4096;
 // Coalesces a typing burst while losing at most a second of text on a crash.
 // Room switches save synchronously.
 constexpr int kDraftSaveMs = 1000;
+// A Matrix event is capped at 65,536 bytes of canonical JSON (the server answers
+// M_TOO_LARGE); the envelope (sender, room, hashes, signatures, auth and prev
+// events) takes roughly 1.5 KB of it, so the content gets a little less.
+constexpr qsizetype kMaxEventContentBytes = 64000;
 }
 
 MessageComposer::MessageComposer(QObject *parent)
@@ -46,7 +52,7 @@ MessageComposer::MessageComposer(QObject *parent)
     // A video queued before its poster was ready dispatches once the poster
     // resolves or fails.
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
-            this, &MessageComposer::dispatchAttachment);
+            this, &MessageComposer::pumpAttachments);
     m_draftDebounce.setSingleShot(true);
     m_draftDebounce.setInterval(kDraftSaveMs);
     connect(&m_draftDebounce, &QTimer::timeout, this,
@@ -339,7 +345,33 @@ void MessageComposer::dispatchAttachments()
         // new reply keeps the one it had.
         if (!m_replyingToEventId.isEmpty())
             entries[row].replyToEventId = m_replyingToEventId;
+    }
+    pumpAttachments();
+}
+
+// The send queue fixes its order when a file has been read and cached, which
+// takes as long as the file is big, so dispatching every row at once lands
+// them in completion order (a 20 MB file behind a 20 KB one arrives second).
+// Rows go one at a time in tray order instead: the next one starts only when
+// the previous result is back (it resolves once the SDK has queued the
+// event), and a video still waiting for its poster holds the rows behind it.
+void MessageComposer::pumpAttachments()
+{
+    if (!m_client || m_roomId.isEmpty())
+        return;
+    auto &entries = m_attachments->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        const QString state = entries[row].state;
+        if (state == QLatin1String("dispatching"))
+            return;
+        if (state != QLatin1String("queued") || !entries[row].sendRequested)
+            continue;
+        if (entries[row].posterPending)
+            return;
         dispatchAttachment(row);
+        if (entries[row].state == QLatin1String("dispatching"))
+            return;
+        // Failed synchronously: nothing is in flight, carry on.
     }
 }
 
@@ -515,6 +547,8 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
             entries[row].opId = 0;
             m_attachments->updateEntry(row);
         }
+        // The next row in tray order may go now.
+        pumpAttachments();
         return;
     }
 }
@@ -554,7 +588,16 @@ void MessageComposer::setRoomId(const QString &r)
     // cancelReplyOrEdit may have re-armed the debounce.
     m_draftDebounce.stop();
     // Queued attachments belong to their room; dispatched ones continue in the
-    // SDK send queue.
+    // SDK send queue. Rows the user already sent but the in-order pump has not
+    // reached yet go now, unordered, rather than being dropped with the tray.
+    if (m_client && !m_roomId.isEmpty()) {
+        auto &pending = m_attachments->entries();
+        for (int row = 0; row < pending.size(); ++row) {
+            if (pending[row].state == QLatin1String("queued")
+                && pending[row].sendRequested)
+                dispatchAttachment(row);
+        }
+    }
     m_attachments->clearAll();
     m_roomId = r;
     m_text.clear();
@@ -625,6 +668,8 @@ void MessageComposer::sendInternal(bool allowCommands)
         }
     }
 
+    if (refuseIfTooLarge(body, QString()))
+        return;
     if (!m_editingEventId.isEmpty()) {
         // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
@@ -647,6 +692,8 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
                                    const QStringList &mentionUserIds)
 {
     if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
+        return;
+    if (refuseIfTooLarge(body, html))
         return;
     // An unformatted rich-mode message uses the plain lane: the body is sent
     // verbatim, never re-read as markdown.
@@ -783,6 +830,42 @@ void MessageComposer::sendComposed(const QString &body,
     }
 }
 
+// The size the event's content would serialize to, measured on real JSON and
+// not on the character count (multi-byte text and escapes both widen it). An
+// edit carries the text twice, as the fallback body and inside m.new_content.
+qsizetype MessageComposer::serializedContentBytes(const QString &body,
+                                                  const QString &html,
+                                                  bool edit)
+{
+    QJsonObject content{ { QStringLiteral("msgtype"), QStringLiteral("m.text") },
+                         { QStringLiteral("body"), body } };
+    if (!html.isEmpty()) {
+        content.insert(QStringLiteral("format"),
+                       QStringLiteral("org.matrix.custom.html"));
+        content.insert(QStringLiteral("formatted_body"), html);
+    }
+    const qsizetype once =
+        QJsonDocument(content).toJson(QJsonDocument::Compact).size();
+    return edit ? once * 2 : once;
+}
+
+// Refuses a message the server would reject, before anything is sent or
+// cleared: the text stays in the composer with the reason beside it, where a
+// failed echo would only offer Retry and Cancel and Cancel loses the text.
+bool MessageComposer::refuseIfTooLarge(const QString &body, const QString &html)
+{
+    const qsizetype bytes = serializedContentBytes(
+        body, html, !m_editingEventId.isEmpty());
+    if (bytes <= kMaxEventContentBytes)
+        return false;
+    setCommandError(
+        tr("This message is too long to send (%1 KB; the limit is about %2 KB). "
+           "Shorten it or split it into several messages.")
+            .arg((bytes + 1023) / 1024)
+            .arg(kMaxEventContentBytes / 1024));
+    return true;
+}
+
 void MessageComposer::finishSuccessfulSend()
 {
     stopTyping();
@@ -871,6 +954,10 @@ QVariantList MessageComposer::commandCompletions() const
             { QStringLiteral("argsHint"), command.argsHint },
             { QStringLiteral("description"), command.description },
             { QStringLiteral("enabled"), enabled },
+            { QStringLiteral("requiresArgs"), command.requiresArgs },
+            // The word is already complete: Return can act on it.
+            { QStringLiteral("exact"),
+              m_text.mid(1).compare(command.name, Qt::CaseInsensitive) == 0 },
         });
     }
     return out;

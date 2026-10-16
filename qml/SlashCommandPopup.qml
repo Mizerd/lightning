@@ -62,6 +62,14 @@ Popup {
             currentIndex = (currentIndex - 1 + count) % count
         commandList.positionViewAtIndex(currentIndex, ListView.Contain)
     }
+    // Return on a command word that is already complete and needs no argument
+    // (/shrug, /markdown) sends it instead of rewriting it to "/shrug ".
+    // Commands with required arguments still complete first.
+    readonly property bool returnSends: {
+        var entry = count > 0 ? completions[currentIndex] : null
+        return !!entry && entry.exact === true && entry.requiresArgs === false
+                && entry.enabled !== false
+    }
     function accept() {
         if (count === 0)
             return

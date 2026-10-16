@@ -369,7 +369,15 @@ private:
     // stopTyping + cancelReplyOrEdit + clear: the tail shared by every
     // successful send and content-sending command.
     void finishSuccessfulSend();
+    // True (with commandError set) when the message would exceed the event
+    // size limit; nothing is sent and the text stays.
+    bool refuseIfTooLarge(const QString &body, const QString &html);
+    static qsizetype serializedContentBytes(const QString &body,
+                                            const QString &html, bool edit);
     void dispatchAttachments();
+    // Dispatches the next requested row in tray order, only while none is in
+    // flight.
+    void pumpAttachments();
     // One entry, once dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
     // Attach `body` to one queued attachment as its caption; false means it

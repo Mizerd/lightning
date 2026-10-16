@@ -444,6 +444,51 @@ private Q_SLOTS:
         QVERIFY(comps.first().toMap().value(QStringLiteral("enabled")).toBool());
     }
 
+    // A body past the event size limit never leaves: it is refused with the
+    // reason, nothing is sent and the text stays (a failed echo would offer
+    // only Retry and Cancel, and Cancel loses the text).
+    void anOversizeMessageIsRefusedAndKeepsItsText()
+    {
+        const QString big(70000, QLatin1Char('x'));
+        m_composer->setText(big);
+        m_composer->send();
+        QVERIFY(m_client->sends.isEmpty());
+        QCOMPARE(m_composer->text(), big);
+        QVERIFY(m_composer->commandError().contains(
+            QStringLiteral("too long")));
+
+        // Multi-byte text counts in bytes: 25,000 snowmen are 75,000 bytes.
+        const QString wide(25000, QChar(0x2603));
+        m_composer->setText(wide);
+        m_composer->send();
+        QVERIFY(m_client->sends.isEmpty());
+
+        // Control: an ordinary message still goes.
+        m_composer->setText(QStringLiteral("hello"));
+        m_composer->send();
+        QCOMPARE(m_client->sends.size(), 1);
+    }
+
+    // Return sends an exact optional-argument command instead of completing it
+    // (the popup reads exact + requiresArgs); a required-argument command
+    // still completes first.
+    void anExactOptionalArgumentCommandIsMarkedSendable()
+    {
+        m_composer->setText(QStringLiteral("/shrug"));
+        QVariantMap shrug = m_composer->commandCompletions().first().toMap();
+        QVERIFY(shrug.value(QStringLiteral("exact")).toBool());
+        QCOMPARE(shrug.value(QStringLiteral("requiresArgs")).toBool(), false);
+
+        m_composer->setText(QStringLiteral("/me"));
+        QVariantMap me = m_composer->commandCompletions().first().toMap();
+        QVERIFY(me.value(QStringLiteral("exact")).toBool());
+        QVERIFY(me.value(QStringLiteral("requiresArgs")).toBool());
+
+        m_composer->setText(QStringLiteral("/shru"));
+        QCOMPARE(m_composer->commandCompletions().first().toMap()
+                     .value(QStringLiteral("exact")).toBool(), false);
+    }
+
     // An edit goes to the timeline that holds the event, not the composer's
     // own room: the live room timeline hides threaded events, so a thread
     // reply's edit must carry the thread's timeline id.

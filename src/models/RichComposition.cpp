@@ -40,7 +40,10 @@ InlineFlags flagsFor(const QTextCharFormat &format)
     }
     f.bold = format.fontWeight() > QFont::Medium;
     f.italic = format.fontItalic();
-    f.underline = format.fontUnderline();
+    // Qt's HTML import (a mention pill) and the link toggle both underline an
+    // anchor's text; that is how a link is drawn, not formatting the user
+    // chose, and serializing it put a <u> inside every <a>.
+    f.underline = format.fontUnderline() && !f.anchor;
     f.strike = format.fontStrikeOut();
     f.code = format.fontFixedPitch();
     return f;
@@ -420,6 +423,17 @@ QVariantMap formatState(const QTextDocument &document, int selectionStart,
                  cf.isAnchor() && !cf.anchorHref().isEmpty());
 
     cursor.setPosition(start);
+    // Whether an inline format would have anything to act on: toggleFormat
+    // formats the selection, or the word under the caret, and does nothing for
+    // a bare caret between words. The toolbar greys B/I/S/code/U on false
+    // rather than offering a button that silently does nothing.
+    bool inlineTarget = end > start;
+    if (!inlineTarget) {
+        QTextCursor probe(cursor);
+        probe.select(QTextCursor::WordUnderCursor);
+        inlineTarget = probe.hasSelection();
+    }
+    state.insert(QStringLiteral("inlineTarget"), inlineTarget);
     const QTextBlock block = cursor.block();
     state.insert(QStringLiteral("quote"), quoteLevelOf(block) > 0);
     QTextList *list = block.textList();

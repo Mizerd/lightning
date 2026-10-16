@@ -174,6 +174,24 @@ private Q_SLOTS:
         QCOMPARE(log.last(), QStringLiteral("clear"));
     }
 
+    void noArgumentCommandsRefuseTrailingText()
+    {
+        // "/clear hello" and "/markdown x" used to run the command and drop
+        // the text without a word. They refuse, run nothing, keep the draft.
+        QStringList log;
+        SlashCommands::Actions a;
+        a.clearComposer = [&] { log << QStringLiteral("clear"); };
+        a.toggleComposerMode = [&] { log << QStringLiteral("mode"); };
+        for (const QString &text : { QStringLiteral("/clear hello"),
+                                     QStringLiteral("/markdown x") }) {
+            const auto out = SlashCommands::execute(
+                SlashCommands::parse(text), {}, a);
+            QVERIFY2(!out.error.isEmpty(), qPrintable(text));
+            QVERIFY(out.error.contains(QStringLiteral("takes no arguments")));
+        }
+        QVERIFY(log.isEmpty());
+    }
+
     void executeRefusesWhatTheHostDoesNotOffer()
     {
         // A host that supplies no moderation lane gets an honest refusal,
