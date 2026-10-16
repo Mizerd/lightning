@@ -123,6 +123,12 @@ public:
         // The sender is on m.ignored_user_list. Covers the window before the
         // server stops delivering their events.
         bool senderIsIgnored = false;
+        // The sender's name in this room's member list and their global
+        // profile name, where the app layer knows them. Either may be empty,
+        // or the bare user id (what a member lookup answers for a user it
+        // does not know); see senderLabel().
+        QString senderMemberName;
+        QString senderProfileName;
         // The server does not have this room's mode: a failed write, or a
         // device-only mode from before modes were saved to the server. The
         // local mode then decides alone.
@@ -197,6 +203,13 @@ public:
 
     // Pure policy — no I/O, no logging. Exposed for tests.
     static Decision decide(const TimelineEvent &event, const Context &context);
+    /// The name a card gives the sender, the same in every card whichever
+    /// path delivered the event: the room member's display name (the event's
+    /// own, else the context's), then the global profile name, then the
+    /// localpart. A "name" that is just the sender's user id counts as none,
+    /// so the full MXID appears only when the id has no localpart to show.
+    static QString senderLabel(const TimelineEvent &event,
+                               const Context &context);
 
     // Invites notify only after the initial sync, once per session, and only
     // when notifications are enabled.
@@ -324,15 +337,38 @@ public:
     // Count of generic notices raised, for tests without a daemon.
     int genericNoticeCountForTest() const { return m_genericNoticeCount; }
     // Tray balloon delivery where no freedesktop daemon exists (Windows,
-    // macOS). Only one balloon shows at a time, so the manager keeps the single
-    // payload it carries, and which rooms have balloons outstanding.
+    // macOS). A balloon's click carries no id. Where the platform can take a
+    // balloon down (Windows, TrayIcon::canWithdrawBalloon), at most ONE is on
+    // screen and the click is the one it shows: what arrives meanwhile waits
+    // as one pending summary (offerBalloon()). Elsewhere every balloon is
+    // shown and a click opens a room only when every balloon raised since the
+    // last click was that room's.
     void setFallbackTray(TrayIcon *tray);
+    /// ONE message for the balloon, through the same path a delivery takes,
+    /// shown as if the tray had shown it (offscreen tests have none). Not
+    /// sticky: a later show (a summary, the next balloon after a click) needs
+    /// setTrayShowsForTest(true). Breaks through like a mention when the
+    /// payload is one or names no room.
     void deliverThroughTrayForTest(const QVariantMap &payload)
-    { noteBalloon(QString(), payload); }
+    { deliverThroughTrayForTest(QString(), payload); }
     /// The same, for a balloon raised from `accountUserId`'s table.
     void deliverThroughTrayForTest(const QString &accountUserId,
-                                   const QVariantMap &payload)
-    { noteBalloon(accountUserId, payload); }
+                                   const QVariantMap &payload);
+    /// Treat EVERY show with no tray icon as shown, until set back.
+    void setTrayShowsForTest(bool shows) { m_trayShowsForTest = shows; }
+    /// Pretend the platform can (or cannot) take a balloon down, instead of
+    /// asking TrayIcon::canWithdrawBalloon().
+    void setBalloonWithdrawableForTest(bool withdrawable)
+    { m_balloonWithdrawableOverride = withdrawable ? 1 : 0; }
+    /// How long a balloon holds the screen before the pending summary may
+    /// replace it, instead of TrayIcon::balloonHoldMs().
+    void setBalloonHoldMsForTest(int ms) { m_balloonHoldOverrideMs = ms; }
+    bool balloonOnScreenForTest() const { return m_balloonHold.isActive(); }
+    /// Rooms (and threads) waiting in the pending summary, and the messages
+    /// they stand for.
+    int pendingBalloonEntriesForTest() const
+    { return int(m_balloonQueue.size()); }
+    int pendingBalloonMessagesForTest() const;
     /// The payload of the last balloon attempt (messages, notices and calls).
     QVariantMap lastTrayPayloadForTest() const { return m_lastTrayPayload; }
     // Tray balloon attempts by the call ring, and their payload. Counts
@@ -561,6 +597,38 @@ private:
                             const QVariantMap &payload, const QImage &avatar,
                             bool platformSound, const QString &accountKey);
     void noteBalloon(const QString &accountKey, const QVariantMap &payload);
+    // One message for the balloon. Shown now when no balloon holds the screen
+    // or when it breaks through (a mention, a notice with no room); otherwise
+    // merged into the pending summary. True when shown or queued.
+    struct Balloon {
+        QString title;
+        QString body;
+        QVariantMap payload;
+        QImage avatar;
+        bool platformSound = false;
+        QString accountKey;
+        // Messages this entry stands for (merged from one room or thread).
+        int messages = 1;
+    };
+    bool offerBalloon(Balloon balloon, bool breakThrough);
+    // Whether the one-balloon gate applies: the platform can take a balloon
+    // down (Windows), or a test says so.
+    bool balloonGate() const;
+    // Merge into the pending summary, one entry per account and card group.
+    // `older`: the entry predates what is queued (a displaced balloon), so a
+    // queued entry of its group keeps its newer content.
+    void enqueueBalloon(Balloon balloon, bool older);
+    // Before a balloon replaces one still holding the screen (gate only):
+    // put what the displaced one stood for back into the summary.
+    void requeueDisplacedBalloon();
+    // The pending summary, shown once the balloon on screen has had its time
+    // (or was clicked): the latest message when every entry is one room's,
+    // otherwise "N new messages in M rooms", whose click opens no room.
+    void showPendingBalloons();
+    void onBalloonHoldExpired();
+    // Forget what the balloon on screen would route to, and take it down
+    // where the platform can (Windows); used when its account is cleared.
+    void retireBalloonOnScreen();
     bool trayCarriesSound() const;
     // Monotonic milliseconds; immune to wall-clock steps.
     qint64 nowMs() const { return m_clock.elapsed(); }
@@ -570,10 +638,30 @@ private:
     // The table the balloon in m_lastFallbackPayload was raised from.
     QString m_lastFallbackAccountKey;
     QVariantMap m_lastTrayPayload;
-    // Distinct rooms with a balloon raised since the last balloon click. A
-    // click cannot say which balloon it was, so with more than one the window
-    // is raised without guessing.
+    // Active while a balloon holds the screen. Windows queues a second
+    // balloon behind the first and reports a click on either as the same
+    // signal, so nothing new is shown until this runs out (or a click or a
+    // break-through ends it).
+    QTimer m_balloonHold;
+    int m_balloonHoldOverrideMs = -1;
+    int m_balloonWithdrawableOverride = -1;
+    // What the balloon on screen stands for (itself, or a summary's
+    // entries), re-queued if a break-through displaces it unclicked.
+    QList<Balloon> m_shownEntries;
+    // Without the gate: distinct rooms with a balloon raised since the last
+    // click. A click cannot say which balloon it was, so with more than one
+    // the window is raised without guessing.
     QSet<QString> m_balloonRooms;
+    // A balloon was shown and not clicked since: the platform may still be
+    // showing it, so the next one takes it down first.
+    bool m_balloonMayBeVisible = false;
+    // The balloon on screen announces a ringing call: it is raised once per
+    // call and cannot be raised again, so not even a mention replaces it.
+    bool m_balloonIsCall = false;
+    // What arrived while a balloon held the screen, one entry per account
+    // and card group (room, thread or keyed notice), oldest first.
+    QList<Balloon> m_balloonQueue;
+    bool m_trayShowsForTest = false;
     int m_trayAttempts = 0;
     bool m_lastTrayPlatformSound = false;
     QString m_lastTrayTitle;

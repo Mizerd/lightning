@@ -74,6 +74,25 @@ public:
     // The timeout handed to QSystemTrayIcon::showMessage: 0 on macOS.
     static int balloonTimeoutMs(bool isMac);
 
+    // Takes the balloon showMessage() raised off the screen where the
+    // platform allows it: on Windows NIF_INFO with an empty szInfo removes it
+    // (and anything the shell queued behind it). Qt has no such call, so
+    // elsewhere this does nothing.
+    void hideMessage();
+    // Whether hideMessage() can take a balloon down here: Windows only. Where
+    // it cannot, an old balloon stays clickable (macOS Notification Center),
+    // so NotificationManager cannot assume a click is the latest balloon.
+    static bool canWithdrawBalloon();
+    // How long one balloon holds the screen before NotificationManager lets
+    // another replace it: Windows' notification duration
+    // (SPI_GETMESSAGEDURATION, Settings' "Show notifications for") plus a
+    // margin, so a balloon has gone before the next is raised. Elsewhere the
+    // default duration.
+    static int balloonHoldMs();
+    // The hold for a notification duration in whole seconds; 0 or less is
+    // "unknown" (Windows' default, 5 s). Pure, so it is testable anywhere.
+    static int balloonHoldMsFor(int durationSeconds);
+
     // The Win32 NIIF_* values (shellapi.h) a balloon is composed from,
     // mirrored here so the composition is testable off Windows. TrayIcon.cpp
     // static_asserts them against the SDK on Windows.
@@ -132,6 +151,8 @@ private:
     bool showNativeBalloon(const QString &title, const QString &body,
                            const QImage &image, bool platformSound);
     void releaseBalloonIcon();
+    // NIM_MODIFY with an empty balloon text: removes the balloon on screen.
+    void hideNativeBalloon();
     // HICON of the last native balloon, kept until the next one replaces it
     // (Qt keeps its own the same way). void* so this header needs no
     // windows.h.

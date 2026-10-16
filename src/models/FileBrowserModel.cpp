@@ -220,7 +220,7 @@ QVariantList FileBrowserModel::breadcrumbs() const
         parts = m_path.mid(home.size()).split(QLatin1Char('/'),
                                               Qt::SkipEmptyParts);
     } else {
-        const QString root = QDir::rootPath();
+        const QString root = pathRoot(m_path);
         crumbs.append(QVariantMap{
             {QStringLiteral("name"), root},
             {QStringLiteral("url"), QUrl::fromLocalFile(root)},
@@ -237,6 +237,126 @@ QVariantList FileBrowserModel::breadcrumbs() const
             {QStringLiteral("kind"), QStringLiteral("dir")}});
     }
     return crumbs;
+}
+
+namespace {
+#ifdef Q_OS_WIN
+constexpr bool kWindowsHost = true;
+#else
+constexpr bool kWindowsHost = false;
+#endif
+} // namespace
+
+QVariantList FileBrowserModel::drives() const
+{
+    if (!kWindowsHost)
+        return {};
+    QStringList roots;
+    const QFileInfoList drives = QDir::drives();
+    for (const QFileInfo &drive : drives)
+        roots << drive.absoluteFilePath();
+    return driveEntries(roots);
+}
+
+QVariantList FileBrowserModel::driveEntries(const QStringList &roots)
+{
+    QVariantList list;
+    for (const QString &root : roots) {
+        QString label = QDir::cleanPath(root);
+        if (label.endsWith(QLatin1Char('/')) && label.size() > 1)
+            label.chop(1);
+        list.append(QVariantMap{{QStringLiteral("label"), label},
+                                {QStringLiteral("url"),
+                                 QUrl::fromLocalFile(root)}});
+    }
+    return list;
+}
+
+QString FileBrowserModel::displayPath(const QUrl &url) const
+{
+    return url.isLocalFile() ? displayPathFor(url.toLocalFile(), kWindowsHost)
+                             : QString();
+}
+
+QString FileBrowserModel::displayPathFor(const QString &localPath,
+                                         bool windows)
+{
+    if (!windows)
+        return localPath;
+    QString path = localPath;
+    // A URL path's leading slash before a drive ("/C:/x") is not part of it.
+    if (path.size() >= 3 && path.at(0) == QLatin1Char('/')
+        && path.at(2) == QLatin1Char(':') && path.at(1).isLetter())
+        path.remove(0, 1);
+    path.replace(QLatin1Char('/'), QLatin1Char('\\'));
+    return path;
+}
+
+bool FileBrowserModel::isValidLeafName(const QString &name) const
+{
+    return isValidLeaf(name, kWindowsHost);
+}
+
+bool FileBrowserModel::isValidLeaf(const QString &name, bool windows)
+{
+    if (name.isEmpty() || name == QLatin1String(".")
+        || name == QLatin1String("..") || name.contains(QLatin1Char('/'))
+        || name.contains(QChar(0)))
+        return false;
+    return !windows || isValidWindowsLeaf(name);
+}
+
+bool FileBrowserModel::isValidWindowsLeaf(const QString &name)
+{
+    if (name.isEmpty())
+        return false;
+    for (const QChar c : name) {
+        if (c.unicode() < 0x20
+            || QStringView(u"<>:\"/\\|?*").contains(c))
+            return false;
+    }
+    if (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
+        return false;
+    // The device names are reserved with any extension, and before one
+    // with trailing spaces ("NUL .txt").
+    QString stem = name.section(QLatin1Char('.'), 0, 0);
+    while (stem.endsWith(QLatin1Char(' ')))
+        stem.chop(1);
+    stem = stem.toUpper();
+    static const QStringList reserved = {
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"),
+        QStringLiteral("NUL"),
+    };
+    if (reserved.contains(stem))
+        return false;
+    if (stem.size() == 4
+        && (stem.startsWith(QLatin1String("COM"))
+            || stem.startsWith(QLatin1String("LPT")))) {
+        const QChar digit = stem.at(3);
+        // 1-9, and the superscripts Windows also treats as digits there.
+        if ((digit >= QLatin1Char('1') && digit <= QLatin1Char('9'))
+            || digit == QChar(0x00B9) || digit == QChar(0x00B2)
+            || digit == QChar(0x00B3))
+            return false;
+    }
+    return true;
+}
+
+QString FileBrowserModel::pathRoot(const QString &cleanPath)
+{
+    // "D:/..." (and a bare "D:"): that drive.
+    if (cleanPath.size() >= 2 && cleanPath.at(1) == QLatin1Char(':')
+        && cleanPath.at(0).isLetter()
+        && (cleanPath.size() == 2 || cleanPath.at(2) == QLatin1Char('/')))
+        return cleanPath.left(2) + QLatin1Char('/');
+    // "//server/share/...": that share.
+    if (cleanPath.startsWith(QLatin1String("//"))) {
+        const QStringList parts =
+            cleanPath.mid(2).split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.size() >= 2)
+            return QStringLiteral("//%1/%2/").arg(parts.at(0), parts.at(1));
+    }
+    return QDir::rootPath();
 }
 
 void FileBrowserModel::setNameFilters(const QStringList &filters)
@@ -665,9 +785,7 @@ QVariantMap FileBrowserModel::createFolder(const QString &rawName)
     QVariantMap result{{QStringLiteral("ok"), false},
                        {QStringLiteral("url"), QUrl()},
                        {QStringLiteral("error"), QString()}};
-    if (m_path.isEmpty() || name.isEmpty() || name == QLatin1String(".")
-        || name == QLatin1String("..") || name.contains(QLatin1Char('/'))
-        || name.contains(QChar(0))) {
+    if (m_path.isEmpty() || !isValidLeafName(name)) {
         result.insert(QStringLiteral("error"), QStringLiteral("invalid"));
         return result;
     }

@@ -151,6 +151,85 @@ private Q_SLOTS:
         QCOMPARE(model.indexOfName(QStringLiteral("Report.pdf")), -1);
     }
 
+    // Windows uses this chooser since 2026-10-16: a folder on another drive
+    // starts its path bar at that drive, not at C:/ with the drive's folders
+    // spelled under it.
+    void thePathBarStartsAtTheFoldersOwnDrive()
+    {
+        QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("D:/data/photos")),
+                 QStringLiteral("D:/"));
+        QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("e:")),
+                 QStringLiteral("e:/"));
+        QCOMPARE(FileBrowserModel::pathRoot(
+                     QStringLiteral("//nas/media/films/2026")),
+                 QStringLiteral("//nas/media/"));
+        // Neither: the platform root.
+        QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("/tmp/inner")),
+                 QDir::rootPath());
+        QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("1:/x")),
+                 QDir::rootPath());
+    }
+
+    // Review M4: what the in-app chooser needs on Windows, as pure helpers.
+    void windowsPathsNamesAndDrivesForTheChooser()
+    {
+        // Paths read as Windows writes them, never "/C:/...".
+        QCOMPARE(FileBrowserModel::displayPathFor(
+                     QStringLiteral("C:/Users/six/Downloads"), true),
+                 QStringLiteral("C:\\Users\\six\\Downloads"));
+        QCOMPARE(FileBrowserModel::displayPathFor(
+                     QStringLiteral("/C:/Users/six"), true),
+                 QStringLiteral("C:\\Users\\six"));
+        QCOMPARE(FileBrowserModel::displayPathFor(
+                     QStringLiteral("//nas/media/films"), true),
+                 QStringLiteral("\\\\nas\\media\\films"));
+        QCOMPARE(FileBrowserModel::displayPathFor(
+                     QStringLiteral("/home/six/a"), false),
+                 QStringLiteral("/home/six/a"));
+
+        // Names Windows refuses.
+        for (const char *bad : {"a:b", "a<b", "a>b", "a\"b", "a\\b", "a|b",
+                                "a?b", "a*b", "trailing.", "trailing ",
+                                "CON", "con", "NUL.txt", "nul .tar.gz", "PRN",
+                                "AUX", "COM1", "lpt9.log", ""}) {
+            QVERIFY2(!FileBrowserModel::isValidWindowsLeaf(
+                         QString::fromUtf8(bad)),
+                     bad);
+            QVERIFY2(!FileBrowserModel::isValidLeaf(QString::fromUtf8(bad),
+                                                    true),
+                     bad);
+        }
+        QVERIFY(!FileBrowserModel::isValidWindowsLeaf(
+            QStringLiteral("COM") + QChar(0x00B9)));
+        QVERIFY(!FileBrowserModel::isValidWindowsLeaf(
+            QStringLiteral("tab\there")));
+        // And names it accepts, including near misses of the device names.
+        for (const char *good : {"report.pdf", "CONSOLE.txt", "COM10", "LPT0",
+                                 "nullable", ".hidden", "a b.c", "Ąžuolas"}) {
+            QVERIFY2(FileBrowserModel::isValidWindowsLeaf(
+                         QString::fromUtf8(good)),
+                     good);
+        }
+        // Elsewhere only a separator, NUL, "." and ".." are refused.
+        QVERIFY(FileBrowserModel::isValidLeaf(QStringLiteral("a:b"), false));
+        QVERIFY(FileBrowserModel::isValidLeaf(QStringLiteral("CON"), false));
+        QVERIFY(!FileBrowserModel::isValidLeaf(QStringLiteral("a/b"), false));
+        QVERIFY(!FileBrowserModel::isValidLeaf(QStringLiteral(".."), false));
+
+        // Drive roots become labelled places.
+        const QVariantList drives = FileBrowserModel::driveEntries(
+            {QStringLiteral("C:/"), QStringLiteral("D:/")});
+        QCOMPARE(drives.size(), 2);
+        QCOMPARE(drives.at(1).toMap().value(QStringLiteral("label")).toString(),
+                 QStringLiteral("D:"));
+        QCOMPARE(drives.at(1).toMap().value(QStringLiteral("url")).toUrl(),
+                 QUrl::fromLocalFile(QStringLiteral("D:/")));
+#ifndef Q_OS_WIN
+        FileBrowserModel model;
+        QVERIFY(model.drives().isEmpty());
+#endif
+    }
+
     void thePathBarStartsAtHomeUnderHomeAndAtTheRootElsewhere()
     {
         FileBrowserModel model;

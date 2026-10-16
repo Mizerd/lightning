@@ -4886,6 +4886,19 @@ void AppController::handleLiveEvent(const QString &composedRoomId,
         m_presence->noteActivity(event.sender);
     const NotificationManager::Context context =
         notificationContextFor(roomId, event, fromThread);
+    // A card is about to name a sender nothing on hand names (no member
+    // name, no profile cached): ask for their profile, once per session, so
+    // later cards use it rather than the localpart. Only for an event that
+    // notifies (decide() is pure), never for the initial-sync backlog.
+    const auto bare = [&event](const QString &name) {
+        return name.isEmpty() || name == event.sender;
+    };
+    if (m_userProfiles && context.initialSyncComplete
+        && context.notificationsEnabled
+        && bare(event.senderDisplayName) && bare(context.senderMemberName)
+        && !m_userProfiles->profile(event.sender).known
+        && NotificationManager::decide(event, context).notify)
+        m_userProfiles->request(event.sender);
     m_notifications->processEvent(event, context);
     // The Activity Center classifies independently (a muted room's mention is
     // still activity), but an ignored user's event in flight never becomes a
@@ -4933,6 +4946,13 @@ NotificationManager::Context AppController::notificationContextFor(
     in.initialSyncComplete = m_client->initialSyncDone();
     in.soundMode = m_settings->notificationSound();
     in.senderIsIgnored = m_moderation && m_moderation->isIgnored(event.sender);
+    // The sender label's names (NotificationManager::senderLabel): the member
+    // list's (the bare user id when it does not know them) and the cached
+    // global profile's. Never asks; handleLiveEvent() does.
+    in.senderMemberName = m_client->displayNameFor(roomId, event.sender);
+    in.senderProfileName =
+        m_userProfiles ? m_userProfiles->profile(event.sender).displayName
+                       : QString();
     return lightning::notifications::NotificationContextBuilder::build(in);
 }
 

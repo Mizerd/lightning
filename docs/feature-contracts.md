@@ -915,12 +915,28 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   icon's balloon — Windows shows it as a toast in the Action Centre, macOS
   as a user notification — which needs a visible icon, so there the icon
   shows while notifications are enabled (as well as with close-to-tray). Qt
-  reports a click on any balloon as one signal: a click opens the room only
-  when every balloon raised since the last click is for that room; otherwise
-  (several rooms, or the slot already used) it raises the window without
-  choosing a room (2026-10-15). A balloon
-  cannot be withdrawn through Qt: read-dismissal on those platforms needs
-  the native toast APIs and is a recorded follow-up.
+  reports a click on any balloon as one signal. **Windows only (2026-10-16):**
+  Windows QUEUES balloons (about 4-5 s each) and never delivers a click on
+  one it has superseded, and it is the one platform where a balloon can be
+  taken down (`TrayIcon::canWithdrawBalloon`, an empty `NIF_INFO`), so there
+  at most ONE balloon is on screen: it holds the screen for Windows'
+  notification duration plus a second (`TrayIcon::balloonHoldMs`,
+  `SPI_GETMESSAGEDURATION`, read per balloon), and what arrives meanwhile is
+  merged into one pending summary, one entry per room or thread, shown when
+  that time is up or after a click. The summary is the room's latest message
+  when every entry is one room's, otherwise "N new messages in M rooms",
+  whose click raises the window without choosing a room. A click therefore
+  always opens the balloon actually shown. A mention, or a notice with no
+  room, replaces the balloon on screen at once and the displaced balloon
+  goes back into the summary; the call's one balloon is never replaced. A
+  pending entry is dropped when its room is read, its card withdrawn or its
+  account cleared; a balloon whose time is up routes nowhere. **Elsewhere**
+  (macOS, a Linux tray without a daemon) nothing can take a balloon down and
+  old ones stay clickable, so every balloon is shown as it comes and a click
+  opens the room only when every balloon raised since the last click is for
+  that room; otherwise it raises the window without choosing a room
+  (2026-10-15). A balloon already shown cannot be withdrawn through Qt:
+  read-dismissal needs the native toast APIs and is a recorded follow-up.
 - **Notification sound (2026-10-06).** A delivered notification makes
   LIGHTNING's chime (`data/sounds/message.wav`, `mention.wav`, rendered by
   `scripts/generate-call-sounds.py` in the call set's voice) through

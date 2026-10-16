@@ -448,6 +448,12 @@ private Q_SLOTS:
             {QStringLiteral("soundMode"), QStringLiteral("m_settings->notificationSound()")},
             {QStringLiteral("senderIsIgnored"), QStringLiteral(
                  "m_moderation && m_moderation->isIgnored(event.sender)")},
+            // New with the sender label (2026-10-16); the old body had no
+            // equivalent, so these are pinned to their intended sources.
+            {QStringLiteral("senderMemberName"), QStringLiteral(
+                 "m_client->displayNameFor(roomId, event.sender)")},
+            {QStringLiteral("senderProfileName"), QStringLiteral(
+                 "m_userProfiles ? m_userProfiles->profile(event.sender).displayName : QString()")},
         };
         const QSet<QString> account = {QStringLiteral("accountUserId"),
                                        QStringLiteral("accountLabel")};

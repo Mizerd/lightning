@@ -49,6 +49,9 @@ NotificationContextBuilder::build(const NotificationContextInputs &in)
         static_cast<NotificationManager::SoundMode>(in.soundMode);
     // Events from an ignored user already in flight must not notify.
     context.senderIsIgnored = in.senderIsIgnored;
+    // Names for the sender label; senderLabel() decides which one is used.
+    context.senderMemberName = in.senderMemberName;
+    context.senderProfileName = in.senderProfileName;
     // Empty (the foreground account) keeps today's stamping.
     context.accountUserId = in.accountUserId;
     context.accountLabel = in.accountLabel;

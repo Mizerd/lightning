@@ -52,6 +52,11 @@ struct NotificationContextInputs {
     bool initialSyncComplete = true;
     int soundMode = NotificationManager::SoundMentionsAndDirect;
     bool senderIsIgnored = false;
+    // MatrixClient::displayNameFor() (the bare user id when the member list
+    // does not know the sender) and the cached global profile name, for the
+    // card's sender label (NotificationManager::senderLabel).
+    QString senderMemberName;
+    QString senderProfileName;
 };
 
 struct NotificationContextBuilder {

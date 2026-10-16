@@ -164,6 +164,17 @@ public:
     /// downloads, pictures (each only when it exists and is not home
     /// itself) and the filesystem root.
     Q_INVOKABLE QVariantList places() const;
+    /// The drive roots, for a places section on Windows: [{label: "C:",
+    /// url}]. GetLogicalDrives only (QDir::drives), so no drive is touched.
+    /// Empty elsewhere.
+    Q_INVOKABLE QVariantList drives() const;
+    /// A local path as the user should read and type it: native separators
+    /// on Windows (C:\Users\x, \\nas\share), never the URL's
+    /// "/C:/...". Unchanged elsewhere.
+    Q_INVOKABLE QString displayPath(const QUrl &url) const;
+    /// Whether `name` can be created as a file or folder here: never empty,
+    /// ".", "..", a separator or NUL; on Windows also isValidWindowsLeaf().
+    Q_INVOKABLE bool isValidLeafName(const QString &name) const;
 
     static constexpr int kStatTimeoutMs = 2000;
     /// Listing threads (and, separately, stat threads) allowed out at once;
@@ -191,6 +202,20 @@ public:
     static bool matchesFilters(const QString &name, const QStringList &globs);
     /// The kind of a file name, from its extension.
     static QString kindForName(const QString &name);
+    /// The root the path bar starts from for a path outside home: the path's
+    /// own drive ("D:/") or UNC share ("//server/share/"), so a folder on
+    /// another Windows drive is not spelled under C:/, else
+    /// QDir::rootPath(). String arithmetic only.
+    static QString pathRoot(const QString &cleanPath);
+    /// The pure halves of the invokables above, testable on any host.
+    static QVariantList driveEntries(const QStringList &roots);
+    static QString displayPathFor(const QString &localPath, bool windows);
+    static bool isValidLeaf(const QString &name, bool windows);
+    /// Windows' own rules for one path component: none of <>:"/\|?* or a
+    /// control character, no trailing dot or space, and not a reserved
+    /// device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9, also with an
+    /// extension, "nul.txt"), in any case.
+    static bool isValidWindowsLeaf(const QString &name);
 
 Q_SIGNALS:
     void folderChanged();

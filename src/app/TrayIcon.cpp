@@ -18,6 +18,8 @@
 #include <QSystemTrayIcon>
 #include <QTimer>
 
+#include <algorithm>
+
 #ifdef Q_OS_WIN
 #include <QLoggingCategory>
 #include <QSettings>
@@ -430,6 +432,47 @@ int TrayIcon::balloonTimeoutMs(bool isMac)
     return isMac ? 0 : 10000;
 }
 
+int TrayIcon::balloonHoldMsFor(int durationSeconds)
+{
+    // Windows' own default when the setting cannot be read; capped at its
+    // longest choice (5 minutes). The margin covers the fade-out, which is
+    // still on screen and clickable.
+    constexpr int kDefaultSeconds = 5;
+    constexpr int kLongestSeconds = 300;
+    constexpr int kMarginMs = 1000;
+    const int seconds = durationSeconds > 0
+        ? std::min(durationSeconds, kLongestSeconds)
+        : kDefaultSeconds;
+    return seconds * 1000 + kMarginMs;
+}
+
+int TrayIcon::balloonHoldMs()
+{
+#ifdef Q_OS_WIN
+    ULONG seconds = 0;
+    if (SystemParametersInfoW(SPI_GETMESSAGEDURATION, 0, &seconds, 0))
+        return balloonHoldMsFor(int(std::min<ULONG>(seconds, 3600)));
+#endif
+    return balloonHoldMsFor(0);
+}
+
+bool TrayIcon::canWithdrawBalloon()
+{
+#ifdef Q_OS_WIN
+    return true;
+#else
+    return false;
+#endif
+}
+
+void TrayIcon::hideMessage()
+{
+#ifdef Q_OS_WIN
+    if (m_icon && m_icon->isVisible())
+        hideNativeBalloon();
+#endif
+}
+
 bool TrayIcon::showMessage(const QString &title, const QString &body,
                            const QImage &image, bool platformSound)
 {
@@ -570,6 +613,28 @@ void TrayIcon::releaseBalloonIcon()
         DestroyIcon(static_cast<HICON>(m_balloonIcon));
         m_balloonIcon = nullptr;
     }
+}
+
+void TrayIcon::hideNativeBalloon()
+{
+    // As showNativeBalloon(): only Qt's tray window on this (the GUI) thread
+    // is a safe and unambiguous target.
+    if (QThread::currentThread() != thread())
+        return;
+    TrayWindowSearch search;
+    EnumThreadWindows(GetCurrentThreadId(), findQtTrayWindow,
+                      reinterpret_cast<LPARAM>(&search));
+    if (search.matches != 1)
+        return;
+    NOTIFYICONDATAW data;
+    std::memset(&data, 0, sizeof(data));
+    data.cbSize = sizeof(data);
+    data.hWnd = search.found;
+    data.uID = kQtTrayIconId;
+    // "To remove a balloon notification from the UI, ... set the NIF_INFO
+    // flag in uFlags and set szInfo to an empty string" (Shell_NotifyIconW).
+    data.uFlags = NIF_INFO | NIF_SHOWTIP;
+    Shell_NotifyIconW(NIM_MODIFY, &data);
 }
 
 bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,

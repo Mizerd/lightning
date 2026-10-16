@@ -243,8 +243,11 @@ FileChooser::Route FileChooser::fallbackRoute(const Environment &env)
     // On Linux without a portal, QFileDialog is Qt's widget dialog unless a
     // desktop's Qt plugin happens to be loaded (never in the AppImage, the
     // Flatpak or the Nix shell): the app's theme reaches it only as a
-    // palette. Lightning's own chooser is drawn like the rest of the app.
-    return env.linuxDesktop ? Route::InApp : Route::QtDialog;
+    // palette. On Windows it is the system dialog, which follows the
+    // system's colours and none of the app's, so it stayed white under a
+    // dark theme (live test 2026-10-16). Lightning's own chooser is drawn
+    // like the rest of the app. macOS keeps its system panel.
+    return (env.linuxDesktop || env.windows) ? Route::InApp : Route::QtDialog;
 }
 
 FileChooser::Environment FileChooser::hostEnvironment()
@@ -252,6 +255,9 @@ FileChooser::Environment FileChooser::hostEnvironment()
     Environment env;
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN) && !defined(Q_OS_ANDROID)
     env.linuxDesktop = true;
+#endif
+#ifdef Q_OS_WIN
+    env.windows = true;
 #endif
 #ifdef HAVE_QT_DBUS
     env.sessionBus = QDBusConnection::sessionBus().isConnected();

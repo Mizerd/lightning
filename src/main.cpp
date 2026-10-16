@@ -33,6 +33,7 @@
 #include "app/AsyncLogSink.h"
 #include "app/LogExport.h"
 #include "app/GuiStallTracer.h"
+#include "app/WindowFrameTheme.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
@@ -2288,6 +2289,9 @@ int main(int argc, char *argv[])
     };
     // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE).
     stalltrace::install();
+    // Windows: the title bar follows the app theme's light or dark palette
+    // (WindowFrameTheme.h). Before any window exists; a no-op elsewhere.
+    lightning::windowframe::install();
 
     // One process per data root: two SDK clients on one store corrupt it.
     // After every preflight flag that exits (validators run those while the

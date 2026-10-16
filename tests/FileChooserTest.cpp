@@ -8,8 +8,9 @@
 // the desktop's Qt plugin. Now every chooser goes through FileChooser: the
 // portal on Linux (KDE's, GNOME's, COSMIC's own dialog, and the only one a
 // Flatpak or Snap may use), Lightning's own chooser on Linux without one
-// (2026-10-15: QFileDialog's widget dialog there ignored the theme), and
-// QFileDialog on Windows and macOS.
+// (2026-10-15: QFileDialog's widget dialog there ignored the theme) and on
+// Windows (2026-10-16: the system dialog stayed white under a dark theme),
+// and QFileDialog on macOS.
 //
 // The portal here is a fake on a PRIVATE dbus-daemon whose configuration has
 // no service directories, so nothing on this machine can be activated on it:
@@ -200,6 +201,7 @@ private Q_SLOTS:
     void aCancelledPortalDialogIsARejection();
     void aPortalThatRefusesTheCallFallsBackToTheInAppChooser();
     void linuxWithoutABusAsksTheInAppChooserPrefilled();
+    void windowsAsksTheInAppChooserToOpenAndToSave();
     void theInAppChooserIsAnsweredOnlyForItsOwnRequests();
     void withNoInAppHostTheRequestIsCancelledNotHung();
     void theBaseNameIsWhatIsPreselected();
@@ -298,9 +300,20 @@ void FileChooserTest::theRouteFollowsThePlatformAndTheOverride()
     QCOMPARE(FileChooser::initialRoute(env), R::InApp);
     QCOMPARE(FileChooser::fallbackRoute(env), R::InApp);
     env = {};
-    env.sessionBus = true; // Windows / macOS: the system dialog via Qt
+    env.sessionBus = true; // macOS: the system dialog via Qt
     QCOMPARE(FileChooser::initialRoute(env), R::QtDialog);
     QCOMPARE(FileChooser::fallbackRoute(env), R::QtDialog);
+    // Windows: Lightning's own themed chooser, for open and save alike (the
+    // route does not depend on the mode). The system dialog there stayed
+    // white under a dark app theme (live test 2026-10-16).
+    env = {};
+    env.windows = true;
+    QCOMPARE(FileChooser::initialRoute(env), R::InApp);
+    QCOMPARE(FileChooser::fallbackRoute(env), R::InApp);
+    env.sessionBus = true; // a bus on Windows does not make a portal
+    QCOMPARE(FileChooser::initialRoute(env), R::InApp);
+    env.override = QStringLiteral("qt"); // the system dialog, on request
+    QCOMPARE(FileChooser::initialRoute(env), R::QtDialog);
     env = linuxWithBus();
     env.override = QStringLiteral("app");
     QCOMPARE(FileChooser::initialRoute(env), R::InApp);
@@ -624,6 +637,48 @@ void FileChooserTest::linuxWithoutABusAsksTheInAppChooserPrefilled()
     QCOMPARE(finished.at(0).at(2).value<QList<QUrl>>(), QList<QUrl>{chosen});
     QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("PDF file (*.pdf)"));
     QCOMPARE(chooser.lastUsedRoute(), FileChooser::Route::InApp);
+}
+
+// Live Windows test 2026-10-16 (FAIL 5): Save as opened the Windows system
+// dialog, which stayed white under a dark app theme. Windows now asks
+// Lightning's own chooser for every mode, with the name prefilled, and never
+// runs QFileDialog. On the previous code both requests went to the Qt runner.
+void FileChooserTest::windowsAsksTheInAppChooserToOpenAndToSave()
+{
+    FileChooser::Environment env;
+    env.windows = true;
+    env.sessionBus = true;
+    FileChooser chooser(env);
+    int qtRuns = 0;
+    chooser.setQtRunner([&qtRuns](const FileChooser::Request &, bool,
+                                  FileChooser::Completion done) {
+        ++qtRuns;
+        done(false, {}, {});
+    });
+    QList<QVariantMap> asked;
+    connect(&chooser, &FileChooser::inAppRequested, &chooser,
+            [&](int, const QVariantMap &request) { asked.append(request); });
+    const int save = chooser.open(QVariantMap{
+        {QStringLiteral("mode"), QStringLiteral("save")},
+        {QStringLiteral("currentName"),
+         QStringLiteral("l324-attachment-report.txt")},
+    });
+    const int open = chooser.open(QVariantMap{
+        {QStringLiteral("mode"), QStringLiteral("open")},
+    });
+    QTRY_COMPARE(asked.size(), 2);
+    QCOMPARE(qtRuns, 0);
+    QCOMPARE(asked.at(0).value(QStringLiteral("id")).toInt(), save);
+    QCOMPARE(asked.at(0).value(QStringLiteral("mode")).toString(),
+             QStringLiteral("save"));
+    QCOMPARE(asked.at(0).value(QStringLiteral("currentName")).toString(),
+             QStringLiteral("l324-attachment-report.txt"));
+    QCOMPARE(asked.at(1).value(QStringLiteral("id")).toInt(), open);
+    QCOMPARE(asked.at(1).value(QStringLiteral("mode")).toString(),
+             QStringLiteral("open"));
+    QCOMPARE(chooser.routeName(), QStringLiteral("app"));
+    chooser.answerInApp(save, false, {}, {});
+    chooser.answerInApp(open, false, {}, {});
 }
 
 void FileChooserTest::theInAppChooserIsAnsweredOnlyForItsOwnRequests()

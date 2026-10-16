@@ -807,6 +807,8 @@ set(APP_SOURCES
     src/media/MediaVisibilityStore.cpp
     src/app/TrayIcon.h
     src/app/TrayIcon.cpp
+    src/app/WindowFrameTheme.h
+    src/app/WindowFrameTheme.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
     # SIGTERM/SIGINT/SIGHUP routed into an orderly quit (B117).
@@ -3036,6 +3038,21 @@ if(BUILD_TESTING)
     )
     target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME theme-tokens COMMAND theme-tokens-test)
+
+    # The Windows title bar's dark/light request, from the app palette, over
+    # every AppTheme palette.
+    qt_add_executable(window-frame-theme-test
+        tests/WindowFrameThemeTest.cpp
+        src/app/WindowFrameTheme.h
+        src/app/WindowFrameTheme.cpp
+    )
+    target_include_directories(window-frame-theme-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(window-frame-theme-test PRIVATE
+        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
+    )
+    target_link_libraries(window-frame-theme-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME window-frame-theme COMMAND window-frame-theme-test)
 
     # Attachment pipeline: validation, MIME from content, queue state machine,
     # retry, stale-completion rejection, lifecycle clears.

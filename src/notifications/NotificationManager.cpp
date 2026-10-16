@@ -453,6 +453,10 @@ NotificationManager::NotificationManager(QObject *parent)
     m_callRingTimer.setInterval(5000);
     connect(&m_callRingTimer, &QTimer::timeout, this,
             &NotificationManager::onCallRingTick);
+    // How long one balloon keeps the screen; see offerBalloon().
+    m_balloonHold.setSingleShot(true);
+    connect(&m_balloonHold, &QTimer::timeout, this,
+            &NotificationManager::onBalloonHoldExpired);
 }
 
 void NotificationManager::onCallRingTick()
@@ -545,9 +549,7 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     if (context.roomHydrating)
         return decision;
 
-    const QString sender = isolate(event.senderDisplayName.isEmpty()
-        ? matrix::user_lookup::localpartOrUserId(event.sender)
-        : event.senderDisplayName);
+    const QString sender = isolate(senderLabel(event, context));
     const QString room = isolate(context.roomName.isEmpty()
         ? QCoreApplication::translate("Notifications", "Matrix room")
         : context.roomName);
@@ -631,6 +633,28 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         break;
     }
     return decision;
+}
+
+QString NotificationManager::senderLabel(const TimelineEvent &event,
+                                        const Context &context)
+{
+    // The event's name comes from two places that disagree for a sender the
+    // member list does not know yet: the SDK timeline leaves it empty, and
+    // the background-sync path fills in the bare user id
+    // (RustSdkMatrixClient::displayNameFor). Both mean "no name", or one
+    // sender would read "@six:example.org in A" in one card and "six in B" in
+    // the next (live Windows test, 2026-10-16).
+    const auto named = [&event](const QString &name) {
+        const QString trimmed = name.trimmed();
+        return !trimmed.isEmpty() && trimmed != event.sender;
+    };
+    if (named(event.senderDisplayName))
+        return event.senderDisplayName;
+    if (named(context.senderMemberName))
+        return context.senderMemberName;
+    if (named(context.senderProfileName))
+        return context.senderProfileName;
+    return matrix::user_lookup::localpartOrUserId(event.sender);
 }
 
 bool NotificationManager::shouldNotifyInvite(bool initialSyncComplete,
@@ -1016,9 +1040,9 @@ void NotificationManager::clearPendingFor(const QString &accountUserId)
         // The tray balloon's payload is a pending click too; clear it so a
         // balloon left on screen cannot route into the previous account's
         // room.
-        m_lastFallbackPayload.clear();
-        m_lastFallbackAccountKey.clear();
+        m_balloonQueue.clear();
         m_balloonRooms.clear();
+        retireBalloonOnScreen();
         return;
     }
     // Another account: only what is tagged with it. Its withdrawn cards'
@@ -1040,10 +1064,24 @@ void NotificationManager::clearPendingFor(const QString &accountUserId)
     if (m_heldUtds.isEmpty())
         m_utdHoldTimer.stop();
     // A balloon this account raised cannot route into it any more; a click
-    // still raises the window.
-    if (m_lastFallbackAccountKey == accountUserId) {
-        m_lastFallbackPayload.clear();
-        m_lastFallbackAccountKey.clear();
+    // still raises the window. What it had waiting goes too.
+    const auto ownBalloon = [&accountUserId](const Balloon &balloon) {
+        return balloon.accountKey == accountUserId;
+    };
+    m_balloonQueue.removeIf(ownBalloon);
+    // Including what a summary on screen stands for, so no break-through
+    // re-queues it.
+    m_shownEntries.removeIf(ownBalloon);
+    if (m_lastFallbackAccountKey == accountUserId
+        && !m_lastFallbackPayload.isEmpty()) {
+        // Whatever else it stood for waits again, and goes out at once.
+        const QList<Balloon> rest = std::exchange(m_shownEntries, {});
+        retireBalloonOnScreen();
+        for (Balloon entry : rest) {
+            entry.platformSound = false;
+            enqueueBalloon(std::move(entry), /*older=*/true);
+        }
+        showPendingBalloons();
     }
 }
 
@@ -1148,8 +1186,18 @@ int NotificationManager::withdrawWhere(
     const auto cardMatches = [&match, &accountKey](const Card &card) {
         return card.accountKey == accountKey && match(card.payload);
     };
+    // And messages waiting behind the balloon on screen: a room that was
+    // read, or a card withdrawn, is not news for the summary either.
     const qsizetype dropped = m_avatarWaits.removeIf(cardMatches)
-        + m_capabilityWaits.removeIf(cardMatches);
+        + m_capabilityWaits.removeIf(cardMatches)
+        + m_balloonQueue.removeIf([&match, &accountKey](const Balloon &b) {
+              return b.accountKey == accountKey && match(b.payload);
+          });
+    // What the balloon on screen stands for, too: a break-through would
+    // otherwise put a read room back into the summary.
+    m_shownEntries.removeIf([&match, &accountKey](const Balloon &b) {
+        return b.accountKey == accountKey && match(b.payload);
+    });
     if (dropped > 0) {
         // Count only, so it is distinguishable from never having raised one.
         qCInfo(lcNotify) << "dropped" << dropped
@@ -1649,8 +1697,9 @@ void NotificationManager::deliverNow(Card card)
             return;
         const SoundPlan plan =
             takeSoundPlan(c.sound, mention, trayCarriesSound());
-        if (!deliverThroughTray(c.title, c.body, c.payload, c.avatar,
-                                plan.platformSound, c.accountKey))
+        if (!offerBalloon(Balloon{ c.title, c.body, c.payload, c.avatar,
+                                   plan.platformSound, c.accountKey },
+                          /*breakThrough=*/mention || roomId.isEmpty()))
             qCInfo(lcNotify) << "notification service unavailable";
         // Delivered or not, the window can still ask for attention.
         if (isMessage)
@@ -1761,9 +1810,13 @@ void NotificationManager::deliverNow(Card card)
             qCWarning(lcNotify) << "notification server refused the notification:"
                                 << reply.error().name();
         if (!card.replacement
-            && !deliverThroughTray(card.title, card.body, card.payload,
-                                   card.avatar, platformSound,
-                                   card.accountKey))
+            && !offerBalloon(
+                Balloon{ card.title, card.body, card.payload, card.avatar,
+                         platformSound, card.accountKey },
+                /*breakThrough=*/card.payload.value(QStringLiteral("mention"))
+                        .toBool()
+                    || card.payload.value(QStringLiteral("roomId")).toString()
+                           .isEmpty()))
             qCInfo(lcNotify) << "notification service unavailable";
         if (!groupKey.isEmpty()) {
             QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
@@ -1926,9 +1979,17 @@ bool NotificationManager::deliverThroughTray(const QString &title,
     m_lastTrayTitle = title;
     m_lastTrayBody = body;
     m_lastTrayPayload = payload;
-    if (!m_fallbackTray
-        || !m_fallbackTray->showMessage(title, body, avatar, platformSound))
+    if (m_fallbackTray) {
+        // Gate only: the one on screen goes first, or Windows would queue
+        // this one behind it and a click on either would reach us as the
+        // same signal, resolved to this payload.
+        if (m_balloonMayBeVisible && balloonGate())
+            m_fallbackTray->hideMessage();
+        if (!m_fallbackTray->showMessage(title, body, avatar, platformSound))
+            return false;
+    } else if (!m_trayShowsForTest) {
         return false;
+    }
     noteBalloon(accountKey, payload);
     if (!payload.value(QStringLiteral("roomId")).toString().isEmpty())
         qCInfo(lcNotify) << "notification delivered through the tray balloon";
@@ -1938,40 +1999,283 @@ bool NotificationManager::deliverThroughTray(const QString &title,
 void NotificationManager::noteBalloon(const QString &accountKey,
                                       const QVariantMap &payload)
 {
-    // One balloon slot: the latest payload is the one a click resolves to,
-    // unless balloons for other rooms are outstanding too. The payload names
-    // its account, which the click carries (openRequestedForAccount).
+    // The latest payload is the one a click resolves to: with the gate,
+    // until it is clicked, replaced or has had its time; without it, unless
+    // balloons for other rooms are outstanding too. The payload names its
+    // account, which the click carries (openRequestedForAccount).
     m_lastFallbackPayload = payload;
     m_lastFallbackAccountKey = accountKey;
-    m_balloonRooms.insert(
-        routableRoomId(payload.value(QStringLiteral("roomId")).toString()));
+    m_balloonIsCall = false;
+    m_shownEntries.clear();
+    if (!balloonGate()) {
+        m_balloonRooms.insert(
+            routableRoomId(payload.value(QStringLiteral("roomId")).toString()));
+        return;
+    }
+    m_balloonMayBeVisible = true;
+    // Read per balloon: the user can change Windows' duration at any time.
+    m_balloonHold.start(std::max(0, m_balloonHoldOverrideMs >= 0
+                                        ? m_balloonHoldOverrideMs
+                                        : TrayIcon::balloonHoldMs()));
+}
+
+bool NotificationManager::balloonGate() const
+{
+    if (m_balloonWithdrawableOverride >= 0)
+        return m_balloonWithdrawableOverride == 1;
+    return TrayIcon::canWithdrawBalloon();
+}
+
+void NotificationManager::deliverThroughTrayForTest(
+    const QString &accountUserId, const QVariantMap &payload)
+{
+    const bool shows = std::exchange(m_trayShowsForTest, true);
+    offerBalloon(Balloon{ QString(), QString(), payload, QImage(), false,
+                          accountUserId },
+                 payload.value(QStringLiteral("mention")).toBool()
+                     || payload.value(QStringLiteral("roomId")).toString()
+                            .isEmpty());
+    m_trayShowsForTest = shows;
+}
+
+int NotificationManager::pendingBalloonMessagesForTest() const
+{
+    int messages = 0;
+    for (const Balloon &balloon : m_balloonQueue)
+        messages += balloon.messages;
+    return messages;
+}
+
+// A balloon's click (QSystemTrayIcon::messageClicked) carries no id, and
+// Windows queues balloons, showing each for its notification duration: a
+// click on an older one arrived as "the" click, while the payload we held was
+// the newest's, and from the second room on we could only raise the window
+// (live Windows test 2026-10-16: 4 of 4 clicks on an older balloon lost, the
+// latest one opening Home). So where a balloon can be taken down (Windows),
+// at most one is on screen at a time, and a click always means that one.
+// What arrives while it is up waits as one entry per room (or thread),
+// merged, and goes out as one summary when its time is up. A mention, or a
+// notice with no room, breaks through at once, as it breaks through the
+// sound burst rule; the balloon it displaces goes back into the summary.
+//
+// Where nothing can take a balloon down (macOS keeps old notifications in
+// Notification Center, a Linux tray has no call for it) a click may come from
+// any of them, so every balloon is shown and the click guard counts rooms
+// instead (noteBalloon, onFallbackMessageClicked).
+bool NotificationManager::offerBalloon(Balloon balloon, bool breakThrough)
+{
+    if (!balloonGate())
+        return deliverThroughTray(balloon.title, balloon.body, balloon.payload,
+                                  balloon.avatar, balloon.platformSound,
+                                  balloon.accountKey);
+    if (m_balloonIsCall && m_balloonHold.isActive())
+        breakThrough = false;
+    if (!breakThrough && m_balloonHold.isActive()) {
+        enqueueBalloon(std::move(balloon), /*older=*/false);
+        return true;
+    }
+    const QString roomId = routableRoomId(
+        balloon.payload.value(QStringLiteral("roomId")).toString());
+    const QString accountKey = balloon.accountKey;
+    requeueDisplacedBalloon();
+    if (!deliverThroughTray(balloon.title, balloon.body, balloon.payload,
+                            balloon.avatar, balloon.platformSound,
+                            balloon.accountKey))
+        return false;
+    // Shown: what its own room had waiting is covered by it.
+    if (!roomId.isEmpty()) {
+        m_balloonQueue.removeIf([&](const Balloon &waiting) {
+            return waiting.accountKey == accountKey
+                && routableRoomId(waiting.payload
+                                      .value(QStringLiteral("roomId"))
+                                      .toString())
+                    == roomId;
+        });
+    }
+    m_shownEntries = { std::move(balloon) };
+    return true;
+}
+
+void NotificationManager::requeueDisplacedBalloon()
+{
+    // A break-through (or the call's balloon) displaces a balloon nobody has
+    // clicked: what it stood for is still news, so it waits in the summary
+    // (it has alerted once). Withdrawals and account clears keep
+    // m_shownEntries current, so nothing read or signed out comes back.
+    if (!balloonGate() || !m_balloonHold.isActive())
+        return;
+    const QList<Balloon> displaced = std::exchange(m_shownEntries, {});
+    for (Balloon entry : displaced) {
+        entry.platformSound = false;
+        enqueueBalloon(std::move(entry), /*older=*/true);
+    }
+}
+
+void NotificationManager::enqueueBalloon(Balloon balloon, bool older)
+{
+    // One entry per account and card group: the newest message stands for
+    // the ones before it, and keeps any platform sound none of them made.
+    const auto groupOf = [](const Balloon &b) {
+        const QString group = b.payload.value(QStringLiteral("group")).toString();
+        return group.isEmpty()
+            ? routableRoomId(b.payload.value(QStringLiteral("roomId")).toString())
+            : group;
+    };
+    const QString group = groupOf(balloon);
+    for (qsizetype i = 0; i < m_balloonQueue.size(); ++i) {
+        Balloon &waiting = m_balloonQueue[i];
+        if (waiting.accountKey != balloon.accountKey || groupOf(waiting) != group)
+            continue;
+        if (older) {
+            waiting.messages += balloon.messages;
+            return;
+        }
+        balloon.messages += waiting.messages;
+        balloon.platformSound = balloon.platformSound || waiting.platformSound;
+        m_balloonQueue.removeAt(i);
+        break;
+    }
+    if (older)
+        m_balloonQueue.prepend(std::move(balloon));
+    else
+        m_balloonQueue.append(std::move(balloon));
+    // Bounded by rooms rather than traffic; past the cap the oldest room's
+    // entry goes (the summary still counts what remains).
+    while (m_balloonQueue.size() > kMaxPendingPayloads)
+        m_balloonQueue.removeFirst();
+}
+
+void NotificationManager::showPendingBalloons()
+{
+    if (m_balloonQueue.isEmpty())
+        return;
+    QSet<QString> rooms;
+    QSet<QString> accounts;
+    int messages = 0;
+    bool platformSound = false;
+    for (const Balloon &balloon : std::as_const(m_balloonQueue)) {
+        rooms.insert(balloon.accountKey + QChar(0x1f)
+                     + routableRoomId(balloon.payload
+                                          .value(QStringLiteral("roomId"))
+                                          .toString()));
+        accounts.insert(balloon.payload.value(QStringLiteral("accountUserId"))
+                            .toString());
+        messages += balloon.messages;
+        platformSound = platformSound || balloon.platformSound;
+    }
+    Balloon summary;
+    if (rooms.size() == 1) {
+        // One room: its latest message, as its own card would read, and a
+        // click that opens it.
+        summary = m_balloonQueue.last();
+    } else {
+        // Several: a count, which names no room (so it holds under every
+        // preview mode), and a click that opens no room.
+        summary.title = QStringLiteral("Lightning");
+        summary.body =
+            QCoreApplication::translate("Notifications", "%n new messages",
+                                        nullptr, messages)
+            + QLatin1Char(' ')
+            + QCoreApplication::translate("Notifications", "in %n rooms",
+                                          nullptr, int(rooms.size()));
+        summary.payload = QVariantMap{
+            { QStringLiteral("roomId"), QString() },
+            { QStringLiteral("eventId"), QString() },
+            { QStringLiteral("threadRootId"), QString() },
+            { QStringLiteral("accountUserId"),
+              accounts.size() == 1 ? *accounts.cbegin() : QString() },
+        };
+        // The table it was raised from: its accounts' one, or none for a
+        // count across accounts (an account clear then drops that account's
+        // entries from what it stands for, and leaves the count).
+        QSet<QString> keys;
+        for (const Balloon &balloon : std::as_const(m_balloonQueue))
+            keys.insert(balloon.accountKey);
+        summary.accountKey = keys.size() == 1 ? *keys.cbegin() : QString();
+    }
+    summary.platformSound = platformSound;
+    qCInfo(lcNotify) << "tray balloon summary messages=" << messages
+                     << "rooms=" << rooms.size();
+    if (!deliverThroughTray(summary.title, summary.body, summary.payload,
+                            summary.avatar, summary.platformSound,
+                            summary.accountKey)) {
+        // Kept: the next balloon's time running out tries again.
+        qCInfo(lcNotify) << "notification service unavailable";
+        return;
+    }
+    m_shownEntries = std::exchange(m_balloonQueue, {});
+}
+
+void NotificationManager::onBalloonHoldExpired()
+{
+    // Its time is up: Windows has taken it down, so it routes nowhere any
+    // more and the next show needs no removal first (one the pointer still
+    // rests on is left alone: a removal is for a real break-through). What
+    // waited behind it goes out now.
+    m_lastFallbackPayload.clear();
+    m_lastFallbackAccountKey.clear();
+    m_balloonMayBeVisible = false;
+    m_shownEntries.clear();
+    showPendingBalloons();
+}
+
+void NotificationManager::retireBalloonOnScreen()
+{
+    m_lastFallbackPayload.clear();
+    m_lastFallbackAccountKey.clear();
+    m_balloonHold.stop();
+    m_balloonIsCall = false;
+    m_shownEntries.clear();
+    if (std::exchange(m_balloonMayBeVisible, false) && m_fallbackTray)
+        m_fallbackTray->hideMessage();
 }
 
 void NotificationManager::onFallbackMessageClicked()
 {
     const QVariantMap payload = std::exchange(m_lastFallbackPayload, {});
-    m_lastFallbackAccountKey.clear();
+    const QString accountKey = std::exchange(m_lastFallbackAccountKey, {});
     const qsizetype rooms = m_balloonRooms.size();
     m_balloonRooms.clear();
+    // The platform took the clicked balloon down; the screen is free.
+    m_balloonHold.stop();
+    m_balloonMayBeVisible = false;
+    m_balloonIsCall = false;
+    m_shownEntries.clear();
     // Windows toast click reported as doing nothing on the first of three
-    // clicks (2026-10-14, cause unknown). Booleans and a count only, so a
+    // clicks (2026-10-14, cause unknown). Booleans and counts only, so a
     // capture can tell "Qt never delivered the click" (no line) from
     // "delivered with no payload stored" from "routed" without logging a room
     // id.
     qCInfo(lcNotify) << "tray balloon clicked payload="
                      << (!payload.isEmpty()) << "room="
                      << !payload.value(QStringLiteral("roomId")).toString().isEmpty()
-                     << "rooms=" << rooms;
-    // Qt reports a click on any of the balloons as the same signal. With more
-    // than one room outstanding the latest is a guess that is wrong for every
-    // other balloon, so the window comes up without choosing a room.
-    if (rooms > 1) {
-        emitOpenFor({});
+                     << "rooms=" << rooms << "pending=" << m_balloonQueue.size();
+    if (!balloonGate()) {
+        // Qt reports a click on any of the balloons as the same signal. With
+        // more than one room outstanding the latest is a guess that is wrong
+        // for every other balloon, so the window comes up without choosing
+        // a room.
+        emitOpenFor(rooms > 1 ? QVariantMap{} : payload);
         return;
     }
-    // An empty payload (already used, or signed out) still raises the window:
-    // a click that does nothing reads as a broken notification.
+    // Only one balloon is ever on screen (offerBalloon), so the click is the
+    // one it showed: its room, or no room for a several-room summary. An
+    // empty payload (timed out, or signed out) still raises the window: a
+    // click that does nothing reads as a broken notification.
     emitOpenFor(payload);
+    // The room just opened is not news for the next balloon.
+    const QString roomId =
+        routableRoomId(payload.value(QStringLiteral("roomId")).toString());
+    if (!roomId.isEmpty()) {
+        m_balloonQueue.removeIf([&](const Balloon &waiting) {
+            return waiting.accountKey == accountKey
+                && routableRoomId(waiting.payload
+                                      .value(QStringLiteral("roomId"))
+                                      .toString())
+                    == roomId;
+        });
+    }
+    showPendingBalloons();
 }
 
 // Every openRequested goes through here and is normalised again, since
@@ -2477,6 +2781,9 @@ bool NotificationManager::deliverCallThroughTray()
         { QStringLiteral("accountUserId"), m_accountUserId },
     };
     m_lastCallTrayPayload = payload;
+    // It takes the screen from any message balloon, which waits in the
+    // summary instead of being lost.
+    requeueDisplacedBalloon();
     // m_activeCallSound is the caller's "the desktop rings", true only when
     // ringing is on and Lightning's own ringer cannot play (AppController);
     // with our ringer running, or ringing off, the balloon stays silent.
@@ -2486,5 +2793,7 @@ bool NotificationManager::deliverCallThroughTray()
                             "notification service and no tray balloon";
         return false;
     }
+    // Messages wait behind it, mentions included (offerBalloon).
+    m_balloonIsCall = true;
     return true;
 }

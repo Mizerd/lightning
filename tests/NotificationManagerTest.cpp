@@ -141,6 +141,17 @@ private Q_SLOTS:
     void aSixtyFifthCardEvictsOnlyThatAccountsOldest();
     void aClearOfOneAccountDoesNotRejectAnothersReply();
     void aBalloonCarriesTheAccountItWasRaisedFor();
+    // Live Windows test 2026-10-16 (FAIL 2c, and the title's sender).
+    void aSecondRoomWaitsForTheBalloonOnScreen();
+    void waitingBalloonsGoOutAsOneSummary();
+    void aMentionBreaksThroughTheBalloonOnScreen();
+    void aMentionWaitsBehindTheCallBalloon();
+    void withoutWithdrawalEveryBalloonShowsAndTwoRoomsOpenHome();
+    void anAccountClearEmptiesOnlyItsBalloons();
+    void aDisplacedBalloonBringsBackNothingReadOrCleared();
+    void aReadRoomLeavesTheBalloonSummary();
+    void theBalloonHoldFollowsTheNotificationDuration();
+    void theSenderIsNamedTheSameWhicheverPathDeliveredIt();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -2608,6 +2619,9 @@ void NotificationManagerTest::aMissedCallSurvivesTheReadWalk()
 void NotificationManagerTest::twoRoomsOfBalloonsOpenNeitherByGuess()
 {
     NotificationManager manager;
+    // Where a balloon cannot be taken down (macOS); Windows: see
+    // aSecondRoomWaitsForTheBalloonOnScreen.
+    manager.setBalloonWithdrawableForTest(false);
     QSignalSpy opened(&manager, &NotificationManager::openRequested);
     manager.deliverThroughTrayForTest(
         messagePayload(QStringLiteral("!a:x"), QStringLiteral("$a:x")));
@@ -2904,6 +2918,8 @@ void NotificationManagerTest::everyOpenNamesItsAccountFirst()
     const QString root = QStringLiteral("$root:example.org");
     QStringList log;
     NotificationManager manager;
+    // The per-room click guard (no balloon withdrawal), on every host.
+    manager.setBalloonWithdrawableForTest(false);
     recordRouting(manager, log);
     manager.setAccountUserId(kAnn);
 
@@ -3248,6 +3264,498 @@ void NotificationManagerTest::aBalloonCarriesTheAccountItWasRaisedFor()
                QString() }),
         line({ QStringLiteral("open"), QString(), QString(), QString() }),
     }));
+}
+
+// ── Live Windows test 2026-10-16 (pipeline 324) ────────────────────────────
+
+// FAIL 2c: with balloons from two rooms, a click opened Home, and a click on
+// an older balloon Windows still had queued never arrived. Only one balloon is
+// on screen now; the second room waits, so the click is the one shown.
+void NotificationManagerTest::aSecondRoomWaitsForTheBalloonOnScreen()
+{
+    NotificationManager manager;
+    manager.setTrayShowsForTest(true);
+    manager.setBalloonWithdrawableForTest(true);
+    manager.setBalloonHoldMsForTest(60000);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                QStringLiteral("$a1:example.org")),
+                         baseContext());
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    QVERIFY(manager.balloonOnScreenForTest());
+    manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b1:example.org")),
+                         baseContext());
+    QVERIFY2(manager.trayAttemptsForTest() == 1,
+             "a second room raised a second balloon while the first was on "
+             "screen: Windows queues it, and a click on either reaches the app "
+             "as the same signal");
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.at(0).at(0).toString() == QStringLiteral("!a:example.org"),
+             qPrintable(QStringLiteral("the click on room A's balloon opened "
+                                       "\"%1\"")
+                            .arg(opened.at(0).at(0).toString())));
+    // The click freed the screen for the room that waited.
+    QCOMPARE(manager.trayAttemptsForTest(), 2);
+    QCOMPARE(manager.lastTrayPayloadForTest()
+                 .value(QStringLiteral("roomId")).toString(),
+             QStringLiteral("!b:example.org"));
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 2);
+    QCOMPARE(opened.at(1).at(0).toString(), QStringLiteral("!b:example.org"));
+}
+
+// What waits behind the balloon on screen goes out when its time is up, as
+// ONE balloon: the room's latest message when it is all one room's, otherwise
+// a count whose click opens no room.
+void NotificationManagerTest::waitingBalloonsGoOutAsOneSummary()
+{
+    {
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(50);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b2:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                    QStringLiteral("$c1:example.org")),
+                             baseContext());
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+        QCOMPARE(manager.pendingBalloonMessagesForTest(), 3);
+        QTRY_COMPARE(manager.trayAttemptsForTest(), 2);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 0);
+        QCOMPARE(manager.lastTrayTitleForTest(), QStringLiteral("Lightning"));
+        QCOMPARE(manager.lastTrayBodyForTest(),
+                 QStringLiteral("3 new messages in 2 rooms"));
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.count(), 1);
+        QVERIFY2(opened.at(0).at(0).toString().isEmpty(),
+                 "a summary of two rooms opened one of them by guess");
+    }
+    {
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(50);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b2:example.org")),
+                             baseContext());
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+        QTRY_COMPARE(manager.trayAttemptsForTest(), 2);
+        // One room: its latest message, routed to it.
+        QCOMPARE(manager.lastTrayPayloadForTest()
+                     .value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$b2:example.org"));
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!b:example.org"));
+    }
+}
+
+// A mention does not wait: it replaces the balloon on screen at once and
+// covers what its own room had waiting; the balloon it displaced goes back
+// into the summary (review L2). Queue entries go only once the mention is
+// actually shown (L3).
+void NotificationManagerTest::aMentionBreaksThroughTheBalloonOnScreen()
+{
+    NotificationManager manager;
+    manager.setTrayShowsForTest(true);
+    manager.setBalloonWithdrawableForTest(true);
+    manager.setBalloonHoldMsForTest(60000);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                QStringLiteral("$a1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                QStringLiteral("$c1:example.org")),
+                         baseContext());
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+    TimelineEvent mention = textIn(QStringLiteral("!b:example.org"),
+                                   QStringLiteral("$b2:example.org"));
+    mention.mentionsMe = true;
+    manager.processEvent(mention, baseContext());
+    QVERIFY2(manager.trayAttemptsForTest() == 2,
+             "a mention waited behind the balloon on screen");
+    QCOMPARE(manager.lastTrayPayloadForTest()
+                 .value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$b2:example.org"));
+    // B's waiting message is covered by the mention; A (displaced, never
+    // clicked) and C wait.
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+    QCOMPARE(manager.pendingBalloonMessagesForTest(), 2);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!b:example.org"));
+    // Then A and C, as one summary.
+    QCOMPARE(manager.trayAttemptsForTest(), 3);
+    QVERIFY(manager.lastTrayPayloadForTest()
+                .value(QStringLiteral("roomId")).toString().isEmpty());
+    QCOMPARE(manager.lastTrayBodyForTest(),
+             QStringLiteral("2 new messages in 2 rooms"));
+
+    // A mention that could not be shown removes nothing from the queue.
+    NotificationManager failing;
+    failing.setBalloonWithdrawableForTest(true);
+    failing.setBalloonHoldMsForTest(60000);
+    failing.setTrayShowsForTest(true);
+    failing.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                QStringLiteral("$a1:example.org")),
+                         baseContext());
+    failing.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b1:example.org")),
+                         baseContext());
+    failing.setTrayShowsForTest(false); // the tray refuses the next show
+    TimelineEvent lost = textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b2:example.org"));
+    lost.mentionsMe = true;
+    failing.processEvent(lost, baseContext());
+    QCOMPARE(failing.trayAttemptsForTest(), 2);
+    // B's entry is kept, A is back in the queue, nothing is dropped.
+    QCOMPARE(failing.pendingBalloonEntriesForTest(), 2);
+}
+
+// Where nothing can take a balloon down (macOS, a Linux tray), a click may
+// come from ANY balloon still on screen or in Notification Center: every
+// balloon is shown at once, a mention has nothing to break through, and a
+// click with more than one room raised since the last one opens no room
+// (review H1).
+void NotificationManagerTest::withoutWithdrawalEveryBalloonShowsAndTwoRoomsOpenHome()
+{
+    NotificationManager manager;
+    manager.setTrayShowsForTest(true);
+    manager.setBalloonWithdrawableForTest(false);
+    manager.setBalloonHoldMsForTest(60000);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                QStringLiteral("$a1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b1:example.org")),
+                         baseContext());
+    QVERIFY2(manager.trayAttemptsForTest() == 2,
+             "without balloon withdrawal a second room was held back");
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 0);
+    QVERIFY(!manager.balloonOnScreenForTest());
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.at(0).at(0).toString().isEmpty(),
+             "a click with two rooms' balloons out guessed the latest room");
+    // One room since the last click: that room.
+    manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                QStringLiteral("$c1:example.org")),
+                         baseContext());
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 2);
+    QCOMPARE(opened.at(1).at(0).toString(), QStringLiteral("!c:example.org"));
+}
+
+// Signing out (or switching account) while balloons wait: nothing waits any
+// more and nothing is shown when the time would have run out. Clearing ANOTHER
+// account drops its entries only; if its balloon was on screen, the rest goes
+// out at once (review M2).
+void NotificationManagerTest::anAccountClearEmptiesOnlyItsBalloons()
+{
+    {
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(50);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                    QStringLiteral("$c1:example.org")),
+                             baseContext());
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+        manager.clearPendingFor(QString());
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 0);
+        QVERIFY(!manager.balloonOnScreenForTest());
+        QTest::qWait(200);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+    }
+    auto bea = baseContext();
+    bea.accountUserId = kBea;
+    {
+        // Bea's balloon on screen, one entry each waiting.
+        NotificationManager manager;
+        manager.setAccountUserId(kAnn);
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             bea);
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                    QStringLiteral("$c1:example.org")),
+                             bea);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+        manager.clearPendingFor(kBea);
+        // Ann's room goes out at once, alone.
+        QCOMPARE(manager.trayAttemptsForTest(), 2);
+        QCOMPARE(manager.lastTrayPayloadForTest()
+                     .value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!b:example.org"));
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 0);
+        QVERIFY(manager.balloonOnScreenForTest());
+    }
+    {
+        // Ann's balloon on screen: clearing Bea leaves it, and Ann's entry.
+        NotificationManager manager;
+        manager.setAccountUserId(kAnn);
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             bea);
+        manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                    QStringLiteral("$c1:example.org")),
+                             baseContext());
+        manager.clearPendingFor(kBea);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!a:example.org"));
+    }
+}
+
+// The call's balloon is raised once per call and never again, so a mention
+// waits behind it rather than taking it off the screen.
+void NotificationManagerTest::aMentionWaitsBehindTheCallBalloon()
+{
+    NotificationManager manager;
+    manager.setTrayShowsForTest(true);
+    manager.setBalloonWithdrawableForTest(true);
+    manager.setBalloonHoldMsForTest(60000);
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), false, 60);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    TimelineEvent mention = textIn(QStringLiteral("!b:example.org"),
+                                   QStringLiteral("$b1:example.org"));
+    mention.mentionsMe = true;
+    manager.processEvent(mention, baseContext());
+    QVERIFY2(manager.trayAttemptsForTest() == 1,
+             "a mention took the call's one balloon off the screen");
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+    manager.stopIncomingCall(QStringLiteral("call-1"));
+}
+
+// A room read, or a card withdrawn, leaves the summary; and a balloon whose
+// time is up routes nowhere (it is off the screen).
+void NotificationManagerTest::aReadRoomLeavesTheBalloonSummary()
+{
+    NotificationManager manager;
+    manager.setTrayShowsForTest(true);
+    manager.setBalloonWithdrawableForTest(true);
+    manager.setAwaitUnreadMsForTest(0);
+    manager.setBalloonHoldMsForTest(200);
+    manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                QStringLiteral("$a1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                QStringLiteral("$c1:example.org")),
+                         baseContext());
+    manager.processEvent(textIn(QStringLiteral("!d:example.org"),
+                                QStringLiteral("$d1:example.org")),
+                         baseContext());
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 3);
+    manager.observeRoomUnread(QStringLiteral("!b:example.org"), false);
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 2);
+    manager.closeRoomNotifications(QStringLiteral("!c:example.org"));
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+    manager.withdrawEvent(QStringLiteral("$d1:example.org"));
+    QCOMPARE(manager.pendingBalloonEntriesForTest(), 0);
+    // Nothing left to show when the balloon's time is up, and it no longer
+    // routes: a late click raises the window and opens no room.
+    QTRY_VERIFY(!manager.balloonOnScreenForTest());
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QVERIFY(opened.at(0).at(0).toString().isEmpty());
+}
+
+// The hold outlasts Windows' notification duration, so a balloon is gone
+// before the next one is raised (Windows otherwise queues it).
+void NotificationManagerTest::theBalloonHoldFollowsTheNotificationDuration()
+{
+    QCOMPARE(TrayIcon::balloonHoldMsFor(5), 6000);
+    QCOMPARE(TrayIcon::balloonHoldMsFor(30), 31000);
+    // Unknown: Windows' default.
+    QCOMPARE(TrayIcon::balloonHoldMsFor(0), 6000);
+    QCOMPARE(TrayIcon::balloonHoldMsFor(-1), 6000);
+    // Capped at the longest choice Windows offers.
+    QCOMPARE(TrayIcon::balloonHoldMsFor(100000), 301000);
+    QVERIFY(TrayIcon::balloonHoldMs() >= 2000);
+}
+
+// The title named one sender "@six:example.org in A" in one card and "six in
+// B" in the next: the background-sync path fills the event's name with the
+// bare user id when the member list does not know the sender, the timeline
+// path leaves it empty. A user id is no name; the member name, then the
+// profile name, then the localpart.
+void NotificationManagerTest::theSenderIsNamedTheSameWhicheverPathDeliveredIt()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent fromSync = incomingText();
+    fromSync.sender = QStringLiteral("@six:example.org");
+    fromSync.senderDisplayName = QStringLiteral("@six:example.org");
+    TimelineEvent fromTimeline = fromSync;
+    fromTimeline.senderDisplayName.clear();
+    const QString expected = QStringLiteral("%1 in %2")
+        .arg(iso(QStringLiteral("six")), iso(QStringLiteral("Lightning Dev")));
+    QCOMPARE(NotificationManager::decide(fromSync, context).title, expected);
+    QCOMPARE(NotificationManager::decide(fromTimeline, context).title, expected);
+    // Sender only and an emote name the sender too.
+    context.previewMode = NotificationManager::SenderOnly;
+    QVERIFY(!NotificationManager::decide(fromSync, context)
+                 .body.contains(QStringLiteral("example.org")));
+
+    // The room member's name, from the context when the event has none (or
+    // only the id, as displayNameFor() answers for a stranger).
+    context.senderMemberName = QStringLiteral("@six:example.org");
+    context.senderProfileName = QStringLiteral("Six (profile)");
+    QCOMPARE(NotificationManager::senderLabel(fromSync, context),
+             QStringLiteral("Six (profile)"));
+    context.senderMemberName = QStringLiteral("Six in this room");
+    QCOMPARE(NotificationManager::senderLabel(fromSync, context),
+             QStringLiteral("Six in this room"));
+    QCOMPARE(NotificationManager::senderLabel(fromTimeline, context),
+             QStringLiteral("Six in this room"));
+    // The event's own name (the SDK's member profile) comes first.
+    TimelineEvent named = fromSync;
+    named.senderDisplayName = QStringLiteral("Sixth");
+    QCOMPARE(NotificationManager::senderLabel(named, context),
+             QStringLiteral("Sixth"));
+    // Only an id with no localpart is shown whole.
+    TimelineEvent odd = fromTimeline;
+    odd.sender = QStringLiteral("@:example.org");
+    QCOMPARE(NotificationManager::senderLabel(odd, baseContext()),
+             QStringLiteral("@:example.org"));
+}
+
+// Review round 2: a break-through re-queues what the displaced balloon stood
+// for, so that must follow withdrawals and account clears as the queue does,
+// or a read room (or a cleared account's room) comes back in the summary.
+void NotificationManagerTest::aDisplacedBalloonBringsBackNothingReadOrCleared()
+{
+    {
+        // A on screen, A read, then a mention from B: nothing comes back.
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.closeRoomNotifications(QStringLiteral("!a:example.org"));
+        TimelineEvent mention = textIn(QStringLiteral("!b:example.org"),
+                                       QStringLiteral("$b1:example.org"));
+        mention.mentionsMe = true;
+        manager.processEvent(mention, baseContext());
+        QCOMPARE(manager.trayAttemptsForTest(), 2);
+        QVERIFY2(manager.pendingBalloonEntriesForTest() == 0,
+                 "a room already read came back into the summary when a "
+                 "mention displaced its balloon");
+    }
+    {
+        // A summary across two accounts on screen; Bea is cleared; a
+        // mention displaces the summary: only Ann's room waits again.
+        NotificationManager manager;
+        manager.setAccountUserId(kAnn);
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(50);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.setBalloonHoldMsForTest(60000);
+        auto bea = baseContext();
+        bea.accountUserId = kBea;
+        manager.processEvent(textIn(QStringLiteral("!b:example.org"),
+                                    QStringLiteral("$b1:example.org")),
+                             baseContext());
+        manager.processEvent(textIn(QStringLiteral("!c:example.org"),
+                                    QStringLiteral("$c1:example.org")),
+                             bea);
+        QTRY_COMPARE(manager.trayAttemptsForTest(), 2); // the summary
+        QCOMPARE(manager.lastTrayBodyForTest(),
+                 QStringLiteral("2 new messages in 2 rooms"));
+        manager.clearPendingFor(kBea);
+        // The count stays (it names no room); Bea's room is gone from what
+        // it stands for.
+        QCOMPARE(manager.trayAttemptsForTest(), 2);
+        TimelineEvent mention = textIn(QStringLiteral("!d:example.org"),
+                                       QStringLiteral("$d1:example.org"));
+        mention.mentionsMe = true;
+        manager.processEvent(mention, baseContext());
+        QCOMPARE(manager.trayAttemptsForTest(), 3);
+        QVERIFY2(manager.pendingBalloonEntriesForTest() == 1,
+                 "a cleared account's room came back into the summary");
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!d:example.org"));
+        // What waited is Ann's B, alone.
+        QCOMPARE(manager.lastTrayPayloadForTest()
+                     .value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!b:example.org"));
+    }
+    {
+        // The call's balloon displacing a message balloon re-queues it too.
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(60000);
+        manager.processEvent(textIn(QStringLiteral("!a:example.org"),
+                                    QStringLiteral("$a1:example.org")),
+                             baseContext());
+        manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), false, 60);
+        QCOMPARE(manager.trayAttemptsForTest(), 2);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+        manager.stopIncomingCall(QStringLiteral("call-1"));
+    }
 }
 
 QTEST_MAIN(NotificationManagerTest)

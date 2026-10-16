@@ -2,7 +2,7 @@ import QtQuick
 
 // A file or folder chooser: the XDG portal's (Dolphin's, GTK's, COSMIC's) on
 // Linux, Lightning's own themed chooser (FileChooserDialog.qml) on Linux
-// without a portal, and the system dialog on Windows and macOS. Never
+// without a portal and on Windows, and the system dialog on macOS. Never
 // QtQuick.Dialogs' FileDialog, which draws a non-native imitation whenever the
 // Qt platform theme offers no native dialog (a fake path bar, no thumbnails)
 // and fills its name field only from a file that already exists, so every
