@@ -695,7 +695,7 @@ private Q_SLOTS:
         for (const QString &good :
              { QStringLiteral("lounge"), QStringLiteral("#lounge:example.org"),
                QStringLiteral("#lounge:example.org:8448"),
-               QString::fromUtf8("\xc5\xa1altibar\xc5\xa1\xc4\x8diai"),
+               QStringLiteral("\u0161altibar\u0161\u010diai"),
                QString() })
             QVERIFY2(ctl.aliasProblem(good).isEmpty(), qPrintable(good));
         ctl.setCanonicalAlias(QStringLiteral("lounge"));

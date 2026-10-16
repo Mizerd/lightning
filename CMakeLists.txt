@@ -628,6 +628,7 @@ set(APP_SOURCES
     src/matrix/EventPreview.h
     src/matrix/EventPreview.cpp
     src/matrix/PresentableName.h
+    src/matrix/RoomAliasRules.h
     src/matrix/RustTimelineIngest.h
     src/matrix/RustTimelineIngest.cpp
     src/matrix/RustSessionPolicy.h
@@ -4563,6 +4564,18 @@ if(BUILD_TESTING)
     set_tests_properties(convo-ux-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Room information with hostile-sized room state (break-it s03 rerun).
+    qt_add_executable(room-info-overflow-qml-test
+        tests/RoomInfoOverflowQmlTest.cpp
+    )
+    lightning_configure_qml_test(room-info-overflow-qml-test)
+    target_include_directories(room-info-overflow-qml-test PRIVATE src)
+    target_compile_definitions(room-info-overflow-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME room-info-overflow-qml COMMAND room-info-overflow-qml-test)
+    set_tests_properties(room-info-overflow-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Escape steps back out of a conversation (GitHub #27) in the real shell,
     # and every earlier owner of Escape (composer reply/edit, other text
     # fields, dialogs) keeps it.
@@ -4640,6 +4653,20 @@ if(BUILD_TESTING)
         target_include_directories(session-credential-test PRIVATE src)
         add_test(NAME session-credential COMMAND session-credential-test)
         set_tests_properties(session-credential PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # A bare username signs in when the server address is not the server
+        # name: sent as typed, saved under the server's answer; a saved account
+        # on that address is found from its record; an answer naming an account
+        # saved elsewhere keeps that account's store. Loopback homeserver,
+        # fixture keyring.
+        qt_add_executable(login-localpart-test
+            tests/LoginLocalpartTest.cpp
+        )
+        lightning_configure_qml_test(login-localpart-test)
+        target_include_directories(login-localpart-test PRIVATE src)
+        add_test(NAME login-localpart COMMAND login-localpart-test)
+        set_tests_properties(login-localpart PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
         # The context-view handlers: a closed for the replaced view must not

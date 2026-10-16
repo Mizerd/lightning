@@ -243,12 +243,12 @@ private Q_SLOTS:
         QCOMPARE(toggle->property("text").toString(), QStringLiteral("Show more"));
         QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
         settle();
-        QVERIFY2(contentY(leave) - baseline > 1000,
+        QTRY_VERIFY2(contentY(leave) - baseline > 1000,
                  "Show more did not unfold the whole topic");
         QCOMPARE(toggle->property("text").toString(), QStringLiteral("Show less"));
         QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
         settle();
-        QVERIFY(contentY(leave) - baseline < 320);
+        QTRY_VERIFY(contentY(leave) - baseline < 320);
     }
 
     // Fails on the old panel: openForRoom left the scroll offset (and now the
