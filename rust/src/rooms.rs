@@ -1940,6 +1940,656 @@ pub(crate) fn remove_message_edits(
 }
 
 // ---------------------------------------------------------------------------
+// Member roster freshness
+// ---------------------------------------------------------------------------
+//
+// Under simplified sliding sync the SDK takes room state from `required_state`
+// only and ignores state events in the timeline (matrix-sdk-base 0.18.0,
+// response_processors/room/msc4186/mod.rs, "Don't read state events from the
+// `timeline` field"). Lightning asks for m.room.member as `$LAZY` and `$ME`.
+// Whether that brings another member's join, kick, ban, unban or profile
+// change into the store is up to the SERVER: measured 2026-10-16 against the
+// local Continuwuity 26.9.1, `$LAZY`/`$ME` returned no m.room.member at all,
+// not even our own, for any of those changes (a `*` control returned every
+// one). Such a change reaches the timeline ("X removed Y") but never the
+// member store. `Room::members()` asks the server only while the room is NOT
+// marked members-synced, and the SDK clears that mark on a limited response
+// and on a NEW room subscription, which a warm room never gets again in a
+// session. That is why the People list, its count and the mention roster
+// stayed stale until a restart.
+//
+// So a member read compares the store with the member events the timeline has
+// shown since the last check (newest per user), and refetches /members only
+// when they DISAGREE. A server that already puts those members in
+// `required_state` therefore costs nothing extra. The refetch uses the SDK's
+// own lever, `mark_members_missing()` (it uses it after an invite).
+//
+// The cost of that lever: while a room is marked missing, matrix-sdk makes an
+// ENCRYPTED send fetch /members first (room/futures.rs,
+// `ensure_room_encryption_ready`), and the SDK has no public way to set the
+// mark back. So a forced refetch is gap-limited (more so in an encrypted
+// room), a failed one is retried only after a backoff, and a read never waits
+// out a gap: it is answered from the store and the refetch runs later, with a
+// `room_members_changed` poke if it changed anything. A failed refetch leaves
+// the room as unsynced as every subscribed room is at the start of a session,
+// which is the state that send path was written for.
+
+/// Each active member adds this much to the minimum gap between two forced
+/// refetches of one room, up to MEMBER_REFRESH_GAP_MAX: a 3-member room
+/// refetches at once, a 6,000-member one at most once a minute (/members is
+/// the whole roster every time).
+const MEMBER_REFRESH_GAP_PER_MEMBER: std::time::Duration =
+    std::time::Duration::from_millis(10);
+const MEMBER_REFRESH_GAP_MAX: std::time::Duration = std::time::Duration::from_secs(60);
+/// The same for an encrypted room, where an encrypted send waits for a
+/// running refetch: at least 5 s apart, 15 s at 500 members, 3 min at 6,000.
+const MEMBER_REFRESH_GAP_ENCRYPTED_MIN: std::time::Duration =
+    std::time::Duration::from_secs(5);
+const MEMBER_REFRESH_GAP_ENCRYPTED_PER_MEMBER: std::time::Duration =
+    std::time::Duration::from_millis(30);
+const MEMBER_REFRESH_GAP_ENCRYPTED_MAX: std::time::Duration =
+    std::time::Duration::from_secs(300);
+/// After a failed forced refetch the next one waits at least this long (or
+/// the gap, if longer), doubling with each further failure up to the max.
+const MEMBER_REFRESH_BACKOFF_MIN: std::time::Duration = std::time::Duration::from_secs(30);
+const MEMBER_REFRESH_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(600);
+/// How far back through the in-memory timeline one check walks at most.
+const MEMBER_SCAN_LIMIT: usize = 2_000;
+
+/// The minimum gap between two forced refetches of a room with `active`
+/// joined and invited members. Pure.
+fn member_refresh_gap(active: u64, encrypted: bool) -> std::time::Duration {
+    let active = u32::try_from(active).unwrap_or(u32::MAX);
+    if encrypted {
+        MEMBER_REFRESH_GAP_ENCRYPTED_PER_MEMBER
+            .saturating_mul(active)
+            .clamp(MEMBER_REFRESH_GAP_ENCRYPTED_MIN, MEMBER_REFRESH_GAP_ENCRYPTED_MAX)
+    } else {
+        MEMBER_REFRESH_GAP_PER_MEMBER
+            .saturating_mul(active)
+            .min(MEMBER_REFRESH_GAP_MAX)
+    }
+}
+
+/// How long to wait after the `failures`-th failed refetch in a row. Pure.
+fn member_refresh_backoff(failures: u32, gap: std::time::Duration) -> std::time::Duration {
+    let doublings = failures.saturating_sub(1).min(16);
+    gap.max(MEMBER_REFRESH_BACKOFF_MIN)
+        .saturating_mul(1u32 << doublings)
+        .min(MEMBER_REFRESH_BACKOFF_MAX)
+}
+
+/// One member as a member event states it, or as the store holds it, in the
+/// fields the roster shows. Missing fields are empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MemberFacts {
+    membership: String,
+    display_name: String,
+    avatar_url: String,
+}
+
+impl MemberFacts {
+    fn of_member(member: &matrix_sdk::room::RoomMember) -> Self {
+        Self {
+            membership: member.membership().as_str().to_owned(),
+            display_name: member.display_name().unwrap_or_default().to_owned(),
+            avatar_url: member.avatar_url().map(|a| a.to_string()).unwrap_or_default(),
+        }
+    }
+
+    fn of_content(content: &serde_json::Value) -> Self {
+        let text = |key: &str| content.get(key).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        Self {
+            membership: text("membership"),
+            display_name: text("displayname"),
+            avatar_url: text("avatar_url"),
+        }
+    }
+}
+
+/// Whether the store already reflects the newest member event the timeline
+/// showed for that user. Pure.
+fn store_agrees(stored: Option<&MemberFacts>, seen: &MemberFacts) -> bool {
+    match stored {
+        // Never loaded: right only for someone the roster would not show.
+        None => matches!(seen.membership.as_str(), "leave" | "knock"),
+        Some(stored) if stored.membership != seen.membership => false,
+        // Only a joined or invited row shows a name and a picture.
+        Some(stored) => {
+            !matches!(seen.membership.as_str(), "join" | "invite")
+                || (stored.display_name == seen.display_name
+                    && stored.avatar_url == seen.avatar_url)
+        }
+    }
+}
+
+/// What a check found in the timeline since the last one.
+#[derive(Debug, Default)]
+struct MemberScan {
+    /// The newest member event walked; `None` when there was nothing newer
+    /// than the last check.
+    newest: Option<matrix_sdk::ruma::OwnedEventId>,
+    /// Users whose newest member event the store does not reflect.
+    stale: usize,
+}
+
+/// Walk the room's in-memory timeline back to `since` (the newest member
+/// event of the last check) and compare each user's newest member event with
+/// the store. Local reads only.
+async fn scan_member_events(
+    room: &matrix_sdk::Room,
+    since: Option<&EventId>,
+) -> MemberScan {
+    let Ok((cache, _drop_handles)) = room.event_cache().await else {
+        return MemberScan::default();
+    };
+    let mut newest: Option<matrix_sdk::ruma::OwnedEventId> = None;
+    let mut latest: std::collections::HashMap<matrix_sdk::ruma::OwnedUserId, MemberFacts> =
+        std::collections::HashMap::new();
+    let mut walked = 0usize;
+    let _ = cache
+        .rfind_map_event_in_memory_by(|event| {
+            walked += 1;
+            if walked > MEMBER_SCAN_LIMIT {
+                return Some(());
+            }
+            let raw = event.raw();
+            let is_member = raw
+                .get_field::<String>("type")
+                .ok()
+                .flatten()
+                .is_some_and(|ty| ty == "m.room.member");
+            if !is_member {
+                return None;
+            }
+            let id = event.event_id();
+            if id.is_some() && id.as_deref() == since {
+                return Some(()); // checked last time, and so is all before it
+            }
+            if newest.is_none() {
+                newest = id;
+            }
+            if let Some(user) = raw
+                .get_field::<matrix_sdk::ruma::OwnedUserId>("state_key")
+                .ok()
+                .flatten()
+            {
+                latest.entry(user).or_insert_with(|| {
+                    MemberFacts::of_content(
+                        &raw.get_field::<serde_json::Value>("content")
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default(),
+                    )
+                });
+            }
+            None
+        })
+        .await;
+    let mut stale = 0;
+    for (user, seen) in &latest {
+        let stored = room
+            .get_member_no_sync(user)
+            .await
+            .ok()
+            .flatten()
+            .map(|member| MemberFacts::of_member(&member));
+        if !store_agrees(stored.as_ref(), seen) {
+            stale += 1;
+        }
+    }
+    MemberScan { newest, stale }
+}
+
+#[derive(Default)]
+struct MemberRefreshState {
+    /// The bridge's timeline registry. Held weakly: while an entry exists, no
+    /// later bridge can be allocated at the address in the key, and an entry
+    /// whose bridge is gone is pruned.
+    owner: std::sync::Weak<crate::timeline::TimelineRegistry>,
+    /// When the last forced refetch started (the gap is measured from it).
+    started: Option<std::time::Instant>,
+    /// A forced refetch is running.
+    in_flight: bool,
+    /// The newest member event the last check covered.
+    watermark: Option<matrix_sdk::ruma::OwnedEventId>,
+    /// Failed forced refetches in a row, and when the next may start.
+    failures: u32,
+    retry_after: Option<std::time::Instant>,
+    /// A failed forced refetch left the room marked members-missing.
+    left_missing: bool,
+    /// A later refetch is scheduled (one per room).
+    deferred: bool,
+    /// A read was answered from the store while a refetch ran: poke when it
+    /// ends if it changed anything.
+    poke_owed: bool,
+}
+
+/// One bridge (by the address of its timeline registry, kept unique by the
+/// entry's weak owner), one lifecycle, one room. Entries of an older
+/// lifecycle are dropped as soon as a newer one writes.
+type MemberRefreshKey = (usize, u64, OwnedRoomId);
+
+type MemberRefreshRegistry = std::collections::HashMap<MemberRefreshKey, MemberRefreshState>;
+
+fn member_refresh_registry() -> &'static std::sync::Mutex<MemberRefreshRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<MemberRefreshRegistry>> =
+        std::sync::OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// The entry for `key`, created with its owner; prunes dead and stale ones.
+fn member_refresh_entry<'a>(
+    registry: &'a mut MemberRefreshRegistry,
+    key: &MemberRefreshKey,
+    owner: &Arc<crate::timeline::TimelineRegistry>,
+) -> &'a mut MemberRefreshState {
+    let (bridge, lifecycle, _) = key;
+    registry.retain(|(b, l, _), state| {
+        state.owner.strong_count() > 0 && (b != bridge || l == lifecycle)
+    });
+    registry.entry(key.clone()).or_insert_with(|| MemberRefreshState {
+        owner: Arc::downgrade(owner),
+        ..Default::default()
+    })
+}
+
+/// What a check decided. Pure (see `member_step`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberStep {
+    /// The store agrees with every member event since the last check.
+    Skip,
+    /// The room is unsynced for the SDK's own reasons (a new subscription, a
+    /// limited sync): its own fetch, exactly as before this round.
+    SdkSync,
+    /// A forced refetch is running: answer from the store, poke when it ends.
+    ServeWhileRunning,
+    /// Stale, but inside the gap or a failure backoff: answer from the store
+    /// and refetch at this instant.
+    Defer(std::time::Instant),
+    /// Refetch now.
+    Refresh,
+}
+
+/// `synced`: the room is members-synced now. `stale`: the store disagrees
+/// with a member event since the last check. Pure.
+fn member_step(
+    state: &MemberRefreshState,
+    now: std::time::Instant,
+    synced: bool,
+    stale: bool,
+    gap: std::time::Duration,
+) -> MemberStep {
+    if state.in_flight {
+        return MemberStep::ServeWhileRunning;
+    }
+    // Synced again (an encrypted send fetched it, say): that failure is paid.
+    let left_missing = state.left_missing && !synced;
+    if !synced && !left_missing {
+        return MemberStep::SdkSync;
+    }
+    if !stale && !left_missing {
+        return MemberStep::Skip;
+    }
+    let mut at = now;
+    if let Some(started) = state.started {
+        at = at.max(started + gap);
+    }
+    if let Some(retry_after) = state.retry_after {
+        at = at.max(retry_after);
+    }
+    if at > now { MemberStep::Defer(at) } else { MemberStep::Refresh }
+}
+
+/// What a member read found before building its snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberFreshness {
+    /// Nothing suggests the store is stale; `members()` as before.
+    Store,
+    /// Answer from the store without asking the server (a refetch is running
+    /// or scheduled, or a failed one is backing off).
+    StoreNoSync,
+    /// The store was refetched from the server by this read.
+    Refreshed,
+    /// The forced refetch failed; the store was complete before it.
+    FailedUseStore,
+    /// The SDK's own fetch of a store that was never complete failed.
+    Failed(&'static str),
+}
+
+/// Opt-in (LIGHTNING_MEMBERS_TRACE=1): one line per refetch decision that
+/// asks or defers, counts only, the room as a short hash. `stale` is how many
+/// users' timeline member events the store did not reflect; `changed` how
+/// many members the refetch altered. Together they say whether the server
+/// left the store stale.
+fn members_trace_enabled() -> bool {
+    std::env::var_os("LIGHTNING_MEMBERS_TRACE").is_some()
+}
+
+fn member_fingerprints(
+    members: &[matrix_sdk::room::RoomMember],
+) -> std::collections::HashMap<String, MemberFacts> {
+    members
+        .iter()
+        .map(|m| (m.user_id().to_string(), MemberFacts::of_member(m)))
+        .collect()
+}
+
+fn count_changed_members(
+    before: &std::collections::HashMap<String, MemberFacts>,
+    after: &std::collections::HashMap<String, MemberFacts>,
+) -> usize {
+    let mut changed = after
+        .iter()
+        .filter(|(user, value)| before.get(*user) != Some(*value))
+        .count();
+    changed += before.keys().filter(|user| !after.contains_key(*user)).count();
+    changed
+}
+
+/// Everything a check needs besides the room.
+#[derive(Clone)]
+struct MemberRefreshCtx {
+    timelines: Arc<crate::timeline::TimelineRegistry>,
+    lifecycle: u64,
+    events: crate::EventQueueRef,
+}
+
+impl MemberRefreshCtx {
+    fn key(&self, room: &matrix_sdk::Room) -> MemberRefreshKey {
+        (
+            Arc::as_ptr(&self.timelines) as *const () as usize,
+            self.lifecycle,
+            room.room_id().to_owned(),
+        )
+    }
+
+    fn trace(&self, room: &matrix_sdk::Room, line: String) {
+        enqueue(&self.events, json!({
+            "type": "rust_trace",
+            "line": format!(
+                "members-trace room={} {line}",
+                crate::redact_matrix_id(room.room_id().as_str())
+            ),
+        }));
+    }
+
+    fn poke(&self, room: &matrix_sdk::Room) {
+        if self.timelines.lifecycle_current(self.lifecycle) {
+            enqueue(&self.events, json!({
+                "type": "room_members_changed",
+                "room_id": room.room_id().to_string(),
+            }));
+        }
+    }
+}
+
+/// Check the store against the timeline and decide, recording the decision.
+/// `deferred`: the scheduled later refetch is the one asking.
+async fn decide_member_step(
+    room: &matrix_sdk::Room,
+    ctx: &MemberRefreshCtx,
+    deferred: bool,
+) -> (MemberStep, MemberScan, std::time::Duration, bool) {
+    let key = ctx.key(room);
+    let since = member_refresh_registry()
+        .lock()
+        .unwrap()
+        .get(&key)
+        .and_then(|state| state.watermark.clone());
+    let scan = scan_member_events(room, since.as_deref()).await;
+    let gap = member_refresh_gap(
+        room.active_members_count(),
+        room.encryption_state().is_encrypted(),
+    );
+    let mut registry = member_refresh_registry().lock().unwrap();
+    let state = member_refresh_entry(&mut registry, &key, &ctx.timelines);
+    // Read under the lock, so a refetch that starts after it is seen.
+    let synced = room.are_members_synced();
+    if synced {
+        state.left_missing = false;
+    }
+    let step = member_step(state, std::time::Instant::now(), synced, scan.stale > 0, gap);
+    let mut schedule = false;
+    match step {
+        MemberStep::Skip => {
+            if let Some(newest) = &scan.newest {
+                state.watermark = Some(newest.clone());
+            }
+        }
+        MemberStep::ServeWhileRunning => state.poke_owed = true,
+        MemberStep::Defer(_) => {
+            // One scheduled refetch per room; the scheduled one keeps its own.
+            schedule = !state.deferred && !deferred;
+            if schedule {
+                state.deferred = true;
+            }
+        }
+        MemberStep::Refresh => {
+            // Marked missing under the lock, before anyone can see in_flight,
+            // so no reader takes the still-synced store for a fresh one.
+            state.started = Some(std::time::Instant::now());
+            state.in_flight = true;
+            room.mark_members_missing();
+        }
+        MemberStep::SdkSync => {}
+    }
+    (step, scan, gap, schedule)
+}
+
+/// Run the forced refetch `decide_member_step` started. Returns whether it
+/// succeeded and how many members it changed.
+async fn forced_member_refresh(
+    room: &matrix_sdk::Room,
+    ctx: &MemberRefreshCtx,
+    scan: &MemberScan,
+    gap: std::time::Duration,
+    origin: &str,
+) -> (bool, usize) {
+    let key = ctx.key(room);
+    // Clears the in-flight mark however this future ends.
+    struct InFlight(MemberRefreshKey);
+    impl Drop for InFlight {
+        fn drop(&mut self) {
+            if let Ok(mut registry) = member_refresh_registry().lock() {
+                if let Some(state) = registry.get_mut(&self.0) {
+                    state.in_flight = false;
+                }
+            }
+        }
+    }
+    let _in_flight = InFlight(key.clone());
+    let before = room
+        .members_no_sync(RoomMemberships::all())
+        .await
+        .map(|m| member_fingerprints(&m))
+        .unwrap_or_default();
+    // Signed out while deciding or reading `before`: no request from a dead
+    // session (sign-out reads the final tokens on the premise that none is
+    // sent). The state is left as it was; the in-flight mark clears on drop.
+    if !ctx.timelines.lifecycle_current(ctx.lifecycle) {
+        return (false, 0);
+    }
+    let started = std::time::Instant::now();
+    let result = room.sync_members().await;
+    let ok = result.is_ok();
+    let changed = if ok {
+        let after = room
+            .members_no_sync(RoomMemberships::all())
+            .await
+            .map(|m| member_fingerprints(&m))
+            .unwrap_or_default();
+        count_changed_members(&before, &after)
+    } else {
+        0
+    };
+    let poke_owed = {
+        let mut registry = member_refresh_registry().lock().unwrap();
+        match registry.get_mut(&key) {
+            Some(state) => {
+                if ok {
+                    state.failures = 0;
+                    state.retry_after = None;
+                    state.left_missing = false;
+                    // The id read BEFORE the request: a member event that
+                    // lands during it is checked by the next read.
+                    if let Some(newest) = &scan.newest {
+                        state.watermark = Some(newest.clone());
+                    }
+                } else {
+                    state.failures = state.failures.saturating_add(1);
+                    state.retry_after = Some(
+                        std::time::Instant::now() + member_refresh_backoff(state.failures, gap),
+                    );
+                    state.left_missing = !room.are_members_synced();
+                }
+                std::mem::take(&mut state.poke_owed)
+            }
+            None => false,
+        }
+    };
+    if members_trace_enabled() {
+        ctx.trace(room, format!(
+            "refetch origin={origin} ok={ok} ms={} stale={} changed={changed} gap_ms={}",
+            started.elapsed().as_millis(),
+            scan.stale,
+            gap.as_millis(),
+        ));
+    }
+    if ok && changed > 0 && (poke_owed || origin == "deferred") {
+        ctx.poke(room);
+    }
+    (ok, changed)
+}
+
+/// The later refetch a read inside the gap scheduled. It runs in that read's
+/// own tracked room action, after the answer was emitted, so sign-out's task
+/// shutdown waits for it or aborts it like any other room action (an
+/// untracked task could send /members, and trigger a token refresh, after
+/// the final tokens were handed back). Dropped unrun, or however `run` ends,
+/// it clears the room's scheduled mark, so a later read schedules again.
+struct DeferredMemberRefresh {
+    key: MemberRefreshKey,
+    at: std::time::Instant,
+}
+
+impl Drop for DeferredMemberRefresh {
+    fn drop(&mut self) {
+        if let Ok(mut registry) = member_refresh_registry().lock() {
+            if let Some(state) = registry.get_mut(&self.key) {
+                state.deferred = false;
+            }
+        }
+    }
+}
+
+impl DeferredMemberRefresh {
+    /// Wait for `at`, decide again, refetch if still owed, and poke readers
+    /// if it changed anything.
+    async fn run(self, room: &matrix_sdk::Room, ctx: &MemberRefreshCtx) {
+        let mut at = self.at;
+        // Bounded: each pass either ends or waits for a later instant.
+        for _ in 0..4 {
+            // In slices, so a sign-out is not held for the whole gap.
+            while std::time::Instant::now() < at {
+                if !ctx.timelines.lifecycle_current(ctx.lifecycle) {
+                    return;
+                }
+                let left = at.saturating_duration_since(std::time::Instant::now());
+                tokio::time::sleep(left.min(std::time::Duration::from_millis(200))).await;
+            }
+            if !ctx.timelines.lifecycle_current(ctx.lifecycle) {
+                return;
+            }
+            let (step, scan, gap, _) = decide_member_step(room, ctx, true).await;
+            match step {
+                MemberStep::Defer(next) => at = next,
+                MemberStep::Refresh => {
+                    // Once: a failure is retried by the next read after the
+                    // backoff, not by this task.
+                    forced_member_refresh(room, ctx, &scan, gap, "deferred").await;
+                    return;
+                }
+                // Unsynced again: readers fetch through the SDK on their next
+                // read, so tell them to read.
+                MemberStep::SdkSync => {
+                    ctx.poke(room);
+                    return;
+                }
+                // Nothing owed, or the running refetch pokes.
+                MemberStep::Skip | MemberStep::ServeWhileRunning => return,
+            }
+        }
+    }
+}
+
+/// Bring the room's member store up to date with the server when it is
+/// demonstrably stale, single-flight per room, gap-limited and backing off
+/// after a failure. Never waits out a gap: such a read is answered from the
+/// store and the refetch is scheduled: the caller runs the returned
+/// `DeferredMemberRefresh` in its own task once it has answered. Touches the
+/// state store only, through the SDK's own /members path, as on every first
+/// open (it also refreshes the users the crypto layer tracks, exactly as that
+/// path always has).
+async fn ensure_fresh_members(
+    room: &matrix_sdk::Room,
+    ctx: &MemberRefreshCtx,
+) -> (MemberFreshness, Option<DeferredMemberRefresh>) {
+    if !ctx.timelines.lifecycle_current(ctx.lifecycle) {
+        return (MemberFreshness::Store, None);
+    }
+    let (step, scan, gap, schedule) = decide_member_step(room, ctx, false).await;
+    // Built at once, so the scheduled mark is cleared however this read ends.
+    let deferred = match step {
+        MemberStep::Defer(at) if schedule => Some(DeferredMemberRefresh { key: ctx.key(room), at }),
+        _ => None,
+    };
+    let freshness = match step {
+        MemberStep::Skip => MemberFreshness::Store,
+        MemberStep::SdkSync => match room.sync_members().await {
+            Ok(()) => {
+                let key = ctx.key(room);
+                if let Some(state) = member_refresh_registry().lock().unwrap().get_mut(&key) {
+                    if let Some(newest) = &scan.newest {
+                        state.watermark = Some(newest.clone());
+                    }
+                }
+                MemberFreshness::Refreshed
+            }
+            Err(err) => MemberFreshness::Failed(classify_room_error(&err.to_string())),
+        },
+        MemberStep::ServeWhileRunning => MemberFreshness::StoreNoSync,
+        MemberStep::Defer(at) => {
+            if members_trace_enabled() {
+                ctx.trace(room, format!(
+                    "deferred stale={} in_ms={} scheduled={schedule}",
+                    scan.stale,
+                    at.saturating_duration_since(std::time::Instant::now()).as_millis(),
+                ));
+            }
+            MemberFreshness::StoreNoSync
+        }
+        MemberStep::Refresh => {
+            let (ok, _) = forced_member_refresh(room, ctx, &scan, gap, "read").await;
+            if ok { MemberFreshness::Refreshed } else { MemberFreshness::FailedUseStore }
+        }
+    };
+    (freshness, deferred)
+}
+
+/// This account's membership of `room` as the SDK holds it, in the words the
+/// member snapshot uses.
+fn own_membership_str(state: RoomState) -> &'static str {
+    match state {
+        RoomState::Joined => "joined",
+        RoomState::Invited => "invited",
+        RoomState::Left => "left",
+        RoomState::Knocked => "knocked",
+        RoomState::Banned => "banned",
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Member snapshot + permissions
 // ---------------------------------------------------------------------------
 
@@ -1949,11 +2599,39 @@ pub(crate) fn room_members(
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    let room = joined_room(&client, &room_id)?;
+    let room = RoomId::parse(&room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .ok_or_else(|| "unknown or not-joined room".to_owned())?;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
+    if room.state() != RoomState::Joined {
+        // A room this account was removed from, left, or is only invited to:
+        // no roster, but say what the membership is, so the composer can say
+        // why it cannot send instead of failing at the server.
+        let own_membership = own_membership_str(room.state());
+        bridge.spawn_room_action(async move {
+            if timelines.lifecycle_current(lifecycle) {
+                enqueue(&events, json!({
+                    "type": "room_members",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "room_id": room_id,
+                    "ok": false,
+                    "category": "not_joined",
+                    "own_membership": own_membership,
+                }));
+            }
+        });
+        return Ok(());
+    }
     let own_id = client.user_id().map(|u| u.to_owned());
+    let refresh_ctx = MemberRefreshCtx {
+        timelines: Arc::clone(&timelines),
+        lifecycle,
+        events: Arc::clone(&events),
+    };
     bridge.spawn_room_action(async move {
         // Cache-first: emit a partial snapshot from the state store so the People
         // list renders immediately, then the full synced roster under the same op
@@ -1976,12 +2654,43 @@ pub(crate) fn room_members(
             }
         }
 
+        // Refetch first when the store disagrees with the timeline (see
+        // "Member roster freshness" above): sliding sync applies another
+        // member's change only if the server puts it in required_state.
+        let (freshness, deferred) = ensure_fresh_members(&room, &refresh_ctx).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+
         // Active (join+invite) plus banned: banned members must be visible for
         // unban. They are excluded from counts and mention suggestions downstream.
-        let members = match room
-            .members(RoomMemberships::ACTIVE | RoomMemberships::BAN)
-            .await
-        {
+        let wanted = RoomMemberships::ACTIVE | RoomMemberships::BAN;
+        let read = match freshness {
+            // Nothing forced: as before, the SDK fetches only an unsynced room.
+            MemberFreshness::Store => room.members(wanted).await,
+            // Fresh, a failed refetch of a store that was complete before it,
+            // or a refetch running or scheduled: the store, without asking
+            // the server (again).
+            MemberFreshness::Refreshed
+            | MemberFreshness::FailedUseStore
+            | MemberFreshness::StoreNoSync => room.members_no_sync(wanted).await,
+            // A store that was never complete: what `members()` reported here
+            // before, without repeating the request that just failed.
+            MemberFreshness::Failed(category) => {
+                if timelines.lifecycle_current(lifecycle) {
+                    enqueue(&events, json!({
+                        "type": "room_members",
+                        "op_id": op_id,
+                        "lifecycle": lifecycle,
+                        "room_id": room_id,
+                        "ok": false,
+                        "category": category,
+                    }));
+                }
+                return;
+            }
+        };
+        let members = match read {
             Ok(members) => members,
             Err(err) => {
                 if timelines.lifecycle_current(lifecycle) {
@@ -2008,6 +2717,11 @@ pub(crate) fn room_members(
         // Guard right before the emit; the builder awaits a store read.
         if timelines.lifecycle_current(lifecycle) {
             enqueue(&events, snapshot);
+        }
+        // Answered: now the refetch this read scheduled, in this same tracked
+        // task. An early return above drops it unrun (and clears its mark).
+        if let Some(deferred) = deferred {
+            deferred.run(&room, &refresh_ctx).await;
         }
     });
     Ok(())
@@ -2178,6 +2892,19 @@ async fn members_snapshot_json(
         let can_publish_rtc_membership: Option<bool> = own_member.as_ref().map(|m| {
             m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
         });
+        // Whether this account may post an ordinary message, and remove other
+        // people's events: the SDK's checks against the room's real levels
+        // (an encrypted room's messages are m.room.encrypted on the wire, so
+        // both types must be allowed). `None` (null) when our own member is
+        // not in the store yet: unknown, which the composer treats as allowed.
+        let can_send_message: Option<bool> = own_member.as_ref().map(|m| {
+            use matrix_sdk::ruma::events::MessageLikeEventType;
+            m.can_send_message(MessageLikeEventType::RoomMessage)
+                && (!room.encryption_state().is_encrypted()
+                    || m.can_send_message(MessageLikeEventType::RoomEncrypted))
+        });
+        let can_redact_other: Option<bool> =
+            own_member.as_ref().map(|m| m.can_redact_other());
         let join_rule = join_rule_str(room.join_rule().as_ref());
         let canonical_alias = room
             .canonical_alias()
@@ -2283,6 +3010,10 @@ async fn members_snapshot_json(
             "users_default_power_level": users_default,
             "own_can_upgrade": can_upgrade,
             "own_can_publish_rtc_membership": can_publish_rtc_membership,
+            "own_can_send_message": can_send_message,
+            "own_can_redact_other": can_redact_other,
+            // From the room's own state, not the member list: "joined" here.
+            "own_membership": own_membership_str(room.state()),
             "room_version": room_version,
             // Every key here is chosen by this file (see above); C++ mirrors them into
             // the Permissions matrix.
@@ -6889,5 +7620,844 @@ mod activity_seed_tests {
             "!r:x", 5, false, "@me:x",
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod member_freshness_tests {
+    //! Break-it B016, B026, B029, B031, B063: another member's join, kick,
+    //! ban, unban or profile change reached the timeline but never the People
+    //! list, its count or the mention roster, until a restart. Simplified
+    //! sliding sync applies state from `required_state` only, and
+    //! `Room::members()` refetches only an unsynced room.
+    use super::*;
+    use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk_base::RequestedRequiredStates;
+
+    fn raw<T>(value: serde_json::Value) -> Raw<T> {
+        Raw::from_json_string(value.to_string()).unwrap()
+    }
+
+    fn member(user: &str, membership: &str, name: &str, event_id: &str) -> serde_json::Value {
+        json!({
+            "type": "m.room.member", "state_key": user, "sender": user,
+            "event_id": event_id, "origin_server_ts": 1_700_000_000_000u64,
+            "content": { "membership": membership, "displayname": name },
+        })
+    }
+
+    /// The same event as /members returns it: a full event, with its room.
+    fn in_room(mut event: serde_json::Value, room: &RoomId) -> Raw<matrix_sdk::ruma::events::room::member::RoomMemberEvent> {
+        event["room_id"] = json!(room.as_str());
+        raw(event)
+    }
+
+    async fn sync(
+        client: &matrix_sdk::Client,
+        room: &RoomId,
+        pos: &str,
+        required_state: Vec<serde_json::Value>,
+        timeline: Vec<serde_json::Value>,
+    ) {
+        let mut response = v5::Response::new(pos.to_owned());
+        let mut entry = v5::response::Room::default();
+        entry.required_state = required_state.into_iter().map(raw).collect();
+        entry.timeline = timeline.into_iter().map(raw).collect();
+        response.rooms.insert(room.to_owned(), entry);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+    }
+
+    /// The room_members answer for `op_id` that ends the op (not the
+    /// cache-first partial one).
+    fn final_snapshot(bridge: &crate::RustClient, op_id: u64) -> serde_json::Value {
+        let started = std::time::Instant::now();
+        loop {
+            let found = bridge.events.lock().unwrap().iter().find_map(|raw| {
+                let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+                (value["type"] == "room_members"
+                    && value["op_id"] == json!(op_id)
+                    && value["partial"] != json!(true))
+                    .then_some(value)
+            });
+            if let Some(value) = found {
+                return value;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no answer");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    fn row<'a>(snapshot: &'a serde_json::Value, user: &str) -> Option<&'a serde_json::Value> {
+        snapshot["members"].as_array()?.iter().find(|m| m["user_id"] == user)
+    }
+
+    #[test]
+    fn a_member_change_seen_only_in_the_timeline_reaches_the_roster() {
+        let room = room_id!("!stale:example.org");
+        let alice = "@alice:example.org";
+        let bob = "@bob:example.org";
+        let carol = "@carol:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client, me) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            // What the server says on the first /members, then after the changes.
+            server
+                .mock_get_members()
+                .ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", "Alice", "$a0"), room),
+                    in_room(member(bob, "join", "Bob", "$b0"), room),
+                ])
+                .up_to_n_times(1)
+                .mount()
+                .await;
+            server
+                .mock_get_members()
+                .ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", "Alicia", "$a1"), room),
+                    in_room(member(bob, "ban", "Bob", "$b1"), room),
+                    in_room(member(carol, "join", "Carol", "$c1"), room),
+                ])
+                .mount()
+                .await;
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    member(&me, "join", "Me", "$m0"),
+                    member(alice, "join", "Alice", "$a0"),
+                    member(bob, "join", "Bob", "$b0"),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client, me)
+        });
+        let _ = me;
+
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-freshness-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        let first = final_snapshot(&bridge, 1);
+        assert_eq!(first["ok"], json!(true), "{first}");
+        assert_eq!(first["joined_count"], json!(3), "{first}");
+
+        // A rename, a ban and a join, in the TIMELINE only, as sliding sync
+        // delivers another member's change ($LAZY covers timeline senders).
+        rt.block_on(async {
+            let ban = json!({
+                "type": "m.room.member", "state_key": bob, "sender": alice,
+                "event_id": "$b1", "origin_server_ts": 1_700_000_000_100u64,
+                "content": { "membership": "ban", "displayname": "Bob" },
+            });
+            sync(
+                &client,
+                room,
+                "pos-2",
+                vec![],
+                vec![
+                    member(alice, "join", "Alicia", "$a1"),
+                    ban,
+                    member(carol, "join", "Carol", "$c1"),
+                ],
+            )
+            .await;
+            // The event cache appends asynchronously; wait until it holds the
+            // last change, as it does long before a poke reaches C++ and back.
+            let joined = client.get_room(room).unwrap();
+            let started = std::time::Instant::now();
+            while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                != Some("$c1")
+            {
+                assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        });
+
+        room_members(&bridge, room.to_string(), 2).expect("joined room");
+        let second = final_snapshot(&bridge, 2);
+        assert_eq!(second["ok"], json!(true), "{second}");
+        assert_eq!(second["joined_count"], json!(3), "me, Alicia, Carol: {second}");
+        assert_eq!(row(&second, bob).map(|r| r["membership"].clone()), Some(json!("banned")));
+        assert_eq!(row(&second, carol).map(|r| r["membership"].clone()), Some(json!("joined")));
+        assert_eq!(row(&second, alice).map(|r| r["display_name"].clone()), Some(json!("Alicia")));
+
+        // Nothing new since: the next read is the store, with no third request.
+        room_members(&bridge, room.to_string(), 3).expect("joined room");
+        let third = final_snapshot(&bridge, 3);
+        assert_eq!(third["joined_count"], json!(3), "{third}");
+        let member_requests = rt.block_on(async {
+            server
+                .server()
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.url.path().ends_with("/members"))
+                .count()
+        });
+        assert_eq!(member_requests, 2, "one refetch per member change, none without");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    #[test]
+    fn the_snapshot_carries_own_membership_and_the_sdk_send_and_redact_answers() {
+        let room = room_id!("!levels:example.org");
+        let invited = room_id!("!invited:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            let me = client.user_id().unwrap().to_string();
+            server
+                .mock_get_members()
+                .ok(vec![in_room(member(&me, "join", "Me", "$m0"), room)])
+                .mount()
+                .await;
+            // Messages need 50, redacting others needs 0 (and a redaction event
+            // 0): the two answers differ, so a swapped key cannot pass.
+            let levels = json!({
+                "type": "m.room.power_levels", "state_key": "", "sender": me,
+                "event_id": "$pl", "origin_server_ts": 1_700_000_000_000u64,
+                "content": {
+                    "events_default": 50, "redact": 0, "users_default": 0,
+                    "events": { "m.room.redaction": 0 },
+                },
+            });
+            let create = json!({
+                "type": "m.room.create", "state_key": "", "sender": me,
+                "event_id": "$create", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "room_version": "11", "creator": me },
+            });
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![create, member(&me, "join", "Me", "$m0"), levels],
+                vec![],
+            )
+            .await;
+            let mut response = v5::Response::new("pos-2".to_owned());
+            let mut entry = v5::response::Room::default();
+            entry.invite_state = Some(vec![raw(json!({
+                "type": "m.room.member", "state_key": me,
+                "sender": "@inviter:example.org",
+                "content": { "membership": "invite" },
+            }))]);
+            response.rooms.insert(invited.to_owned(), entry);
+            client
+                .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+                .await
+                .expect("sync processed");
+            (server, client)
+        });
+
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-permissions-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        room_members(&bridge, room.to_string(), 7).expect("joined room");
+        let joined = final_snapshot(&bridge, 7);
+        assert_eq!(joined["ok"], json!(true), "{joined}");
+        assert_eq!(joined["own_membership"], json!("joined"), "{joined}");
+        assert_eq!(joined["own_can_send_message"], json!(false), "{joined}");
+        assert_eq!(joined["own_can_redact_other"], json!(true), "{joined}");
+
+        // An invitation has no roster to read, but its answer says why.
+        room_members(&bridge, invited.to_string(), 8).expect("an invited room answers");
+        let pending = final_snapshot(&bridge, 8);
+        assert_eq!(pending["ok"], json!(false), "{pending}");
+        assert_eq!(pending["category"], json!("not_joined"), "{pending}");
+        assert_eq!(pending["own_membership"], json!("invited"), "{pending}");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// A server that already puts the changed member in `required_state`
+    /// (as a server is free to under `$LAZY`) leaves nothing to refetch.
+    #[test]
+    fn a_member_change_the_server_already_applied_costs_no_request() {
+        let room = room_id!("!applied:example.org");
+        let alice = "@alice:example.org";
+        let bob = "@bob:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            server
+                .mock_get_members()
+                .ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", "Alice", "$a0"), room),
+                    in_room(member(bob, "join", "Bob", "$b0"), room),
+                ])
+                .mount()
+                .await;
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    member(&me, "join", "Me", "$m0"),
+                    member(alice, "join", "Alice", "$a0"),
+                    member(bob, "join", "Bob", "$b0"),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-applied-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        assert_eq!(final_snapshot(&bridge, 1)["ok"], json!(true));
+
+        rt.block_on(async {
+            let ban = json!({
+                "type": "m.room.member", "state_key": bob, "sender": alice,
+                "event_id": "$b1", "origin_server_ts": 1_700_000_000_100u64,
+                "content": { "membership": "ban", "displayname": "Bob" },
+            });
+            let rename = member(alice, "join", "Alicia", "$a1");
+            // The same events in both places: the store is current already.
+            sync(
+                &client,
+                room,
+                "pos-2",
+                vec![rename.clone(), ban.clone()],
+                vec![rename, ban],
+            )
+            .await;
+            let joined = client.get_room(room).unwrap();
+            let started = std::time::Instant::now();
+            while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                != Some("$b1")
+            {
+                assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        });
+
+        room_members(&bridge, room.to_string(), 2).expect("joined room");
+        let second = final_snapshot(&bridge, 2);
+        assert_eq!(row(&second, bob).map(|r| r["membership"].clone()), Some(json!("banned")));
+        assert_eq!(row(&second, alice).map(|r| r["display_name"].clone()), Some(json!("Alicia")));
+        let member_requests = rt.block_on(async {
+            server
+                .server()
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.url.path().ends_with("/members"))
+                .count()
+        });
+        assert_eq!(member_requests, 1, "the store agreed with the timeline: no refetch");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// A failed refetch leaves the room marked members-missing. The reads
+    /// after it are answered from the store and do not ask again until the
+    /// backoff has passed (each would otherwise send /members, and so would
+    /// every encrypted send in the room).
+    #[test]
+    fn a_failed_refetch_is_not_retried_on_every_read() {
+        let room = room_id!("!failing:example.org");
+        let alice = "@alice:example.org";
+        let bob = "@bob:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            server
+                .mock_get_members()
+                .ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", "Alice", "$a0"), room),
+                    in_room(member(bob, "join", "Bob", "$b0"), room),
+                ])
+                .up_to_n_times(1)
+                .mount()
+                .await;
+            // Then the server refuses (a 4xx, which the SDK does not retry).
+            server.mock_get_members().error_unrecognized().mount().await;
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    member(&me, "join", "Me", "$m0"),
+                    member(alice, "join", "Alice", "$a0"),
+                    member(bob, "join", "Bob", "$b0"),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-failing-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        assert_eq!(final_snapshot(&bridge, 1)["ok"], json!(true));
+
+        rt.block_on(async {
+            let ban = json!({
+                "type": "m.room.member", "state_key": bob, "sender": alice,
+                "event_id": "$b1", "origin_server_ts": 1_700_000_000_100u64,
+                "content": { "membership": "ban", "displayname": "Bob" },
+            });
+            sync(&client, room, "pos-2", vec![], vec![ban]).await;
+            let joined = client.get_room(room).unwrap();
+            let started = std::time::Instant::now();
+            while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                != Some("$b1")
+            {
+                assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        });
+
+        // The refetch fails: the store as it was, not an error.
+        room_members(&bridge, room.to_string(), 2).expect("joined room");
+        let second = final_snapshot(&bridge, 2);
+        assert_eq!(second["ok"], json!(true), "{second}");
+        assert_eq!(row(&second, bob).map(|r| r["membership"].clone()), Some(json!("joined")));
+        assert!(!client.get_room(room).unwrap().are_members_synced());
+
+        // Well past the 30 ms gap of a 3-member room, inside the backoff.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        for op in 3..6 {
+            room_members(&bridge, room.to_string(), op).expect("joined room");
+            let again = final_snapshot(&bridge, op);
+            assert_eq!(again["ok"], json!(true), "{again}");
+        }
+        let member_requests = rt.block_on(async {
+            server
+                .server()
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.url.path().ends_with("/members"))
+                .count()
+        });
+        assert_eq!(member_requests, 2, "the first fetch and the failed refetch, nothing after");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// A read inside the gap is answered from the store at once (the panel is
+    /// not held on "loading"), and the refetch it scheduled pokes readers
+    /// when it lands. An encrypted room, whose gap is at least 5 s.
+    #[test]
+    fn a_read_inside_the_gap_answers_at_once_and_the_later_refetch_pokes() {
+        let room = room_id!("!deferred:example.org");
+        let alice = "@alice:example.org";
+        let bob = "@bob:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            for (alice_name, times) in [("Alice", Some(1)), ("Alicia", Some(1)), ("Alix", None)] {
+                let mock = server.mock_get_members().ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", alice_name, "$a"), room),
+                    in_room(member(bob, "join", "Bob", "$b0"), room),
+                ]);
+                match times {
+                    Some(n) => mock.up_to_n_times(n).mount().await,
+                    None => mock.mount().await,
+                }
+            }
+            let encryption = json!({
+                "type": "m.room.encryption", "state_key": "", "sender": me,
+                "event_id": "$enc", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "algorithm": "m.megolm.v1.aes-sha2" },
+            });
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    encryption,
+                    member(&me, "join", "Me", "$m0"),
+                    member(alice, "join", "Alice", "$a0"),
+                    member(bob, "join", "Bob", "$b0"),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+        assert!(client.get_room(room).unwrap().encryption_state().is_encrypted());
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-deferred-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        let rename = |name: &'static str, id: &'static str| {
+            let client = client.clone();
+            let pos = format!("pos-{id}");
+            rt.block_on(async move {
+                sync(&client, room, &pos, vec![], vec![member(alice, "join", name, id)]).await;
+                let joined = client.get_room(room).unwrap();
+                let started = std::time::Instant::now();
+                while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                    != Some(id)
+                {
+                    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            });
+        };
+        let name_of = |snapshot: &serde_json::Value| {
+            row(snapshot, alice).map(|r| r["display_name"].clone())
+        };
+
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        assert_eq!(name_of(&final_snapshot(&bridge, 1)), Some(json!("Alice")));
+        // First change: refetched at once (no refetch has started yet).
+        rename("Alicia", "$a1");
+        room_members(&bridge, room.to_string(), 2).expect("joined room");
+        assert_eq!(name_of(&final_snapshot(&bridge, 2)), Some(json!("Alicia")));
+
+        // Second change, inside the gap: the store, at once.
+        rename("Alix", "$a2");
+        let asked = std::time::Instant::now();
+        room_members(&bridge, room.to_string(), 3).expect("joined room");
+        let third = final_snapshot(&bridge, 3);
+        assert!(asked.elapsed() < std::time::Duration::from_secs(2), "held for the gap");
+        assert_eq!(name_of(&third), Some(json!("Alicia")), "{third}");
+
+        // The scheduled refetch lands after the gap and pokes.
+        let started = std::time::Instant::now();
+        loop {
+            let poked = bridge.events.lock().unwrap().iter().any(|raw| {
+                serde_json::from_str::<serde_json::Value>(raw).is_ok_and(|v| {
+                    v["type"] == "room_members_changed" && v["room_id"] == room.as_str()
+                })
+            });
+            if poked {
+                break;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no poke");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        room_members(&bridge, room.to_string(), 4).expect("joined room");
+        assert_eq!(name_of(&final_snapshot(&bridge, 4)), Some(json!("Alix")));
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// Review N1: the scheduled refetch is part of the read's own room action,
+    /// so sign-out's task shutdown owns it. It must still be running after the
+    /// answer (an untracked task would have let the action finish), and it
+    /// must leave cooperatively, inside the join budget, once the session ends.
+    #[test]
+    fn a_deferred_refetch_is_a_tracked_room_action_that_ends_with_the_session() {
+        let room = room_id!("!deferred-shutdown:example.org");
+        let alice = "@alice:example.org";
+        let bob = "@bob:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            for (alice_name, times) in [("Alice", Some(1)), ("Alicia", Some(1)), ("Alix", None)] {
+                let mock = server.mock_get_members().ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", alice_name, "$a"), room),
+                    in_room(member(bob, "join", "Bob", "$b0"), room),
+                ]);
+                match times {
+                    Some(n) => mock.up_to_n_times(n).mount().await,
+                    None => mock.mount().await,
+                }
+            }
+            let encryption = json!({
+                "type": "m.room.encryption", "state_key": "", "sender": me,
+                "event_id": "$enc", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "algorithm": "m.megolm.v1.aes-sha2" },
+            });
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    encryption,
+                    member(&me, "join", "Me", "$m0"),
+                    member(alice, "join", "Alice", "$a0"),
+                    member(bob, "join", "Bob", "$b0"),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-deferred-shutdown-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        let rename = |name: &'static str, id: &'static str| {
+            let client = client.clone();
+            let pos = format!("pos-{id}");
+            rt.block_on(async move {
+                sync(&client, room, &pos, vec![], vec![member(alice, "join", name, id)]).await;
+                let joined = client.get_room(room).unwrap();
+                let started = std::time::Instant::now();
+                while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                    != Some(id)
+                {
+                    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            });
+        };
+        let member_requests = || {
+            rt.block_on(async {
+                server
+                    .server()
+                    .received_requests()
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|r| r.url.path().ends_with("/members"))
+                    .count()
+            })
+        };
+
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        final_snapshot(&bridge, 1);
+        rename("Alicia", "$a1");
+        room_members(&bridge, room.to_string(), 2).expect("joined room");
+        final_snapshot(&bridge, 2);
+        // Inside the encrypted room's gap: answered, and a refetch scheduled.
+        rename("Alix", "$a2");
+        room_members(&bridge, room.to_string(), 3).expect("joined room");
+        final_snapshot(&bridge, 3);
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let running = bridge
+            .room_action_tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|task| !task.is_finished())
+            .count();
+        assert_eq!(running, 1, "the scheduled refetch is not a tracked room action");
+
+        let (_, _, actions_missed, _, actions_ms, _, _) = bridge.shutdown_managed_tasks();
+        assert_eq!(actions_missed, 0, "the waiting refetch had to be aborted");
+        assert!(actions_ms < crate::SHUTDOWN_ACTION_JOIN_MS, "held the join for {actions_ms} ms");
+        assert_eq!(member_requests(), 2, "a /members request after the session ended");
+        let poked = bridge.events.lock().unwrap().iter().any(|raw| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .is_ok_and(|v| v["type"] == "room_members_changed")
+        });
+        assert!(!poked, "a poke from the ended session");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// Review N1: a refetch decided just before sign-out sends nothing once the
+    /// session has ended; the decision and the request are separate awaits.
+    #[test]
+    fn a_refetch_decided_before_sign_out_sends_nothing_after_it() {
+        let room = room_id!("!signout:example.org");
+        let alice = "@alice:example.org";
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            server
+                .mock_get_members()
+                .ok(vec![
+                    in_room(member(&me, "join", "Me", "$m0"), room),
+                    in_room(member(alice, "join", "Alice", "$a0"), room),
+                ])
+                .mount()
+                .await;
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![member(&me, "join", "Me", "$m0"), member(alice, "join", "Alice", "$a0")],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-member-signout-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+        room_members(&bridge, room.to_string(), 1).expect("joined room");
+        final_snapshot(&bridge, 1);
+
+        let joined = client.get_room(room).unwrap();
+        let ctx = MemberRefreshCtx {
+            timelines: Arc::clone(&bridge.timelines),
+            lifecycle: bridge.timelines.lifecycle(),
+            events: Arc::clone(&bridge.events),
+        };
+        let (step, scan, gap) = rt.block_on(async {
+            sync(&client, room, "pos-2", vec![], vec![member(alice, "join", "Alicia", "$a1")])
+                .await;
+            let started = std::time::Instant::now();
+            while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
+                != Some("$a1")
+            {
+                assert!(started.elapsed() < std::time::Duration::from_secs(10));
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let (step, scan, gap, _) = decide_member_step(&joined, &ctx, false).await;
+            (step, scan, gap)
+        });
+        assert_eq!(step, MemberStep::Refresh);
+
+        bridge.timelines.shutdown(&bridge.runtime);
+        let result =
+            rt.block_on(forced_member_refresh(&joined, &ctx, &scan, gap, "read"));
+        assert_eq!(result, (false, 0));
+        let member_requests = rt.block_on(async {
+            server
+                .server()
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.url.path().ends_with("/members"))
+                .count()
+        });
+        assert_eq!(member_requests, 1, "a /members request from the ended session");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    #[test]
+    fn the_store_agrees_only_with_what_the_roster_would_show() {
+        let facts = |membership: &str, name: &str, avatar: &str| MemberFacts {
+            membership: membership.to_owned(),
+            display_name: name.to_owned(),
+            avatar_url: avatar.to_owned(),
+        };
+        let bob = facts("join", "Bob", "mxc://x/b");
+        assert!(store_agrees(Some(&bob), &bob));
+        assert!(!store_agrees(Some(&bob), &facts("join", "Robert", "mxc://x/b")));
+        assert!(!store_agrees(Some(&bob), &facts("join", "Bob", "mxc://x/new")));
+        assert!(!store_agrees(Some(&bob), &facts("ban", "Bob", "mxc://x/b")));
+        assert!(!store_agrees(Some(&bob), &facts("leave", "", "")));
+        // A left or banned row shows no name, so a name change there is not stale.
+        assert!(store_agrees(Some(&facts("ban", "Bob", "")), &facts("ban", "", "")));
+        // Never loaded: stale for anyone the roster shows, fine for anyone it does not.
+        assert!(!store_agrees(None, &facts("join", "Carol", "")));
+        assert!(!store_agrees(None, &facts("invite", "Carol", "")));
+        assert!(!store_agrees(None, &facts("ban", "Carol", "")));
+        assert!(store_agrees(None, &facts("leave", "", "")));
+        assert!(store_agrees(None, &facts("knock", "", "")));
+    }
+
+    #[test]
+    fn a_refetch_is_forced_only_when_stale_and_never_inside_the_gap_or_backoff() {
+        let now = std::time::Instant::now();
+        let gap = std::time::Duration::from_secs(5);
+        let fresh = MemberRefreshState::default();
+        // Not stale: nothing. Unsynced for the SDK's own reasons: its own fetch.
+        assert_eq!(member_step(&fresh, now, true, false, gap), MemberStep::Skip);
+        assert_eq!(member_step(&fresh, now, false, true, gap), MemberStep::SdkSync);
+        assert_eq!(member_step(&fresh, now, true, true, gap), MemberStep::Refresh);
+        // Running: answer from the store.
+        let running = MemberRefreshState { in_flight: true, ..Default::default() };
+        assert_eq!(member_step(&running, now, false, true, gap), MemberStep::ServeWhileRunning);
+        // Inside the gap: later, not now.
+        let recent = MemberRefreshState { started: Some(now), ..Default::default() };
+        assert_eq!(member_step(&recent, now, true, true, gap), MemberStep::Defer(now + gap));
+        assert_eq!(member_step(&recent, now, true, false, gap), MemberStep::Skip);
+        assert_eq!(member_step(&recent, now + gap, true, true, gap), MemberStep::Refresh);
+        // A failure left the room unsynced: no SDK fetch per read, a retry
+        // after the backoff, even with nothing new in the timeline.
+        let failed = MemberRefreshState {
+            started: Some(now),
+            left_missing: true,
+            failures: 1,
+            retry_after: Some(now + std::time::Duration::from_secs(30)),
+            ..Default::default()
+        };
+        assert_eq!(
+            member_step(&failed, now + gap, false, false, gap),
+            MemberStep::Defer(now + std::time::Duration::from_secs(30))
+        );
+        assert_eq!(
+            member_step(&failed, now + std::time::Duration::from_secs(30), false, false, gap),
+            MemberStep::Refresh
+        );
+        // Synced again meanwhile (an encrypted send fetched it): paid.
+        assert_eq!(member_step(&failed, now + gap, true, false, gap), MemberStep::Skip);
+    }
+
+    #[test]
+    fn the_refetch_gap_grows_with_the_roster_and_is_capped() {
+        use std::time::Duration;
+        assert_eq!(member_refresh_gap(0, false), Duration::ZERO);
+        assert_eq!(member_refresh_gap(3, false), Duration::from_millis(30));
+        assert_eq!(member_refresh_gap(1_000, false), Duration::from_secs(10));
+        assert_eq!(member_refresh_gap(6_000, false), MEMBER_REFRESH_GAP_MAX);
+        assert_eq!(member_refresh_gap(u64::MAX, false), MEMBER_REFRESH_GAP_MAX);
+        // Encrypted: a floor, a steeper slope, a higher cap.
+        assert_eq!(member_refresh_gap(3, true), MEMBER_REFRESH_GAP_ENCRYPTED_MIN);
+        assert_eq!(member_refresh_gap(500, true), Duration::from_secs(15));
+        assert_eq!(member_refresh_gap(6_000, true), Duration::from_secs(180));
+        assert_eq!(member_refresh_gap(u64::MAX, true), MEMBER_REFRESH_GAP_ENCRYPTED_MAX);
+    }
+
+    #[test]
+    fn a_failed_refetch_backs_off_and_doubles() {
+        use std::time::Duration;
+        let gap = Duration::from_millis(30);
+        assert_eq!(member_refresh_backoff(1, gap), Duration::from_secs(30));
+        assert_eq!(member_refresh_backoff(2, gap), Duration::from_secs(60));
+        assert_eq!(member_refresh_backoff(3, gap), Duration::from_secs(120));
+        assert_eq!(member_refresh_backoff(50, gap), MEMBER_REFRESH_BACKOFF_MAX);
+        // Never sooner than the room's own gap.
+        assert_eq!(member_refresh_backoff(1, Duration::from_secs(45)), Duration::from_secs(45));
     }
 }

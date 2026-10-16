@@ -603,6 +603,168 @@ private Q_SLOTS:
                                          QStringLiteral("kick"), true, {});
         QCOMPARE(done.count(), 0);
     }
+
+    // Break-it B026/B031: a kick or ban seen while a roster fetch was in
+    // flight was dropped, and that fetch may have read the store before the
+    // change, so the panel kept listing the removed member. The poke is now
+    // owed and paid once the fetch ends.
+    void aMembershipPokeDuringAFetchIsFetchedAfterIt()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        controller.setRoomId(room);
+        QCOMPARE(client.memberCalls, 1);
+        const quint64 inFlight = client.lastOpId;
+
+        Q_EMIT client.roomMemberEventSeen(room);
+        QCOMPARE(client.memberCalls, 1); // never two fetches at once
+
+        // A partial answer does not end the op, so nothing is fetched yet.
+        QVariantMap partial = snapshotWith(true, true, 100);
+        partial.insert(QStringLiteral("partial"), true);
+        Q_EMIT client.roomMembersReceived(inFlight, room, partial);
+        QCoreApplication::processEvents();
+        QCOMPARE(client.memberCalls, 1);
+
+        Q_EMIT client.roomMembersReceived(inFlight, room,
+                                          snapshotWith(true, true, 100));
+        QTRY_COMPARE(client.memberCalls, 2);
+        QVERIFY(controller.loading());
+
+        // Paid once: the next answer ends it without another fetch.
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room,
+                                          snapshotWith(true, true, 100));
+        QCoreApplication::processEvents();
+        QCOMPARE(client.memberCalls, 2);
+        QVERIFY(!controller.loading());
+    }
+
+    // A debt for one room is never paid against the next.
+    void anOwedFetchDoesNotFollowARoomSwitch()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        controller.setRoomId(QStringLiteral("!a:example.org"));
+        Q_EMIT client.roomMemberEventSeen(QStringLiteral("!a:example.org"));
+        controller.setRoomId(QStringLiteral("!b:example.org"));
+        QCOMPARE(client.memberCalls, 2);
+        Q_EMIT client.roomMembersReceived(client.lastOpId,
+                                          QStringLiteral("!b:example.org"),
+                                          snapshotWith(true, true, 100));
+        QCoreApplication::processEvents();
+        QCOMPARE(client.memberCalls, 2);
+    }
+
+    // The composer's gate and the moderators' Delete come from the SDK's
+    // answers in the snapshot. Unknown posts (a slow snapshot must not grey
+    // the composer out) and does not redact others.
+    void sendAndRedactPermissionsComeFromTheSnapshot()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        controller.setRoomId(room);
+        QVERIFY(controller.canSendMessages());
+        QVERIFY(controller.sendBlockedReason().isEmpty());
+        QVERIFY(!controller.canRedactOthers());
+        QVERIFY(controller.ownMembership().isEmpty());
+
+        QVariantMap muted = snapshotWith(false, false, 0);
+        muted.insert(QStringLiteral("canSendMessages"), false);
+        muted.insert(QStringLiteral("canRedactOthers"), false);
+        muted.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room, muted);
+        QVERIFY(!controller.canSendMessages());
+        QCOMPARE(controller.sendBlockedReason(),
+                 RoomInfoController::tr(
+                     "You do not have permission to post in this room."));
+        QCOMPARE(controller.ownMembership(), QStringLiteral("joined"));
+
+        controller.refreshMembers();
+        QVariantMap moderator = snapshotWith(true, true, 50);
+        moderator.insert(QStringLiteral("canSendMessages"), true);
+        moderator.insert(QStringLiteral("canRedactOthers"), true);
+        moderator.insert(QStringLiteral("ownMembership"),
+                         QStringLiteral("joined"));
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room, moderator);
+        QVERIFY(controller.canSendMessages());
+        QVERIFY(controller.sendBlockedReason().isEmpty());
+        QVERIFY(controller.canRedactOthers());
+
+        // A backend that does not report them: posting allowed, redacting not.
+        controller.refreshMembers();
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room,
+                                          snapshotWith(true, true, 50));
+        QVERIFY(controller.canSendMessages());
+        QVERIFY(!controller.canRedactOthers());
+        QVERIFY(controller.ownMembership().isEmpty());
+    }
+
+    // Removed from the open room: the not-joined answer blocks the composer
+    // with its own reason and withdraws every moderation offer.
+    void aNotJoinedAnswerBlocksSendingAndWithdrawsModeration()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        controller.setRoomId(room);
+        QVariantMap joined = snapshotWith(true, true, 100);
+        joined.insert(QStringLiteral("canRedactOthers"), true);
+        joined.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
+        joined.insert(QStringLiteral("canChangeHistoryVisibility"), true);
+        joined.insert(QStringLiteral("canChangeGuestAccess"), true);
+        joined.insert(QStringLiteral("canPublishCallMembership"), true);
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room, joined);
+        QVERIFY(controller.canKick());
+        QVERIFY(controller.canRedactOthers());
+        QVERIFY(controller.canChangeHistoryVisibility());
+        QVERIFY(controller.canChangeGuestAccess());
+        QVERIFY(controller.canPublishCallMembership());
+
+        Q_EMIT client.roomMemberEventSeen(room);
+        QCOMPARE(client.memberCalls, 2);
+        QVariantMap removed;
+        removed.insert(QStringLiteral("ok"), false);
+        removed.insert(QStringLiteral("category"), QStringLiteral("not_joined"));
+        removed.insert(QStringLiteral("ownMembership"), QStringLiteral("left"));
+        Q_EMIT client.roomMembersReceived(client.lastOpId, room, removed);
+
+        QCOMPARE(controller.ownMembership(), QStringLiteral("left"));
+        QVERIFY(!controller.canSendMessages());
+        QCOMPARE(controller.sendBlockedReason(),
+                 RoomInfoController::tr("You are not in this room."));
+        QVERIFY(!controller.canKick());
+        QVERIFY(!controller.canBan());
+        QVERIFY(!controller.canRedactOthers());
+        QVERIFY(!controller.canModerate(QStringLiteral("@bob:example.org"),
+                                        QStringLiteral("kick")));
+        // Every flag, including the two clearSnapshot() once missed, and the
+        // call membership whose unknown value is permissive.
+        QVERIFY(!controller.canChangeHistoryVisibility());
+        QVERIFY(!controller.canChangeGuestAccess());
+        QVERIFY(!controller.canPublishCallMembership());
+
+        // An ordinary failure says nothing about membership and changes none.
+        controller.setRoomId(QStringLiteral("!other:example.org"));
+        Q_EMIT client.roomMembersReceived(client.lastOpId,
+                                          QStringLiteral("!other:example.org"),
+                                          joined);
+        controller.refreshMembers();
+        QVariantMap offline;
+        offline.insert(QStringLiteral("ok"), false);
+        offline.insert(QStringLiteral("category"), QStringLiteral("network"));
+        Q_EMIT client.roomMembersReceived(client.lastOpId,
+                                          QStringLiteral("!other:example.org"),
+                                          offline);
+        QVERIFY(controller.canSendMessages());
+        QVERIFY(controller.canKick());
+        QCOMPARE(controller.ownMembership(), QStringLiteral("joined"));
+    }
 };
 
 QTEST_GUILESS_MAIN(RoomInfoModerationTest)

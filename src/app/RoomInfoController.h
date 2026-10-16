@@ -45,6 +45,23 @@ class RoomInfoController : public QObject
     // where absent means unknown.
     Q_PROPERTY(bool canNotifyRoom READ canNotifyRoom NOTIFY membersChanged)
     Q_PROPERTY(bool canUnban READ canUnban NOTIFY membersChanged)
+    // Whether this account may post in the room: joined, and the SDK's
+    // m.room.message check (plus m.room.encrypted in an encrypted room)
+    // passes. True while unknown (nothing loaded yet, or our own member not
+    // in the store), so a slow snapshot never greys out the composer; the
+    // server decides regardless.
+    Q_PROPERTY(bool canSendMessages READ canSendMessages NOTIFY membersChanged)
+    // Why canSendMessages is false, as a short translated sentence; empty
+    // when it is true.
+    Q_PROPERTY(QString sendBlockedReason READ sendBlockedReason
+                   NOTIFY membersChanged)
+    // Whether this account may redact other people's events (the SDK's
+    // RedactOther check). False until the snapshot says so: it offers a
+    // moderation action, so unknown is "no".
+    Q_PROPERTY(bool canRedactOthers READ canRedactOthers NOTIFY membersChanged)
+    // This account's membership of the room as the SDK holds it: "joined",
+    // "invited", "left", "banned", "knocked", or "" when not known yet.
+    Q_PROPERTY(QString ownMembership READ ownMembership NOTIFY membersChanged)
     Q_PROPERTY(qlonglong ownPowerLevel READ ownPowerLevel NOTIFY membersChanged)
     // Room administration flags: each is the SDK's power-level check against
     // the room's actual required level, never an "administrator only"
@@ -143,6 +160,10 @@ public:
     bool canBan() const { return m_canBan; }
     bool canNotifyRoom() const { return m_canNotifyRoom; }
     bool canUnban() const { return m_canUnban; }
+    bool canSendMessages() const;
+    QString sendBlockedReason() const;
+    bool canRedactOthers() const { return m_canRedactOthers; }
+    QString ownMembership() const { return m_ownMembership; }
     qlonglong ownPowerLevel() const { return m_ownPowerLevel; }
     bool canChangePowerLevels() const { return m_canChangePowerLevels; }
     bool canPinMessages() const { return m_canPinMessages; }
@@ -405,6 +426,8 @@ private:
     QString m_mutualRoomsUser;
     quint64 m_mutualRoomsOp = 0;
     void clearSnapshot();
+    // The SDK-derived permission flags only, at their "unknown" values.
+    void clearPermissions();
     void moderate(const QString &userId, const QString &reason,
                   const QString &op);
     // Shared by filterMembers() and memberRoleGroups() so they agree on the
@@ -434,6 +457,14 @@ private:
     bool m_canBan = false;
     bool m_canNotifyRoom = false;
     bool m_canUnban = false;
+    // Unknown reads as allowed (see canSendMessages); absent from a snapshot
+    // is unknown.
+    bool m_canSendMessages = true;
+    bool m_canRedactOthers = false;
+    QString m_ownMembership;
+    // A membership poke arrived while a fetch was in flight: that fetch may
+    // have read the store before the change, so fetch again when it ends.
+    bool m_membersRefetchOwed = false;
     qlonglong m_ownPowerLevel = 0;
     bool m_canChangePowerLevels = false;
     bool m_canPinMessages = false;

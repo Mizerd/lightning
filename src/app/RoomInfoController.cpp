@@ -121,6 +121,7 @@ void RoomInfoController::setRoomId(const QString &roomId)
     }
     // A room switch invalidates every in-flight operation for the old room.
     m_membersOp = 0;
+    m_membersRefetchOwed = false;
     m_editOp = 0;
     m_leaveOp = 0;
     m_moderationOp = 0;
@@ -149,6 +150,19 @@ void RoomInfoController::clearSnapshot()
     m_joinedCount = 0;
     m_invitedCount = 0;
     m_truncated = false;
+    m_ownMembership.clear();
+    clearPermissions();
+    m_joinRule.clear();
+    m_canonicalAlias.clear();
+    // Empty is the unknown state; zeros would claim a real, very permissive
+    // configuration.
+    m_powerLevels.clear();
+    m_roomVersion.clear();
+    Q_EMIT membersChanged();
+}
+
+void RoomInfoController::clearPermissions()
+{
     m_canInvite = false;
     m_canEditName = false;
     m_canEditTopic = false;
@@ -164,15 +178,37 @@ void RoomInfoController::clearSnapshot()
     m_canChangeAlias = false;
     m_canManageSpaceChildren = false;
     m_usersDefaultPowerLevel = 0;
-    m_joinRule.clear();
-    m_canonicalAlias.clear();
-    // Empty is the unknown state; zeros would claim a real, very permissive
-    // configuration.
-    m_powerLevels.clear();
-    m_roomVersion.clear();
     m_canUpgradeRoom = false;
+    m_canChangeHistoryVisibility = false;
+    m_canChangeGuestAccess = false;
+    // Unknown is permissive here (see the property); a not-joined answer
+    // overrides it.
     m_canPublishCallMembership = true;
-    Q_EMIT membersChanged();
+    m_canSendMessages = true;
+    m_canRedactOthers = false;
+}
+
+namespace {
+// Unknown membership is not "not joined": nothing has said so yet.
+bool knownNotJoined(const QString &ownMembership)
+{
+    return !ownMembership.isEmpty()
+        && ownMembership != QLatin1String("joined");
+}
+} // namespace
+
+bool RoomInfoController::canSendMessages() const
+{
+    return !knownNotJoined(m_ownMembership) && m_canSendMessages;
+}
+
+QString RoomInfoController::sendBlockedReason() const
+{
+    if (knownNotJoined(m_ownMembership))
+        return tr("You are not in this room.");
+    if (!m_canSendMessages)
+        return tr("You do not have permission to post in this room.");
+    return {};
 }
 
 void RoomInfoController::refreshMembers()
@@ -197,7 +233,29 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     const bool partial = snapshot.value(QStringLiteral("partial")).toBool();
     if (!partial)
         m_membersOp = 0;
+    // Fetch again once this op has ended if a poke was held back meanwhile.
+    // Queued, so the answer below is applied first.
+    if (!partial && m_membersRefetchOwed) {
+        m_membersRefetchOwed = false;
+        QMetaObject::invokeMethod(
+            this,
+            [this, roomId]() {
+                if (roomId == m_roomId && m_membersOp == 0)
+                    refreshMembers();
+            },
+            Qt::QueuedConnection);
+    }
     if (!snapshot.value(QStringLiteral("ok")).toBool()) {
+        // A room this account is no longer joined to has no roster, but the
+        // answer says so: nothing it was allowed before is offered now.
+        const QString own =
+            snapshot.value(QStringLiteral("ownMembership")).toString();
+        if (!own.isEmpty() && own != QLatin1String("joined")) {
+            m_ownMembership = own;
+            clearPermissions();
+            // Not unknown: the room has been left, so no call can be joined.
+            m_canPublishCallMembership = false;
+        }
         Q_EMIT membersChanged();
         return;
     }
@@ -220,6 +278,13 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_canNotifyRoom =
         snapshot.value(QStringLiteral("canNotifyRoom")).toBool();
     m_canUnban = snapshot.value(QStringLiteral("canUnban")).toBool();
+    // Absent is unknown: allowed for posting, not offered for redacting.
+    m_canSendMessages =
+        !snapshot.contains(QStringLiteral("canSendMessages"))
+        || snapshot.value(QStringLiteral("canSendMessages")).toBool();
+    m_canRedactOthers =
+        snapshot.value(QStringLiteral("canRedactOthers")).toBool();
+    m_ownMembership = snapshot.value(QStringLiteral("ownMembership")).toString();
     m_ownPowerLevel =
         snapshot.value(QStringLiteral("ownPowerLevel")).toLongLong();
     m_canChangePowerLevels =
@@ -276,10 +341,16 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
 
 void RoomInfoController::onMembersChanged(const QString &roomId)
 {
-    // Sync updated membership for the open room (e.g. an invite landed);
-    // refresh unless a fetch is already pending.
-    if (roomId == m_roomId && m_membersOp == 0 && !m_roomId.isEmpty())
+    // Sync updated membership for the open room (e.g. an invite landed).
+    // While a fetch is pending it may already have read the store before
+    // this change, so remember to fetch once more when it ends; dropping the
+    // poke left the roster stale until the next one.
+    if (roomId != m_roomId || m_roomId.isEmpty())
+        return;
+    if (m_membersOp == 0)
         refreshMembers();
+    else
+        m_membersRefetchOwed = true;
 }
 
 void RoomInfoController::setRoomName(const QString &name)
@@ -1215,6 +1286,7 @@ QVariantList RoomInfoController::memberRoleRows(const QString &needle,
 void RoomInfoController::onLoggedOut()
 {
     m_membersOp = 0;
+    m_membersRefetchOwed = false;
     m_editOp = 0;
     m_leaveOp = 0;
     m_moderationOp = 0;
