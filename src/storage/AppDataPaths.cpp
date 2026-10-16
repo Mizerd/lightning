@@ -606,6 +606,14 @@ RemovalSummary removeAttemptRustStore(const AccountIdentity &identity)
         ++summary.deleted;
     else
         ++summary.failed;
+    // The directory that held it is named after what was typed, and a failed
+    // sign-in left it behind, empty, for good. Removed only when nothing at all
+    // is left in it (rmdir, never recursive): a quarantined sibling, another
+    // session's files or anything else keeps it. Not counted: it held no data.
+    if (summary.failed == 0
+        && removeAccountRootIfEmpty(identity.accountRoot) == EmptyDirRemoval::Failed)
+        qCWarning(lcStoreRemoval) << "a failed attempt's empty account directory "
+                                     "could not be removed";
     return summary;
 }
 

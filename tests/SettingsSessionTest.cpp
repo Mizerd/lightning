@@ -4,10 +4,12 @@
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
+#include <QDir>
 #include <QFile>
 #include <QHash>
 #include <QMetaMethod>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -126,6 +128,7 @@ private Q_SLOTS:
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
     void spacesRailDepthStyleDefaultsToRegionsAndClamps();
     void appearanceIsPerAccountWithGlobalFallback();
+    void oneAccountsAppearanceNeverRestylesAnother();
     void switchingAccountsReAnnouncesTheRoomListFilter();
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
@@ -158,6 +161,10 @@ private Q_SLOTS:
     void perAccountModeReadersMatchTheActiveAccessorsAndTheOldRule();
     void perAccountModeReadersReadANonActiveAccountsOwnScope();
     void perAccountModeReadersUseTheDeviceScopeForAnEmptyOrUnknownUser();
+    void anInterruptedSignOutNamesItsStoreUntilTheStoreIsGone();
+    void aPendingSignOutNeverNamesAStoreItCannotProve();
+    void anUnreadableSettingsFileIsReported();
+    void aSettingsFileThatListsNoAccountBesideAStoreIsReported();
 
 private:
     // Writes the QSettings shape SettingsManager::upsertAccountRecord produces
@@ -1246,9 +1253,12 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QSignalSpy themeSpy(&settings, &SettingsManager::themeChanged);
     settings.setActiveAccountUserId(bob);
     QVERIFY(themeSpy.count() >= 1);
-    // Bob has no explicit choice yet: he inherits the global fallback (the
-    // most recent selection), not a stale per-account value.
-    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+    // Bob has no choice of his own and keeps what he showed before Alice
+    // chose (the default here): one account's choice never restyles another
+    // (B004).
+    QCOMPARE(settings.theme(), SettingsManager::SystemTheme);
+    QCOMPARE(settings.messageLayout(), 0);
+    QCOMPARE(settings.textScale(), 100);
 
     // Bob's own choices must not leak back into Alice's account.
     settings.setTheme(SettingsManager::DeepTealTheme);
@@ -1262,6 +1272,56 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QCOMPARE(settings.theme(), SettingsManager::DeepTealTheme);
     QCOMPARE(settings.messageLayout(), 2);
     QCOMPARE(settings.textScale(), 140);
+}
+
+// B004: three accounts, none with a theme of its own, all showing the one the
+// signed-out shell chose. A theme picked in the middle one restyled the other
+// two, because the write also moved the global fallback they read. They keep
+// what they showed; the global still follows the latest choice, so an account
+// added afterwards starts from it.
+void SettingsSessionTest::oneAccountsAppearanceNeverRestylesAnother()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    settings.setTheme(SettingsManager::NordTheme);   // signed out: the global
+
+    const QString hs = QStringLiteral("https://matrix.example");
+    const QString a = QStringLiteral("@bk004:matrix.example");
+    const QString b = QStringLiteral("@bk005:matrix.example");
+    const QString c = QStringLiteral("@bk006:matrix.example");
+    settings.saveSession(hs, a, QStringLiteral("A"), QStringLiteral("a-token-fixture"));
+    settings.saveSession(hs, b, QStringLiteral("B"), QStringLiteral("b-token-fixture"));
+    settings.saveSession(hs, c, QStringLiteral("C"), QStringLiteral("c-token-fixture"));
+
+    settings.setActiveAccountUserId(b);
+    QCOMPARE(settings.theme(), SettingsManager::NordTheme);
+    settings.setTheme(SettingsManager::MossLightTheme);
+    settings.setTextScale(120);
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+
+    for (const QString &other : { a, c }) {
+        settings.setActiveAccountUserId(other);
+        QVERIFY2(settings.theme() == SettingsManager::NordTheme,
+                 qPrintable(other + QStringLiteral(" was restyled by another account's theme")));
+        QCOMPARE(settings.textScale(), 100);
+    }
+    settings.setActiveAccountUserId(b);
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+    QCOMPARE(settings.textScale(), 120);
+
+    // A later account starts from the latest choice, and then is its own.
+    const QString d = QStringLiteral("@bk007:matrix.example");
+    settings.saveSession(hs, d, QStringLiteral("D"), QStringLiteral("d-token-fixture"));
+    settings.setActiveAccountUserId(d);
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+    settings.setTheme(SettingsManager::DeepTealTheme);
+    for (const QString &other : { a, c })  {
+        settings.setActiveAccountUserId(other);
+        QCOMPARE(settings.theme(), SettingsManager::NordTheme);
+    }
+    settings.setActiveAccountUserId(b);
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
 }
 
 // The room-list filter is re-announced on an account switch: the model
@@ -2674,6 +2734,168 @@ void SettingsSessionTest::perAccountModeReadersUseTheDeviceScopeForAnEmptyOrUnkn
         QVERIFY(forAnswers(settings, QStringLiteral("@nobody:matrix.example"),
                            room)
                 == activeAnswers(settings, room));
+}
+
+// B044: sign-out deleted the store only after the server logout and the store
+// close, so a quit, crash or kill in between left the keys and search index on
+// disk with no record pointing at them. The marker is written before the
+// server logout, survives a restart, names the recorded store exactly, and
+// goes when the store does or when the account signs in again.
+void SettingsSessionTest::anInterruptedSignOutNamesItsStoreUntilTheStoreIsGone()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    FakeSecretStore secrets;
+    const QString hs = QStringLiteral("https://localhs.test");
+    const QString me = QStringLiteral("@bk001:localhs.test");
+    matrix::app_data::AccountIdentity recorded;
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(hs, me, QStringLiteral("DEV"), QStringLiteral("t-fixture"));
+        QVERIFY(settings.resolveSavedIdentity(me, &recorded));
+        QVERIFY(settings.pendingSignOuts().isEmpty());
+        settings.recordPendingSignOut(recorded);
+    }
+    // The next start: a new manager reads it back from the file.
+    SettingsManager reopened;
+    reopened.setSecretStore(&secrets);
+    QList<matrix::app_data::AccountIdentity> pending = reopened.pendingSignOuts();
+    QCOMPARE(pending.size(), 1);
+    QCOMPARE(pending.first().userId, me);
+    QCOMPARE(QDir::cleanPath(pending.first().rustStorePath),
+             QDir::cleanPath(recorded.rustStorePath));
+    QCOMPARE(pending.first().effectiveStoreSlug(), recorded.effectiveStoreSlug());
+
+    // Cleared once the store is gone.
+    reopened.clearPendingSignOut(me);
+    QVERIFY(reopened.pendingSignOuts().isEmpty());
+
+    // A new sign-in of the account supersedes an unfinished sign-out: its
+    // store must not be deleted at the next start.
+    reopened.recordPendingSignOut(recorded);
+    QCOMPARE(reopened.pendingSignOuts().size(), 1);
+    reopened.saveSession(hs, me, QStringLiteral("DEV2"), QStringLiteral("t2-fixture"));
+    QVERIFY(reopened.pendingSignOuts().isEmpty());
+    // Another account's id never clears it.
+    reopened.recordPendingSignOut(recorded);
+    reopened.clearPendingSignOut(QStringLiteral("@other:localhs.test"));
+    QCOMPARE(reopened.pendingSignOuts().size(), 1);
+}
+
+// A marker that no longer resolves to the very store it named (another data
+// root, an edited file) or whose store another saved account owns is dropped
+// with nothing to delete: a missing proof is never permission (CLAUDE.md §6).
+void SettingsSessionTest::aPendingSignOutNeverNamesAStoreItCannotProve()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString hs = QStringLiteral("https://localhs.test");
+    const QString alice = QStringLiteral("@alice:localhs.test");
+    const QString bob = QStringLiteral("@bob:localhs.test");
+    settings.saveSession(hs, alice, QStringLiteral("A"), QStringLiteral("a-fixture"));
+    settings.saveSession(hs, bob, QStringLiteral("B"), QStringLiteral("b-fixture"));
+    matrix::app_data::AccountIdentity aliceIdentity;
+    QVERIFY(settings.resolveSavedIdentity(alice, &aliceIdentity));
+
+    // The recorded path no longer matches what the record resolves to.
+    settings.recordPendingSignOut(aliceIdentity);
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("pendingSignOut/") + aliceIdentity.slug
+                         + QStringLiteral("/storePath"),
+                     QStringLiteral("/elsewhere/matrix-rust-sdk-store"));
+        raw.sync();
+    }
+    SettingsManager moved;
+    QVERIFY(moved.pendingSignOuts().isEmpty());
+    // Dropped, not kept to be refused again forever.
+    QVERIFY(!QSettings().contains(QStringLiteral("pendingSignOut/") + aliceIdentity.slug
+                                  + QStringLiteral("/userId")));
+
+    // Alice's record is gone (her sign-out got that far) and Bob's record now
+    // names her directory as his store: it is his, and it stays.
+    settings.recordPendingSignOut(aliceIdentity);
+    QVERIFY(settings.clearSessionForAccount(alice));
+    settings.setStoreSlugFor(bob, aliceIdentity.effectiveStoreSlug());
+    QCOMPARE(settings.accountOwningStoreSlug(aliceIdentity.effectiveStoreSlug()), bob);
+    QVERIFY2(settings.pendingSignOuts().isEmpty(),
+             "a pending sign-out named a store another account owns");
+}
+
+// B118: a settings file QSettings cannot parse used to look exactly like a
+// fresh install: the login page, the default server, no hint.
+void SettingsSessionTest::anUnreadableSettingsFileIsReported()
+{
+    const QString path = QSettings().fileName();
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("garbage garbage garbage\n");
+    }
+    SettingsManager settings;
+    QCOMPARE(settings.settingsReadProblem(), int(SettingsManager::SettingsUnreadable));
+}
+
+// Most damage parses without an error and reads as "no accounts". The account
+// stores on disk are then the witness; a store a sign-out is still finishing
+// is not, and a file that lists an account is fine.
+void SettingsSessionTest::aSettingsFileThatListsNoAccountBesideAStoreIsReported()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    {
+        SettingsManager fresh;
+        QCOMPARE(fresh.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+    }
+    matrix::app_data::AccountIdentity lost;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://localhs.test"), QStringLiteral("bk059"), &lost));
+    QVERIFY(QDir().mkpath(lost.rustStorePath));
+    {
+        SettingsManager damaged;
+        QCOMPARE(damaged.settingsReadProblem(), int(SettingsManager::AccountsMissing));
+    }
+    // The store of a sign-out still being finished is not evidence.
+    {
+        QSettings raw;
+        const QString base = QStringLiteral("pendingSignOut/") + lost.slug + QLatin1Char('/');
+        raw.setValue(base + QStringLiteral("userId"), lost.userId);
+        raw.setValue(base + QStringLiteral("storePath"),
+                     QDir::cleanPath(QFileInfo(lost.rustStorePath).absoluteFilePath()));
+        raw.sync();
+    }
+    {
+        SettingsManager finishing;
+        QCOMPARE(finishing.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+    }
+    QSettings().remove(QStringLiteral("pendingSignOut"));
+    // A file that lists an account says nothing about other stores.
+    FakeSecretStore secrets;
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(QStringLiteral("https://localhs.test"),
+                             QStringLiteral("@someone:localhs.test"),
+                             QStringLiteral("D"), QStringLiteral("d-fixture"));
+    }
+    SettingsManager listed;
+    QCOMPARE(listed.settingsReadProblem(), int(SettingsManager::NoReadProblem));
 }
 
 QTEST_MAIN(SettingsSessionTest)

@@ -16,6 +16,7 @@
 #include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
 #include "app/FontManager.h"
+#include "app/QuitSignalBridge.h"
 #include "app/SingleInstanceGuard.h"
 #include "app/StartupChecks.h"
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -2523,6 +2524,16 @@ int main(int argc, char *argv[])
             }
             Q_EMIT controller.trayShowRequested();
         });
+
+    // SIGTERM, SIGINT and SIGHUP (a desktop logout, `kill`, Ctrl+C) quit the
+    // way Ctrl+Q does, so aboutToQuit stops sync and closes the store; they
+    // used to end the process on the spot. The intent comes first, or
+    // close-to-tray refuses the window close and aborts the quit. The same
+    // signal again ends the process at once (QuitSignalBridge.h).
+    lightning::quitsignals::install(&controller, [&controller](int) {
+        Q_EMIT controller.applicationQuitIntended();
+        QCoreApplication::quit();
+    });
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Auto-login into the deterministic demo account on the mock backend.

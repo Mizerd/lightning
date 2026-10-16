@@ -264,6 +264,10 @@ class SettingsManager : public QObject
     // AppController::restorableWindowGeometry.
     Q_PROPERTY(QRect initialWindowGeometry READ initialWindowGeometry CONSTANT)
     Q_PROPERTY(bool initialWindowMaximized READ initialWindowMaximized CONSTANT)
+    // Why this settings file may not describe this device (B118), decided once
+    // at startup. A SettingsReadProblem value; the UI says so instead of
+    // presenting a fresh sign-in as if nothing were there.
+    Q_PROPERTY(int settingsReadProblem READ settingsReadProblem CONSTANT)
     // The user dismissed the "verify this session" warnings. Strictly
     // account-scoped (not appearanceValue, which mirrors into a global
     // fallback). Cleared once the session becomes verified.
@@ -446,6 +450,22 @@ public:
         CustomTheme = 12,
     };
     Q_ENUM(Theme)
+
+    // See the settingsReadProblem property. Notice only: nothing is rebuilt
+    // from the stores on disk.
+    enum SettingsReadProblem {
+        NoReadProblem = 0,
+        // QSettings reported an access or format error reading the file.
+        SettingsUnreadable = 1,
+        // The file reads, but lists no account while account stores exist on
+        // this device (garbage or a replaced file reads as empty, NoError).
+        // NOT proof of damage: a store left by a kill during a first-ever
+        // sign-in, or by a removal that failed outside sign-out, looks the
+        // same, so a notice for it must not say the file is damaged.
+        AccountsMissing = 2,
+    };
+    Q_ENUM(SettingsReadProblem)
+    int settingsReadProblem() const { return m_settingsReadProblem; }
 
     // Highest valid Theme id; an out-of-range stored value falls back to
     // SystemTheme (see theme()).
@@ -1094,6 +1114,19 @@ public:
     // no-op secret clear also reports success.
     bool clearSessionForAccount(const QString &userId, bool *matchedRecord);
 
+    // A sign-out that began and has not yet deleted its store (B044). Written
+    // (and flushed) before the server logout, cleared once the store is gone,
+    // so a quit, crash or kill in between leaves a record the next start
+    // finishes. It names the store the session opened, never a secret. A new
+    // sign-in of the account (saveSession) supersedes it.
+    void recordPendingSignOut(const matrix::app_data::AccountIdentity &identity);
+    void clearPendingSignOut(const QString &userId);
+    // The pending sign-outs whose identity still resolves to the very store
+    // they named, under this primaryRoot(), and that no other saved account
+    // owns. Anything else is refused, logged and dropped: nothing here may
+    // delete a store it cannot prove is the one that was being signed out.
+    QList<matrix::app_data::AccountIdentity> pendingSignOuts();
+
 Q_SIGNALS:
     void homeserverUrlChanged();
     void loginHomeserverPrefillChanged();
@@ -1230,8 +1263,10 @@ private:
     // pre-scoping session, adopted on the way. A failed read leaves
     // lastReadFailed() set.
     QString readAccountSecret(const QString &userId, const char *key) const;
-    // Per-account appearance storage: reads prefer the active account, writes
-    // update the account and the global fallback used by the logged-out shell.
+    // Per-account appearance storage: reads prefer the active account, else
+    // the global fallback (the signed-out shell's value, and a new account's
+    // start). A write while signed in goes to the active account; it moves the
+    // global only after every other account keeps what it showed (B004).
     QVariant appearanceValue(const char *globalKey,
                              const QVariant &fallback) const;
     void setAppearanceValue(const char *globalKey, const QVariant &value);
@@ -1298,6 +1333,7 @@ private:
     // Captured once in the constructor; see the CONSTANT properties.
     QRect m_initialWindowGeometry;
     bool m_initialWindowMaximized = false;
+    int m_settingsReadProblem = NoReadProblem;
     mutable QString m_activeSlugCacheUserId;
     mutable QString m_activeSlugCache;
 };

@@ -20,6 +20,7 @@
 #include "crypto/E2eeDiagnostics.h"
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
+#include "matrix/LoginFailureText.h"
 #include "matrix/MediaStoreKey.h"
 #include "matrix/PushRulesSnapshot.h"
 #include "matrix/RoomRecencyRule.h"
@@ -48,6 +49,7 @@
 #include <QLoggingCategory>
 #include <QScopeGuard>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QTimeZone>
 #include <QCoreApplication>
 #include <QUrl>
@@ -68,28 +70,12 @@ QString takeRustString(char *raw)
     return out;
 }
 
-// Words for a password sign-in's common failures, from the fixed reason token
-// rust/src/lib.rs attaches (HTTP status + errcode, or the transport class).
-// Anything else keeps the backend's own message, as before.
+// Words for a password sign-in's failures (matrix/LoginFailureText.h). The
+// backend's message, which quotes the SDK and the server, is never shown.
 QString passwordLoginFailureText(const QString &reason, const QString &message)
 {
     qCInfo(lcRust) << "password sign-in failed reason=" << reason;
-    // Literal per call so lupdate finds each string.
-    if (reason.endsWith(QLatin1String("_M_FORBIDDEN")))
-        return QCoreApplication::translate("RustSdkMatrixClient",
-                                           "Wrong username or password.");
-    if (reason.contains(QLatin1String("M_LIMIT_EXCEEDED")))
-        return QCoreApplication::translate(
-            "RustSdkMatrixClient", "Too many attempts. Wait a minute and try again.");
-    if (reason.contains(QLatin1String("M_USER_DEACTIVATED")))
-        return QCoreApplication::translate("RustSdkMatrixClient",
-                                           "This account has been deactivated.");
-    if (reason == QLatin1String("timeout") || reason == QLatin1String("connect")
-        || reason == QLatin1String("network"))
-        return QCoreApplication::translate(
-            "RustSdkMatrixClient",
-            "Can't reach the server. Check your connection and try again.");
-    return message;
+    return matrix::login_failure::passwordText(reason, message);
 }
 
 // Serializes a formatted-body spec for the FFI. An empty map yields empty
@@ -113,10 +99,86 @@ QByteArray takeRustBytes(char *raw)
     return out;
 }
 
+// mx_rust_poll_event and mx_rust_poll_command_event answer a failure (a null
+// or retired handle, a poisoned queue) with "error: <reason>", which is not an
+// event. Logged as itself, never as a malformed event, and it ends the drain:
+// the next poll would only fail the same way.
+// A failure that persists (a poisoned queue lock) answers every 100 ms tick,
+// on both lanes: warned once per run of failures, then counted at info every
+// kPollFailureReportEvery, and a real event ends the run. Process-wide, like
+// the activity-seed latch: one client per process.
+constexpr int kPollFailureReportEvery = 600;
+
+bool rustPollFailed(const QByteArray &raw)
+{
+    static qint64 failuresInARow = 0;
+    if (!raw.startsWith("error: ")) {
+        failuresInARow = 0;
+        return false;
+    }
+    ++failuresInARow;
+    // The reasons are this bridge's own fixed sentences, never server text.
+    if (failuresInARow == 1) {
+        qCWarning(lcRust) << "Rust SDK event poll failed:"
+                          << QString::fromUtf8(raw.mid(7, 160));
+    } else if (failuresInARow % kPollFailureReportEvery == 0) {
+        qCInfo(lcRust) << "Rust SDK event poll still failing"
+                       << "attempts=" << failuresInARow;
+    }
+    return true;
+}
+
 bool pathExistsOrIsLink(const QString &path)
 {
     const QFileInfo info(path);
     return info.exists() || info.isSymLink();
+}
+
+// B044: the local half of every sign-out that began and did not finish (a
+// quit, crash or kill between the server logout and the store deletion left
+// the store, its keys and search index on disk with no record to find it by).
+// The record and secrets, the store with its sidecars and quarantines, the
+// personal backgrounds and the emptied account directory, as finishSignOut
+// does. The store is the one the marker recorded, which pendingSignOuts()
+// proves is still that account's; never a sweep of unrecorded directories.
+// The server logout is not retried: there is no client here, and the user had
+// already chosen to sign out. The marker goes once the store is gone, so a
+// failed deletion is tried again at the next start.
+void finishInterruptedSignOuts(SettingsManager *settings)
+{
+    if (!settings)
+        return;
+    for (const auto &identity : settings->pendingSignOuts()) {
+        bool matchedRecord = false;
+        const bool sessionOk =
+            settings->clearSessionForAccount(identity.userId, &matchedRecord);
+        const auto files = matrix::app_data::removeAccountRustState(identity);
+        const auto backgrounds = matrix::app_data::removePersonalBackgrounds(identity);
+        const auto accountDir =
+            matrix::app_data::removeAccountRootIfEmpty(identity.accountRoot);
+        // Both halves, or the marker stays and the next start tries again: a
+        // keyring that is locked at launch leaves the tokens at rest, and the
+        // server logout of an interrupted sign-out may never have been sent,
+        // so they can still be live. The record is gone by now, so this is the
+        // only thing left that names them (clearAccountSecrets keys on the
+        // user id, so the retry needs no record).
+        if (files.ok() && sessionOk)
+            settings->clearPendingSignOut(identity.userId);
+        else if (!sessionOk)
+            qCWarning(lcRust) << "interrupted sign-out: the account's secrets "
+                                 "were not removed, retrying at the next start"
+                              << "slug=" << identity.slug;
+        qCInfo(lcRust) << "finished an interrupted sign-out"
+                       << "slug=" << identity.slug
+                       << "matched_record=" << matchedRecord
+                       << "session=" << (sessionOk ? "ok" : "failed")
+                       << "deleted=" << files.deleted
+                       << "missing=" << files.missing
+                       << "failed=" << files.failed
+                       << "backgrounds_deleted=" << backgrounds.deleted
+                       << "account_dir="
+                       << matrix::app_data::emptyDirRemovalName(accountDir);
+    }
 }
 
 QDateTime timestampFromMs(qint64 ms)
@@ -153,6 +215,9 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
                    << rustBackendName()
                    << "version" << rustBackendVersion()
                    << "supports_e2ee=" << rustSupportsE2ee();
+    // Before anything restores or shows the login screen: no store is open
+    // yet, and a half-finished sign-out must not come back as an account.
+    finishInterruptedSignOuts(m_settings);
 }
 
 RustSdkMatrixClient::~RustSdkMatrixClient()
@@ -187,6 +252,16 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
     // The event loop is over: write what the retired handles left now, or a
     // rotation made while quitting is lost with the process.
     persistRetiredSessionTokens();
+    // Quit in the middle of a sign-out (Ctrl+Q, or SIGTERM through the quit
+    // bridge): its store is closed now, so finish the deletion here rather than
+    // leave the keys on disk until the next start.
+    if (m_retireAsSignOut && retired) {
+        // This runs inside ~AppController's member teardown, and its
+        // connections to the settings' accountsChanged/sessionChanged would
+        // fire on a half-destroyed controller. Nothing needs to hear them now.
+        const QSignalBlocker quiet(m_settings);
+        finishInterruptedSignOuts(m_settings);
+    }
     if (!retired) {
         qCWarning(lcRust) << "a retiring Rust client did not close within the"
                           << "budget at shutdown, waited_ms=" << waitedMs;
@@ -2967,6 +3042,11 @@ void RustSdkMatrixClient::logout()
             &m_signOutIdentity, m_settings->storeSlugFor(m_signOutIdentity.userId));
     }
     m_signOutDeviceId = m_deviceId;
+    // Durable before anything below can take time (the server logout, the
+    // store close): a quit, crash or kill from here on is finished at the next
+    // start instead of leaving this store on disk (B044).
+    if (m_settings && m_signOutIdentity.isValid())
+        m_settings->recordPendingSignOut(m_signOutIdentity);
     qCInfo(lcRust) << "rust sign-out started"
                    << "slug=" << m_signOutIdentity.slug
                    << "device_known=" << !m_signOutDeviceId.isEmpty();
@@ -5477,6 +5557,8 @@ void RustSdkMatrixClient::pollRustEvents()
             takeRustBytes(mx_rust_poll_command_event(m_rustHandle));
         if (raw.isEmpty())
             break;
+        if (rustPollFailed(raw))
+            break;
         const QJsonDocument doc = QJsonDocument::fromJson(raw);
         if (!doc.isObject()) {
             qCWarning(lcRust) << "discarding malformed Rust SDK command event";
@@ -5490,6 +5572,10 @@ void RustSdkMatrixClient::pollRustEvents()
                            << "type="
                            << event.value(QStringLiteral("type")).toString();
         }
+        // The handler can release the handle (a failed sign-in rolls back its
+        // attempt) or replace it; nothing more is polled from this one.
+        if (!m_rustHandle || m_handleGeneration != eventGeneration)
+            return;
     }
 
     // Read once per tick; the drain runs up to 256 times.
@@ -5507,6 +5593,8 @@ void RustSdkMatrixClient::pollRustEvents()
     for (int i = 0; i < kHardDrainCap; ++i) {
         const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
+            break;
+        if (rustPollFailed(raw))
             break;
 
         const QJsonDocument doc = QJsonDocument::fromJson(raw);
@@ -5540,6 +5628,11 @@ void RustSdkMatrixClient::pollRustEvents()
         // unnoticed.
         if (traceSync)
             synctrace::noteSyncResponse();
+        // As above: a handler that released or replaced the handle ends the
+        // drain. Polling on reached the null handle 255 more times after a
+        // failed sign-in, each an "error:" string logged as a malformed event.
+        if (!m_rustHandle || m_handleGeneration != eventGeneration)
+            break;
         if (i >= kSoftDrainCap - 1 && type != QLatin1String("timeline_diff"))
             break;
     }
@@ -5622,6 +5715,13 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     const auto files = identity.isValid()
         ? matrix::app_data::removeAccountRustState(identity)
         : matrix::app_data::RemovalSummary{0, 0, 1};
+    // The store and the secrets are gone: nothing is left for the next start
+    // to finish. Kept when either failed, so the next start tries again (B044):
+    // the reset prompt below is not enough on its own, since a keyring that
+    // stays locked would leave a possibly live token at rest with no record
+    // and nothing else naming it.
+    if (m_settings && identity.isValid() && files.ok() && sessionOk)
+        m_settings->clearPendingSignOut(identity.userId);
     const bool didSomething = matchedRecord || files.removedAnything();
     const bool ok = sessionOk && files.ok() && didSomething;
     // Personal chat backgrounds: pictures this account chose, kept as files.
@@ -12430,11 +12530,27 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     if (type == QLatin1String("activity_seed")) {
         // A failed fetch is not "no highlights": say so, so the caller can try
         // again instead of treating the session as seeded.
+        // The caller retries with a backoff (5 s .. 160 s), so a server that
+        // refuses /notifications warned on every attempt. Warn once per run of
+        // failures; the repeats are info with their count. Process-wide, as
+        // there is one client per process.
+        static int seedFailuresInARow = 0;
         if (!event.value(QStringLiteral("ok")).toBool(true)) {
-            qCWarning(lcRust) << "activity seed failed";
+            ++seedFailuresInARow;
+            const QString category = event.value(QStringLiteral("category")).toString();
+            if (seedFailuresInARow == 1) {
+                qCWarning(lcRust) << "activity seed failed"
+                                  << "category=" << (category.isEmpty()
+                                                         ? QStringLiteral("unknown")
+                                                         : category.left(48));
+            } else {
+                qCInfo(lcRust) << "activity seed failed again"
+                               << "attempts=" << seedFailuresInARow;
+            }
             Q_EMIT activitySeedFailed();
             return true;
         }
+        seedFailuresInARow = 0;
         QVariantList entries;
         const QJsonArray rows = event.value(QStringLiteral("entries")).toArray();
         for (const QJsonValue &v : rows) {

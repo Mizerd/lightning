@@ -3,6 +3,7 @@
 #include "app/SettingsManager.h"
 
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QUrl>
 
@@ -129,6 +130,8 @@ constexpr auto kSyncToken           = "session/syncToken";
 
 // Multi-account registry.
 constexpr auto kAccountsGroup       = "accounts";
+// Sign-outs begun and not finished (B044), one group per identity slug.
+constexpr auto kPendingSignOutGroup = "pendingSignOut";
 constexpr auto kActiveAccount       = "accounts/active";
 constexpr auto kAccountUserId       = "userId";
 constexpr auto kAccountHomeserver   = "homeserver";
@@ -208,6 +211,35 @@ SettingsManager::SettingsManager(QObject *parent)
                               QFile::ReadOwner | QFile::WriteOwner);
     }
     migrateLegacySessionRecord();
+    // B118: a damaged settings file used to look exactly like a fresh install.
+    // QSettings reports a parse failure only at the first sync (in this
+    // constructor), and
+    // most garbage parses "fine" as no keys, so the account stores on disk are
+    // the other witness. Count only; nothing is rebuilt from them.
+    if (m_store->status() != QSettings::NoError) {
+        m_settingsReadProblem = SettingsUnreadable;
+        qCWarning(lcSettings) << "the settings file could not be read status="
+                              << int(m_store->status());
+    } else if (savedAccountUserIds().isEmpty()) {
+        QSet<QString> pending;
+        m_store->beginGroup(QLatin1String(kPendingSignOutGroup));
+        for (const QString &slug : m_store->childGroups())
+            pending.insert(QDir::cleanPath(
+                m_store->value(slug + QLatin1String("/storePath")).toString()));
+        m_store->endGroup();
+        int unlisted = 0;
+        for (const QString &store :
+             matrix::app_data::findRustStoresIn(matrix::app_data::primaryRoot())) {
+            if (!pending.contains(QDir::cleanPath(store)))
+                ++unlisted;
+        }
+        if (unlisted > 0) {
+            m_settingsReadProblem = AccountsMissing;
+            qCWarning(lcSettings) << "the settings file lists no account but"
+                                  << unlisted
+                                  << "account store(s) exist on this device";
+        }
+    }
     loadWindowGeometry();
 }
 
@@ -1373,10 +1405,38 @@ QVariant SettingsManager::appearanceValue(const char *globalKey,
 void SettingsManager::setAppearanceValue(const char *globalKey,
                                          const QVariant &value)
 {
+    const QString global = QLatin1String(globalKey);
     const QString slug = slugForSavedAccount(activeAccountUserId());
-    if (!slug.isEmpty())
-        m_store->setValue(accountKey(slug, globalKey), value);
-    m_store->setValue(QLatin1String(globalKey), value);
+    if (slug.isEmpty()) {
+        // The signed-out shell: the global key is its own value.
+        m_store->setValue(global, value);
+        return;
+    }
+    m_store->setValue(accountKey(slug, globalKey), value);
+    // The global key is also the fallback of every account without its own
+    // value, so moving it restyled them all (B004: a theme picked in one
+    // account showed in two others). Those accounts first keep, as their own,
+    // the value they show now; then the global follows this choice, for the
+    // signed-out shell and for an account added later. An account showing its
+    // DEFAULT (no global value yet) cannot be pinned from here, which does not
+    // know the getter's default, so the global stays unwritten while one does.
+    const bool hasGlobal = m_store->contains(global);
+    const QVariant inherited = hasGlobal ? m_store->value(global) : QVariant();
+    bool anotherShowsTheDefault = false;
+    for (const QString &userId : savedAccountUserIds()) {
+        const QString other = slugForSavedAccount(userId);
+        if (other.isEmpty() || other == slug)
+            continue;
+        const QString otherKey = accountKey(other, globalKey);
+        if (m_store->contains(otherKey))
+            continue;
+        if (hasGlobal)
+            m_store->setValue(otherKey, inherited);
+        else
+            anotherShowsTheDefault = true;
+    }
+    if (!anotherShowsTheDefault)
+        m_store->setValue(global, value);
 }
 
 QVariant SettingsManager::accountScopedValue(const char *globalKey,
@@ -3971,6 +4031,9 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     // A fresh login is a new device; drop the old sync position.
     const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
     m_store->remove(accountKey(slug, kAccountSyncToken));
+    // Signed in again: an unfinished sign-out of this account must not delete
+    // the store this sign-in uses at the next start.
+    clearPendingSignOut(uidCanonical);
     m_store->setValue(kActiveAccount, uidCanonical);
     // Keep the login prefill on the most recently used homeserver.
     m_store->setValue(kHomeserver, hsCanonical);
@@ -4020,6 +4083,77 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     if (hsChanged)
         Q_EMIT homeserverUrlChanged();
     Q_EMIT sessionChanged();
+}
+
+void SettingsManager::recordPendingSignOut(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    if (!identity.isValid())
+        return;
+    const QString base = QLatin1String(kPendingSignOutGroup) + QLatin1Char('/')
+        + identity.slug + QLatin1Char('/');
+    m_store->setValue(base + QLatin1String("userId"), identity.userId);
+    m_store->setValue(base + QLatin1String("homeserver"), identity.homeserver);
+    m_store->setValue(base + QLatin1String("storeSlug"), identity.effectiveStoreSlug());
+    m_store->setValue(base + QLatin1String("storePath"),
+                      QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath()));
+    // Durable before the server logout starts: that is the window it covers.
+    m_store->sync();
+}
+
+void SettingsManager::clearPendingSignOut(const QString &userId)
+{
+    const QString slug = matrix::app_data::safeUserSlug(userId.trimmed());
+    if (slug.isEmpty())
+        return;
+    const QString group = QLatin1String(kPendingSignOutGroup) + QLatin1Char('/') + slug;
+    if (m_store->value(group + QLatin1String("/userId")).toString() != userId.trimmed())
+        return;
+    m_store->remove(group);
+    m_store->sync();
+}
+
+QList<matrix::app_data::AccountIdentity> SettingsManager::pendingSignOuts()
+{
+    QList<matrix::app_data::AccountIdentity> out;
+    m_store->beginGroup(QLatin1String(kPendingSignOutGroup));
+    const QStringList slugs = m_store->childGroups();
+    m_store->endGroup();
+    for (const QString &slug : slugs) {
+        const QString base = QLatin1String(kPendingSignOutGroup) + QLatin1Char('/')
+            + slug + QLatin1Char('/');
+        const QString userId = m_store->value(base + QLatin1String("userId")).toString();
+        const QString storePath =
+            m_store->value(base + QLatin1String("storePath")).toString();
+        matrix::app_data::AccountIdentity identity;
+        const char *refused = nullptr;
+        if (!matrix::app_data::resolveAccountIdentity(
+                m_store->value(base + QLatin1String("homeserver")).toString(), userId,
+                &identity)
+            || identity.slug != slug
+            || !matrix::app_data::bindStoreSlug(
+                &identity, m_store->value(base + QLatin1String("storeSlug")).toString())) {
+            refused = "unresolvable";
+        } else if (storePath.isEmpty()
+                   || QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath())
+                          != storePath) {
+            // Another data root (portable mode, a moved home) or an edited file.
+            refused = "store_path_moved";
+        } else {
+            const QString owner = accountOwningStoreSlug(identity.effectiveStoreSlug());
+            if (!owner.isEmpty() && owner != identity.userId)
+                refused = "store_owned_by_another_account";
+        }
+        if (refused) {
+            qCWarning(lcSettings) << "pending sign-out dropped, nothing removed"
+                                  << "slug=" << slug << "reason=" << refused;
+            m_store->remove(QLatin1String(kPendingSignOutGroup) + QLatin1Char('/') + slug);
+            continue;
+        }
+        out.append(identity);
+    }
+    m_store->sync();
+    return out;
 }
 
 void SettingsManager::setSyncToken(const QString &token)

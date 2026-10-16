@@ -35,6 +35,7 @@ private Q_SLOTS:
     void retriesShareOneBudgetAcrossEveryDirectory();
     void anAccountRootGoesOnlyWhenEmpty();
     void personalBackgroundsGoSoTheRecordedRootCanGo();
+    void aFailedAttemptLeavesNoEmptyAccountDirectory();
 
 private:
     bool writeFile(const QString &path, const QByteArray &contents = "fixture");
@@ -669,6 +670,38 @@ void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
     QVERIFY2(remove > finish, "finishSignOut no longer removes personal backgrounds");
     QVERIFY2(rootCheck > remove,
              "personal backgrounds must go before the account directory check");
+}
+
+// B043: a failed sign-in removed its store and left the directory that held
+// it, empty and named after the typed username, for good. The rollback now
+// takes that directory too, but only when nothing else is in it: a quarantined
+// store from before the attempt (which may hold the only copy of room keys)
+// keeps it, and itself.
+void AppDataPathsTest::aFailedAttemptLeavesNoEmptyAccountDirectory()
+{
+    matrix::app_data::AccountIdentity typed;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://typed.example"), QStringLiteral("typo"), &typed));
+    QDir(typed.accountRoot).removeRecursively();
+
+    QVERIFY(writeFile(typed.rustStorePath + QStringLiteral("/matrix-sdk-crypto.sqlite3")));
+    const auto first = matrix::app_data::removeAttemptRustStore(typed);
+    QCOMPARE(first.deleted, 1);
+    QCOMPARE(first.failed, 0);
+    QVERIFY2(!QFileInfo::exists(typed.accountRoot),
+             "the attempt's empty account directory was left behind");
+
+    // A quarantined sibling keeps the directory and is never touched.
+    const QString quarantined =
+        typed.rustStorePath + QStringLiteral(".orphaned-20261016-000000000");
+    QVERIFY(writeFile(quarantined + QStringLiteral("/matrix-sdk-crypto.sqlite3")));
+    QVERIFY(writeFile(typed.rustStorePath + QStringLiteral("/matrix-sdk-crypto.sqlite3")));
+    const auto second = matrix::app_data::removeAttemptRustStore(typed);
+    QCOMPARE(second.deleted, 1);
+    QVERIFY(!QFileInfo::exists(typed.rustStorePath));
+    QVERIFY(QFileInfo::exists(quarantined + QStringLiteral("/matrix-sdk-crypto.sqlite3")));
+    QVERIFY(QDir(typed.accountRoot).exists());
+    QVERIFY(QDir(typed.accountRoot).removeRecursively());
 }
 
 QTEST_MAIN(AppDataPathsTest)

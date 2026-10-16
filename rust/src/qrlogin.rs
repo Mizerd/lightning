@@ -16,15 +16,17 @@
 //! them. Tasks always run the stream consumer alongside the future.
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use matrix_sdk::authentication::oauth::qrcode::{
-    GeneratedQrProgress, GrantLoginProgress, QrCodeData, QrProgress,
+    GeneratedQrProgress, GrantLoginProgress, QRCodeGrantLoginError, QrCodeData, QrProgress,
+    SecureChannelError,
 };
+use matrix_sdk::ruma::api::error::ErrorKind;
 use serde_json::json;
 
 use crate::rooms::require_client;
@@ -79,16 +81,44 @@ fn classify(err: &str) -> &'static str {
         "check_code"
     } else if lower.contains("cancel") {
         "cancelled"
+    } else if lower.contains("unsupported") || lower.contains("not supported")
+        || lower.contains("endpoint") || lower.contains("unrecognized")
+    {
+        // Before "expired": a server that does not know the endpoint can say
+        // "not found" too, and nothing expired.
+        "unsupported"
     } else if lower.contains("expired") || lower.contains("timeout")
         || lower.contains("timed out") || lower.contains("not found")
     {
         "expired"
-    } else if lower.contains("unsupported") || lower.contains("not supported")
-        || lower.contains("endpoint")
-    {
-        "unsupported"
     } else {
         "failed"
+    }
+}
+
+/// The generate flow's first request creates the rendezvous session on our
+/// own homeserver. A server without MSC4108 refuses it: M_UNRECOGNIZED, or a
+/// 404 / M_NOT_FOUND, which the SDK turns into `NotFound`, "the rendezvous
+/// session was not found and might have expired". Before the QR code exists
+/// there is no session to have expired, so that is "unsupported" (B083).
+fn rendezvous_refused(err: &QRCodeGrantLoginError, qr_shown: bool) -> bool {
+    match err {
+        QRCodeGrantLoginError::NotFound => !qr_shown,
+        QRCodeGrantLoginError::SecureChannel(SecureChannelError::RendezvousChannel(http)) => {
+            let Some(api) = http.as_client_api_error() else { return false };
+            matches!(api.error_kind(), Some(ErrorKind::Unrecognized))
+                || (!qr_shown && matches!(api.status_code.as_u16(), 404 | 405))
+        }
+        _ => false,
+    }
+}
+
+/// `classify` for the flow that shows the QR code.
+fn classify_generate(err: &QRCodeGrantLoginError, qr_shown: bool) -> &'static str {
+    if rendezvous_refused(err, qr_shown) {
+        "unsupported"
+    } else {
+        classify(&err.to_string())
     }
 }
 
@@ -118,11 +148,15 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
             .device_creation_timeout(Duration::from_secs(DEVICE_CREATION_TIMEOUT_SECS))
             .generate();
         let mut progress = grant.subscribe_to_progress();
+        // Whether the rendezvous session existed (its QR code was shown): only
+        // then can a "not found" mean it expired.
+        let qr_shown = Arc::new(AtomicBool::new(false));
 
         // Consume the stream concurrently with the future: the QR payload and the
         // check-code sender arrive through it, and the future waits on both.
         let stream_events = Arc::clone(&events);
         let stream_state = Arc::clone(&state);
+        let stream_qr_shown = Arc::clone(&qr_shown);
         let pump = tokio::spawn(async move {
             while let Some(step) = progress.next().await {
                 match step {
@@ -132,6 +166,7 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                     GrantLoginProgress::EstablishingSecureChannel(
                         GeneratedQrProgress::QrReady(data),
                     ) => {
+                        stream_qr_shown.store(true, Ordering::SeqCst);
                         // Rendered to modules here: the encoder is already on this side
                         // (verification), and C++ has none.
                         match crate::render_qr_bytes(&data.to_bytes()) {
@@ -196,7 +231,10 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
             Err(err) => emit(
                 &events,
                 gen,
-                json!({ "step": "failed", "category": classify(&err.to_string()) }),
+                json!({
+                    "step": "failed",
+                    "category": classify_generate(&err, qr_shown.load(Ordering::SeqCst)),
+                }),
             ),
         }
     });
@@ -369,6 +407,54 @@ mod tests {
         );
         // Unrecognised errors stay generic; a wrong specific reason misleads.
         assert_eq!(classify("something nobody has seen before"), "failed");
+        // A server that does not know the endpoint is not an expiry, even
+        // when its words say "not found".
+        assert_eq!(
+            classify("Error in the rendezvous channel: M_UNRECOGNIZED: Not found"),
+            "unsupported"
+        );
+    }
+
+    fn rendezvous_error(status: u16, kind: ErrorKind) -> QRCodeGrantLoginError {
+        use matrix_sdk::ruma::api::error::{
+            Error as ApiError, ErrorBody, FromHttpResponseError, StandardErrorBody,
+        };
+        let api = ApiError::new(
+            matrix_sdk::reqwest::StatusCode::from_u16(status).unwrap(),
+            ErrorBody::Standard(StandardErrorBody::new(kind, "Not found".to_owned())),
+        );
+        let http = matrix_sdk::HttpError::from(FromHttpResponseError::Server(
+            matrix_sdk::RumaApiError::MatrixError(api),
+        ));
+        QRCodeGrantLoginError::SecureChannel(SecureChannelError::RendezvousChannel(http))
+    }
+
+    // B083: on a server without MSC4108 the generate flow failed at once with
+    // "the code expired". Before the QR code exists, a refused rendezvous is
+    // "unsupported"; once it was shown, a missing session did expire.
+    #[test]
+    fn a_server_without_the_rendezvous_endpoint_is_unsupported_not_expired() {
+        // The SDK's own NotFound, from a 404 / M_NOT_FOUND on creation.
+        assert_eq!(classify_generate(&QRCodeGrantLoginError::NotFound, false), "unsupported");
+        assert_eq!(classify_generate(&QRCodeGrantLoginError::NotFound, true), "expired");
+        // M_UNRECOGNIZED: the server does not know the endpoint at any stage.
+        let unrecognized = rendezvous_error(404, ErrorKind::Unrecognized);
+        assert_eq!(classify_generate(&unrecognized, false), "unsupported");
+        assert_eq!(classify_generate(&unrecognized, true), "unsupported");
+        // A bare 404/405 on creation, whatever the errcode.
+        assert_eq!(
+            classify_generate(&rendezvous_error(405, ErrorKind::Unknown), false),
+            "unsupported"
+        );
+        // Other failures keep their categories.
+        assert_eq!(
+            classify_generate(&QRCodeGrantLoginError::InvalidCheckCode, false),
+            "check_code"
+        );
+        assert_eq!(
+            classify_generate(&QRCodeGrantLoginError::MissingSecretsBackup(None), false),
+            "no_secrets"
+        );
     }
 
     // A payload that is not a QR code is refused before any task starts.
