@@ -19,6 +19,9 @@
 // RailEntryModel gets a SpaceManager over a local client with three root
 // Spaces, while writing to AppController's own RailLayoutStore.
 
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QtTest/QtTest>
 
 #include <algorithm>
@@ -2269,6 +2272,24 @@ private slots:
         }
         // The count of sides compared, not the loop's length.
         QCOMPARE(measured, 4);
+    }
+
+    // B057 review: an unnamed folder is stored with an EMPTY name, so every
+    // reader of a folder's name must fall back to "Folder". The "Move to"
+    // menu entry read `modelData.name || ""` and showed `Move to ""`. A scan
+    // (the menu is built per right-click and the store is not reachable from
+    // here), pinned to the entry's own text.
+    void theMoveToEntryNamesAnUnnamedFolder()
+    {
+        QFile f(QFileInfo(QStringLiteral(__FILE__)).dir().filePath(
+            QStringLiteral("../qml/SpacesRail.qml")));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(f.readAll());
+        const int at = src.indexOf(QStringLiteral("qsTr(\"Move to"));
+        QVERIFY(at > 0);
+        const QString entry = src.mid(at, 260);
+        QVERIFY2(entry.contains(QStringLiteral("qsTr(\"Folder\")")), qPrintable(entry));
+        QVERIFY2(!entry.contains(QStringLiteral("name || \"\"")), qPrintable(entry));
     }
 
     // Every derived tile centres on the same axis at every rail width. A

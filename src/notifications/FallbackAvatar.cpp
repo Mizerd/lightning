@@ -31,17 +31,31 @@ QString initialsFor(const QString &name)
             cleaned.remove(0, 1);
         }
     }
-    cleaned = cleaned.trimmed();
-    if (cleaned.isEmpty())
-        return QStringLiteral("?");
+    // Markup tags carry no initial ("Alice <b>Bold</b>" -> "AB").
+    static const QRegularExpression tags(QStringLiteral("<[^>]*>"));
+    cleaned.replace(tags, QStringLiteral(" "));
 
+    // The first letter or digit CODE POINT of each of the first two words
+    // that have one: a surrogate pair stays whole, punctuation and symbols
+    // (emoji included) are skipped. Mirrors Avatar.qml's _initials().
     const QStringList words =
         cleaned.split(QRegularExpression(QStringLiteral("\\s+")),
                       Qt::SkipEmptyParts);
-    if (words.size() >= 2) {
-        return (words.at(0).left(1) + words.at(1).left(1)).toUpper();
+    QString out;
+    int found = 0;
+    for (const QString &word : words) {
+        if (found >= 2)
+            break;
+        const QList<uint> cps = word.toUcs4();
+        for (const uint cp : cps) {
+            if (QChar::isLetterOrNumber(cp)) {
+                out += QString::fromUcs4(&cp, 1).toUpper();
+                ++found;
+                break;
+            }
+        }
     }
-    return cleaned.left(1).toUpper();
+    return out.isEmpty() ? QStringLiteral("?") : out;
 }
 
 QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,

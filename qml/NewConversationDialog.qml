@@ -106,6 +106,14 @@ Dialog {
         mode = newMode
     }
 
+    // A tab switch must not carry the previous tab's scroll position into the
+    // new, possibly shorter, tab (B056: a form drawn far below the title with
+    // a blank band above it).
+    onModeChanged: {
+        tabFlick.contentY = 0
+        Qt.callLater(tabFlick.returnToBounds)
+    }
+
     function activeTabItem() {
         if (mode === "room") return roomTabLoader.item
         if (mode === "space") return spaceTabLoader.item
@@ -141,7 +149,11 @@ Dialog {
             topic: spaceTopicText,
             "public": spaceIsPublic,
             encrypted: false,
-            isSpace: true
+            isSpace: true,
+            // From a Space Home the new Space nests under it (B058); the
+            // controller sends it as an m.space.child of that Space.
+            spaceId: (spacePlacementAvailable && addToSpaceChecked)
+                     ? app.spaces.activeSpaceId : ""
         })
     }
 
@@ -322,6 +334,7 @@ Dialog {
         // Active tab (scrolls when height-constrained)
         Flickable {
             id: tabFlick
+            objectName: "creationTabFlick"
             Layout.fillWidth: true
             Layout.fillHeight: true
             implicitHeight: tabColumn.implicitHeight
@@ -341,6 +354,9 @@ Dialog {
                 Loader {
                     id: dmTabLoader
                     Layout.fillWidth: true
+                    // An empty Loader must not count as a layout item: its
+                    // spacing would be added to the tab area's height.
+                    visible: active
                     active: root.visible && root.mode === "dm"
                     sourceComponent: dmTabComponent
                     onLoaded: Qt.callLater(function() {
@@ -351,6 +367,9 @@ Dialog {
                 Loader {
                     id: roomTabLoader
                     Layout.fillWidth: true
+                    // An empty Loader must not count as a layout item: its
+                    // spacing would be added to the tab area's height.
+                    visible: active
                     active: root.visible && root.mode === "room"
                     sourceComponent: roomTabComponent
                     onLoaded: Qt.callLater(function() {
@@ -361,6 +380,9 @@ Dialog {
                 Loader {
                     id: spaceTabLoader
                     Layout.fillWidth: true
+                    // An empty Loader must not count as a layout item: its
+                    // spacing would be added to the tab area's height.
+                    visible: active
                     active: root.visible && root.mode === "space"
                     sourceComponent: spaceTabComponent
                     onLoaded: Qt.callLater(function() {
@@ -733,17 +755,27 @@ Dialog {
                 onAccepted: root.submitRoom()
                 KeyNavigation.tab: roomTopicField
             }
-            Label {
-                objectName: "roomNameHint"
-                visible: root.roomNameEdited
-                         && root.roomNameText.trim().length === 0
+            // The slot keeps the hint's height whether or not the hint is
+            // showing, so the fields and the Create button below do not jump
+            // about 17px under the pointer as the name is edited.
+            Item {
+                objectName: "roomNameHintSlot"
                 Layout.fillWidth: true
-                text: qsTr("The room needs a name.")
-                color: AppTheme.stormDanger
-                font.pixelSize: AppTheme.textMeta
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
-                wrapMode: Text.WordWrap
+                implicitHeight: roomNameHint.implicitHeight
+                Label {
+                    id: roomNameHint
+                    objectName: "roomNameHint"
+                    visible: root.roomNameEdited
+                             && root.roomNameText.trim().length === 0
+                    width: parent.width
+                    text: qsTr("The room needs a name.")
+                    textFormat: Text.PlainText
+                    color: AppTheme.stormDanger
+                    font.pixelSize: AppTheme.textMeta
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                    wrapMode: Text.WordWrap
+                }
             }
 
             Label {
@@ -1083,17 +1115,27 @@ Dialog {
                 onAccepted: root.submitSpace()
                 KeyNavigation.tab: spaceTopicField
             }
-            Label {
-                objectName: "spaceNameHint"
-                visible: root.spaceNameEdited
-                         && root.spaceNameText.trim().length === 0
+            // The slot keeps the hint's height whether or not the hint is
+            // showing, so the fields and the Create button below do not jump
+            // about 17px under the pointer as the name is edited.
+            Item {
+                objectName: "spaceNameHintSlot"
                 Layout.fillWidth: true
-                text: qsTr("The Space needs a name.")
-                color: AppTheme.stormDanger
-                font.pixelSize: AppTheme.textMeta
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
-                wrapMode: Text.WordWrap
+                implicitHeight: spaceNameHint.implicitHeight
+                Label {
+                    id: spaceNameHint
+                    objectName: "spaceNameHint"
+                    visible: root.spaceNameEdited
+                             && root.spaceNameText.trim().length === 0
+                    width: parent.width
+                    text: qsTr("The Space needs a name.")
+                    textFormat: Text.PlainText
+                    color: AppTheme.stormDanger
+                    font.pixelSize: AppTheme.textMeta
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                    wrapMode: Text.WordWrap
+                }
             }
 
             Label {
@@ -1143,6 +1185,37 @@ Dialog {
                 lineHeight: AppTheme.lineHeightBody
                 lineHeightMode: Text.ProportionalHeight
                 wrapMode: Text.WordWrap
+            }
+
+            // Optional placement under the current Space (a subspace).
+            Loader {
+                objectName: "spaceAddToSpaceLoader"
+                Layout.fillWidth: true
+                Layout.topMargin: AppTheme.spacing4
+                active: root.spacePlacementAvailable
+                visible: active
+                sourceComponent: RowLayout {
+                    objectName: "spaceAddToSpaceRow"
+                    spacing: AppTheme.spacing12
+                    AppSwitch {
+                        id: nestSpaceSwitch
+                        objectName: "spaceAddToSpaceSwitch"
+                        checked: root.addToSpaceChecked
+                        enabled: !root.busy
+                        Accessible.name: qsTr("Add to the current Space")
+                        onToggled: root.addToSpaceChecked = !root.addToSpaceChecked
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Add to the current Space")
+                        color: AppTheme.stormText
+                        font.pixelSize: AppTheme.textBody
+                        TapHandler {
+                            enabled: nestSpaceSwitch.enabled
+                            onTapped: nestSpaceSwitch.toggled()
+                        }
+                    }
+                }
             }
 
             AppButton {

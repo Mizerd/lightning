@@ -2028,6 +2028,74 @@ private Q_SLOTS:
         QCOMPARE(b, qint64(0));
     }
 
+    // B058: the "Add existing" picker lists joined Spaces, but never the
+    // Space itself nor one of its own ancestors (that would close a cycle),
+    // and marks a Space that is already a child.
+    void theAddPickerOffersSpacesButNeverACycle()
+    {
+        FakeClient client;
+        // Top > Mid > Leaf, plus an unrelated Other and a room.
+        client.roomList = {
+            spaceRoom(QStringLiteral("!top:x"), QStringLiteral("Top"),
+                      { QStringLiteral("!mid:x") }),
+            spaceRoom(QStringLiteral("!mid:x"), QStringLiteral("Mid"),
+                      { QStringLiteral("!leaf:x") },
+                      { QStringLiteral("!top:x") }),
+            spaceRoom(QStringLiteral("!leaf:x"), QStringLiteral("Leaf"), {},
+                      { QStringLiteral("!mid:x") }),
+            spaceRoom(QStringLiteral("!other:x"), QStringLiteral("Other")),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+
+        auto offered = [&](const QString &into) {
+            QHash<QString, bool> out; // id -> alreadyChild
+            for (const QVariant &v : spaces.addableRooms(into, QString())) {
+                const QVariantMap m = v.toMap();
+                out.insert(m.value(QStringLiteral("roomId")).toString(),
+                           m.value(QStringLiteral("alreadyChild")).toBool());
+            }
+            return out;
+        };
+        // Into Mid: Other is offered; Mid itself and its ancestor Top are not
+        // (Top > Mid > Top is a cycle); Leaf is offered but already a child.
+        const auto intoMid = offered(QStringLiteral("!mid:x"));
+        QVERIFY(intoMid.contains(QStringLiteral("!other:x")));
+        QVERIFY(!intoMid.value(QStringLiteral("!other:x")));
+        QVERIFY(!intoMid.contains(QStringLiteral("!mid:x")));
+        QVERIFY(!intoMid.contains(QStringLiteral("!top:x")));
+        QVERIFY(intoMid.value(QStringLiteral("!leaf:x")));
+        // Into Leaf: every ancestor is excluded, the unrelated Space is not.
+        const auto intoLeaf = offered(QStringLiteral("!leaf:x"));
+        QVERIFY(!intoLeaf.contains(QStringLiteral("!leaf:x")));
+        QVERIFY(!intoLeaf.contains(QStringLiteral("!mid:x")));
+        QVERIFY(!intoLeaf.contains(QStringLiteral("!top:x")));
+        QVERIFY(intoLeaf.contains(QStringLiteral("!other:x")));
+    }
+
+    // B057: an unnamed folder is stored unnamed ("Folder" is localised where
+    // it is shown), so a drag-made folder's tooltip cannot read "Folder:
+    // Folder". A named one keeps its name.
+    void anUnnamedFolderIsStoredWithAnEmptyName()
+    {
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        const QString dragged = store.createFolderWithSpaces(
+            { QStringLiteral("!a:x") }, -1, QString());
+        const QString plain = store.createFolder(QStringLiteral("  "));
+        const QString named = store.createFolder(QStringLiteral("Work"));
+        QVERIFY(!dragged.isEmpty() && !plain.isEmpty() && !named.isEmpty());
+        QHash<QString, QString> names;
+        for (const QVariant &v : store.folders()) {
+            const QVariantMap m = v.toMap();
+            names.insert(m.value(QStringLiteral("id")).toString(),
+                         m.value(QStringLiteral("name")).toString());
+        }
+        QCOMPARE(names.value(dragged), QString());
+        QCOMPARE(names.value(plain), QString());
+        QCOMPARE(names.value(named), QStringLiteral("Work"));
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

@@ -290,6 +290,48 @@ private slots:
         closeDialog();
     }
 
+    // B056: the validation hint reserves its height, so the form does not
+    // jump when the hint appears; and a tab switch drops the previous tab's
+    // scroll offset instead of drawing the new form far from the title.
+    void spaceFormDoesNotJumpAndTabSwitchResetsScroll()
+    {
+        openDialog("space");
+        QTRY_VERIFY(item("spaceTab"));
+        auto *nameField = item("spaceNameField");
+        auto *create = item("spaceCreateButton");
+        QVERIFY(nameField && create);
+        QTRY_VERIFY(nameField->hasActiveFocus());
+        auto *hint = item("spaceNameHint");
+        auto *slot = item("spaceNameHintSlot");
+        QVERIFY(hint && slot);
+        QVERIFY(!hint->isVisible());
+        const qreal slotHeight = slot->height();
+        QVERIFY2(slotHeight > 0, "the hint's slot must reserve a line");
+        const qreal createY = create->mapToItem(m_window->contentItem(),
+                                                QPointF(0, 0)).y();
+        const qreal dialogHeight = m_dialog->property("height").toReal();
+
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTRY_COMPARE(nameField->property("text").toString(), QStringLiteral("a"));
+        QTest::keyClick(m_window, Qt::Key_Backspace);
+        QTRY_VERIFY(hint->isVisible());
+        QCOMPARE(slot->height(), slotHeight);
+        QCOMPARE(create->mapToItem(m_window->contentItem(), QPointF(0, 0)).y(),
+                 createY);
+        QCOMPARE(m_dialog->property("height").toReal(), dialogHeight);
+
+        // A stale offset from the previous tab does not follow the switch.
+        auto *flick = item("creationTabFlick");
+        QVERIFY(flick);
+        flick->setProperty("contentY", -80.0);
+        auto *roomChip = item("newConversationRoomChip");
+        QVERIFY(roomChip);
+        QMetaObject::invokeMethod(roomChip, "click");
+        QTRY_VERIFY(item("roomTab"));
+        QTRY_COMPARE(flick->property("contentY").toReal(), 0.0);
+        closeDialog();
+    }
+
     // (b) A tab switch clears the shared search model and focuses the new
     // tab's first field.
     void tabSwitchClearsSearchAndMovesFocus()

@@ -1271,6 +1271,32 @@ private Q_SLOTS:
         QCOMPARE(a.warnings, QStringList{});
     }
 
+    // B099/B113: initials are whole letter/digit code points; punctuation,
+    // emoji and markup never become one (twin of NotificationAvatarTest).
+    void initialsSkipPunctuationEmojiAndMarkup()
+    {
+        Harness a;
+        QVERIFY(createAvatar(a, 32, QString(), QStringLiteral("x"),
+                             QStringLiteral("@x:x")));
+        auto *initials = a.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarInitials"));
+        QVERIFY(initials);
+        const QList<QPair<QString, QString>> cases = {
+            {QString::fromUtf8("emoji \xf0\x9f\x9a\x80 room"), "ER"},
+            {QStringLiteral("Beta (test) [room]"), "BT"},
+            {QStringLiteral("Regex .* ^$ \\d+"), "RD"},
+            {QStringLiteral("Alice <b>Bold</b> 053"), "AB"},
+            {QString::fromUtf8("\xf0\x9f\x9a\x80"), "?"},
+            {QStringLiteral("(( ))"), "?"},
+            {QStringLiteral("@mizerd:hs"), "M"},
+        };
+        for (const auto &c : cases) {
+            a.avatar->setProperty("name", c.first);
+            QCOMPARE(initials->property("text").toString(), c.second);
+        }
+        QCOMPARE(a.warnings, QStringList{});
+    }
+
     // A failed fetch falls back to initials (geometry preserved), and a later
     // cache completion still promotes to the real image.
     void failedFetchFallsBackThenRecovers()

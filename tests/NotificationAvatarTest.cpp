@@ -109,6 +109,21 @@ void NotificationAvatarTest::initialsFollowTheAvatarRule()
     QCOMPARE(initialsFor(QString()), QStringLiteral("?"));
     QCOMPARE(initialsFor(QStringLiteral("   ")), QStringLiteral("?"));
     QCOMPARE(initialsFor(QStringLiteral("@")), QStringLiteral("?"));
+    // B099/B113: whole code points, no punctuation, no markup.
+    QCOMPARE(initialsFor(QString::fromUtf8("emoji \xf0\x9f\x9a\x80 room")),
+             QStringLiteral("ER"));
+    QCOMPARE(initialsFor(QStringLiteral("Beta (test) [room]")),
+             QStringLiteral("BT"));
+    QCOMPARE(initialsFor(QStringLiteral("Regex .* ^$ \\d+")),
+             QStringLiteral("RD"));
+    QCOMPARE(initialsFor(QStringLiteral("Alice <b>Bold</b> 053")),
+             QStringLiteral("AB"));
+    // An astral letter (U+10400, Deseret) stays whole and upper-cases.
+    QCOMPARE(initialsFor(QString::fromUcs4(U"\U00010428x")),
+             QString::fromUcs4(U"\U00010400"));
+    QCOMPARE(initialsFor(QString::fromUtf8("\xf0\x9f\x9a\x80")),
+             QStringLiteral("?"));
+    QCOMPARE(initialsFor(QStringLiteral("(( ))")), QStringLiteral("?"));
 }
 
 void NotificationAvatarTest::discIsDrawnWithTheIdentityColour()

@@ -562,11 +562,50 @@ QVariantList SpaceManager::addableRooms(const QString &spaceId,
     const auto member = m_membership.constFind(spaceId);
     const QString needle = filter.trimmed();
     const auto rooms = m_client->rooms();
+    // m_membership holds rooms only, so a child SPACE is known from the
+    // parent's own m.space.child list.
+    QSet<QString> directChildren;
     for (const RoomInfo &room : rooms) {
-        if (room.isSpace || room.membership != RoomInfo::Joined)
+        if (room.id == spaceId) {
+            directChildren = QSet<QString>(room.childRoomIds.cbegin(),
+                                           room.childRoomIds.cend());
+            break;
+        }
+    }
+    // Ancestors of the target, computed ONCE by walking parent links upward
+    // (a per-candidate downward walk rebuilt a room hash per Space on every
+    // keystroke). A Space may nest under another (B058), but never under
+    // itself or one of its own ancestors: that closes a cycle.
+    QHash<QString, QStringList> parentsOf;
+    for (const RoomInfo &room : rooms) {
+        if (!room.isSpace || room.membership != RoomInfo::Joined)
             continue;
+        for (const QString &child : room.childRoomIds)
+            parentsOf[child].append(room.id);
+    }
+    QSet<QString> ancestors;
+    QStringList walk{ spaceId };
+    while (!walk.isEmpty()) {
+        const QString cur = walk.takeLast();
+        for (const QString &parent : parentsOf.value(cur)) {
+            if (!ancestors.contains(parent)) {
+                ancestors.insert(parent);
+                walk.append(parent);
+            }
+        }
+    }
+    for (const RoomInfo &room : rooms) {
+        if (room.membership != RoomInfo::Joined)
+            continue;
+        if (room.isSpace
+            && (room.id == spaceId || ancestors.contains(room.id))) {
+            continue;
+        }
         const bool alreadyChild =
-            member != m_membership.constEnd() && member->contains(room.id);
+            room.isSpace
+                ? directChildren.contains(room.id)
+                : (member != m_membership.constEnd()
+                   && member->contains(room.id));
         if (!needle.isEmpty()
             && !room.name.contains(needle, Qt::CaseInsensitive))
             continue;
@@ -575,6 +614,7 @@ QVariantList SpaceManager::addableRooms(const QString &spaceId,
             { QStringLiteral("name"),         room.name },
             { QStringLiteral("avatarUrl"),    room.avatarUrl },
             { QStringLiteral("isDirect"),     room.isDirect },
+            { QStringLiteral("isSpace"),      room.isSpace },
             { QStringLiteral("alreadyChild"), alreadyChild },
         });
         if (out.size() >= 50)

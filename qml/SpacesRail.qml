@@ -776,8 +776,15 @@ Rectangle {
                 }
 
                 Accessible.role: Accessible.Button
+                // A folder nobody named (stored empty; older configs hold the
+                // literal default) reads "Folder", not "Folder: Folder".
+                readonly property bool folderNamed:
+                    isFolder && spaceItem.name.length > 0
+                    && spaceItem.name !== qsTr("Folder")
                 Accessible.name: isFolder
-                                 ? qsTr("Folder: %1").arg(spaceItem.name)
+                                 ? (folderNamed
+                                    ? qsTr("Folder: %1").arg(spaceItem.name)
+                                    : qsTr("Folder"))
                                  : isHome ? qsTr("All rooms")
                                  : isPeople ? qsTr("Direct Messages")
                                  : spaceItem.spaceId === "@orphans"
@@ -1891,7 +1898,8 @@ Rectangle {
         // Names the Space the menu belongs to, since the row is no longer under
         // the pointer.
         contextLabel: railMenu.isFolder
-                      ? railMenu.folderName
+                      ? (railMenu.folderName.length > 0 ? railMenu.folderName
+                                                        : qsTr("Folder"))
                       : (app.spaces ? app.spaces.spaceName(railMenu.spaceId)
                                     : "")
 
@@ -2016,7 +2024,8 @@ Rectangle {
             delegate: AppMenuItem {
                 required property var modelData
                 iconName: "workspaces"
-                text: qsTr("Move to “%1”").arg(modelData.name || "")
+                text: qsTr("Move to “%1”").arg(modelData.name && modelData.name.length > 0
+                                         ? modelData.name : qsTr("Folder"))
                 visible: modelData.id !== railMenu.inFolder
                 onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId,
                                                            modelData.id)

@@ -73,16 +73,50 @@ Rectangle {
                                      : AppTheme.cardElevated)
            : "transparent"
 
-    // Up to two initials: first letters of the first two words, with
-    // Matrix sigils stripped ("@user:hs" → "U").
+    // Up to two initials: the first letter or digit of each of the first two
+    // words that have one, with Matrix sigils and markup tags stripped
+    // ("@user:hs" -> "U", "Alice <b>Bold</b>" -> "AB"). Works on code points,
+    // so an astral letter stays whole. Mirrored by initialsFor() in
+    // src/notifications/FallbackAvatar.cpp.
+    function _isAlnum(cp) {
+        if (cp < 0x80)
+            return (cp >= 0x30 && cp <= 0x39) || (cp >= 0x41 && cp <= 0x5a)
+                   || (cp >= 0x61 && cp <= 0x7a)
+        if (cp < 0xc0 || cp === 0xd7 || cp === 0xf7)
+            return cp === 0xaa || cp === 0xb5 || cp === 0xba
+        // Punctuation, symbols, arrows, dingbats, CJK punctuation, variation
+        // selectors, fullwidth punctuation, and the emoji planes.
+        if ((cp >= 0x2000 && cp <= 0x2bff) || (cp >= 0x3000 && cp <= 0x303f)
+                || (cp >= 0xd800 && cp <= 0xdfff) || (cp >= 0xe000 && cp <= 0xf8ff)
+                || (cp >= 0xfe00 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff0f)
+                || (cp >= 0xff1a && cp <= 0xff20) || (cp >= 0xfff0 && cp <= 0xffff)
+                || (cp >= 0x1f000 && cp <= 0x1faff) || cp >= 0xe0000)
+            return false
+        return true
+    }
+    function _firstInitial(word) {
+        for (var i = 0; i < word.length; ) {
+            var cp = word.codePointAt(i)
+            var len = cp > 0xffff ? 2 : 1
+            if (_isAlnum(cp))
+                return word.substr(i, len).toUpperCase()
+            i += len
+        }
+        return ""
+    }
     function _initials(value) {
-        var cleaned = value.replace(/^[@#!+]/, "").trim()
-        if (cleaned.length === 0)
-            return "?"
-        var words = cleaned.split(/\s+/).filter(function (w) { return w.length > 0 })
-        if (words.length >= 2)
-            return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase()
-        return cleaned.charAt(0).toUpperCase()
+        var cleaned = value.replace(/^[@#!+]/, "").replace(/<[^>]*>/g, " ").trim()
+        var words = cleaned.split(/\s+/)
+        var out = ""
+        var found = 0
+        for (var i = 0; i < words.length && found < 2; i++) {
+            var initial = _firstInitial(words[i])
+            if (initial.length > 0) {
+                out += initial
+                found++
+            }
+        }
+        return out.length > 0 ? out : "?"
     }
 
     // The media bridge, resolved defensively. When a Repeater builds a delegate

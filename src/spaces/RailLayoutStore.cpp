@@ -262,8 +262,9 @@ QString RailLayoutStore::createFolder(const QString &name)
     if (folder.id.isEmpty())
         return {};
     folder.name = name.trimmed().left(kMaxNameLength);
-    if (folder.name.isEmpty())
-        folder.name = tr("Folder");
+    // An unnamed folder stays unnamed: "Folder" is localised where it is
+    // displayed, so the tooltip never reads "Folder: Folder" and the label
+    // follows the language.
     layout.folders.append(folder);
     layout.order.append(folder.id);
     save(layout);
@@ -556,8 +557,9 @@ QString RailLayoutStore::createFolderWithSpaces(const QStringList &spaceIds,
     if (folder.id.isEmpty())
         return {};
     folder.name = name.trimmed().left(kMaxNameLength);
-    if (folder.name.isEmpty())
-        folder.name = tr("Folder");
+    // An unnamed folder stays unnamed: "Folder" is localised where it is
+    // displayed, so the tooltip never reads "Folder: Folder" and the label
+    // follows the language.
     folder.spaceIds = members;
     // The members leave wherever they were: another folder or the top level.
     for (Folder &other : layout.folders) {
