@@ -19,7 +19,9 @@ ItemDelegate {
 
     // Loaded by the Channels presenter (five row kinds); the Loader takes its
     // height from this value.
-    height: 32
+    // Follows the text scale like a Classic row: two lines of the scaled font,
+    // never under the 32 px the row has always had, so nothing clips.
+    height: Math.max(32, 2 * AppTheme.scaled(AppTheme.textBody))
     padding: 0
     hoverEnabled: true
 
@@ -76,7 +78,7 @@ ItemDelegate {
             sourceComponent: Label {
                 id: soonLabel
                 text: qsTr("Coming soon")
-                font.pixelSize: AppTheme.textMicro
+                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                 color: AppTheme.channelCategoryText
             }
         }
@@ -96,7 +98,7 @@ ItemDelegate {
                 text: root.label
                 elide: Text.ElideRight
                 maximumLineCount: 1
-                font.pixelSize: AppTheme.textBody
+                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                 color: root.comingSoon ? AppTheme.channelCategoryText
                        : root.current ? AppTheme.channelSelectedText
                                       : AppTheme.channelText

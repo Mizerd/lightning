@@ -127,10 +127,18 @@ Item {
         objectName: "homeChatBackgroundDialog"
     }
 
+    // The one-time "index encrypted messages" card floats over the bottom-right
+    // corner (Main.qml's overlay stack, ~200 px tall). While it is offered the
+    // content is centred in, and can scroll clear of, the space above it, so it
+    // never covers the empty-state card.
+    readonly property int cornerPromptReserve:
+        (app.messageSearch && app.messageSearch.indexAllOffered) ? 232 : 0
+
     Flickable {
         anchors.fill: parent
         contentWidth: width
         contentHeight: card.implicitHeight + AppTheme.spacing24 * 2
+                       + root.cornerPromptReserve
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         // Same wheel/touchpad feel as the room timeline; see
@@ -139,14 +147,21 @@ Item {
 
         ColumnLayout {
             id: card
+            objectName: "homeCard"
             width: Math.min(560, parent.width - AppTheme.spacing24 * 2)
             x: (parent.width - width) / 2
-            y: Math.max(AppTheme.spacing24, (root.height - implicitHeight) / 2)
+            y: Math.max(AppTheme.spacing24,
+                        (root.height - root.cornerPromptReserve
+                         - implicitHeight) / 2)
             spacing: AppTheme.spacing20
 
             // Brand + welcome
             RowLayout {
+                objectName: "homeWelcomeRow"
                 Layout.alignment: Qt.AlignHCenter
+                // Bounded to the card: a long display name elides instead of
+                // pushing the row past the pane.
+                Layout.maximumWidth: card.width
                 spacing: AppTheme.spacing12
                 Avatar {
                     objectName: "homeWelcomeAvatar"
@@ -158,9 +173,12 @@ Item {
                     colorKey: root.activeUserId
                 }
                 ColumnLayout {
+                    Layout.fillWidth: true
                     spacing: 2
                     Label {
                         visible: root.hasIdentity
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         text: qsTr("Welcome back")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
@@ -169,6 +187,8 @@ Item {
                     }
                     Label {
                         objectName: "homeWelcomeName"
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                         text: root.hasIdentity ? root.displayName
                                                : qsTr("Welcome back")
                         textFormat: Text.PlainText
@@ -278,34 +298,56 @@ Item {
             }
 
             // Primary actions (shared Lightning buttons).
-            RowLayout {
-                Layout.alignment: Qt.AlignHCenter
-                spacing: AppTheme.spacingS
-                AppButton {
-                    objectName: "homeNewMessageButton"
-                    kind: "primary"
-                    text: qsTr("New message")
-                    visible: app.conversations && app.conversations.supported
-                    onClicked: root.newMessageRequested()
-                }
-                AppButton {
-                    objectName: "homeCreateRoomButton"
-                    text: qsTr("Create room")
-                    visible: app.conversations && app.conversations.supported
-                    onClicked: root.createRoomRequested()
-                }
-                AppButton {
-                    objectName: "homeCreateSpaceButton"
-                    text: qsTr("Create Space")
-                    visible: app.conversations && app.conversations.supported
-                    onClicked: root.createSpaceRequested()
-                }
-                AppButton {
-                    objectName: "homeExploreButton"
-                    iconName: "explore"
-                    text: qsTr("Explore rooms")
-                    visible: app.discovery && app.discovery.supported
-                    onClicked: root.discoverRequested()
+            // A Flow inside a full-width holder: the buttons wrap onto a second
+            // row when the card is narrow (minimum window, large zoom or text
+            // scale) and stay centred when they fit on one.
+            Item {
+                id: actionsHolder
+                objectName: "homeActionsHolder"
+                Layout.fillWidth: true
+                implicitHeight: actionsFlow.height
+                Flow {
+                    id: actionsFlow
+                    objectName: "homeActionsFlow"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    // Natural one-row width of the visible buttons, capped at
+                    // the card.
+                    readonly property real oneRow: {
+                        var w = 0, n = 0
+                        for (var i = 0; i < children.length; ++i) {
+                            var c = children[i]
+                            if (c.visible) { w += c.implicitWidth; ++n }
+                        }
+                        return w + Math.max(0, n - 1) * spacing
+                    }
+                    width: Math.min(actionsHolder.width, oneRow)
+                    spacing: AppTheme.spacingS
+                    AppButton {
+                        objectName: "homeNewMessageButton"
+                        kind: "primary"
+                        text: qsTr("New message")
+                        visible: app.conversations && app.conversations.supported
+                        onClicked: root.newMessageRequested()
+                    }
+                    AppButton {
+                        objectName: "homeCreateRoomButton"
+                        text: qsTr("Create room")
+                        visible: app.conversations && app.conversations.supported
+                        onClicked: root.createRoomRequested()
+                    }
+                    AppButton {
+                        objectName: "homeCreateSpaceButton"
+                        text: qsTr("Create Space")
+                        visible: app.conversations && app.conversations.supported
+                        onClicked: root.createSpaceRequested()
+                    }
+                    AppButton {
+                        objectName: "homeExploreButton"
+                        iconName: "explore"
+                        text: qsTr("Explore rooms")
+                        visible: app.discovery && app.discovery.supported
+                        onClicked: root.discoverRequested()
+                    }
                 }
             }
 
@@ -511,6 +553,10 @@ Item {
                             leftPadding: AppTheme.spacing10
                             rightPadding: AppTheme.spacing10
                             implicitHeight: 32
+                            // Capped at the strip: a long Space name elides in
+                            // the pill instead of running off the window.
+                            width: Math.min(implicitWidth, parent ? parent.width
+                                                                  : implicitWidth)
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Open Space %1")
                                 .arg(modelData.name || "")
@@ -552,6 +598,12 @@ Item {
                                 }
                             }
 
+                            // The full name when the label had to elide.
+                            ToolTip.text: spacePill.modelData.name || ""
+                            ToolTip.visible: spacePill.hovered
+                                             && spacePillLabel.truncated
+                            ToolTip.delay: 500
+
                             contentItem: RowLayout {
                                 spacing: AppTheme.spacing6
                                 Avatar {
@@ -561,6 +613,10 @@ Item {
                                     colorKey: spacePill.modelData.roomId || ""
                                 }
                                 Label {
+                                    id: spacePillLabel
+                                    objectName: "homeSpacePillLabel"
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
                                     text: spacePill.modelData.name
                                           || qsTr("Space")
                                     textFormat: Text.PlainText
@@ -636,11 +692,16 @@ Item {
 
             // Empty-account onboarding, explaining the primary actions above.
             Rectangle {
+                id: homeOnboarding
                 objectName: "homeOnboarding"
                 visible: root.recentModel.length === 0
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
                 radius: AppTheme.radiusMd
+                // The sidebar filter narrows "Jump back in"; an empty result
+                // under a filter is not an empty account.
+                readonly property bool filtered:
+                    !!app.roomList && (app.roomList.searchQuery || "").length > 0
                 color: AppTheme.cardElevated
                 border.color: AppTheme.border
                 border.width: 1
@@ -652,15 +713,23 @@ Item {
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacingXS
                     Label {
-                        text: qsTr("Nothing here yet")
+                        objectName: "homeOnboardingTitle"
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: homeOnboarding.filtered
+                              ? qsTr("No rooms match") : qsTr("Nothing here yet")
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textTitle
                         font.weight: AppTheme.weightBold
                     }
                     Label {
+                        objectName: "homeOnboardingBody"
                         Layout.fillWidth: true
-                        text: qsTr("Start a direct message to talk to someone, "
+                        text: homeOnboarding.filtered
+                              ? qsTr("Nothing in your room list matches the "
+                                     + "filter. Clear it to see your rooms.")
+                              : qsTr("Start a direct message to talk to someone, "
                                    + "create a room for a group, or organise "
                                    + "rooms into a Space. Explore rooms finds "
                                    + "public ones to join. Invitations you "

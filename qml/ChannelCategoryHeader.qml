@@ -23,7 +23,9 @@ ItemDelegate {
 
     // Loaded by the Channels presenter (five row kinds); the Loader takes its
     // height from this explicit value so rows stack instead of sitting at y=0.
-    height: 32
+    // Follows the text scale like a Classic row: two lines of the scaled font,
+    // never under the 32 px the row has always had, so nothing clips.
+    height: Math.max(32, 2 * AppTheme.scaled(AppTheme.textMeta))
     padding: 0
     hoverEnabled: true
 
@@ -107,7 +109,7 @@ ItemDelegate {
                 text: root.headerName
                 elide: Text.ElideRight
                 maximumLineCount: 1
-                font.pixelSize: AppTheme.textMeta
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightBold
                 color: AppTheme.channelCategoryText
             }

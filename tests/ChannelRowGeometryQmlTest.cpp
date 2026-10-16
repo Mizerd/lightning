@@ -19,6 +19,8 @@
 #include <QDir>
 #include <QQmlExpression>
 #include <QImage>
+#include <QFont>
+#include <QScopeGuard>
 
 #include <algorithm>
 #include <memory>
@@ -539,6 +541,71 @@ private Q_SLOTS:
             headerName: "Rooms"
         })"),
                             "group header");
+    }
+
+    // Break-it B116: with a text scale above 100 the Channels
+    // rows must grow with it like Classic rows, and their heights must follow
+    // the scaled font so nothing clips. Each row kind is measured on its
+    // label's real pixel size and on the row height.
+    void channelRowsFollowTheTextScale()
+    {
+        struct Case { const char *label; QString body; QString text; };
+        const QList<Case> cases = {
+            { "channel row", QStringLiteral(R"(
+        ChannelDelegate { width: 300; roomId: "!r:example.org"
+                          channelName: "scalecheck" })"),
+              QStringLiteral("scalecheck") },
+            { "group header", QStringLiteral(R"(
+        ChannelCategoryHeader { width: 300; headerId: "@rooms"
+                                headerName: "scalecheck" })"),
+              QStringLiteral("scalecheck") },
+            { "navigation row", QStringLiteral(R"(
+        ChannelNavRow { width: 300; label: "scalecheck"; iconName: "home" })"),
+              QStringLiteral("scalecheck") },
+        };
+        for (const Case &c : cases) {
+            Harness h;
+            QVERIFY2(build(h, c.body), c.label);
+            QQmlExpression set(qmlContext(h.root), nullptr,
+                               QStringLiteral("AppTheme.textScale = 1.4"));
+            const auto restore = qScopeGuard([&h] {
+                QQmlExpression undo(qmlContext(h.root), nullptr,
+                                    QStringLiteral("AppTheme.textScale = 1.0"));
+                undo.evaluate();
+            });
+            set.evaluate();
+            QVERIFY2(!set.hasError(), qPrintable(set.error().toString()));
+            QCoreApplication::processEvents();
+            h.loader->polish();
+            QCoreApplication::processEvents();
+            QQuickItem *row = h.item();
+            QVERIFY2(row, c.label);
+            QQmlExpression px(qmlContext(h.root), nullptr,
+                              QStringLiteral("AppTheme.scaled(%1)")
+                                  .arg(QLatin1String(
+                                      QByteArray(c.label) == "group header"
+                                          ? "AppTheme.textMeta"
+                                          : "AppTheme.textBody")));
+            const int scaledPx = px.evaluate().toInt();
+            QVERIFY2(scaledPx > (QByteArray(c.label) == "group header" ? 12 : 14),
+                     "the harness did not apply the text scale");
+            QQuickItem *label = nullptr;
+            const auto all = row->findChildren<QQuickItem *>();
+            for (QQuickItem *it : all) {
+                if (it->property("text").toString() == c.text) {
+                    label = it;
+                    break;
+                }
+            }
+            QVERIFY2(label, c.label);
+            QCOMPARE(label->property("font").value<QFont>().pixelSize(),
+                     scaledPx);
+            QVERIFY2(row->height() >= 2 * scaledPx,
+                     qPrintable(QStringLiteral("%1: height %2 for a %3 px font")
+                                    .arg(QLatin1String(c.label))
+                                    .arg(row->height()).arg(scaledPx)));
+            QVERIFY2(label->height() <= row->height(), c.label);
+        }
     }
 
     // Lobby and Message Search rows are navigation, a different component that
