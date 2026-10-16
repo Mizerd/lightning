@@ -692,6 +692,9 @@ AppDialog {
                 AppComboBox {
                     id: shareAudioCombo
                     objectName: "shareAudioCombo"
+                    // Which rows exist follows canChooseApps, a capability,
+                    // not a retranslation (AppComboBox).
+                    restoreAfterModelReset: false
                     storm: root.storm
                     implicitWidth: 190
                     textRole: "label"

@@ -459,10 +459,14 @@ or not, so its height no longer changes with following; the automatic receipt
 stopped moving `m.fully_read`, which is what made that suppression necessary.) On Wayland a notification click without an activation token does
 not raise the window, so the user alt-tabs back, which is the report's wording.
 The landing now sets `stickToBottom = atBottomEdge()` after it positions.
-Landings into history and the first-unread landing (never clamped to the edge)
-are unchanged. Test: `aJumpToTheNewestMessageKeepsFollowingSoTheRoomIsRead`.
-Follow-up, not fixed: `scrollToSearchMatch()` also forces `false` before a
-centred, clamped position.
+Landings into history are unchanged. Test:
+`aJumpToTheNewestMessageKeepsFollowingSoTheRoomIsRead`. The follow-up this
+section used to leave open (`scrollToSearchMatch()` forcing `false` before a
+centred, clamped position) is CLOSED by the 2026-10-16 break-it round (B021):
+a find match now lands through `beginNavigationLanding(row, 0, true)` like a
+reply jump, and so does the first-unread pill (B033/B060), which is therefore
+no longer "never clamped". Tests: `aFindMatchBehindTheRowWindowLandsOnScreen`,
+`thePillLandsTheReaderOnTheFirstUnreadMessage`.
 
 ## Touchpad input: a zero-pixel frame is not a notch (2026-09-23)
 

@@ -108,8 +108,9 @@ public:
 
     // Space Home: a presentation snapshot of one Space, and its children in
     // m.space.child order with unread/mention state. `addableRooms` lists
-    // joined non-Space rooms not yet children, for the "Add existing room"
-    // picker.
+    // joined rooms and joined Spaces not yet children, for the "Add existing
+    // room" picker; a Space carries `isSpace`, and the target itself and its
+    // ancestors are never offered (no m.space.child cycle).
     Q_INVOKABLE QVariantMap spaceInfo(const QString &spaceId) const;
     Q_INVOKABLE QVariantList childRoomsDetailed(const QString &spaceId) const;
     // Joined child subspaces of a Space, in m.space.child order. Unjoined

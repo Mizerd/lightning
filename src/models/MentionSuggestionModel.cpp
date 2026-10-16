@@ -53,6 +53,7 @@ void MentionSuggestionModel::setRoomId(const QString &roomId)
     m_roomId = roomId;
     // A new room invalidates any in-flight request and the cached snapshot.
     m_membersOp = 0;
+    m_membersRequestOwed = false;
     m_all.clear();
     setMembersLoaded(false);
     // Reset the @room permission to unknown (offered): it belonged to the
@@ -101,6 +102,19 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
     // dropped as stale.
     if (!snapshot.value(QStringLiteral("partial")).toBool())
         m_membersOp = 0;
+    // A membership poke that arrived while this request ran is paid now, once:
+    // the request may have read the roster before that change.
+    if (!snapshot.value(QStringLiteral("partial")).toBool()
+        && m_membersRequestOwed) {
+        m_membersRequestOwed = false;
+        QMetaObject::invokeMethod(
+            this,
+            [this, roomId]() {
+                if (roomId == m_roomId && m_membersOp == 0)
+                    requestMembers();
+            },
+            Qt::QueuedConnection);
+    }
     if (!snapshot.value(QStringLiteral("ok")).toBool())
         return;
 
@@ -156,10 +170,14 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
 
 void MentionSuggestionModel::onMembersChanged(const QString &roomId)
 {
-    // Membership changed for the open room: refresh unless a request is in
-    // flight.
-    if (roomId == m_roomId && !m_roomId.isEmpty() && m_membersOp == 0)
+    // Membership changed for the open room. A request in flight may have read
+    // the roster before this change, so it is owed one more when it ends.
+    if (roomId != m_roomId || m_roomId.isEmpty())
+        return;
+    if (m_membersOp == 0)
         requestMembers();
+    else
+        m_membersRequestOwed = true;
 }
 
 void MentionSuggestionModel::onLoggedOut()
@@ -168,6 +186,7 @@ void MentionSuggestionModel::onLoggedOut()
     m_query.clear();
     m_all.clear();
     m_membersOp = 0;
+    m_membersRequestOwed = false;
     setMembersLoaded(false);
     clearResults();
 }

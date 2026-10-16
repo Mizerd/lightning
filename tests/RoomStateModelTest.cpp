@@ -123,6 +123,7 @@ private Q_SLOTS:
     void liveDirectUpdateChangesCategory();
     void directMappingRemovalReturnsToRoom();
     void effectiveDirectAvatarPolicy();
+    void findRoomCarriesInviteAndHeadCountFacts();
     void effectiveDirectAvatarRefreshAndAccountIsolation();
     void missingDirectAvatarResolvesWithoutSearch();
     void missingDirectAvatarResolvesWithoutMemberSnapshot();
@@ -235,6 +236,61 @@ void RoomStateModelTest::directMappingRemovalReturnsToRoom()
     client.mirror[0].directUserId.clear();
     Q_EMIT client.roomsChanged();
     QVERIFY(!model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
+}
+
+// findRoom() feeds the invite card (B037) and the room list's Leave dialog
+// (B133); the row carries the inviter's MXID for "Ignore user" (B122). Head
+// counts and the join rule appear only when the SDK reported them.
+void RoomStateModelTest::findRoomCarriesInviteAndHeadCountFacts()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto invite = room(QStringLiteral("!inv:example.org"));
+    invite.membership = RoomInfo::Invited;
+    invite.inviterUserId = QStringLiteral("@eve:example.org");
+    invite.inviterDisplayName = QStringLiteral("Eve");
+    invite.inviteError = QStringLiteral("Couldn't join.");
+    auto solo = room(QStringLiteral("!solo:example.org"));
+    solo.joinedMemberCount = 1;
+    solo.activeMemberCount = 1;
+    solo.joinRule = QStringLiteral("invite");
+    auto unknown = room(QStringLiteral("!unknown:example.org"));
+    client.mirror = {invite, solo, unknown};
+    model.setClient(&client);
+
+    const QVariantMap inv = model.findRoom(invite.id);
+    QCOMPARE(inv.value(QStringLiteral("membership")).toString(),
+             QStringLiteral("invited"));
+    QCOMPARE(inv.value(QStringLiteral("inviter")).toString(), QStringLiteral("Eve"));
+    QCOMPARE(inv.value(QStringLiteral("inviterUserId")).toString(),
+             invite.inviterUserId);
+    QCOMPARE(inv.value(QStringLiteral("invitePending")).toBool(), false);
+    QCOMPARE(inv.value(QStringLiteral("inviteError")).toString(), invite.inviteError);
+    int inviteRow = -1;
+    for (int i = 0; i < model.rowCount(); ++i) {
+        if (model.data(model.index(i), RoomListModel::RoomIdRole).toString()
+            == invite.id)
+            inviteRow = i;
+    }
+    QVERIFY(inviteRow >= 0);
+    QCOMPARE(model.data(model.index(inviteRow), RoomListModel::InviterUserIdRole)
+                 .toString(),
+             invite.inviterUserId);
+    QVERIFY(model.roleNames().values().contains("inviterUserId"));
+
+    const QVariantMap one = model.findRoom(solo.id);
+    QCOMPARE(one.value(QStringLiteral("membership")).toString(),
+             QStringLiteral("joined"));
+    QCOMPARE(one.value(QStringLiteral("joinedMemberCount")).toInt(), 1);
+    QCOMPARE(one.value(QStringLiteral("invitedCount")).toInt(), 0);
+    QCOMPARE(one.value(QStringLiteral("joinRule")).toString(), QStringLiteral("invite"));
+
+    // Never reported: absent, so the dialog stays neutral instead of reading 0.
+    const QVariantMap none = model.findRoom(unknown.id);
+    QVERIFY(!none.isEmpty());
+    QVERIFY(!none.contains(QStringLiteral("joinedMemberCount")));
+    QVERIFY(!none.contains(QStringLiteral("invitedCount")));
+    QVERIFY(!none.contains(QStringLiteral("joinRule")));
 }
 
 void RoomStateModelTest::effectiveDirectAvatarPolicy()

@@ -3880,7 +3880,7 @@ pub(crate) fn close_room(
 
 /// Coarse join-rule label. `restricted` / `knock_restricted` are reported so
 /// the UI can display them.
-fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static str {
+pub(crate) fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static str {
     use matrix_sdk::ruma::room::JoinRule;
     match rule {
         Some(JoinRule::Invite) => "invite",
@@ -7518,11 +7518,17 @@ pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        let Ok(response) = answer else {
-            enqueue(&events, json!({
-                "type": "activity_seed", "lifecycle": lifecycle, "ok": false, "entries": [],
-            }));
-            return;
+        let response = match answer {
+            Ok(response) => response,
+            Err(err) => {
+                // A fixed token (HTTP status + errcode, or the transport
+                // class), so the C++ warning says why without any server text.
+                enqueue(&events, json!({
+                    "type": "activity_seed", "lifecycle": lifecycle, "ok": false, "entries": [],
+                    "category": crate::oauth::http_failure_reason(&err),
+                }));
+                return;
+            }
         };
         let mut entries: Vec<serde_json::Value> = Vec::new();
         for notification in response.notifications {

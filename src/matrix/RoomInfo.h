@@ -81,6 +81,13 @@ struct RoomInfo {
     // Joined plus invited members, as matrix-sdk counts "active" members
     // (DmRoomDefinition::TwoMembers). 0 = not reported (Mock/HTTP backends).
     int activeMemberCount = 0;
+    // Joined members alone, from the SDK's room summary
+    // (Room::joined_members_count). 0 = not reported. Unlike `members`, which
+    // holds only the member events seen so far, this is a head count.
+    int joinedMemberCount = 0;
+    // m.room.join_rules ("public", "invite", "knock", "private", "restricted",
+    // "knock_restricted"), "" while unknown.
+    QString joinRule;
     QString canonicalAlias;
     QString inviterUserId;
     QString inviterDisplayName;
@@ -151,6 +158,8 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
         && a.activeMemberCount == b.activeMemberCount
+        && a.joinedMemberCount == b.joinedMemberCount
+        && a.joinRule == b.joinRule
         && a.canonicalAlias == b.canonicalAlias
         && a.inviterUserId == b.inviterUserId
         && a.inviterDisplayName == b.inviterDisplayName

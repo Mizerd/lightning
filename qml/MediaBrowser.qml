@@ -205,6 +205,9 @@ Item {
             AppComboBox {
                 id: senderBox
                 Layout.fillWidth: true
+                // Known senders are data: a same-size rebuild is a real
+                // change (AppComboBox).
+                restoreAfterModelReset: false
                 // "Anyone" is index 0 and is not a user id.
                 model: [qsTr("Anyone")].concat(
                     root.model ? root.model.knownSenders : [])

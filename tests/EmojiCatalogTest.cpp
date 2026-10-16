@@ -261,26 +261,29 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         EmojiCatalog catalog(&settings);
-        QVariantList rows = catalog.completionsForPrefix(QStringLiteral("cat"), 12);
-        QVERIFY2(rows.size() >= 2, "expected multiple name/alias-prefix cat emoji");
-        // Unboosted: catalogue order among the tier-0 "cat" matches, 😹
-        // ("cat with tears of joy") sorting ahead of 🐈 ("cat").
+        // "party" matches no name or alias exactly, so only tier and recents
+        // order it (an exact match leads ahead of both since B066; see
+        // EmojiCatalogExactMatchTest).
+        QVariantList rows = catalog.completionsForPrefix(QStringLiteral("party"), 12);
+        QVERIFY2(rows.size() >= 2, "expected multiple name/alias-prefix party emoji");
+        // Unboosted: catalogue order among the tier-0 "party" matches, 🥳
+        // ("partying face") sorting ahead of 🎉 ("party popper").
         QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
-                 QStringLiteral("😹"));
-        int catIndex = -1;
+                 QStringLiteral("\U0001F973"));
+        int popperIndex = -1;
         for (int i = 0; i < rows.size(); ++i) {
             if (rows.at(i).toMap().value(QStringLiteral("emoji")).toString()
-                == QStringLiteral("🐈")) { catIndex = i; break; }
+                == QStringLiteral("\U0001F389")) { popperIndex = i; break; }
         }
-        QVERIFY2(catIndex > 0, "🐈 must not already lead with nothing recorded");
+        QVERIFY2(popperIndex > 0, "🎉 must not already lead with nothing recorded");
 
-        catalog.recordUse(QStringLiteral("🐈"));
-        rows = catalog.completionsForPrefix(QStringLiteral("cat"), 12);
+        catalog.recordUse(QStringLiteral("\U0001F389"));
+        rows = catalog.completionsForPrefix(QStringLiteral("party"), 12);
         QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
-                 QStringLiteral("🐈"));
-        // The non-recent tie (😹 vs the others) is unaffected by the boost.
+                 QStringLiteral("\U0001F389"));
+        // The non-recent tie (🥳 vs the others) is unaffected by the boost.
         QCOMPARE(rows.at(1).toMap().value(QStringLiteral("emoji")).toString(),
-                 QStringLiteral("😹"));
+                 QStringLiteral("\U0001F973"));
     }
 
     void completionsForPrefixIgnoresEmptyAndBlank()

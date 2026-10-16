@@ -939,14 +939,28 @@ private Q_SLOTS:
         QCOMPARE(decls, 1);
         const int mentions =
             code.count(QStringLiteral("reloadCurrentRoomTimeline"));
+        // ONE approved automatic caller (break-it B030): the ignore-list
+        // handler, after matrix-sdk has already emptied every room's event
+        // cache, so there is no history left to throw away. It must stay
+        // inside that handler; AppController.h forbids any other.
+        // Its log line is unique to that handler; the call follows it.
+        const int handler = code.indexOf(QStringLiteral(
+            "\"ignore-list change: reopening the open room\""));
+        QVERIFY2(handler > 0, "the ignore-list handler's reload moved");
+        const int handlerCall = code.indexOf(
+            QStringLiteral("reloadCurrentRoomTimeline();"), handler);
+        QVERIFY2(handlerCall > handler && handlerCall - handler < 400,
+                 "the one approved reload is no longer inside the ignore-list "
+                 "handler");
+        const int approvedCalls = 1;
         // Everything else would be a call, and there must be none in C++.
-        QVERIFY2(mentions - decls == defs,
+        QVERIFY2(mentions - decls - approvedCalls == defs,
                  qPrintable(QStringLiteral(
                      "reloadCurrentRoomTimeline is called %1 time(s) from C++; "
                      "rebuilding the room to retry decryption throws away the "
                      "reader's history and every delegate with it — use "
                      "retryDecryptionInCurrentRoom()")
-                         .arg(mentions - decls - defs)));
+                         .arg(mentions - decls - defs - approvedCalls)));
 
         // The replacement is actually called: count calls, since the
         // definition's signature contains the same substring.

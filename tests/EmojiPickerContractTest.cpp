@@ -235,7 +235,13 @@ private Q_SLOTS:
         QVERIFY(fn > 0);
         const int end = picker.indexOf(QStringLiteral("function choose(emoji"), fn);
         QVERIFY(end > fn);
-        const QString body = picker.mid(fn, end - fn);
+        // Code only: the function's own comment names the call it avoids.
+        QString body;
+        const QStringList bodyLines = picker.mid(fn, end - fn).split(QLatin1Char('\n'));
+        for (const QString &line : bodyLines) {
+            if (!line.trimmed().startsWith(QLatin1String("//")))
+                body += line + QLatin1Char('\n');
+        }
         // A pending debounced query is applied first, or Enter would choose
         // from the previous result list.
         QVERIFY(body.contains(QStringLiteral("searchTimer.running")));

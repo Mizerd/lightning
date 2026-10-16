@@ -558,11 +558,9 @@ private Q_SLOTS:
         QCOMPARE(app.currentScreen(), AppController::LoginScreen);
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
 
-        // The background restore above finishes fast enough that its own
-        // loginSucceeded already cleared AuthManager::lastError (the same
-        // unconditional clear any successful login does), so the login
-        // screen sits there with nothing left in its error label to read.
-        QCOMPARE(app.auth()->lastError(), QString());
+        // The background restore keeps the failure on the form the user is
+        // still on (B047): its own loginSucceeded no longer clears it.
+        QCOMPARE(app.auth()->lastError(), QStringLiteral("mock: invalid credentials"));
         // errorReported() is the channel onLoginSucceeded's background-restore
         // branch does NOT clear, so it is what must carry the real reason —
         // "redirected to switch" said nothing without this.

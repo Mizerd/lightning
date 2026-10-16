@@ -95,6 +95,10 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.activeMemberCount = obj.value(QStringLiteral("active_member_count"))
                                  .toInt(obj.value(QStringLiteral("member_count"))
                                             .toInt(room.activeMemberCount));
+    // Joined alone; an absent field keeps what we knew.
+    room.joinedMemberCount = obj.value(QStringLiteral("member_count"))
+                                 .toInt(room.joinedMemberCount);
+    room.joinRule = obj.value(QStringLiteral("join_rule")).toString(room.joinRule);
     room.roomType = obj.value(QStringLiteral("room_type")).toString();
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();

@@ -20,6 +20,46 @@ Rokas, not an implementation round picking one.
 notification semantics, `m.fully_read` handling, MSC4306 auto-subscribe after a
 thread send, and the Activity Center changes.
 
+## 2026-10-16 — OPEN: the break-it round's posting and moderation gates need `app.roomInfo` to be on the open room
+
+**What it is.** Three gates from the break-it round read RoomInfoController's
+SDK answers, and each acts ONLY while that controller is on the open room
+(`app.roomInfo.roomId === app.currentRoomId`):
+
+- B027/B123, the composer replaced by "You do not have permission to post in
+  this room." (`MessageComposerBar.qml`, `postBlocked`, via `roomInfoIsOurs`);
+- moderator Delete of another member's message (`MessageDelegate.qml`,
+  `canRedactOthers`).
+
+The scoping is correct: another room's answer must never block or grant here.
+But `app.roomInfo` does not follow `currentRoomId` on its own; it is pointed at
+a room by the info panel, the member popover and the Space settings dialog. So
+in a room whose info has not been opened this session, the composer is never
+replaced (the server still refuses the send) and moderator Delete is not
+offered (own messages still are). The gates fail OPEN for posting and CLOSED for
+moderation; neither is a breach, both are a UI that says less than it could.
+
+**Planned follow-up (lead).** Compute `own_can_send_message`,
+`own_can_redact_other` and our own membership for the OPEN room from local SDK
+state, independent of which room the info panel shows. **Live: NOT TESTED.**
+
+## 2026-10-16 — OPEN, pre-existing: a live append while parked at the oldest loaded row shifts the view by the appended height
+
+**Measured** (offscreen, mock, `LIGHTNING_SCROLL_TRACE=1`): `TimelinePaneQmlTest`'s
+80-row text fixture at 600 px, `goToEarliestLoaded()`, then one live message
+appended. On base 0b168b9d and on the break-it merged tree alike: the top row
+moves `$rs0 -> $rs1`; contentY stays 1443 while wheelMaxY grows 1443 -> 1499 (the
+new row's 56 px); `anchorCorrections=0`, `growthCorrections=0`,
+`displacedApplied=0`, `materializedMaxAbsDelta=56` (measured, not applied). With
+the find bar open and its selection kept (B092's case) the same append moves the
+top two rows, `$rs1 -> $rs3`.
+
+**Not a regression of the round and not fixed.** Whether a reader parked at the
+oldest clamp should be held on their row (as the anchor does elsewhere) needs a
+`docs/timeline-scrolling.md` decision first; that file forbids a fourth anchor
+fix without a capture naming a failure, and this is an offscreen measurement.
+**Live: NOT TESTED.**
+
 ## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
 
 **What it is.** Qt 6.11's native PipeWire sink keeps each stream alive through

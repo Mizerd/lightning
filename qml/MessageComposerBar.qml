@@ -24,8 +24,12 @@ Item {
     // `sendBlockedReason` come from RoomInfoController; an absent property is
     // undefined, which counts as allowed.
     readonly property bool roomReplaced: app.roomUpgrade.upgraded === true
+    // The room-info answer counts only while that controller is on the
+    // composer's room: the info panel can be showing another room.
+    readonly property bool roomInfoIsOurs:
+        app.roomInfo.roomId === app.currentRoomId
     readonly property bool postBlocked:
-        roomReplaced || app.roomInfo.canSendMessages === false
+        roomReplaced || (roomInfoIsOurs && app.roomInfo.canSendMessages === false)
     readonly property string postBlockedReason: {
         if (roomReplaced)
             return qsTr("This room has been replaced.")

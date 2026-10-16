@@ -4922,7 +4922,14 @@ private slots:
                                       i, 2000);
             ++followed;
         }
-        QVERIFY2(followed >= 1, "no outline entry could be followed by scrolling");
+        // A page that scrolls must let at least one entry be followed. A page
+        // that (nearly) fits its viewport cannot: the mock account page is
+        // 868 px in an 849 px viewport (maxY 19), with Password (Rust only)
+        // hidden. It used to pass only because an earlier case left the
+        // name-colour picker open (510 px), which Settings now closes when it
+        // is hidden (break-it B138).
+        if (maxY >= 60)
+            QVERIFY2(followed >= 1, "no outline entry could be followed by scrolling");
         flick->setProperty("contentY", 0.0);
         QCoreApplication::processEvents();
     }

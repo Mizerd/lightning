@@ -171,6 +171,10 @@ constexpr const char *kComponents[] = {
     "SettingsHint",
     "SettingsNavGroupLabel",
     "SettingsNavOutline",
+    // Break-it round (2026-10-16): the one leave-room confirmation (B133) and
+    // the invited room's card (B037). Empty defaults, read no `app` at load.
+    "LeaveRoomConfirmDialog",
+    "InvitePreviewCard",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

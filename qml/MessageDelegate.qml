@@ -36,9 +36,12 @@ Item {
         && root.menuEventId !== ""
         && root.timelineModel.visibleTextForEvent(root.menuEventId).length > 0
     // The SDK's power-level answer for the open room: may we redact another
-    // member's message. Read, never computed here; true only when it says so.
+    // member's message. Read, never computed here; true only when it says so,
+    // and only while app.roomInfo describes the open room (it can be showing
+    // another room's panel, whose grant must not offer Delete here).
     readonly property bool canRedactOthers:
-        !!app.roomInfo && app.roomInfo.canRedactOthers === true
+        !!app.roomInfo && app.roomInfo.roomId === app.currentRoomId
+        && app.roomInfo.canRedactOthers === true
     // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true
@@ -71,6 +74,9 @@ Item {
             isAudio: model.isAudio === true,
             isSticker: model.isSticker === true,
             isFile: model.isFile === true,
+            // ForwardController refuses a location rather than sending it as
+            // plain text (B124).
+            isLocation: model.isLocation === true,
             senderDisplayName: model.senderDisplayName || "",
             senderName: model.senderDisplayName || "",
             body: model.body || "",
@@ -4432,6 +4438,8 @@ Item {
                         isAudio: model.isAudio === true,
                         isSticker: model.isSticker === true,
                         isFile: model.isFile === true,
+                        // Refused by ForwardController (B124).
+                        isLocation: model.isLocation === true,
                         mediaIsVoice: model.mediaIsVoice === true,
                         senderDisplayName: model.senderDisplayName || "",
                         body: model.body || "",
@@ -6140,8 +6148,11 @@ Item {
                     Icon {
                         anchors.horizontalCenter: parent.horizontalCenter
                         name: "refresh"
+                        // The glyph's text box is ~1.4x its size (24 -> 33
+                        // px), so a 32px tile needs the smaller glyph to keep
+                        // the box, not only the ink, inside it.
                         size: Math.max(12, Math.min(24,
-                                                    stickerError.height - 8))
+                                                    stickerError.height - 12))
                         color: AppTheme.textMuted
                     }
                     Label {

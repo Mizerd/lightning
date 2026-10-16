@@ -23,6 +23,7 @@
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
 
+#include <QFile>
 #include <QSignalSpy>
 #include <QBuffer>
 #include <QImage>
@@ -394,6 +395,29 @@ private Q_SLOTS:
 
         QVERIFY(!fwd.active());
         QVERIFY(!fwd.error().isEmpty());
+    }
+
+    // The refusal above only fires if the row says it is a location: both
+    // snapshots the timeline row hands ForwardController (the context menu's
+    // Forward and the selection toggle) must carry the role (B124).
+    void bothForwardSnapshotsCarryTheLocationFlag()
+    {
+        QFile file(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString qml = QString::fromUtf8(file.readAll());
+        QCOMPARE(qml.count(QStringLiteral("app.forward.toggleSelected(")), 1);
+        QCOMPARE(qml.count(QStringLiteral("app.forward.begin(")), 1);
+        QCOMPARE(qml.count(QStringLiteral("isLocation: model.isLocation === true")), 2);
+        // Each one inside its own call's snapshot.
+        const int toggle = qml.indexOf(QStringLiteral("app.forward.toggleSelected("));
+        const int begin = qml.indexOf(QStringLiteral("app.forward.begin("));
+        for (const int at : {toggle, begin}) {
+            const int close = qml.indexOf(QStringLiteral("})"), at);
+            QVERIFY(close > at);
+            QVERIFY2(qml.mid(at, close - at)
+                         .contains(QStringLiteral("isLocation: model.isLocation === true")),
+                     "a forward snapshot omits isLocation");
+        }
     }
 
     void beginRefusesALocationInsteadOfSendingItAsText()

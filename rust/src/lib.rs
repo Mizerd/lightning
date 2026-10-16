@@ -14471,6 +14471,10 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         // counts these ("at most two active members"), so a DM someone else
         // was invited into is not 1:1 for ringing (src/calls/OneToOneDm.h).
         "active_member_count": room.active_members_count(),
+        // The room's join rule, "" while unknown: with the joined count it lets
+        // the room list's Leave say whether the room would be left empty and
+        // closed (LeaveRoomConfirmDialog).
+        "join_rule": rooms::join_rule_str(room.join_rule().as_ref()),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
         "inviter_user_id": inviter_user_id,

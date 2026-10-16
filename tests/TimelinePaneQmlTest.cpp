@@ -10533,6 +10533,10 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->readMarkerRow(), 880);
         QTRY_COMPARE_WITH_TIMEOUT(timeline->property("count").toInt(), 901,
                                   10000);
+        // applyRowWindow() does nothing until the timeline has presented
+        // (as deepHistoryPane waits for).
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
 
         // Deep in history, with the window applied as the settle timer does.
         QVERIFY(timeline->setProperty("stickToBottom", false));
@@ -10541,6 +10545,13 @@ private Q_SLOTS:
         QVERIFY(wheelBounds(timeline, &minY, &maxY));
         QVERIFY(timeline->setProperty("contentY", maxY * 0.6));
         QCoreApplication::processEvents();
+        // ...and not while a viewport motion is still settling, nor while
+        // the pagination the park's near-top band asks for is in flight.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !timeline->property("viewportMotionActive").toBool(), 5000);
+        QQmlExpression idle(qmlContext(timeline), timeline, QStringLiteral(
+            "!app.pagination || !app.pagination.busy"));
+        QTRY_VERIFY_WITH_TIMEOUT(idle.evaluate().toBool(), 5000);
         QQmlExpression apply(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(){ updateVisibleRowRange();"
@@ -10549,9 +10560,13 @@ private Q_SLOTS:
         const int skip = apply.evaluate().toInt();
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
-        QVERIFY2(skip > 0,
-                 "no window was established, so the defect is unreachable "
-                 "here");
+        QQmlExpression diag(qmlContext(timeline), timeline, QStringLiteral(
+            "'ready=' + presentationReady + ' motion=' + viewportMotionActive"
+            " + ' busy=' + (app.pagination ? app.pagination.busy : 'n')"
+            " + ' first=' + visibleFirstRow + ' last=' + visibleLastRow"
+            " + ' runway=' + windowRunwayRows + ' min=' + windowMinRows"
+            " + ' count=' + count + ' cy=' + contentY + ' tv=' + !!app.timelineView"));
+        QVERIFY2(skip > 0, qPrintable(diag.evaluate().toString()));
         QVERIFY2(timeline->property("firstUnreadViewRow").toInt() < 0,
                  "fixture: the marker is not among the withheld newest rows");
 
@@ -10736,7 +10751,24 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->property("searchCurrentEventId")
                      .toString(), QStringLiteral("$rs40"));
         QTest::qWait(300);
-        QCOMPARE(top.evaluate().toString(), topBefore);
+        // Not pulled back to the match. Measured with the B092 handler
+        // reverted: the top lands on $rs36, 35 rows from where the reader
+        // parked. With the fix it moves $rs1 -> $rs3. The same fixture WITHOUT
+        // Find, under LIGHTNING_SCROLL_TRACE=1, moves $rs0 -> $rs1 on base
+        // 0b168b9d and on this tree alike: contentY stays 1443 while wheelMaxY
+        // grows 1443 -> 1499 (the appended 56 px), anchorCorrections=0,
+        // growthCorrections=0, displacedApplied=0, materializedMaxAbsDelta=56.
+        // So a live append while parked at the oldest clamp shifts the top by
+        // the appended height on base too (docs/open-items.md, 2026-10-16), and
+        // the bound here is a few rows, not equality.
+        const auto rowOf = [](const QString &id) {
+            return id.mid(QStringLiteral("$rs").size()).toInt();
+        };
+        const QString topAfter = top.evaluate().toString();
+        QVERIFY2(topAfter.startsWith(QStringLiteral("$rs"))
+                     && std::abs(rowOf(topAfter) - rowOf(topBefore)) <= 5,
+                 qPrintable(QStringLiteral("the reader was moved from %1 to %2")
+                                .arg(topBefore, topAfter)));
 
         // An explicit step still lands, on the next match.
         QVERIFY(QMetaObject::invokeMethod(root, "stepFind",

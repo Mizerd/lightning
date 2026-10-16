@@ -501,10 +501,16 @@ private Q_SLOTS:
         const QString keysBlock = delegate.mid(keysStart, keysEnd - keysStart);
         QVERIFY(keysBlock.contains(QStringLiteral("model.membership === \"joined\"")));
         QVERIFY(keysBlock.contains(QStringLiteral("roomMenu.popup()")));
-        // The existing right-click gate is untouched.
+        // Right-click: the room menu for joined rooms only. An invitation
+        // gets its own small menu (Ignore user, B122), and only when the
+        // inviter's real MXID is known; it never reaches the room menu.
         QVERIFY(delegate.contains(QStringLiteral(
-            "enabled: model.membership === \"joined\"")));
-        QVERIFY(delegate.contains(QStringLiteral("onTapped: roomMenu.popup()")));
+            "enabled: model.membership === \"joined\"\n"
+            "                 || (root.isInviteRow && root.inviterUserId !== \"\")")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "onTapped: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "readonly property bool isInviteRow: model.membership === \"invited\"")));
     }
 
     // The delete confirmation uses AppButton (`dangerPrimary` for the
@@ -603,6 +609,10 @@ private Q_SLOTS:
         QVERIFY2(def.contains(QStringLiteral(
                      "app.roomInfo.canRedactOthers === true")),
                  "canRedactOthers is not the SDK's answer, strictly true");
+        // ...and only for the open room (review R4 of the poll package).
+        QVERIFY2(delegate.mid(grant, 260).contains(QStringLiteral(
+                     "app.roomInfo.roomId === app.currentRoomId")),
+                 "another room's grant could offer Delete in the open room");
         QVERIFY2(!def.contains(QStringLiteral("powerLevel")),
                  "power levels are being computed in QML");
     }

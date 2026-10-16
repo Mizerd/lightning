@@ -106,8 +106,10 @@ Item {
 
     // Escape cancels a sign-in in flight, as the Cancel buttons do. Only while
     // one is: otherwise Escape belongs to whatever has focus.
+    // "Escape", not StandardKey.Cancel: that one maps to several keys here and
+    // Shortcut warns that it binds only the first.
     Shortcut {
-        sequence: StandardKey.Cancel
+        sequence: "Escape"
         enabled: root.visible && app.auth.isLoggingIn
         onActivated: app.auth.cancelLogin()
     }

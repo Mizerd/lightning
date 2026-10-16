@@ -127,7 +127,11 @@ private slots:
                                   Q_ARG(QVariant, QStringLiteral("!r:x")),
                                   Q_ARG(QVariant, QStringLiteral("Den")),
                                   Q_ARG(QVariant, 3),
-                                  Q_ARG(QVariant, QStringLiteral("public")));
+                                  Q_ARG(QVariant, QStringLiteral("public")),
+                                  // openFor takes five arguments since the
+                                  // invited count; a call with four matches
+                                  // nothing and opens nothing.
+                                  Q_ARG(QVariant, QVariant(0)));
         QTRY_VERIFY(m_dlg->property("opened").toBool());
         auto *btn = m_dlg->findChild<QObject *>(
             QStringLiteral("leaveRoomConfirmButton"));

@@ -68,6 +68,9 @@ ColumnLayout {
         AppComboBox {
             objectName: "callDevice_" + picker.kind
             Layout.fillWidth: true
+            // The device list is data: a same-size rebuild is a real change,
+            // not a retranslation to undo (AppComboBox).
+            restoreAfterModelReset: false
             enabled: picker.entries.length > 0
             // "System default" (index 0) follows the system default as it
             // changes, rather than pinning today's default device.

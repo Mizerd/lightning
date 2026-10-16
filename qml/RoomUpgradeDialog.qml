@@ -111,6 +111,8 @@ Dialog {
             id: versionCombo
             objectName: "roomUpgradeVersionCombo"
             Layout.fillWidth: true
+            // The server's version list is data (AppComboBox).
+            restoreAfterModelReset: false
             enabled: app.roomUpgrade.versionsKnown && !app.roomUpgrade.upgradeBusy
             readonly property var rows: app.roomUpgrade.availableVersions
             model: {

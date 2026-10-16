@@ -34,6 +34,8 @@
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
+#include <functional>
+
 #include <cmath>
 
 namespace {
@@ -485,12 +487,24 @@ private Q_SLOTS:
         touch(dir.path() + QStringLiteral("/b.txt"));
         request({{QStringLiteral("mode"), QStringLiteral("open")},
                  {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
-        QQuickItem *header =
-            qobject_cast<QQuickItem *>(child("fileChooserSort_name"));
         QQuickItem *list = qobject_cast<QQuickItem *>(child("fileChooserList"));
-        QVERIFY(header && list);
+        QVERIFY(list);
         QQuickItem *panel = list->parentItem();
         QVERIFY(panel);
+        // The sort headers are Repeater delegates: in the item tree, not
+        // QObject children, so findChild() cannot see them.
+        std::function<QQuickItem *(QQuickItem *)> findItem =
+            [&findItem](QQuickItem *from) -> QQuickItem * {
+            for (QQuickItem *item : from->childItems()) {
+                if (item->objectName() == QLatin1String("fileChooserSort_name"))
+                    return item;
+                if (QQuickItem *hit = findItem(item))
+                    return hit;
+            }
+            return nullptr;
+        };
+        QQuickItem *header = findItem(panel);
+        QVERIFY(header);
         QTRY_VERIFY(list->height() > 0);
         QCOMPARE(header->height(), 30.0);
         QVERIFY2(list->height() >= panel->height() - 31 - 2,

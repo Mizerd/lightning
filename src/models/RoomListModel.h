@@ -79,6 +79,9 @@ public:
         IsFavouriteRole,
         DirectUserIdRole,
         InviterRole,
+        // The inviter's MXID only (never inferred from the display text), so
+        // "Ignore user" on an invite row acts on the real sender.
+        InviterUserIdRole,
         InvitePendingRole,
         InviteErrorRole,
         CanonicalAliasRole,

@@ -286,6 +286,38 @@ private slots:
         QCOMPARE(mock.m_requestCount, before + 1);
     }
 
+    // Break-it B063: a member removed while a roster request was in flight
+    // stayed suggestable, because the poke was dropped and the request may
+    // have read the store before the change. Requires the matching change in
+    // MentionSuggestionModel::onMembersChanged/onRoomMembersReceived (routed
+    // by the lead, see the 2026-10-16 room-members-and-permissions notes).
+    void aMembershipPokeDuringARequestIsRequestedAfterIt()
+    {
+        MemberMock mock;
+        MentionSuggestionModel model;
+        model.setClient(&mock);
+        model.setRoomId(QStringLiteral("!r:hs"));
+        model.setRoomMentionAllowed(false);
+        QCOMPARE(mock.m_requestCount, 1);
+        const quint64 inFlight = mock.m_op;
+
+        mock.emitMembersChanged(QStringLiteral("!r:hs"));
+        QCOMPARE(mock.m_requestCount, 1); // never two requests at once
+
+        mock.deliver(inFlight, QStringLiteral("!r:hs"),
+                     { member(QStringLiteral("@gone:hs"), QStringLiteral("Gone")) });
+        QTRY_COMPARE(mock.m_requestCount, 2);
+
+        // The next roster no longer has them as joined: no longer offered.
+        model.setQuery(QStringLiteral("Gone"));
+        mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
+                     { member(QStringLiteral("@gone:hs"), QStringLiteral("Gone"),
+                              false, false, QStringLiteral("other")) });
+        QCOMPARE(model.rowCount(QModelIndex()), 0);
+        QCoreApplication::processEvents();
+        QCOMPARE(mock.m_requestCount, 2);
+    }
+
     // The roster decides @room: "cannot notify" removes it, "can" keeps it,
     // and no statement leaves it offered (silence is not a denial).
     void theRosterSnapshotDecidesWhetherRoomIsOffered()

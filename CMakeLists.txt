@@ -809,6 +809,9 @@ set(APP_SOURCES
     src/app/TrayIcon.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
+    # SIGTERM/SIGINT/SIGHUP routed into an orderly quit (B117).
+    src/app/QuitSignalBridge.h
+    src/app/QuitSignalBridge.cpp
     src/spaces/RailLayoutStore.h
     src/spaces/RailLayoutStore.cpp
     src/spaces/RailEntryModel.h
@@ -1052,6 +1055,8 @@ set(APP_QML_FILES
     qml/SpacesRail.qml
     qml/FolderTile.qml
     qml/RoomsPanel.qml
+    # The one leave-room confirmation, shared by the room list and the info panel.
+    qml/LeaveRoomConfirmDialog.qml
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
     # The room row context menu, shared by both navigation layouts.
@@ -1120,6 +1125,8 @@ set(APP_QML_FILES
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
     qml/ContextView.qml
+    # What an invited room shows instead of a timeline and composer (B037).
+    qml/InvitePreviewCard.qml
     qml/ThreadSummaryCard.qml
     qml/ThemePreviewDemo.qml
     qml/ThemeEditorDialog.qml
@@ -2045,6 +2052,24 @@ if(BUILD_TESTING)
     target_link_libraries(emoji-catalog-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-catalog COMMAND emoji-catalog-test)
 
+    # An exact shortcode or alias ranks first, ahead of tier and recents (B066).
+    qt_add_executable(emoji-catalog-exact-match-test
+        tests/EmojiCatalogExactMatchTest.cpp
+        src/models/EmojiCatalog.h
+        src/models/EmojiCatalog.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    qt_add_resources(emoji-catalog-exact-match-test "emoji-exact-test-data"
+        PREFIX "/qt/qml/MatrixClient"
+        FILES data/emoji-catalog.tsv)
+    target_include_directories(emoji-catalog-exact-match-test PRIVATE src)
+    target_link_libraries(emoji-catalog-exact-match-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME emoji-catalog-exact-match COMMAND emoji-catalog-exact-match-test)
+
     # Custom application icon: byte-sniffed raster whitelist, SVG refusal,
     # bounded decode, circular 512px normalization, persisted enable flag,
     # and the device-global app-data path.
@@ -2485,6 +2510,17 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME emoji-picker-contract COMMAND emoji-picker-contract-test)
 
+    # Keyboard focus and small widgets: shortcut capture error, the room list
+    # width saved only after a real drag, event source JSON wrapping.
+    qt_add_executable(keyboard-focus-widgets-contract-test
+        tests/KeyboardFocusWidgetsContractTest.cpp)
+    target_compile_definitions(keyboard-focus-widgets-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(keyboard-focus-widgets-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME keyboard-focus-widgets-contract
+        COMMAND keyboard-focus-widgets-contract-test)
+
     # GIF picker contract: chrome plus the exact-selection invariants.
     qt_add_executable(gif-picker-redesign-contract-test
         tests/GifPickerRedesignContractTest.cpp)
@@ -2733,6 +2769,29 @@ if(BUILD_TESTING)
     add_test(NAME own-profile COMMAND own-profile-test)
     set_tests_properties(own-profile PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The status strip's message lifetime (B053/B139): dismiss, withdrawn on a
+    # room or Space switch except a create's own landing, and expiry.
+    qt_add_executable(status-strip-test
+        tests/StatusStripTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(status-strip-test)
+    target_link_libraries(status-strip-test PRIVATE Qt6::Test)
+    add_test(NAME status-strip COMMAND status-strip-test)
+    set_tests_properties(status-strip PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # SIGTERM/SIGINT reach an orderly quit through the event loop; an ignored
+    # SIGHUP stays ignored (B117).
+    qt_add_executable(quit-signal-bridge-test
+        tests/QuitSignalBridgeTest.cpp
+        src/app/QuitSignalBridge.h
+        src/app/QuitSignalBridge.cpp
+    )
+    target_include_directories(quit-signal-bridge-test PRIVATE src)
+    target_link_libraries(quit-signal-bridge-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME quit-signal-bridge COMMAND quit-signal-bridge-test)
 
     # AppController::isChatGifStarred/unstarChatGif's two tiers (session fast
     # path + durable content-hash fallback) against a controllable FakeClient.
@@ -3017,6 +3076,44 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME attachment-queue COMMAND attachment-queue-test)
 
+    # Attachments are dispatched one at a time in tray order (B010).
+    qt_add_executable(attachment-order-test
+        tests/AttachmentOrderTest.cpp
+        src/models/MessageComposer.h
+        src/models/MessageComposer.cpp
+        src/media/ImageSendPrep.h
+        src/media/ImageSendPrep.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
+        # The composer's draft hooks pull in the store.
+        src/app/DraftStore.h
+        src/app/DraftStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
+        src/models/MarkdownFormat.h
+        src/models/MarkdownFormat.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
+        src/models/AttachmentQueueModel.h
+        src/models/AttachmentQueueModel.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
+        # The queue owns send-side video poster extraction; the suite installs
+        # the poster hook so no QMediaPlayer is constructed.
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(attachment-order-test PRIVATE src)
+    target_link_libraries(attachment-order-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+    add_test(NAME attachment-order COMMAND attachment-order-test)
+
     # Poster extraction runs on its own thread: the first QVideoSink in a
     # process costs ~1 s of Qt Multimedia initialisation. This suite does
     # construct a real QMediaPlayer.
@@ -3286,21 +3383,14 @@ if(BUILD_TESTING)
     # recognised raster/AV format, SVG never, and the encrypted-room opt-in
     # gating attachments as well as text. Plus the controller's walk-row
     # conversion and a full export against a scripted client.
+    # Linked against the prebuilt app: the controller's "Show in folder"
+    # (B131) reaches FileLauncher, whose portal path pulls in half the app.
     qt_add_executable(room-export-html-test
         tests/RoomExportHtmlTest.cpp
-        src/models/RoomExport.h
-        src/models/RoomExport.cpp
-        src/models/RoomExportHtml.h
-        src/models/RoomExportHtml.cpp
-        src/models/RoomExportController.h
-        src/models/RoomExportController.cpp
-        src/models/MessageHtml.h
-        src/models/MessageHtml.cpp
-        src/matrix/MatrixClient.h
-        src/matrix/MatrixClient.cpp
     )
     target_include_directories(room-export-html-test PRIVATE src)
-    target_link_libraries(room-export-html-test PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(room-export-html-test
+        PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME room-export-html COMMAND room-export-html-test)
     set_tests_properties(room-export-html PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -3393,6 +3483,10 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(forward-message-test PRIVATE src)
+    # beginRefusesALocation... also reads the two forward snapshots the
+    # timeline row builds.
+    target_compile_definitions(forward-message-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(forward-message-test
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME forward-message COMMAND forward-message-test)
@@ -4406,6 +4500,18 @@ if(BUILD_TESTING)
     target_include_directories(message-rail-collision-test PRIVATE src)
     add_test(NAME message-rail-collision COMMAND message-rail-collision-test)
     set_tests_properties(message-rail-collision PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Remote poll/sticker/file text renders as plain text, never markup
+    # (break-it B002/B039), and the poll dialog's own limits.
+    qt_add_executable(poll-text-qml-test
+        tests/PollTextQmlTest.cpp
+    )
+    lightning_configure_qml_test(poll-text-qml-test)
+    target_include_directories(poll-text-qml-test PRIVATE src)
+    target_link_libraries(poll-text-qml-test PRIVATE Qt6::Network)
+    add_test(NAME poll-text-qml COMMAND poll-text-qml-test)
+    set_tests_properties(poll-text-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Conversation-area UX (2026-10-07): the room-info background group and
@@ -5905,6 +6011,20 @@ if(BUILD_TESTING)
     add_test(NAME member-profile-popover-contract
         COMMAND member-profile-popover-contract-test)
     set_tests_properties(member-profile-popover-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Leave-room confirmation wording (sole member, invite-only, unknown) and
+    # both hosts using the one component (B133).
+    qt_add_executable(leave-room-confirm-dialog-test
+        tests/LeaveRoomConfirmDialogTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(leave-room-confirm-dialog-test)
+    target_compile_definitions(leave-room-confirm-dialog-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(leave-room-confirm-dialog-test PRIVATE Qt6::Test)
+    add_test(NAME leave-room-confirm-dialog COMMAND leave-room-confirm-dialog-test)
+    set_tests_properties(leave-room-confirm-dialog PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Trust card: brand-fixed rendering, step states, no QR affordance, no

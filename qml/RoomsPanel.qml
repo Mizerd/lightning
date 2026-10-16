@@ -640,12 +640,14 @@ Rectangle {
                     var row = app.roomList.findRoom(roomId)
                     // RoomInfo.members holds only the member events seen so
                     // far, so the list's own count is never a head count;
-                    // only an authoritative joined count may say "only
-                    // member" (findRoom does not carry one yet).
+                    // only the SDK's joined count may say "only member".
+                    // findRoom omits each key the SDK has not reported.
                     if (row && row.joinedMemberCount !== undefined)
                         members = row.joinedMemberCount
                     if (row && row.joinRule !== undefined)
                         rule = row.joinRule
+                    if (row && row.invitedCount !== undefined)
+                        invited = row.invitedCount
                 }
                 openFor(roomId, name, members, rule, invited)
             }

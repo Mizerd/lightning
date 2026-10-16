@@ -415,8 +415,11 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("onResizingChanged")));
         QVERIFY(body.contains(QStringLiteral("widthSaver.restart()")));
         // Still debounced during the drag.
-        QVERIFY(shell.contains(QStringLiteral(
-            "onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()")));
+        // Only after a real drag (B115), and still through the debounce.
+        const int guarded = shell.indexOf(QStringLiteral(
+            "onWidthChanged: if (!SplitView.view.resizing && widthSaver.dragged)"));
+        QVERIFY(guarded > 0);
+        QVERIFY(shell.mid(guarded, 140).contains(QStringLiteral("widthSaver.restart()")));
     }
 
     // The image viewer closes instantly on a tap outside the picture and zooms

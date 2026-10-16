@@ -292,7 +292,13 @@ private Q_SLOTS:
         const QString chipBody = lists.mid(chip, 500);
         QVERIFY2(!chipBody.contains(QStringLiteral("r.hasUnreadMessages")),
                  "the Unreads chip pre-filters on the receipt flag");
-        QVERIFY(chipBody.contains(QStringLiteral("countsAsUnread")));
+        // listsAsUnread is the shared rule plus a muted room marked unread
+        // (B077), which the chip lists but no badge counts.
+        QVERIFY(chipBody.contains(QStringLiteral("roomunread::listsAsUnread(")));
+        const QString rule = read("src/matrix/RoomUnreadRule.h");
+        const int lists_ = rule.indexOf(QStringLiteral("inline bool listsAsUnread("));
+        QVERIFY(lists_ >= 0);
+        QVERIFY(rule.mid(lists_, 200).contains(QStringLiteral("countsAsUnread(r, mode) ||")));
         // Home's recent strip.
         const int recent = lists.indexOf(QStringLiteral("QVariantList RoomListModel::recentRooms"));
         QVERIFY(recent >= 0);

@@ -12086,6 +12086,19 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             snapshot.insert(QStringLiteral("canPublishCallMembership"),
                             canPublish.toBool());
         }
+        // Posting and redacting others, from the SDK. Only a real answer: null
+        // (our own member not in the store) is unknown, as above.
+        if (const QJsonValue v = event.value(QStringLiteral("own_can_send_message"));
+            v.isBool()) {
+            snapshot.insert(QStringLiteral("canSendMessages"), v.toBool());
+        }
+        if (const QJsonValue v = event.value(QStringLiteral("own_can_redact_other"));
+            v.isBool()) {
+            snapshot.insert(QStringLiteral("canRedactOthers"), v.toBool());
+        }
+        // Also on an ok:false "not_joined" answer: why there is no roster.
+        snapshot.insert(QStringLiteral("ownMembership"),
+                        event.value(QStringLiteral("own_membership")).toString());
         snapshot.insert(QStringLiteral("joinRule"),
                         event.value(QStringLiteral("join_rule")).toString());
         snapshot.insert(
@@ -12174,6 +12187,33 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         slot.displayName = it->displayName;
                     if (!it->avatarMxcUrl.isEmpty())
                         slot.avatarMxcUrl = it->avatarMxcUrl;
+                }
+                // A typist who is no longer joined (kicked, banned, left) gets
+                // no typing stop from the server, so the indicator would keep
+                // them for ever (B026). Only a full, untruncated roster can
+                // prove someone is absent. Pruned before membersChanged, whose
+                // handlers may touch m_rooms and invalidate roomIt. A typist
+                // who joined after this roster was read drops off until their
+                // next typing update: accepted, the gap is brief.
+                if (!event.value(QStringLiteral("partial")).toBool()
+                    && !event.value(QStringLiteral("truncated")).toBool()
+                    && !roomIt->typingUserIds.isEmpty()) {
+                    QSet<QString> joined;
+                    for (const QJsonValue &v : rows) {
+                        const QJsonObject r = v.toObject();
+                        if (r.value(QStringLiteral("membership")).toString()
+                            == QLatin1String("joined"))
+                            joined.insert(r.value(QStringLiteral("user_id")).toString());
+                    }
+                    QStringList kept;
+                    for (const QString &u : std::as_const(roomIt->typingUserIds)) {
+                        if (joined.contains(u))
+                            kept.append(u);
+                    }
+                    if (kept != roomIt->typingUserIds) {
+                        roomIt->typingUserIds = kept;
+                        Q_EMIT typingChanged(membersRoomId);
+                    }
                 }
                 // One refresh per fetch: the partial snapshot primes the cache,
                 // but only the full roster emits membersChanged, which dirties

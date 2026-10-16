@@ -164,6 +164,20 @@ int RoomListModel::rowCount(const QModelIndex &parent) const
     return static_cast<int>(m_rooms.size());
 }
 
+namespace {
+// The MembershipRole / findRoom() spelling of a room's own membership.
+QString membershipName(RoomInfo::Membership membership)
+{
+    switch (membership) {
+    case RoomInfo::Invited: return QStringLiteral("invited");
+    case RoomInfo::Knocked: return QStringLiteral("knocked");
+    case RoomInfo::Left: return QStringLiteral("left");
+    case RoomInfo::Joined: return QStringLiteral("joined");
+    }
+    return QStringLiteral("joined");
+}
+} // namespace
+
 QVariant RoomListModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_rooms.size())
@@ -202,19 +216,13 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case ThreadUnreadKindRole:
         return r.membership == RoomInfo::Joined
             ? roomunread::threadUnreadKind(r, notificationModeOf(r.id)) : 0;
-    case MembershipRole:
-        switch (r.membership) {
-        case RoomInfo::Invited: return QStringLiteral("invited");
-        case RoomInfo::Knocked: return QStringLiteral("knocked");
-        case RoomInfo::Left: return QStringLiteral("left");
-        case RoomInfo::Joined: return QStringLiteral("joined");
-        }
-        return QStringLiteral("joined");
+    case MembershipRole:         return membershipName(r.membership);
     case IsDirectRole:           return r.isDirect;
     case IsFavouriteRole:        return r.isFavourite;
     case DirectUserIdRole:       return r.directUserId;
     case InviterRole:            return r.inviterDisplayName.isEmpty()
                                      ? r.inviterUserId : r.inviterDisplayName;
+    case InviterUserIdRole:      return r.inviterUserId;
     case InvitePendingRole:      return r.invitePending;
     case InviteErrorRole:        return r.inviteError;
     case CanonicalAliasRole:     return r.canonicalAlias;
@@ -253,6 +261,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { IsFavouriteRole,        "isFavourite" },
         { DirectUserIdRole,       "directUserId" },
         { InviterRole,            "inviter" },
+        { InviterUserIdRole,      "inviterUserId" },
         { InvitePendingRole,      "invitePending" },
         { InviteErrorRole,        "inviteError" },
         { CanonicalAliasRole,     "canonicalAlias" },
@@ -274,7 +283,7 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
     for (const auto &r : m_client->rooms()) {
         if (r.id == roomId) {
             const BridgeBadge badge = badgeFor(r);
-            return {
+            QVariantMap found {
                 { QStringLiteral("id"),        r.id },
                 { QStringLiteral("name"),      r.name },
                 { QStringLiteral("topic"),     r.topic },
@@ -299,7 +308,27 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 // with it.
                 { QStringLiteral("bridgeNetwork"), badge.networkId },
                 { QStringLiteral("bridgeLabel"),   badge.label },
+                // An invited room shows the invite card instead of a timeline
+                // (TimelinePane.invitePreview); same strings as the roles.
+                { QStringLiteral("membership"), membershipName(r.membership) },
+                { QStringLiteral("inviter"), r.inviterDisplayName.isEmpty()
+                      ? r.inviterUserId : r.inviterDisplayName },
+                { QStringLiteral("inviterUserId"), r.inviterUserId },
+                { QStringLiteral("invitePending"), r.invitePending },
+                { QStringLiteral("inviteError"),   r.inviteError },
             };
+            // Head counts and the join rule only when the SDK reported them,
+            // so the leave dialog's "only member" wording never rests on a
+            // default (absent = unknown there).
+            if (r.joinedMemberCount > 0) {
+                found.insert(QStringLiteral("joinedMemberCount"), r.joinedMemberCount);
+                if (r.activeMemberCount >= r.joinedMemberCount)
+                    found.insert(QStringLiteral("invitedCount"),
+                                 r.activeMemberCount - r.joinedMemberCount);
+            }
+            if (!r.joinRule.isEmpty())
+                found.insert(QStringLiteral("joinRule"), r.joinRule);
+            return found;
         }
     }
     return {};

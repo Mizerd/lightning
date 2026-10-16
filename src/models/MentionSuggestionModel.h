@@ -111,6 +111,9 @@ private:
     // would hide @room whenever no room-info snapshot was loaded.
     bool m_roomMentionAllowed = true;
     quint64 m_membersOp = 0;
+    // A membership poke arrived while m_membersOp was pending: request once
+    // more when it ends (B063). Cleared on room switch and sign-out.
+    bool m_membersRequestOwed = false;
     bool m_membersLoaded = false;
     QList<Member> m_all;     // cached members for m_roomId (self excluded)
     QList<Member> m_results; // filtered + ranked + capped

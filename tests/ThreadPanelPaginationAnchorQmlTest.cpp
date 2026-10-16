@@ -93,11 +93,15 @@ private Q_SLOTS:
         mock->setPaginationDelayForTest(60);
         // Replace the built-in fixture with 30 replies, more than the
         // viewport. Resetting the composite thread timeline id reloads the
-        // model like a real room without disturbing ThreadController (it
-        // only reacts to timelineReset while Opening).
+        // model like a real room. The first row is the thread ROOT: an open
+        // thread whose root is not loaded fills its history on a reset
+        // (break-it B022), which would spend this fixture's one page before
+        // the request under test.
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
+            if (i == 0)
+                e.eventId = rootId;
             e.sender = QStringLiteral("@alice:mock.local");
             e.senderDisplayName = QStringLiteral("Alice");
             e.body = QStringLiteral("reply %1").arg(i);

@@ -225,8 +225,9 @@ RemovalSummary removeAccountRustStateWith(const AccountIdentity &identity,
 // Removes ONLY identity.rustStorePath: the store a failed sign-in attempt
 // created and opened. No sibling quarantine (`.orphaned-*`, which may hold the
 // only copy of someone's room keys), no sidecar. A symlink is unlinked, never
-// followed. For rolling back one attempt; sign-out uses
-// removeAccountRustState().
+// followed. When the store removal did not fail, the account directory that
+// held it goes too, only if that left it empty (removeAccountRootIfEmpty). For
+// rolling back one attempt; sign-out uses removeAccountRustState().
 RemovalSummary removeAttemptRustStore(const AccountIdentity &identity);
 
 // Account cleanup for a repair: the SDK store is quarantined (moved aside)

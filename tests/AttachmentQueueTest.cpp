@@ -1088,6 +1088,11 @@ private Q_SLOTS:
 
         composer.send();
         QCOMPARE(posterRequests, 0);
+        // Rows go one at a time in tray order (B010): the second waits for
+        // the first to finish.
+        QCOMPARE(client.fileSends, 1);
+        Q_EMIT client.attachmentQueueFinished(
+            client.lastOpId, QStringLiteral("!room:example.org"), true, {});
         QCOMPARE(client.fileSends, 2);
         QCOMPARE(client.videoSends, 0);
     }

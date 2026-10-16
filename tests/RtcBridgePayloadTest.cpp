@@ -9,6 +9,7 @@
 
 #include "app/SettingsManager.h"
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QtTest>
@@ -82,6 +83,161 @@ private slots:
         snapshot = spy.takeFirst().at(2).toMap();
         QCOMPARE(snapshot.value(QStringLiteral("canPublishCallMembership")),
                  QVariant(true));
+#endif
+    }
+
+    /// rooms.rs's posting/redaction answers and own membership must reach
+    /// RoomInfoController: null is unknown (no key), a bool crosses, and a
+    /// not_joined answer still says what the membership is (B027/B123).
+    void theSendRedactAndMembershipAnswersSurviveTheBridge()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &MatrixClient::roomMembersReceived);
+        QJsonObject event;
+        event.insert(QStringLiteral("type"), QStringLiteral("room_members"));
+        event.insert(QStringLiteral("op_id"), 11);
+        event.insert(QStringLiteral("room_id"),
+                     QStringLiteral("!r:example.org"));
+        event.insert(QStringLiteral("ok"), true);
+        event.insert(QStringLiteral("partial"), true);
+        event.insert(QStringLiteral("own_can_send_message"),
+                     QJsonValue(QJsonValue::Null));
+        event.insert(QStringLiteral("own_can_redact_other"),
+                     QJsonValue(QJsonValue::Null));
+        event.insert(QStringLiteral("own_membership"), QStringLiteral("joined"));
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        QVariantMap snapshot = spy.takeFirst().at(2).toMap();
+        QVERIFY2(!snapshot.contains(QStringLiteral("canSendMessages")),
+                 "an unknown send permission crossed as an answer");
+        QVERIFY2(!snapshot.contains(QStringLiteral("canRedactOthers")),
+                 "an unknown redaction permission crossed as an answer");
+        QCOMPARE(snapshot.value(QStringLiteral("ownMembership")).toString(),
+                 QStringLiteral("joined"));
+
+        // Two DIFFERENT answers, so a swapped key fails.
+        event.insert(QStringLiteral("own_can_send_message"), false);
+        event.insert(QStringLiteral("own_can_redact_other"), true);
+        client.handleRustEventForTest(event);
+        snapshot = spy.takeFirst().at(2).toMap();
+        QCOMPARE(snapshot.value(QStringLiteral("canSendMessages")), QVariant(false));
+        QCOMPARE(snapshot.value(QStringLiteral("canRedactOthers")), QVariant(true));
+
+        QJsonObject notJoined;
+        notJoined.insert(QStringLiteral("type"), QStringLiteral("room_members"));
+        notJoined.insert(QStringLiteral("op_id"), 12);
+        notJoined.insert(QStringLiteral("room_id"),
+                         QStringLiteral("!r:example.org"));
+        notJoined.insert(QStringLiteral("ok"), false);
+        notJoined.insert(QStringLiteral("category"), QStringLiteral("not_joined"));
+        notJoined.insert(QStringLiteral("own_membership"), QStringLiteral("invited"));
+        client.handleRustEventForTest(notJoined);
+        snapshot = spy.takeFirst().at(2).toMap();
+        QCOMPARE(snapshot.value(QStringLiteral("ok")), QVariant(false));
+        QCOMPARE(snapshot.value(QStringLiteral("ownMembership")).toString(),
+                 QStringLiteral("invited"));
+#endif
+    }
+
+    /// A typist who left (kicked, banned) gets no typing stop from the server;
+    /// a full roster without them drops them from the indicator, a partial or
+    /// truncated one cannot prove they left (B026).
+    void aFullRosterDropsTypistsWhoAreNoLongerJoined()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        const QString room = QStringLiteral("!r:example.org");
+        QJsonObject listed;
+        listed.insert(QStringLiteral("id"), room);
+        listed.insert(QStringLiteral("name"), QStringLiteral("Room"));
+        QJsonObject rooms;
+        rooms.insert(QStringLiteral("type"), QStringLiteral("rooms"));
+        rooms.insert(QStringLiteral("rooms"), QJsonArray{listed});
+        client.handleRustEventForTest(rooms);
+
+        auto user = [](const QString &id) {
+            QJsonObject o;
+            o.insert(QStringLiteral("user_id"), id);
+            return o;
+        };
+        QJsonObject typing;
+        typing.insert(QStringLiteral("type"), QStringLiteral("typing_update"));
+        typing.insert(QStringLiteral("room_id"), room);
+        typing.insert(QStringLiteral("users"),
+                      QJsonArray{user(QStringLiteral("@alice:example.org")),
+                                 user(QStringLiteral("@bob:example.org"))});
+        client.handleRustEventForTest(typing);
+        QCOMPARE(client.typingUsersFor(room).size(), 2);
+
+        auto row = [](const QString &id, const QString &membership) {
+            QJsonObject o;
+            o.insert(QStringLiteral("user_id"), id);
+            o.insert(QStringLiteral("membership"), membership);
+            return o;
+        };
+        QJsonObject roster;
+        roster.insert(QStringLiteral("type"), QStringLiteral("room_members"));
+        roster.insert(QStringLiteral("op_id"), 21);
+        roster.insert(QStringLiteral("room_id"), room);
+        roster.insert(QStringLiteral("ok"), true);
+        roster.insert(QStringLiteral("members"),
+                      QJsonArray{row(QStringLiteral("@alice:example.org"),
+                                     QStringLiteral("joined")),
+                                 row(QStringLiteral("@bob:example.org"),
+                                     QStringLiteral("banned"))});
+        QSignalSpy typingSpy(&client, &MatrixClient::typingChanged);
+
+        // A partial roster proves nothing.
+        roster.insert(QStringLiteral("partial"), true);
+        client.handleRustEventForTest(roster);
+        QCOMPARE(client.typingUsersFor(room).size(), 2);
+        // Nor does a truncated one.
+        roster.insert(QStringLiteral("partial"), false);
+        roster.insert(QStringLiteral("truncated"), true);
+        client.handleRustEventForTest(roster);
+        QCOMPARE(client.typingUsersFor(room).size(), 2);
+        QCOMPARE(typingSpy.count(), 0);
+
+        roster.insert(QStringLiteral("truncated"), false);
+        client.handleRustEventForTest(roster);
+        QCOMPARE(client.typingUsersFor(room),
+                 QStringList{QStringLiteral("@alice:example.org")});
+        QCOMPARE(typingSpy.count(), 1);
+#endif
+    }
+
+    /// The room payload's joined head count and join rule reach RoomInfo, so
+    /// the room list's Leave can say whether the room would be left empty
+    /// (B133).
+    void theJoinedCountAndJoinRuleReachTheRoom()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        const QString room = QStringLiteral("!r:example.org");
+        QJsonObject listed;
+        listed.insert(QStringLiteral("id"), room);
+        listed.insert(QStringLiteral("member_count"), 1);
+        listed.insert(QStringLiteral("active_member_count"), 2);
+        listed.insert(QStringLiteral("join_rule"), QStringLiteral("invite"));
+        QJsonObject rooms;
+        rooms.insert(QStringLiteral("type"), QStringLiteral("rooms"));
+        rooms.insert(QStringLiteral("rooms"), QJsonArray{listed});
+        client.handleRustEventForTest(rooms);
+        const QList<RoomInfo> all = client.rooms();
+        QCOMPARE(all.size(), 1);
+        QCOMPARE(all.first().joinedMemberCount, 1);
+        QCOMPARE(all.first().activeMemberCount, 2);
+        QCOMPARE(all.first().joinRule, QStringLiteral("invite"));
 #endif
     }
 

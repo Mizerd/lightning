@@ -153,7 +153,8 @@ private Q_SLOTS:
         QCOMPARE(settings.monoFont(), QStringLiteral("Fira Code"));
 
         settings.setActiveAccountUserId(bob);
-        QCOMPARE(settings.uiFont(), QStringLiteral("Inter")); // global fallback
+        // Alice's choice is hers alone (B004): Bob keeps the look he had.
+        QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
         settings.setUiFont(QStringLiteral("Source Sans 3"));
         settings.setActiveAccountUserId(alice);
         QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
