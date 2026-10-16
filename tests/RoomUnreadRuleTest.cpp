@@ -84,6 +84,29 @@ private Q_SLOTS:
         QCOMPARE(onlyMuted.total, 0);
     }
 
+    // B077: the Unreads FILTER lists a muted room the user explicitly marked
+    // unread (its row draws that grey dot); every other surface stays silent.
+    // Folding this into countsAsUnread fails the last two checks.
+    void aMutedMarkedUnreadRoomIsListedButNeverCounted()
+    {
+        RoomInfo r = room(QStringLiteral("!m:x"), 0);
+        r.markedUnread = true;
+        QVERIFY(roomunread::listsAsUnread(r, roomunread::kModeMute));
+        QVERIFY(!roomunread::countsAsUnread(r, roomunread::kModeMute));
+        const roomunread::Summary s = roomunread::summarize(
+            { r }, [](const QString &) { return roomunread::kModeMute; },
+            [](const RoomInfo &, bool) {});
+        QVERIFY(!s.any);
+
+        // A muted room that is merely unread (receipt or count) is still not
+        // listed, and an unmarked read room never is.
+        RoomInfo plain = room(QStringLiteral("!p:x"), 3, true);
+        QVERIFY(!roomunread::listsAsUnread(plain, roomunread::kModeMute));
+        QVERIFY(!roomunread::listsAsUnread(room(QStringLiteral("!r:x"), 0),
+                                           roomunread::kModeAllMessages));
+        QVERIFY(roomunread::listsAsUnread(plain, roomunread::kModeAllMessages));
+    }
+
     void aMutedRoomWithACountDoesNotAddToTheTotal()
     {
         const QList<RoomInfo> rooms{ room(QStringLiteral("!muted:x"), 7) };

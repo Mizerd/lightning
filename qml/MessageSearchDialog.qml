@@ -26,6 +26,11 @@ Dialog {
     function openDialog(query) {
         app.messageSearch.roomId = ""
         app.messageSearch.filters = ({})
+        // Set explicitly, never inherited from the side panel's last choice:
+        // the local index where the backend has one (it is what the label
+        // below describes), the homeserver otherwise.
+        app.messageSearch.source = app.messageSearch.localAvailable
+            ? "local" : "server"
         open()
         if (typeof query === "string" && query.length > 0)
             app.messageSearch.query = query
@@ -93,9 +98,34 @@ Dialog {
             onAccepted: app.messageSearch.search()
         }
 
+        SegmentedControl {
+            objectName: "globalSearchSourceToggle"
+            storm: true
+            dense: true
+            Layout.fillWidth: false
+            visible: app.messageSearch.localAvailable
+            model: [
+                { label: qsTr("Indexed"), value: "local",
+                  tip: qsTr("Lightning's own index. Works in encrypted "
+                            + "rooms.") },
+                { label: qsTr("Server"), value: "server",
+                  tip: qsTr("Your homeserver's search. Covers history "
+                            + "this device has never seen, and cannot "
+                            + "read encrypted rooms.") }
+            ]
+            current: app.messageSearch.source
+            onActivated: (value) => app.messageSearch.source = value
+        }
+
         Label {
+            objectName: "globalSearchSourceLabel"
             Layout.fillWidth: true
-            text: qsTr("Server-side search — messages in end-to-end "
+            // Follows the source the query really runs against.
+            text: app.messageSearch.source === "local"
+                ? qsTr("Searching this device's index — includes indexed "
+                       + "encrypted rooms, and finds only messages already "
+                       + "indexed.")
+                : qsTr("Server-side search — messages in end-to-end "
                        + "encrypted rooms are not included.")
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta

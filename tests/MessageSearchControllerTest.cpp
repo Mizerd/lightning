@@ -766,6 +766,26 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(searches.count() > 0, kSignalTimeoutMs);
     }
 
+    // A pass that settles must ask the backend for the stored totals: the
+    // progress status carries "messages" only on some events, so without the
+    // request the panel keeps saying "Nothing is indexed yet." Removing the
+    // refreshIndexStats() call at the settle fails this.
+    void aSettledIndexAllPassRequestsFreshIndexStats()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+
+        QSignalSpy stats(&client, &MatrixClient::searchIndexStatsReceived);
+        Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("running"), 1, 3));
+        QTest::qWait(60);
+        QCOMPARE(stats.count(), 0);   // mid-pass: no extra traffic
+
+        Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("done"), 0, 0));
+        QTRY_VERIFY_WITH_TIMEOUT(stats.count() > 0, kSignalTimeoutMs);
+    }
+
     // A call and a scroll hold the pass independently; releasing one must not
     // release the other. A setter that forwards only the latest reason fails
     // the first comparison.

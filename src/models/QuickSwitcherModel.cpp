@@ -2,6 +2,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomUnreadRule.h"
+#include "models/TextFold.h"
 #include "spaces/SpaceManager.h"
 
 #include <QCoreApplication>
@@ -129,8 +130,10 @@ QVariantMap QuickSwitcherModel::resultAt(int row) const
 int QuickSwitcherModel::matchScore(const QString &query, const QString &name,
                                    const QStringList &alternates)
 {
-    const QString q = query.trimmed().toLower();
-    const QString lowerName = name.toLower();
+    // Folded (accents and case), query and candidates alike: the same rule the
+    // room list filter and the local message search apply.
+    const QString q = textfold::fold(query.trimmed());
+    const QString lowerName = textfold::fold(name);
     if (q.isEmpty())
         return 0;   // no query: everything matches with a neutral score.
 
@@ -138,7 +141,7 @@ int QuickSwitcherModel::matchScore(const QString &query, const QString &name,
     QString haystack = lowerName;
     for (const QString &alt : alternates) {
         haystack += QLatin1Char(' ');
-        haystack += alt.toLower();
+        haystack += textfold::fold(alt);
     }
 
     // Every whitespace-separated token must appear somewhere; a missing token

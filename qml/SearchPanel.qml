@@ -72,15 +72,23 @@ Rectangle {
     // The roster comes from RoomInfoController, which follows the Room
     // Information panel's room; point it at the searched room before reading
     // members.
-    onVisibleChanged: if (visible) { ensureRoster(); applySource(); focusQuery() }
+    // A reopened panel starts on the search field, not on a filter editor left
+    // open when it was closed (the field is hidden there and swallowed the
+    // typing), with the previous query selected so typing replaces it.
+    onVisibleChanged: if (visible) {
+        filterEditing = false
+        ensureRoster(); applySource(); focusQuery()
+    }
     // Opening search means typing a query next: the field takes the keyboard,
     // as in every chat client. Without it the first keystrokes went nowhere.
     // Deferred, because the panel becomes visible inside the click that opened
     // it.
     function focusQuery() {
         Qt.callLater(function () {
-            if (root.visible && searchField.visible && searchField.enabled)
+            if (root.visible && searchField.visible && searchField.enabled) {
                 searchField.forceActiveFocus()
+                searchField.selectAll()
+            }
         })
     }
     Component.onCompleted: if (visible) { ensureRoster(); applySource() }
@@ -215,6 +223,12 @@ Rectangle {
         if (st === "too_short")
             return qsTr("Type at least %1 characters.")
                 .arg(app.messageSearch.minLocalChars)
+        if (app.messageSearch.indexAllActive && activeSource === "local")
+            return app.messageSearch.indexAllTotal > 0
+                ? qsTr("Indexing encrypted rooms… %1 of %2")
+                    .arg(app.messageSearch.indexAllPosition)
+                    .arg(app.messageSearch.indexAllTotal)
+                : qsTr("Indexing encrypted rooms…")
         if (activeSource === "local" && app.messageSearch.indexedMessages <= 0)
             return qsTr("Nothing is indexed yet.")
         if (activeSource === "server")

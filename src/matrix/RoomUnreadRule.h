@@ -34,6 +34,15 @@ inline bool countsAsUnread(const RoomInfo &r, int mode)
     return rawUnread(r) && mode != kModeMute;
 }
 
+// The room list's Unreads FILTER: countsAsUnread, plus a muted room the user
+// explicitly marked unread. The row draws a grey dot for that room, so the
+// filter must list it; a count, a mention, the rail and the tray stay silent
+// (they use countsAsUnread, which this does NOT replace).
+inline bool listsAsUnread(const RoomInfo &r, int mode)
+{
+    return countsAsUnread(r, mode) || (r.markedUnread && mode == kModeMute);
+}
+
 /// The mention count a badge may show: zero for a muted room.
 inline int mentionCount(const RoomInfo &r, int mode)
 {

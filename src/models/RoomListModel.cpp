@@ -3,6 +3,7 @@
 #include "matrix/RoomUnreadRule.h"
 
 #include "models/ConversationOrder.h"
+#include "models/TextFold.h"
 
 #include "matrix/BridgeNetwork.h"
 #include "matrix/MatrixClient.h"
@@ -390,10 +391,13 @@ bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
 {
     // Space rooms themselves belong to the rail, not the room list.
     if (r.isSpace && r.membership == RoomInfo::Joined) return false;
-    if (!m_searchQuery.isEmpty()
-        && !r.name.contains(m_searchQuery, Qt::CaseInsensitive)
-        && !r.canonicalAlias.contains(m_searchQuery, Qt::CaseInsensitive))
-        return false;
+    // Accent- and case-insensitive, like the local message search.
+    if (!m_searchQuery.isEmpty()) {
+        const QString needle = textfold::fold(m_searchQuery);
+        if (!textfold::fold(r.name).contains(needle)
+            && !textfold::fold(r.canonicalAlias).contains(needle))
+            return false;
+    }
     if (!m_spaces) return true;
     const QString active = m_spaces->activeSpaceId();
     if (active.isEmpty()) return true; // "All rooms"
@@ -434,10 +438,11 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
             if (r.isDirect) return false;
             break;
         case 3: // Unreads
-            // The shared rule alone: a room unread only in a thread has no
+            // The shared rule, plus a muted room the user marked unread (its
+            // row draws that grey dot): a room unread only in a thread has no
             // receipt flag and no highlight, only a count, and SpaceChannelModel's
             // Unreads chip lists it.
-            if (!roomunread::countsAsUnread(r, notificationModeOf(r.id))) {
+            if (!roomunread::listsAsUnread(r, notificationModeOf(r.id))) {
                 if (r.id != m_pinnedRoomId)
                     return false;
             }

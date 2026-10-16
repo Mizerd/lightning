@@ -301,6 +301,12 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     }
     Q_EMIT indexAllChanged();
 
+    // A pass that settles always asks for the stored totals: the status above
+    // carries "messages" only on some events, and a panel reading "Nothing is
+    // indexed yet." must not outlive the pass that indexed something.
+    if (wasActive && !indexAllActive())
+        refreshIndexStats();
+
     // A pass that just settled may have indexed what a local query on screen
     // is looking for. Not on every page: that would repaint the results the
     // reader is scrolling.
