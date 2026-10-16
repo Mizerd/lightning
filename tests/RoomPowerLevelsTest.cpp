@@ -648,6 +648,80 @@ private Q_SLOTS:
         QCOMPARE(client.aliasCalls, 3);
         QCOMPARE(client.lastAlias, QString());
     }
+
+    // break-it s03: "#bad name:localhs.test" went to the server, which
+    // registered it, and the room published it. Refused here now, with a
+    // sentence, before anything is sent. Fails on the old controller, which
+    // completed and sent every value.
+    void anAddressThisClientWouldNotAcceptIsNeverSent()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        seed(ctl, client);
+
+        ctl.setCanonicalAlias(QStringLiteral("#bad name:localhs.test"));
+        QCOMPARE(client.aliasCalls, 0);
+        QVERIFY(!ctl.editPending());
+        QVERIFY2(ctl.editError().contains(QStringLiteral("spaces")),
+                 qPrintable(ctl.editError()));
+        QCOMPARE(ctl.aliasProblem(QStringLiteral("#bad name:localhs.test")),
+                 ctl.editError());
+
+        const QStringList refused{
+            QStringLiteral("bad name"),          // completed, still a space
+            QStringLiteral("a#b"),
+            QStringLiteral("a,b"),
+            QStringLiteral("tab\there"),
+            QStringLiteral("zero") + QChar(0x200B) + QStringLiteral("width"),
+            QStringLiteral("rlo") + QChar(0x202E) + QStringLiteral("x"),
+            QStringLiteral("#:example.org"),     // nothing before the server
+            QStringLiteral("#lounge:"),          // nothing after the colon
+            QStringLiteral("#") + QString(260, QLatin1Char('a'))
+                + QStringLiteral(":example.org"),
+        };
+        for (const QString &bad : refused) {
+            ctl.setCanonicalAlias(bad);
+            QVERIFY2(client.aliasCalls == 0, qPrintable(bad));
+            QVERIFY2(!ctl.aliasProblem(bad).isEmpty(), qPrintable(bad));
+        }
+        // An alternative address is held to the same rule.
+        ctl.setAltAliases({ QStringLiteral("#bad name:example.org") });
+        QVERIFY(client.lastAltAliases.isEmpty());
+        QVERIFY(!ctl.editPending());
+
+        // Still accepted: a bare localpart, a full address, a port, non-ASCII,
+        // and an empty field (which clears, and is not a problem).
+        for (const QString &good :
+             { QStringLiteral("lounge"), QStringLiteral("#lounge:example.org"),
+               QStringLiteral("#lounge:example.org:8448"),
+               QString::fromUtf8("\xc5\xa1altibar\xc5\xa1\xc4\x8diai"),
+               QString() })
+            QVERIFY2(ctl.aliasProblem(good).isEmpty(), qPrintable(good));
+        ctl.setCanonicalAlias(QStringLiteral("lounge"));
+        QCOMPARE(client.aliasCalls, 1);
+        QCOMPARE(client.lastAlias, QStringLiteral("#lounge:example.org"));
+    }
+
+    // The rule must not lock a room out of its own list: an alternative
+    // address another client published under looser rules passes as it is,
+    // so a different entry can still be added or removed beside it.
+    void anExistingLooseAlternativeAddressDoesNotBlockTheList()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        ctl.setRoomId(kRoom);
+        QVariantMap snapshot = adminSnapshot(100, { memberRow(kMe, 100, true) });
+        const QString loose = QStringLiteral("#old one:example.org");
+        snapshot.insert(QStringLiteral("altAliases"), QStringList{ loose });
+        Q_EMIT client.roomMembersReceived(client.lastOpId, kRoom, snapshot);
+        QCOMPARE(ctl.altAliases(), QStringList{ loose });
+
+        ctl.setAltAliases({ loose, QStringLiteral("extra") });
+        QCOMPARE(client.lastAltAliases,
+                 (QStringList{ loose, QStringLiteral("#extra:example.org") }));
+    }
 };
 
 QTEST_MAIN(RoomPowerLevelsTest)

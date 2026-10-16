@@ -57,7 +57,13 @@ Dialog {
     property bool spaceIsPublic: false
 
     readonly property bool busy: app.conversations.busy
+    // Why the typed address would be refused ("" when fine or empty), from
+    // the controller's rule so the dialog and createRoom() cannot disagree.
+    readonly property string roomAliasProblem:
+        roomIsPublic ? app.conversations.aliasLocalpartProblem(roomAliasText)
+                     : ""
     readonly property bool canCreateRoom: !busy && roomNameText.trim().length > 0
+                                          && roomAliasProblem.length === 0
     readonly property bool canCreateSpace: !busy && spaceNameText.trim().length > 0
     readonly property bool spacePlacementAvailable:
         app.spaces && app.spaces.activeSpaceId
@@ -160,6 +166,18 @@ Dialog {
     }
 
     onClosed: resetAll()
+
+    // The banner reports the LAST attempt. Once the user edits what it was
+    // about, it no longer describes the form, and leaving it up read as the
+    // fix having failed (break-it s03: still "rejected as invalid" after the
+    // address was corrected). Never while a create is in flight.
+    function dropStaleError() {
+        if (!busy && app.conversations.errorMessage.length > 0)
+            app.conversations.clearError()
+    }
+    onRoomNameTextChanged: dropStaleError()
+    onRoomAliasTextChanged: dropStaleError()
+    onRoomIsPublicChanged: dropStaleError()
     onOpened: Qt.callLater(focusCurrentTab)
 
     // Footer shortcut chip, switching flows through the same switchMode() as
@@ -987,6 +1005,18 @@ Dialog {
                 Component.onCompleted: text = root.roomAliasText
                 onTextChanged: root.roomAliasText = text
                 onAccepted: root.submitRoom()
+            }
+            Label {
+                objectName: "roomAliasHint"
+                visible: root.roomAliasProblem.length > 0
+                Layout.fillWidth: true
+                text: root.roomAliasProblem
+                textFormat: Text.PlainText
+                color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.WordWrap
             }
 
             // Optional placement into the current Space.

@@ -65,6 +65,11 @@ Rectangle {
 
     // "overview" | "pinned" | "people" | "media" | "widgets"
     property string section: "overview"
+    // The room's name is capped at this many lines and its topic folded to
+    // topicFoldedLines until "Show more"; both reset per room.
+    readonly property int nameMaxLines: 3
+    readonly property int topicFoldedLines: 6
+    property bool topicExpanded: false
     property string memberFilter: ""
 
     // PinnedMessagesController follows the active room, while this panel can
@@ -112,6 +117,11 @@ Rectangle {
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
+        // A different room starts at its own top, folded: the panel is one
+        // instance, and it kept the previous room's scroll offset (break-it
+        // s03: opened mid-panel with the header cut off).
+        topicExpanded = false
+        overviewFlick.contentY = 0
         // The membership filter and sort reset with the room, so a new room is
         // not shown under the previous room's filter.
         memberSection.membership = "joined"
@@ -125,6 +135,25 @@ Rectangle {
         if (app.roomClosure)
             app.roomClosure.checkServerAdmin()
     }
+    // Short notes for access combinations that are allowed but surprising,
+    // shown under the Access settings and never blocking: Matrix permits
+    // them, and Element warns rather than refuses. `listed` is
+    // directoryPublished (1 listed, 0 not, -1 unknown).
+    function accessNotes(joinRule, history, listed) {
+        var notes = []
+        var open = joinRule === "public"
+        // Every rule but public limits who may join, though not always to
+        // nobody: restricted rooms admit a Space's members, and knock rooms
+        // admit whoever is approved. The note claims only what all share.
+        if (history === "world_readable" && !open)
+            notes.push(qsTr("Anyone can read this room's history without "
+                            + "joining, even though not everyone can join it."))
+        if (listed === 1 && (joinRule === "invite" || joinRule === "private"))
+            notes.push(qsTr("This room is listed in the room directory, but "
+                            + "only invited people can join it."))
+        return notes
+    }
+
     function refreshRoomData() {
         roomData = app.roomInfo.roomId !== ""
                    ? app.roomList.findRoom(app.roomInfo.roomId) : ({})
@@ -578,7 +607,14 @@ Rectangle {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
+                            // Three lines at most, then elided with the whole
+                            // name on hover. Wraps anywhere when it must: an
+                            // unbroken 300-character name wrapped to ~15
+                            // lines and pushed Access and Leave thousands of
+                            // pixels down (break-it s03).
                             Label {
+                                id: roomInfoName
+                                objectName: "roomInfoName"
                                 Layout.fillWidth: true
                                 text: root.roomData.name || qsTr("(unnamed room)")
                                 textFormat: Text.PlainText
@@ -587,7 +623,15 @@ Rectangle {
                                 font.weight: AppTheme.weightStrong
                                 lineHeight: AppTheme.lineHeightBody
                                 lineHeightMode: Text.ProportionalHeight
-                                wrapMode: Text.Wrap
+                                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                maximumLineCount: root.nameMaxLines
+                                elide: Text.ElideRight
+                                Accessible.name: text
+                                HoverHandler { id: roomInfoNameHover }
+                                ToolTip.visible: roomInfoName.truncated
+                                                 && roomInfoNameHover.hovered
+                                ToolTip.delay: 500
+                                ToolTip.text: roomInfoName.text
                             }
                             RowLayout {
                                 visible: root.roomData.encrypted === true
@@ -614,12 +658,46 @@ Rectangle {
                     }
 
                     // Selectable, with its web links clickable (TopicText
-                    // escapes everything else: unsanitized server text).
-                    TopicText {
-                        objectName: "roomInfoTopic"
+                    // escapes everything else: unsanitized server text). A
+                    // long topic is folded to a few lines behind "Show more",
+                    // as Element's room summary does: shown whole, a 6.8k
+                    // topic put everything below it out of reach (break-it
+                    // s03). Clipped, not elided: a TextEdit cannot elide.
+                    Item {
+                        id: topicFold
+                        objectName: "roomInfoTopicFold"
                         Layout.fillWidth: true
                         visible: (root.roomData.topic || "").length > 0
-                        plainText: root.roomData.topic || ""
+                        readonly property real foldedHeight:
+                            topicMetrics.lineSpacing * root.topicFoldedLines
+                        readonly property bool foldable:
+                            roomInfoTopic.implicitHeight > foldedHeight + 1
+                        implicitHeight: foldable && !root.topicExpanded
+                                        ? foldedHeight
+                                        : roomInfoTopic.implicitHeight
+                        clip: true
+                        FontMetrics {
+                            id: topicMetrics
+                            font: roomInfoTopic.font
+                        }
+                        TopicText {
+                            id: roomInfoTopic
+                            objectName: "roomInfoTopic"
+                            width: parent.width
+                            plainText: root.roomData.topic || ""
+                        }
+                    }
+                    AppButton {
+                        objectName: "roomInfoTopicToggle"
+                        visible: topicFold.visible && topicFold.foldable
+                        kind: "ghost"
+                        size: "sm"
+                        text: root.topicExpanded ? qsTr("Show less")
+                                                 : qsTr("Show more")
+                        Accessible.name: root.topicExpanded
+                                         ? qsTr("Show less of the topic")
+                                         : qsTr("Show the whole topic")
+                        onClicked: root.topicExpanded = !root.topicExpanded
                     }
 
                     Label {
@@ -794,6 +872,9 @@ Rectangle {
                             onClicked: avatarDialog.open()
                         }
                         AppButton {
+                            objectName: "roomRemoveAvatarButton"
+                            // Nothing to remove without one (break-it s03).
+                            visible: (root.roomData.avatarUrl || "").length > 0
                             kind: "danger"
                             text: qsTr("Remove avatar")
                             enabled: !app.roomInfo.editPending
@@ -1295,6 +1376,37 @@ Rectangle {
                         }
                     }
 
+                    // Allowed, but rarely what was meant (break-it s03:
+                    // world-readable + invite-only + listed raised nothing).
+                    // Explained, never blocked.
+                    Repeater {
+                        model: root.accessNotes(app.roomInfo.joinRule,
+                                                app.roomInfo.historyVisibility,
+                                                app.roomInfo.directoryPublished)
+                        delegate: RowLayout {
+                            required property string modelData
+                            objectName: "roomAccessNote"
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing6
+                            Icon {
+                                Layout.alignment: Qt.AlignTop
+                                name: "info"
+                                size: 14
+                                color: AppTheme.textMuted
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData
+                                textFormat: Text.PlainText
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+
                     // Room version and upgrade. The Upgrade control appears
                     // only for someone allowed to send m.room.tombstone, and
                     // opens a confirmation.
@@ -1345,6 +1457,9 @@ Rectangle {
                                 objectName: "roomAliasField"
                                 Layout.fillWidth: true
                                 placeholderText: qsTr("#room-name")
+                                readonly property string problem:
+                                    text.trim() === app.roomInfo.canonicalAlias
+                                    ? "" : app.roomInfo.aliasProblem(text)
                                 // An explicit mirror, not a binding to the
                                 // controller: the first keystroke would break
                                 // the binding, and this panel outlives a room
@@ -1377,15 +1492,33 @@ Rectangle {
                                 }
                             }
                             AppButton {
+                                objectName: "roomAliasSaveButton"
                                 kind: "primary"
                                 text: qsTr("Save")
                                 enabled: !app.roomInfo.editPending
                                          && editAlias.text.trim()
                                             !== app.roomInfo.canonicalAlias
+                                         && editAlias.problem.length === 0
                                 onClicked:
                                     app.roomInfo.setCanonicalAlias(
                                         editAlias.text)
                             }
+                        }
+                        // Said while typing, before Save: the server may well
+                        // accept "#bad name:server" and publish it (break-it
+                        // s03). An unchanged address is never flagged, so one
+                        // another client published can still be kept.
+                        Label {
+                            objectName: "roomAliasHint"
+                            visible: editAlias.problem.length > 0
+                            Layout.fillWidth: true
+                            text: editAlias.problem
+                            textFormat: Text.PlainText
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.textMeta
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            wrapMode: Text.WordWrap
                         }
                         // Alternative addresses, written as one list. Removing
                         // one drops it from room state but keeps its directory
@@ -1435,7 +1568,10 @@ Rectangle {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 60
                                 placeholderText: qsTr("#another-name")
-                                onAccepted: addAltAlias.clicked()
+                                readonly property string problem:
+                                    app.roomInfo.aliasProblem(text)
+                                onAccepted: if (addAltAlias.enabled)
+                                                addAltAlias.clicked()
                             }
                             AppButton {
                                 id: addAltAlias
@@ -1444,6 +1580,7 @@ Rectangle {
                                 text: qsTr("Add")
                                 enabled: !app.roomInfo.editPending
                                          && newAltAlias.text.trim().length > 0
+                                         && newAltAlias.problem.length === 0
                                 onClicked: {
                                     var next = app.roomInfo.altAliases.slice()
                                     next.push(newAltAlias.text.trim())
@@ -1451,6 +1588,18 @@ Rectangle {
                                     newAltAlias.text = ""
                                 }
                             }
+                        }
+                        Label {
+                            objectName: "roomAltAliasHint"
+                            visible: newAltAlias.problem.length > 0
+                            Layout.fillWidth: true
+                            text: newAltAlias.problem
+                            textFormat: Text.PlainText
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.textMeta
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            wrapMode: Text.WordWrap
                         }
                         Label {
                             Layout.fillWidth: true
@@ -1475,6 +1624,7 @@ Rectangle {
                     spacing: AppTheme.spacing8
 
                     AppButton {
+                        objectName: "roomInfoLeaveButton"
                         kind: "danger"
                         text: qsTr("Leave room")
                         enabled: !app.roomInfo.leavePending

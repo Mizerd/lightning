@@ -1,6 +1,7 @@
 #include "matrix/RustRoomRegistry.h"
 
 #include "matrix/EventPreview.h"
+#include "matrix/PresentableName.h"
 
 #include <QDateTime>
 #include <QSet>
@@ -29,7 +30,12 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     const QString id = roomIdOf(obj);
     RoomInfo room = previous;
     room.id = id;
-    room.name = obj.value(QStringLiteral("name")).toString(room.name);
+    // Any member with the power to rename the room writes this, so its
+    // direction overrides go here, once, for every surface that shows it (the
+    // list, the header, the composer placeholder, notifications): an RLO in a
+    // name reversed its tail on screen (break-it s03).
+    room.name = matrix::presentable_name::withoutDirectionalControls(
+        obj.value(QStringLiteral("name")).toString(room.name));
     if (room.name.isEmpty()) room.name = room.id;
     room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
     room.canonicalAlias = obj.value(QStringLiteral("canonical_alias")).toString(room.canonicalAlias);
@@ -109,7 +115,8 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.roomType = obj.value(QStringLiteral("room_type")).toString();
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
-    room.inviterDisplayName = obj.value(QStringLiteral("inviter_display_name")).toString();
+    room.inviterDisplayName = matrix::presentable_name::withoutDirectionalControls(
+        obj.value(QStringLiteral("inviter_display_name")).toString());
     // Room upgrades. An absent field keeps what we knew; a present-but-empty
     // one clears it, since Rust computes these from SDK state on every
     // emission. Both are ruma-parsed room ids, never free text.

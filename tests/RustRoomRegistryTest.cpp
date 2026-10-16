@@ -113,6 +113,45 @@ class RustRoomRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // break-it s03: a room named "N<RLO>edirrevo-ltr" showed its tail
+    // reversed in the header, the list and the composer placeholder. The
+    // registry is where every one of those reads the name from, so the
+    // explicit direction controls go here, and only they: an RTL name, its
+    // implicit marks and an emoji ZWJ sequence pass through. Fails on the old
+    // registry, which copied the name verbatim.
+    void aRoomNameLosesItsDirectionOverrides()
+    {
+        const QString rlo = QString(QChar(0x202E));
+        QJsonObject obj;
+        obj.insert(QStringLiteral("id"), QStringLiteral("!r:example.org"));
+        obj.insert(QStringLiteral("name"),
+                   QStringLiteral("N") + rlo + QStringLiteral("edirrevo-ltr"));
+        obj.insert(QStringLiteral("inviter_display_name"),
+                   QString(QChar(0x2067)) + QStringLiteral("Mallory")
+                       + QString(QChar(0x2069)));
+        RoomInfo room = matrix::rust_rooms::roomInfoFromJson(obj, RoomInfo{});
+        QCOMPARE(room.name, QStringLiteral("Nedirrevo-ltr"));
+        QCOMPARE(room.inviterDisplayName, QStringLiteral("Mallory"));
+
+        // Every embedding, override and isolate; nothing else.
+        QString all;
+        for (char16_t u = 0x202A; u <= 0x202E; ++u)
+            all.append(QChar(u));
+        for (char16_t u = 0x2066; u <= 0x2069; ++u)
+            all.append(QChar(u));
+        obj.insert(QStringLiteral("name"), QStringLiteral("a") + all
+                                               + QStringLiteral("b"));
+        room = matrix::rust_rooms::roomInfoFromJson(obj, RoomInfo{});
+        QCOMPARE(room.name, QStringLiteral("ab"));
+
+        const QString hebrew = QString::fromUtf8("\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d")
+            + QString(QChar(0x200F)) + QStringLiteral(" 2026 ")
+            + QString::fromUtf8("\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb");
+        obj.insert(QStringLiteral("name"), hebrew);
+        room = matrix::rust_rooms::roomInfoFromJson(obj, RoomInfo{});
+        QCOMPARE(room.name, hebrew);
+    }
+
     // A call row (m.call.invite / m.rtc.notification, the only kinds that
     // reach C++ as CallEvent; MatrixRTC membership churn is filtered out of
     // every timeline) raises the room but never replaces its preview, whoever

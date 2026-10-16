@@ -465,6 +465,90 @@ private slots:
         closeDialog();
     }
 
+    // break-it s03: "My Room! #x:y" as the address got only "The server
+    // rejected the request as invalid." Validated here now, as the user types,
+    // and refused by the controller before /createRoom. Fails on the old
+    // dialog: there was no hint, Create stayed enabled and the call was sent.
+    void anInvalidAddressIsExplainedAndNeverSent()
+    {
+        openDialog("room");
+        auto *nameField = item("roomNameField");
+        auto *create = item("roomCreateButton");
+        QVERIFY(nameField && create);
+        nameField->setProperty("text", QStringLiteral("My Room"));
+        m_dialog->setProperty("roomIsPublic", true);
+        auto *aliasField = item("roomAliasField");
+        QVERIFY(aliasField);
+        QTRY_VERIFY(aliasField->isVisible());
+        QTRY_VERIFY(create->property("enabled").toBool());
+
+        aliasField->setProperty("text", QStringLiteral("My Room! #x:y"));
+        auto *hint = item("roomAliasHint");
+        QVERIFY2(hint, "no inline hint for the address");
+        QTRY_VERIFY(hint->isVisible());
+        QVERIFY2(hint->property("text").toString()
+                     .contains(QStringLiteral("spaces")),
+                 qPrintable(hint->property("text").toString()));
+        QVERIFY(!create->property("enabled").toBool());
+
+        // The controller refuses it too, whoever calls it.
+        const int before = m_fake->createRoomCalls;
+        conversations()->createRoom({ { QStringLiteral("name"), QStringLiteral("x") },
+                                      { QStringLiteral("public"), true },
+                                      { QStringLiteral("alias"),
+                                        QStringLiteral("a:b") } });
+        QCOMPARE(m_fake->createRoomCalls, before);
+        QVERIFY(!conversations()->errorMessage().isEmpty());
+        QVERIFY(!conversations()->errorMessage().contains(
+            QStringLiteral("rejected the request")));
+
+        // Fixed: the hint goes, Create comes back, and the localpart is sent
+        // without the '#' a user types out of habit.
+        aliasField->setProperty("text", QStringLiteral("#my-room"));
+        QTRY_VERIFY(!hint->isVisible());
+        QTRY_VERIFY(create->property("enabled").toBool());
+        QMetaObject::invokeMethod(create, "click");
+        QCOMPARE(m_fake->createRoomCalls, before + 1);
+        QCOMPARE(m_fake->lastRoomOptions.value(QStringLiteral("alias")).toString(),
+                 QStringLiteral("my-room"));
+        Q_EMIT m_fake->roomCreateFinished(m_fake->lastOpId, false, QString(),
+                                          QStringLiteral("network"), QString());
+        QTRY_VERIFY(!conversations()->busy());
+        closeDialog();
+    }
+
+    // break-it s03: after a failed create the banner stayed up while the user
+    // corrected the address, reading as if the fix had failed too. An edit to
+    // the form drops it. Fails on the old dialog, where only the next submit
+    // replaced it.
+    void editingTheFormClearsAStaleErrorBanner()
+    {
+        openDialog("room");
+        auto *nameField = item("roomNameField");
+        auto *create = item("roomCreateButton");
+        QVERIFY(nameField && create);
+        nameField->setProperty("text", QStringLiteral("My Room"));
+        m_dialog->setProperty("roomIsPublic", true);
+        auto *aliasField = item("roomAliasField");
+        QVERIFY(aliasField);
+        aliasField->setProperty("text", QStringLiteral("taken"));
+        QTRY_VERIFY(create->property("enabled").toBool());
+        QMetaObject::invokeMethod(create, "click");
+        Q_EMIT m_fake->roomCreateFinished(m_fake->lastOpId, false, QString(),
+                                          QStringLiteral("alias_taken"),
+                                          QString());
+        QTRY_VERIFY(!conversations()->busy());
+        auto *banner = item("creationErrorBanner");
+        QVERIFY(banner);
+        QTRY_VERIFY(banner->isVisible());
+
+        aliasField->setProperty("text", QStringLiteral("taken-2"));
+        QTRY_VERIFY2(!banner->isVisible(),
+                     "the banner still reports the previous address");
+        QVERIFY(conversations()->errorMessage().isEmpty());
+        closeDialog();
+    }
+
     // (e)+(f) Down/Down/Return selects the second result; with an existing DM
     // the reuse row renders before "start anyway", and the primary start
     // button is hidden.

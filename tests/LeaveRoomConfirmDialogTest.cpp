@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
 
@@ -118,6 +119,60 @@ private slots:
                  qPrintable(t));
         QVERIFY(!t.contains(QStringLiteral("only member")));
         QVERIFY(bodyFor(-1, QString()).contains(QStringLiteral("invited again")));
+    }
+
+    // break-it s03: a public room said "you can be invited again later",
+    // when anyone can simply join it again. Fails on the old dialog, which
+    // gave every rule but invite/knock/private the re-invite text.
+    void aPublicRoomSaysItCanBeJoinedAgain()
+    {
+        const QString t = bodyFor(5, QStringLiteral("public"));
+        QVERIFY2(t.contains(QStringLiteral("join it again at any time")),
+                 qPrintable(t));
+        QVERIFY2(!t.contains(QStringLiteral("invited again")), qPrintable(t));
+        // Not over-applied: restricted and unknown rules keep the neutral
+        // text, invite-only keeps its own.
+        QVERIFY(!bodyFor(5, QStringLiteral("restricted"))
+                     .contains(QStringLiteral("join it again")));
+        QVERIFY(!bodyFor(5, QString()).contains(QStringLiteral("join it again")));
+        QVERIFY(bodyFor(5, QStringLiteral("invite"))
+                    .contains(QStringLiteral("new invitation")));
+    }
+
+    // break-it s03: a 300-character unbroken name did not wrap (WordWrap
+    // cannot break one "word") and ran past the dialog and the window. Fails
+    // on the old dialog: the body's content was wider than the body, and the
+    // whole name was quoted.
+    void aLongUnbrokenNameStaysInsideTheDialog()
+    {
+        const QString name(300, QLatin1Char('N'));
+        QMetaObject::invokeMethod(m_dlg, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("!r:x")),
+                                  Q_ARG(QVariant, name),
+                                  Q_ARG(QVariant, QVariant(5)),
+                                  Q_ARG(QVariant, QStringLiteral("public")),
+                                  Q_ARG(QVariant, QVariant(0)));
+        QTRY_VERIFY(m_dlg->property("opened").toBool());
+        auto *body = m_dlg->findChild<QQuickItem *>(
+            QStringLiteral("leaveRoomConfirmBody"));
+        QVERIFY(body);
+        QCoreApplication::processEvents();
+        const qreal contentWidth = body->property("contentWidth").toReal();
+        QVERIFY2(contentWidth <= body->width() + 0.5,
+                 qPrintable(QStringLiteral("body content %1 px in a %2 px body")
+                                .arg(contentWidth).arg(body->width())));
+        auto *window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(window);
+        const QPointF right = body->mapToScene(
+            QPointF(body->width(), body->height()));
+        QVERIFY2(right.x() <= window->width() && right.y() <= window->height(),
+                 "the body runs past the window");
+        // The room is identified, not reproduced.
+        const QString text = m_dlg->property("bodyText").toString();
+        QVERIFY2(!text.contains(name), "the whole 300-character name is quoted");
+        QVERIFY(text.contains(QString(80, QLatin1Char('N')) + QChar(0x2026)));
+        QMetaObject::invokeMethod(m_dlg, "close");
+        QTRY_VERIFY(!m_dlg->property("visible").toBool());
     }
 
     void confirmEmitsTheRoomIdAfterClosing()

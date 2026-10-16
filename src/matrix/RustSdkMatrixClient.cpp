@@ -7512,7 +7512,9 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
         present.insert(id);
         RoomInfo room = m_rooms.value(id);
         room.id = id; room.isSpace = true; room.membership = RoomInfo::Joined;
-        room.name = object.value(QStringLiteral("name")).toString(room.name);
+        // As for a room (RustRoomRegistry): no direction overrides in a name.
+        room.name = matrix::presentable_name::withoutDirectionalControls(
+            object.value(QStringLiteral("name")).toString(room.name));
         room.avatarUrl = object.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
         // Direct children in the Space's m.space.child order, never the
         // transitive `descendants`, matching the mock and HTTP backends;

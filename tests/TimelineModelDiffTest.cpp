@@ -210,6 +210,10 @@ private Q_SLOTS:
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
+    // break-it s03: a display name with an RLO reversed its own tail.
+    void aSenderNameLosesItsDirectionOverridesFromEverySource();
+    // ...and the reply quote, the typing line and mention pills built from it.
+    void theQuoteTypingLineAndPillsLoseDirectionOverridesToo();
     void aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints();
     void theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt();
     void theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptOnTheirNewRow();
@@ -968,6 +972,110 @@ void TimelineModelDiffTest::reactorsUseSeenNamesAndResolveProfilesWithRepaint()
     QCOMPARE(names(1).first(), QStringLiteral("Room Name"));
     QCOMPARE(m_client->profileFetches, QStringList{ unknown });
     m_model->setProfileResolver(nullptr);
+}
+
+// A member-chosen name is room state any member writes; an RLO in it reversed
+// the tail of the sender header and of every sentence built from it (break-it
+// s03, reported for a room name; display names carry the same characters).
+// Whichever source answers, the event, the member cache or a name seen on
+// another row, the explicit direction controls go. Fails on the old model,
+// which returned each source verbatim.
+void TimelineModelDiffTest::aSenderNameLosesItsDirectionOverridesFromEverySource()
+{
+    const QString rlo = QString(QChar(0x202E));
+    const QString mallory = QStringLiteral("@mallory:example.org");
+    TimelineEvent carried = makeEvent(QStringLiteral("$bidi-carried"),
+                                      QStringLiteral("hi"));
+    carried.sender = mallory;
+    carried.senderDisplayName = QStringLiteral("Mal") + rlo
+                                + QStringLiteral("gpj.exe");
+    m_client->mirror.append(carried);
+    Q_EMIT m_client->eventAppended(kRoom, carried);
+    QCOMPARE(m_model->data(m_model->index(2),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Malgpj.exe"));
+
+    // No name on the event: the member cache answers, cleaned the same way.
+    const QString eve = QStringLiteral("@eve:example.org");
+    m_client->displayNames.insert(eve, QString(QChar(0x2067))
+                                           + QStringLiteral("Eve")
+                                           + QString(QChar(0x2069)));
+    TimelineEvent bare = makeEvent(QStringLiteral("$bidi-bare"),
+                                   QStringLiteral("yo"));
+    bare.sender = eve;
+    m_client->mirror.append(bare);
+    Q_EMIT m_client->eventAppended(kRoom, bare);
+    QCOMPARE(m_model->data(m_model->index(3),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Eve"));
+}
+
+// The same hostile name reaches the reader through three more paths: the
+// reply quote (both backend shapes), the typing line, where an RLO reversed
+// " is typing…" itself, and a mention pill. A name made of nothing but
+// direction controls falls through to the localpart instead of drawing blank.
+// Fails on the old model, which returned all of these verbatim.
+void TimelineModelDiffTest::theQuoteTypingLineAndPillsLoseDirectionOverridesToo()
+{
+    const QString rlo = QString(QChar(0x202E));
+    const QString mallory = QStringLiteral("@mallory:example.org");
+    const QString hostile = QStringLiteral("Mal") + rlo
+                            + QStringLiteral("gpj.exe");
+    const QString ghost = QStringLiteral("@ghost:example.org");
+    m_client->displayNames.insert(mallory, hostile);
+    m_client->displayNames.insert(ghost, rlo + QString(QChar(0x2066)));
+
+    // Current backend: the SDK's name for the quoted sender, carried.
+    TimelineEvent carried = makeEvent(QStringLiteral("$q-carried"),
+                                      QStringLiteral("re"));
+    carried.replyToSenderId = mallory;
+    carried.replyToSender = hostile;
+    // Current backend, no carried name: the member lookup answers.
+    TimelineEvent looked = makeEvent(QStringLiteral("$q-looked"),
+                                     QStringLiteral("re"));
+    looked.replyToSenderId = mallory;
+    // Older backends: the MXID in replyToSender, resolved by lookup.
+    TimelineEvent legacy = makeEvent(QStringLiteral("$q-legacy"),
+                                     QStringLiteral("re"));
+    legacy.replyToSender = mallory;
+    // Nothing but controls, carried and looked up: the localpart.
+    TimelineEvent blank = makeEvent(QStringLiteral("$q-blank"),
+                                    QStringLiteral("re"));
+    blank.replyToSenderId = ghost;
+    blank.replyToSender = rlo;
+    blank.sender = ghost;
+    blank.senderDisplayName = rlo;
+    TimelineEvent pill = makeEvent(QStringLiteral("$q-pill"),
+                                   QStringLiteral("hi m"));
+    pill.formattedBody = QStringLiteral(
+        "<a href=\"https://matrix.to/#/@mallory:example.org\">@m</a> hi");
+    m_client->mirror = { carried, looked, legacy, blank, pill };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 5);
+
+    const QString clean = QStringLiteral("Malgpj.exe");
+    for (int row = 0; row < 3; ++row) {
+        QCOMPARE(m_model->data(m_model->index(row),
+                               TimelineModel::ReplyToSenderRole).toString(),
+                 clean);
+    }
+    QCOMPARE(m_model->data(m_model->index(3),
+                           TimelineModel::ReplyToSenderRole).toString(),
+             QStringLiteral("ghost"));
+    QCOMPARE(m_model->data(m_model->index(3),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("ghost"));
+    QCOMPARE(m_model->data(m_model->index(4),
+                           TimelineModel::FormattedBodyRole).toString(),
+             QStringLiteral("<a href=\"mention:@mallory:example.org\">@")
+                 + clean + QStringLiteral("</a> hi"));
+
+    m_client->typingUsers = { mallory };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(), clean + QStringLiteral(" is typing…"));
+    m_client->typingUsers = { ghost };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(), QStringLiteral("ghost is typing…"));
 }
 
 // Reported: the sender header read "Grok AI" while the receipt list named the

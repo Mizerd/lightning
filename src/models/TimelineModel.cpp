@@ -2,6 +2,7 @@
 
 #include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
 #include "models/MessageHtml.h"
 #include "models/UserLookup.h"
 #include "profile/UserProfileResolver.h"
@@ -23,6 +24,18 @@ constexpr qint64 kSenderGroupThresholdSeconds = 5 * 60;
 inline QString memberLookupRoomId(const QString &id)
 {
     return MatrixClient::threadTimelineRoomId(id);
+}
+
+// A member-chosen name as this model shows it: its explicit direction
+// overrides removed (PresentableName.h), and empty when what is left is
+// nothing or the raw id, which backends hand back for "unresolved" — so a name
+// made only of direction controls falls through to the next source instead of
+// drawing blank. Stripped BEFORE the test, never after (break-it s03).
+inline QString shownName(const QString &raw, const QString &userId)
+{
+    const QString name =
+        matrix::presentable_name::withoutDirectionalControls(raw);
+    return name == userId ? QString() : name;
 }
 }
 
@@ -104,18 +117,27 @@ QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
     // stamps displayNameFor(), which returns the raw id while the room's
     // members are still hydrating, and the header showed "@bk074:server"
     // until they landed (break-it B141).
-    if (!event.senderDisplayName.isEmpty()
-        && event.senderDisplayName != event.sender)
-        return event.senderDisplayName;
+    //
+    // Whichever source answers, its direction overrides go (shownName): a
+    // member-chosen name is room state anyone can write, and an RLO in it
+    // reversed the name's own tail and, in a sentence built from it, the rest
+    // of the sentence (break-it s03; PresentableName.h). The reply quote, the
+    // typing line and mention pills take the same treatment below.
+    const QString carried = shownName(event.senderDisplayName, event.sender);
+    if (!carried.isEmpty())
+        return carried;
     if (m_client) {
-        const QString display = m_client->displayNameFor(
-            memberLookupRoomId(event.roomId), event.sender);
         // Backends return the raw user id when nothing is known: unresolved,
         // not a display name.
-        if (!display.isEmpty() && display != event.sender)
+        const QString display = shownName(
+            m_client->displayNameFor(memberLookupRoomId(event.roomId),
+                                     event.sender),
+            event.sender);
+        if (!display.isEmpty())
             return display;
     }
-    const QString seen = m_senderNameIndex.value(event.sender);
+    const QString seen = shownName(m_senderNameIndex.value(event.sender),
+                                   event.sender);
     if (!seen.isEmpty())
         return seen;
     // Never asked from here: a flood of senders in a freshly opened room would
@@ -123,8 +145,9 @@ QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
     // profile someone else asked for repaints the row (setProfileResolver).
     if (m_profiles) {
         const UserProfileResolver::Profile p = m_profiles->profile(event.sender);
-        if (p.known && !p.displayName.isEmpty())
-            return p.displayName;
+        const QString profiled = shownName(p.displayName, event.sender);
+        if (p.known && !profiled.isEmpty())
+            return profiled;
     }
     return matrix::user_lookup::localpartOrUserId(event.sender);
 }
@@ -388,16 +411,18 @@ QString TimelineModel::mentionNameFor(const QString &userId, bool ask) const
 {
     // m_realRoomId, never m_roomId: a lookup against a thread's composite id
     // always misses.
-    QString name = m_client ? m_client->displayNameFor(m_realRoomId, userId)
-                            : QString();
     // Backends return the raw user id when nothing is known: unresolved, not a
-    // display name.
-    if (name == userId)
-        name.clear();
+    // display name. Direction overrides go, as in senderDisplayName(); the
+    // sanitizer escapes the name, which does not neutralise an RLO.
+    QString name = m_client
+                       ? shownName(m_client->displayNameFor(m_realRoomId, userId),
+                                   userId)
+                       : QString();
     if (name.isEmpty() && m_profiles) {
         const UserProfileResolver::Profile p = m_profiles->profile(userId);
-        if (p.known && !p.displayName.isEmpty())
-            name = p.displayName;
+        const QString profiled = shownName(p.displayName, userId);
+        if (p.known && !profiled.isEmpty())
+            name = profiled;
         else if (ask && !p.known)
             m_profiles->request(userId);
     }
@@ -539,10 +564,12 @@ QString TimelineModel::memberDisplayName(const QString &roomId,
     if (userId.isEmpty())
         return {};
     if (m_client) {
-        const QString resolved = m_client->displayNameFor(roomId, userId);
         // Backends return the raw user id when nothing is known: unresolved,
-        // not a display name.
-        if (!resolved.isEmpty() && resolved != userId)
+        // not a display name. Direction overrides go, as in
+        // senderDisplayName().
+        const QString resolved =
+            shownName(m_client->displayNameFor(roomId, userId), userId);
+        if (!resolved.isEmpty())
             return resolved;
     }
     return matrix::user_lookup::localpartOrUserId(userId);
@@ -554,21 +581,24 @@ QString TimelineModel::readerDisplayName(const QString &roomId,
     if (userId.isEmpty())
         return {};
     if (m_client) {
-        const QString resolved = m_client->displayNameFor(roomId, userId);
         // The raw user id back means unresolved, not a display name.
-        if (!resolved.isEmpty() && resolved != userId)
+        // Direction overrides go, as in senderDisplayName().
+        const QString resolved =
+            shownName(m_client->displayNameFor(roomId, userId), userId);
+        if (!resolved.isEmpty())
             return resolved;
     }
     // The member cache fills only from a roster fetch, which is capped and can
     // fail; the SDK still named this reader on their own messages, and that is
     // the name the sender header shows.
-    const QString seen = m_senderNameIndex.value(userId);
+    const QString seen = shownName(m_senderNameIndex.value(userId), userId);
     if (!seen.isEmpty())
         return seen;
     if (m_profiles) {
         const UserProfileResolver::Profile p = m_profiles->profile(userId);
-        if (p.known && !p.displayName.isEmpty())
-            return p.displayName;
+        const QString profiled = shownName(p.displayName, userId);
+        if (p.known && !profiled.isEmpty())
+            return profiled;
         // Once per user per session, in memory; the answer repaints the chip
         // through refreshReceiptReader().
         if (!p.known)
@@ -1442,8 +1472,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         const QList<MessageHtml::Segment> parsed = MessageHtml::segments(
             e.formattedBody,
             [client, roomId](const QString &userId) {
-                return client ? client->displayNameFor(roomId, userId)
-                              : QString();
+                return client
+                           ? shownName(client->displayNameFor(roomId, userId),
+                                       userId)
+                           : QString();
             },
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
@@ -1488,14 +1520,19 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         // The Rust backend already resolved the name from the embedded event's
         // profile and sends the MXID separately. Prefer that: the member lookup
         // only knows people this client has seen in the room.
+        // Direction overrides go from either source, as in
+        // senderDisplayName(): the quote is the same member-chosen name.
         if (!e.replyToSenderId.isEmpty()) {
-            if (!e.replyToSender.isEmpty()
-                && e.replyToSender != e.replyToSenderId)
-                return e.replyToSender;
+            const QString carried =
+                shownName(e.replyToSender, e.replyToSenderId);
+            if (!carried.isEmpty())
+                return carried;
             if (m_client) {
-                const QString display = m_client->displayNameFor(
-                    memberLookupRoomId(e.roomId), e.replyToSenderId);
-                if (!display.isEmpty() && display != e.replyToSenderId)
+                const QString display = shownName(
+                    m_client->displayNameFor(memberLookupRoomId(e.roomId),
+                                             e.replyToSenderId),
+                    e.replyToSenderId);
+                if (!display.isEmpty())
                     return display;
             }
             return matrix::user_lookup::localpartOrUserId(e.replyToSenderId);
@@ -1504,11 +1541,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (e.replyToSender.isEmpty())
             return QString();
         if (m_client) {
-            const QString display = m_client->displayNameFor(
-                memberLookupRoomId(e.roomId), e.replyToSender);
             // Backends return the raw user id when nothing is known:
             // unresolved, not a display name.
-            if (!display.isEmpty() && display != e.replyToSender)
+            const QString display = shownName(
+                m_client->displayNameFor(memberLookupRoomId(e.roomId),
+                                         e.replyToSender),
+                e.replyToSender);
+            if (!display.isEmpty())
                 return display;
         }
         return matrix::user_lookup::localpartOrUserId(e.replyToSender);
@@ -1620,14 +1659,19 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     // Same resolution as senderDisplayName(): embedded SDK name, member lookup,
     // then the localpart.
     case ThreadLatestSenderDisplayNameRole: {
-        if (!e.threadLatestSenderDisplayName.isEmpty())
-            return e.threadLatestSenderDisplayName;
+        // Direction overrides go, as in senderDisplayName().
+        const QString carried = shownName(e.threadLatestSenderDisplayName,
+                                          e.threadLatestSender);
+        if (!carried.isEmpty())
+            return carried;
         if (e.threadLatestSender.isEmpty())
             return QString();
         if (m_client) {
-            const QString display = m_client->displayNameFor(
-                memberLookupRoomId(e.roomId), e.threadLatestSender);
-            if (!display.isEmpty() && display != e.threadLatestSender)
+            const QString display = shownName(
+                m_client->displayNameFor(memberLookupRoomId(e.roomId),
+                                         e.threadLatestSender),
+                e.threadLatestSender);
+            if (!display.isEmpty())
                 return display;
         }
         return matrix::user_lookup::localpartOrUserId(e.threadLatestSender);
@@ -2494,7 +2538,15 @@ void TimelineModel::refreshTypingText()
         QStringList names;
         for (const auto &u : users) {
             if (u == m_selfUserId) continue;
-            names.append(m_client->displayNameFor(m_realRoomId, u));
+            // Direction overrides go, as in senderDisplayName(): an RLO in a
+            // name reversed " is typing…" itself. A raw id back stays as it
+            // was; a name that strips to nothing takes the localpart.
+            const QString raw = m_client->displayNameFor(m_realRoomId, u);
+            QString name =
+                matrix::presentable_name::withoutDirectionalControls(raw);
+            if (name.isEmpty())
+                name = matrix::user_lookup::localpartOrUserId(u);
+            names.append(name);
             if (names.size() >= 2) break;
         }
         if (users.size() == 1 && names.size() == 1)
@@ -2715,7 +2767,9 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
     return MessageHtml::sanitize(
         event->formattedBody,
         [client, roomId](const QString &userId) {
-            return client ? client->displayNameFor(roomId, userId) : QString();
+            return client ? shownName(client->displayNameFor(roomId, userId),
+                                      userId)
+                          : QString();
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
@@ -3029,7 +3083,9 @@ QString TimelineModel::sanitizeHtml(const QString &html) const
     return MessageHtml::sanitize(
         html,
         [client, roomId](const QString &userId) {
-            return client ? client->displayNameFor(roomId, userId) : QString();
+            return client ? shownName(client->displayNameFor(roomId, userId),
+                                      userId)
+                          : QString();
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,

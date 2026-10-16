@@ -68,7 +68,13 @@ public:
     // options: name, topic, public, encrypted, alias, invites, spaceId and an
     // optional avatarPath (path or file:// URL). The avatar is applied after
     // creation; a failed upload emits avatarUploadFailed and never fails it.
+    // The alias is the LOCALPART (one leading '#' is tolerated); one this
+    // client would not accept (matrix/RoomAliasRules.h) is refused into
+    // errorMessage before anything is sent.
     Q_INVOKABLE void createRoom(const QVariantMap &options);
+    // Why the typed address localpart would be refused, as a sentence; empty
+    // when it is acceptable or empty. The dialog shows it as the user types.
+    Q_INVOKABLE QString aliasLocalpartProblem(const QString &typed) const;
 
     Q_INVOKABLE void inviteUsers(const QString &roomId, const QStringList &userIds);
 

@@ -39,6 +39,25 @@ Dialog {
                                         && (joinRule === "invite"
                                             || joinRule === "private")
 
+    // The name as quoted in the body: at most 80 characters, then an ellipsis.
+    // An unbroken 300-character name ran past the dialog and the window
+    // (break-it s03); the room is identified, not reproduced.
+    readonly property int nameLimit: 80
+    readonly property string shownRoomName: {
+        var name = pendingRoomName
+        if (name.length <= nameLimit)
+            return name
+        var cut = nameLimit
+        // Never split a surrogate pair.
+        var code = name.charCodeAt(cut - 1)
+        if (code >= 0xD800 && code <= 0xDBFF)
+            cut -= 1
+        return name.slice(0, cut) + "\u2026"
+    }
+    // Anyone can walk back into a public room; promising a re-invite there
+    // undersold it (break-it s03).
+    readonly property bool openToAnyone: joinRule === "public"
+
     function openFor(roomId, name, members, rule, invited) {
         pendingRoomId = roomId || ""
         pendingRoomName = name || ""
@@ -52,12 +71,13 @@ Dialog {
 
     readonly property string bodyText: {
         var named = pendingRoomName.length > 0
+        var shown = shownRoomName
         if (unreachable)
             return named
                 ? qsTr("You are the only member of \"%1\". If you leave, the "
                        + "room will be empty and cannot be rejoined, because "
                        + "nobody can invite you back.")
-                      .arg(pendingRoomName)
+                      .arg(shown)
                 : qsTr("You are the only member of this room. If you leave, "
                        + "the room will be empty and cannot be rejoined, "
                        + "because nobody can invite you back.")
@@ -66,15 +86,23 @@ Dialog {
                 ? qsTr("You will stop receiving messages from \"%1\". Server "
                        + "history is not deleted, but this room is "
                        + "invite-only: you will need a new invitation to come "
-                       + "back.").arg(pendingRoomName)
+                       + "back.").arg(shown)
                 : qsTr("You will stop receiving messages from this room. "
                        + "Server history is not deleted, but this room is "
                        + "invite-only: you will need a new invitation to come "
                        + "back.")
+        if (openToAnyone)
+            return named
+                ? qsTr("You will stop receiving messages from \"%1\". Server "
+                       + "history is not deleted, and this room is public: "
+                       + "you can join it again at any time.").arg(shown)
+                : qsTr("You will stop receiving messages from this room. "
+                       + "Server history is not deleted, and this room is "
+                       + "public: you can join it again at any time.")
         return named
             ? qsTr("You will stop receiving messages from \"%1\". Server "
                    + "history is not deleted, and you can be invited again "
-                   + "later.").arg(pendingRoomName)
+                   + "later.").arg(shown)
             : qsTr("You will stop receiving messages from this room. Server "
                    + "history is not deleted, and you can be invited again "
                    + "later.")
@@ -122,7 +150,9 @@ Dialog {
             text: root.bodyText
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
-            wrapMode: Text.WordWrap
+            // Anywhere when a word cannot fit: a long unbroken name is one
+            // "word", and WordWrap let it run past the dialog.
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             color: AppTheme.stormText
         }
         RowLayout {

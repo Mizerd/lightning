@@ -327,8 +327,14 @@ public:
     int directoryPublished() const { return m_directoryPublished; }
     QVariantList joinedSpaces() const;
     // An empty alias clears the canonical alias. A bare localpart is
-    // completed with the account's own server.
+    // completed with the account's own server. An address this client would
+    // not accept (matrix/RoomAliasRules.h) is refused into editError and
+    // never sent.
     Q_INVOKABLE void setCanonicalAlias(const QString &alias);
+    // Why `alias` (as typed: bare localpart or full address) would be
+    // refused, as a sentence; empty when it is acceptable or empty. Lets the
+    // panel say so while the user types, before Save.
+    Q_INVOKABLE QString aliasProblem(const QString &alias) const;
 
     // ---- the m.room.power_levels matrix ----
     //

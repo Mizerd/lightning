@@ -5,6 +5,8 @@
 Q_LOGGING_CATEGORY(lcRoomInfo, "lightning.roominfo")
 
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
+#include "matrix/RoomAliasRules.h"
 
 #include <QHash>
 #include <QUrl>
@@ -260,6 +262,18 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         return;
     }
     m_members = snapshot.value(QStringLiteral("members")).toList();
+    // Member-chosen names, shown one per row and quoted in the profile card:
+    // no direction overrides (PresentableName.h, break-it s03).
+    for (QVariant &value : m_members) {
+        QVariantMap row = value.toMap();
+        const QString name = row.value(QStringLiteral("displayName")).toString();
+        const QString shown =
+            matrix::presentable_name::withoutDirectionalControls(name);
+        if (shown.size() != name.size()) {
+            row.insert(QStringLiteral("displayName"), shown);
+            value = row;
+        }
+    }
     // Counts and the truncation flag are whole-roster facts a cache-only
     // snapshot cannot know, so keep the previous values while loading. Rows
     // and permissions still render immediately.
@@ -896,7 +910,23 @@ QString RoomInfoController::completeAlias(const QString &alias,
         }
         value += own.mid(colon);
     }
+    // Refused here, before anything is sent: the server may well accept
+    // "#bad name:server" (break-it s03), and then it is published.
+    const QString problem = matrix::room_alias::describe(
+        matrix::room_alias::aliasProblem(value));
+    if (!problem.isEmpty()) {
+        if (error)
+            *error = problem;
+        return QString();
+    }
     return value;
+}
+
+QString RoomInfoController::aliasProblem(const QString &alias) const
+{
+    QString error;
+    completeAlias(alias, &error);
+    return error;
 }
 
 void RoomInfoController::setAltAliases(const QStringList &aliases)
@@ -907,6 +937,14 @@ void RoomInfoController::setAltAliases(const QStringList &aliases)
         return;
     QStringList completed;
     for (const QString &alias : aliases) {
+        // An address the room already lists passes as it is: one another
+        // client published under looser rules must not block removing a
+        // different entry from the same list.
+        if (m_altAliases.contains(alias)) {
+            if (!completed.contains(alias) && alias != m_canonicalAlias)
+                completed.append(alias);
+            continue;
+        }
         QString error;
         const QString value = completeAlias(alias, &error);
         if (!error.isEmpty()) {
@@ -1143,7 +1181,9 @@ QVariantMap RoomInfoController::memberFor(const QString &userId,
     const QString avatar = m_client->avatarMxcFor(roomId, userId);
     // Both return the user id itself when they know nothing; that is not a
     // display name.
-    const QString resolved = name == userId ? QString() : name;
+    const QString resolved = name == userId
+        ? QString()
+        : matrix::presentable_name::withoutDirectionalControls(name);
     if (resolved.isEmpty() && avatar.isEmpty())
         return {};
     // No membership or power level: this source does not know them, and an

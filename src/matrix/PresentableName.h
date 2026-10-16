@@ -87,6 +87,46 @@ inline QString withoutFormatCharacters(const QString &fileName)
     return out;
 }
 
+// A remote ROOM name (or a display name shown in a row of its own: a sender
+// header, a member row, an inviter) with the EXPLICIT directional formatting
+// characters removed: the embeddings and overrides LRE, RLE, PDF, LRO, RLO
+// (U+202A-202E) and the isolates LRI, RLI, FSI, PDI (U+2066-2069). Nothing
+// else is touched, so emoji sequences, ZWNJ shaping and the implicit marks
+// (LRM, RLM, ALM) that a correctly written mixed-script name needs survive.
+//
+// Stripped, not isolated: wrapping the name in FSI..PDI keeps an override from
+// leaking OUT into the sentence around it, but an RLO inside the isolate still
+// reverses the name's own tail ("Room<RLO>edirrevo-ltr" still reads
+// "Roomrtl-overide"), which is the spoof (break-it s03). matrix-js-sdk drops
+// direction overrides from names for the same reason. Returns the input
+// itself when it has none of them: this runs for every room row on every
+// room-list update.
+inline QString withoutDirectionalControls(const QString &text)
+{
+    const auto directional = [](char16_t u) {
+        return (u >= 0x202A && u <= 0x202E) || (u >= 0x2066 && u <= 0x2069);
+    };
+    // All nine are in the BMP and none is a surrogate, so a UTF-16 walk is
+    // exact.
+    qsizetype first = -1;
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        if (directional(text.at(i).unicode())) {
+            first = i;
+            break;
+        }
+    }
+    if (first < 0)
+        return text;
+    QString out = text.left(first);
+    out.reserve(text.size());
+    for (qsizetype i = first + 1; i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (!directional(c.unicode()))
+            out.append(c);
+    }
+    return out;
+}
+
 // The localpart of a user id, as the app shows an unnamed user.
 inline QString localpart(const QString &userId)
 {

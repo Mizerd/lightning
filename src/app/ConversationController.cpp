@@ -1,6 +1,7 @@
 #include "app/ConversationController.h"
 
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomAliasRules.h"
 #include "models/UserSearchModel.h"
 
 #include <QLoggingCategory>
@@ -278,6 +279,18 @@ void ConversationController::cancelTargetCheck()
     m_targetCheckTimeout.stop();
 }
 
+namespace {
+// The localpart as /createRoom wants it: trimmed, and without the '#' a user
+// types out of habit.
+QString aliasLocalpart(const QString &typed)
+{
+    QString value = typed.trimmed();
+    if (value.startsWith(QLatin1Char('#')))
+        value.remove(0, 1);
+    return value;
+}
+} // namespace
+
 void ConversationController::createRoom(const QVariantMap &options)
 {
     if (!m_client || busy())
@@ -286,9 +299,22 @@ void ConversationController::createRoom(const QVariantMap &options)
         setError(tr("The room needs a name."));
         return;
     }
+    const QString typedAlias =
+        options.value(QStringLiteral("alias")).toString();
+    const QString aliasProblem = aliasLocalpartProblem(typedAlias);
+    if (!aliasProblem.isEmpty()) {
+        // Said here, in words about the address, instead of the server's
+        // M_INVALID_PARAM coming back as "rejected the request as invalid"
+        // (break-it s03).
+        setError(aliasProblem);
+        return;
+    }
     clearError();
     // The avatar is applied after creation through the room-edit path.
     QVariantMap createOptions = options;
+    if (!typedAlias.isEmpty())
+        createOptions.insert(QStringLiteral("alias"),
+                             aliasLocalpart(typedAlias));
     const QString rawAvatar =
         createOptions.take(QStringLiteral("avatarPath")).toString();
     const quint64 opId = m_client->createRoom(createOptions);
@@ -303,6 +329,17 @@ void ConversationController::createRoom(const QVariantMap &options)
     m_pendingOp = opId;
     m_opTimeout.start();
     Q_EMIT busyChanged();
+}
+
+QString ConversationController::aliasLocalpartProblem(const QString &typed) const
+{
+    if (typed.trimmed().isEmpty())
+        return QString();
+    const QString own = m_client ? m_client->currentUserId() : QString();
+    const qsizetype colon = own.indexOf(QLatin1Char(':'));
+    const QString server = colon >= 0 ? own.mid(colon + 1) : QString();
+    return matrix::room_alias::describe(
+        matrix::room_alias::localpartProblem(aliasLocalpart(typed), server));
 }
 
 void ConversationController::inviteUsers(const QString &roomId,
