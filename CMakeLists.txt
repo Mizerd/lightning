@@ -492,6 +492,18 @@ set(APP_SOURCES
     src/app/AppController.h
     src/app/NotificationNotices.h
     src/app/AppController.cpp
+    src/app/SwitchTrace.h
+    src/app/SwitchTrace.cpp
+    src/notifications/NotificationContextBuilder.h
+    src/notifications/NotificationContextBuilder.cpp
+    src/accounts/FileIdentity.h
+    src/accounts/FileIdentity.cpp
+    src/accounts/StoreOwnershipRegistry.h
+    src/accounts/StoreOwnershipRegistry.cpp
+    src/accounts/RevocationProofs.h
+    src/accounts/RevocationProofs.cpp
+    src/accounts/SessionTokenCustody.h
+    src/accounts/SessionTokenCustody.cpp
     src/app/ConversationController.h
     src/app/ConversationController.cpp
     src/app/CustomAppIcon.h
@@ -1747,6 +1759,71 @@ if(BUILD_TESTING)
     target_include_directories(rust-session-lifecycle-test PRIVATE src)
     target_link_libraries(rust-session-lifecycle-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME rust-session-lifecycle COMMAND rust-session-lifecycle-test)
+
+    # Live accounts Phase 0 (record-only and behaviour-identical factorings):
+    # store ownership keyed by file identity, the revocation classification,
+    # and token custody, each with a parity test against today's rules.
+    qt_add_executable(store-ownership-registry-test
+        tests/StoreOwnershipRegistryTest.cpp
+        src/accounts/StoreOwnershipRegistry.h
+        src/accounts/StoreOwnershipRegistry.cpp
+        src/accounts/FileIdentity.h
+        src/accounts/FileIdentity.cpp
+    )
+    target_include_directories(store-ownership-registry-test PRIVATE src)
+    target_link_libraries(store-ownership-registry-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME store-ownership-registry COMMAND store-ownership-registry-test)
+
+    qt_add_executable(revocation-proofs-test
+        tests/RevocationProofsTest.cpp
+        src/accounts/RevocationProofs.h
+        src/accounts/RevocationProofs.cpp
+    )
+    target_include_directories(revocation-proofs-test PRIVATE src)
+    target_link_libraries(revocation-proofs-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME revocation-proofs COMMAND revocation-proofs-test)
+
+    qt_add_executable(session-token-custody-parity-test
+        tests/SessionTokenCustodyParityTest.cpp
+        src/accounts/SessionTokenCustody.h
+        src/accounts/SessionTokenCustody.cpp
+    )
+    target_include_directories(session-token-custody-parity-test PRIVATE src)
+    target_link_libraries(session-token-custody-parity-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME session-token-custody-parity COMMAND session-token-custody-parity-test)
+
+    # Opt-in account-switch trace (LIGHTNING_SWITCH_TRACE, live accounts
+    # Phase 0): env rule shared with Rust, inert when off, accumulating and
+    # nesting steps, targets, deadline, the exact line; AppController's stamps
+    # by source scan.
+    qt_add_executable(switch-trace-test
+        tests/SwitchTraceTest.cpp
+        src/app/SwitchTrace.h
+        src/app/SwitchTrace.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(switch-trace-test PRIVATE src)
+    target_compile_definitions(switch-trace-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(switch-trace-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME switch-trace COMMAND switch-trace-test)
+
+    # NotificationContextBuilder is AppController::notificationContextFor()
+    # factored out: a golden table against a verbatim copy of the old body,
+    # plus a field-by-field pin of AppController's real gathering.
+    qt_add_executable(notification-context-builder-test
+        tests/NotificationContextBuilderTest.cpp
+        src/notifications/NotificationContextBuilder.h
+        src/notifications/NotificationContextBuilder.cpp
+    )
+    target_include_directories(notification-context-builder-test PRIVATE src)
+    target_compile_definitions(notification-context-builder-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(notification-context-builder-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME notification-context-builder
+        COMMAND notification-context-builder-test)
 
     qt_add_executable(custom-theme-test
         tests/CustomThemeTest.cpp

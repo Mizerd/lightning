@@ -2086,44 +2086,93 @@ QString SettingsManager::activeAccountSlugCached() const
     return m_activeSlugCache;
 }
 
-QString SettingsManager::roomNotificationModeScopedKey(const QString &roomId) const
+// The *For(uid, ...) reads resolve the foreground account through the same
+// cache as the active accessors, so for the active uid both answer from one
+// slug by construction; any other uid reads its saved record.
+QString SettingsManager::slugForAccountScope(const QString &userId) const
 {
-    const QString slug = activeAccountSlugCached();
+    if (!userId.isEmpty() && userId == activeAccountUserId())
+        return activeAccountSlugCached();
+    return slugForSavedAccount(userId);
+}
+
+QString SettingsManager::scopedKeyFor(const QString &slug, const QString &roomId)
+{
     if (slug.isEmpty())
         return {};
     return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1Char('/') + roomNotificationModeGlobalKey(roomId);
 }
 
-QString SettingsManager::roomNotificationScopePrefix() const
+QString SettingsManager::scopePrefixFor(const QString &slug)
 {
-    const QString slug = activeAccountSlugCached();
     if (slug.isEmpty())
         return {};
     return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1Char('/');
 }
 
-bool SettingsManager::roomNotificationModeUnsynced(const QString &roomId) const
+QString SettingsManager::roomNotificationModeScopedKey(const QString &roomId) const
+{
+    return scopedKeyFor(activeAccountSlugCached(), roomId);
+}
+
+QString SettingsManager::roomNotificationScopePrefix() const
+{
+    return scopePrefixFor(activeAccountSlugCached());
+}
+
+// The readers below exist twice: the active accessors (thin wrappers with the
+// cached active slug, the hot path) and the *For(userId) versions a host for
+// a non-active account reads through (slugForSavedAccount, uncached). Both
+// call one *InScope core, so they cannot disagree for the active account.
+bool SettingsManager::roomNotificationModeUnsyncedInScope(
+    const QString &slug, const QString &roomId) const
 {
     if (roomId.isEmpty())
         return false;
     return m_store->contains(
-        roomNotificationScopePrefix()
+        scopePrefixFor(slug)
         + QStringLiteral("notifications/room-mode-unsynced/") + roomId);
 }
 
-int SettingsManager::roomNotificationModeUnsyncedBase(const QString &roomId) const
+bool SettingsManager::roomNotificationModeUnsynced(const QString &roomId) const
+{
+    return roomNotificationModeUnsyncedInScope(activeAccountSlugCached(), roomId);
+}
+
+bool SettingsManager::roomNotificationModeUnsyncedFor(const QString &userId,
+                                                      const QString &roomId) const
+{
+    return roomNotificationModeUnsyncedInScope(slugForAccountScope(userId),
+                                               roomId);
+}
+
+int SettingsManager::roomNotificationModeUnsyncedBaseInScope(
+    const QString &slug, const QString &roomId) const
 {
     if (roomId.isEmpty())
         return -1;
     bool ok = false;
     const int base = m_store
-        ->value(roomNotificationScopePrefix()
+        ->value(scopePrefixFor(slug)
                     + QStringLiteral("notifications/room-mode-unsynced/")
                     + roomId)
         .toInt(&ok);
     return (ok && base >= 0 && base <= 3) ? base : -1;
+}
+
+int SettingsManager::roomNotificationModeUnsyncedBase(const QString &roomId) const
+{
+    return roomNotificationModeUnsyncedBaseInScope(activeAccountSlugCached(),
+                                                   roomId);
+}
+
+int SettingsManager::roomNotificationModeUnsyncedBaseFor(
+    const QString &userId, const QString &roomId) const
+{
+    return roomNotificationModeUnsyncedBaseInScope(slugForAccountScope(userId),
+                                                   roomId);
 }
 
 void SettingsManager::setRoomNotificationModeUnsynced(const QString &roomId,
@@ -2156,18 +2205,41 @@ QStringList SettingsManager::unsyncedRoomNotificationModes() const
     return rooms;
 }
 
-bool SettingsManager::roomNotificationModeDeviceOnly(const QString &roomId) const
+bool SettingsManager::roomNotificationModeDeviceOnlyInScope(
+    const QString &slug, const QString &roomId) const
 {
     if (roomId.isEmpty())
         return false;
     // The account's own key, even mode 0 shadowing a legacy value, is a
     // choice made since modes were saved to the server.
-    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    const QString scopedKey = scopedKeyFor(slug, roomId);
     if (!scopedKey.isEmpty() && m_store->contains(scopedKey))
         return false;
     const int legacy =
         m_store->value(roomNotificationModeGlobalKey(roomId), 0).toInt();
     return legacy == 1 || legacy == 2;
+}
+
+bool SettingsManager::roomNotificationModeDeviceOnly(const QString &roomId) const
+{
+    return roomNotificationModeDeviceOnlyInScope(activeAccountSlugCached(),
+                                                 roomId);
+}
+
+bool SettingsManager::roomNotificationModeDeviceOnlyFor(
+    const QString &userId, const QString &roomId) const
+{
+    return roomNotificationModeDeviceOnlyInScope(slugForAccountScope(userId),
+                                                 roomId);
+}
+
+bool SettingsManager::roomNotificationModeDecidesLocallyFor(
+    const QString &userId, const QString &roomId) const
+{
+    // AppController::roomNotificationModeDecidesLocally's rule, in its order.
+    const QString slug = slugForAccountScope(userId);
+    return roomNotificationModeUnsyncedInScope(slug, roomId)
+        || roomNotificationModeDeviceOnlyInScope(slug, roomId);
 }
 
 QStringList SettingsManager::accountRoomNotificationModeRooms() const
@@ -2181,20 +2253,35 @@ QStringList SettingsManager::accountRoomNotificationModeRooms() const
     return rooms;
 }
 
-bool SettingsManager::hasStoredRoomNotificationMode(const QString &roomId) const
+bool SettingsManager::hasStoredRoomNotificationModeInScope(
+    const QString &slug, const QString &roomId) const
 {
     if (roomId.isEmpty())
         return false;
-    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    const QString scopedKey = scopedKeyFor(slug, roomId);
     return (!scopedKey.isEmpty() && m_store->contains(scopedKey))
         || m_store->contains(roomNotificationModeGlobalKey(roomId));
 }
 
-int SettingsManager::roomNotificationMode(const QString &roomId) const
+bool SettingsManager::hasStoredRoomNotificationMode(const QString &roomId) const
+{
+    return hasStoredRoomNotificationModeInScope(activeAccountSlugCached(),
+                                                roomId);
+}
+
+bool SettingsManager::hasStoredRoomNotificationModeFor(
+    const QString &userId, const QString &roomId) const
+{
+    return hasStoredRoomNotificationModeInScope(slugForAccountScope(userId),
+                                                roomId);
+}
+
+int SettingsManager::roomNotificationModeInScope(const QString &slug,
+                                                 const QString &roomId) const
 {
     if (roomId.isEmpty())
         return 0;
-    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    const QString scopedKey = scopedKeyFor(slug, roomId);
     const QString readKey = (!scopedKey.isEmpty() && m_store->contains(scopedKey))
         ? scopedKey
         : roomNotificationModeGlobalKey(roomId);
@@ -2202,14 +2289,37 @@ int SettingsManager::roomNotificationMode(const QString &roomId) const
     return (mode < 0 || mode > 3) ? 0 : mode;
 }
 
-int SettingsManager::roomUnreadMode(const QString &roomId) const
+int SettingsManager::roomNotificationMode(const QString &roomId) const
 {
-    const int mode = roomNotificationMode(roomId);
+    return roomNotificationModeInScope(activeAccountSlugCached(), roomId);
+}
+
+int SettingsManager::roomNotificationModeFor(const QString &userId,
+                                             const QString &roomId) const
+{
+    return roomNotificationModeInScope(slugForAccountScope(userId), roomId);
+}
+
+int SettingsManager::roomUnreadModeInScope(const QString &slug,
+                                           const QString &roomId) const
+{
+    const int mode = roomNotificationModeInScope(slug, roomId);
     if (mode == roomunread::kModeMentions
-        && (roomNotificationModeDeviceOnly(roomId)
-            || roomNotificationModeUnsynced(roomId)))
+        && (roomNotificationModeDeviceOnlyInScope(slug, roomId)
+            || roomNotificationModeUnsyncedInScope(slug, roomId)))
         return roomunread::kModeMentionsUnverified;
     return mode;
+}
+
+int SettingsManager::roomUnreadMode(const QString &roomId) const
+{
+    return roomUnreadModeInScope(activeAccountSlugCached(), roomId);
+}
+
+int SettingsManager::roomUnreadModeFor(const QString &userId,
+                                       const QString &roomId) const
+{
+    return roomUnreadModeInScope(slugForAccountScope(userId), roomId);
 }
 
 namespace {

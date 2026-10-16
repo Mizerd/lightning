@@ -1,17 +1,21 @@
 #include "app/SettingsManager.h"
+#include "matrix/RoomUnreadRule.h"
 #include "media/MediaVisibilityStore.h"
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
 #include <QFile>
 #include <QHash>
+#include <QMetaMethod>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <memory>
 #include <utility>
+#include <vector>
 
 class FakeSecretStore final : public SecretStore
 {
@@ -148,6 +152,12 @@ private Q_SLOTS:
     void everyAccountScopedGetterHasItsSignalInTheAccountSwitch();
     void theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive();
     void turningOffCloseToTrayAnnouncesTheStartInTrayItDerives();
+    // Live accounts Phase 0: the per-room mode readers for any saved account
+    // (roomNotificationModeFor & co) answer exactly what the active accessors
+    // answer, which in turn answer what the pre-refactor code did.
+    void perAccountModeReadersMatchTheActiveAccessorsAndTheOldRule();
+    void perAccountModeReadersReadANonActiveAccountsOwnScope();
+    void perAccountModeReadersUseTheDeviceScopeForAnEmptyOrUnknownUser();
 
 private:
     // Writes the QSettings shape SettingsManager::upsertAccountRecord produces
@@ -2191,6 +2201,479 @@ void SettingsSessionTest::secretsWrittenHereOnlyForThisInstallsOwnSignIn()
     QVERIFY(!settings.secretsWrittenHereForRecordedDevice(older));
     QVERIFY(!settings.secretsWrittenHereForRecordedDevice(
         QStringLiteral("@nobody:matrix.example")));
+}
+
+namespace {
+
+// Everything the per-room mode readers say about one room in one scope.
+struct ModeAnswers {
+    int mode = 0;
+    bool unsynced = false;
+    int base = -1;
+    bool deviceOnly = false;
+    bool stored = false;
+    int unread = 0;
+    bool decidesLocally = false;
+    bool operator==(const ModeAnswers &) const = default;
+    QString toString() const
+    {
+        return QStringLiteral("mode=%1 unsynced=%2 base=%3 deviceOnly=%4 "
+                              "stored=%5 unread=%6 decidesLocally=%7")
+            .arg(mode)
+            .arg(unsynced)
+            .arg(base)
+            .arg(deviceOnly)
+            .arg(stored)
+            .arg(unread)
+            .arg(decidesLocally);
+    }
+};
+
+// A VERBATIM copy of the readers as they were before the Phase 0 refactor
+// (SettingsManager.cpp at 9177fc58), over a raw QSettings and an explicit
+// account slug (empty = the signed-out device scope). It is the golden half
+// of the parity tests: the refactor moved these bodies behind a slug
+// parameter, so a parity test comparing only the new active accessor with
+// the new *For twin would pass on a broken shared core. This copy does not
+// share it. decidesLocally is AppController::roomNotificationModeDecidesLocally.
+ModeAnswers oldRuleAnswers(QSettings &s, const QString &slug,
+                           const QString &roomId)
+{
+    const QString prefix = slug.isEmpty()
+        ? QString()
+        : QStringLiteral("accounts/") + slug + QLatin1Char('/');
+    const QString globalKey = QStringLiteral("notifications/room-mode/") + roomId;
+    const QString scopedKey = slug.isEmpty() ? QString() : prefix + globalKey;
+    const QString unsyncedKey =
+        prefix + QStringLiteral("notifications/room-mode-unsynced/") + roomId;
+
+    ModeAnswers a;
+    // roomNotificationModeUnsynced
+    a.unsynced = roomId.isEmpty() ? false : s.contains(unsyncedKey);
+    // roomNotificationModeUnsyncedBase
+    if (roomId.isEmpty()) {
+        a.base = -1;
+    } else {
+        bool ok = false;
+        const int base = s.value(unsyncedKey).toInt(&ok);
+        a.base = (ok && base >= 0 && base <= 3) ? base : -1;
+    }
+    // roomNotificationModeDeviceOnly
+    if (roomId.isEmpty()) {
+        a.deviceOnly = false;
+    } else if (!scopedKey.isEmpty() && s.contains(scopedKey)) {
+        a.deviceOnly = false;
+    } else {
+        const int legacy = s.value(globalKey, 0).toInt();
+        a.deviceOnly = legacy == 1 || legacy == 2;
+    }
+    // hasStoredRoomNotificationMode
+    a.stored = roomId.isEmpty()
+        ? false
+        : ((!scopedKey.isEmpty() && s.contains(scopedKey))
+           || s.contains(globalKey));
+    // roomNotificationMode
+    if (roomId.isEmpty()) {
+        a.mode = 0;
+    } else {
+        const QString readKey = (!scopedKey.isEmpty() && s.contains(scopedKey))
+            ? scopedKey
+            : globalKey;
+        const int mode = s.value(readKey, 0).toInt();
+        a.mode = (mode < 0 || mode > 3) ? 0 : mode;
+    }
+    // roomUnreadMode
+    a.unread = (a.mode == roomunread::kModeMentions
+                && (a.deviceOnly || a.unsynced))
+        ? roomunread::kModeMentionsUnverified
+        : a.mode;
+    a.decidesLocally = a.unsynced || a.deviceOnly;
+    return a;
+}
+
+// The active accessors; decidesLocally is AppController's rule over them.
+ModeAnswers activeAnswers(const SettingsManager &s, const QString &roomId)
+{
+    ModeAnswers a;
+    a.mode = s.roomNotificationMode(roomId);
+    a.unsynced = s.roomNotificationModeUnsynced(roomId);
+    a.base = s.roomNotificationModeUnsyncedBase(roomId);
+    a.deviceOnly = s.roomNotificationModeDeviceOnly(roomId);
+    a.stored = s.hasStoredRoomNotificationMode(roomId);
+    a.unread = s.roomUnreadMode(roomId);
+    a.decidesLocally = s.roomNotificationModeUnsynced(roomId)
+        || s.roomNotificationModeDeviceOnly(roomId);
+    return a;
+}
+
+ModeAnswers forAnswers(const SettingsManager &s, const QString &userId,
+                       const QString &roomId)
+{
+    ModeAnswers a;
+    a.mode = s.roomNotificationModeFor(userId, roomId);
+    a.unsynced = s.roomNotificationModeUnsyncedFor(userId, roomId);
+    a.base = s.roomNotificationModeUnsyncedBaseFor(userId, roomId);
+    a.deviceOnly = s.roomNotificationModeDeviceOnlyFor(userId, roomId);
+    a.stored = s.hasStoredRoomNotificationModeFor(userId, roomId);
+    a.unread = s.roomUnreadModeFor(userId, roomId);
+    a.decidesLocally = s.roomNotificationModeDecidesLocallyFor(userId, roomId);
+    return a;
+}
+
+// Every signal SettingsManager (and QObject) declares, so "never emits" is
+// asserted for all of them rather than for the few a reader might think of.
+class EverySignalSpy
+{
+public:
+    explicit EverySignalSpy(QObject *object)
+    {
+        const QMetaObject *meta = object->metaObject();
+        for (int i = 0; i < meta->methodCount(); ++i) {
+            const QMetaMethod method = meta->method(i);
+            if (method.methodType() != QMetaMethod::Signal)
+                continue;
+            m_names.append(QString::fromLatin1(method.methodSignature()));
+            m_spies.push_back(std::make_unique<QSignalSpy>(object, method));
+        }
+    }
+    int watched() const { return int(m_spies.size()); }
+    bool allValid() const
+    {
+        for (const auto &spy : m_spies)
+            if (!spy->isValid())
+                return false;
+        return true;
+    }
+    QStringList fired() const
+    {
+        QStringList out;
+        for (size_t i = 0; i < m_spies.size(); ++i)
+            if (m_spies[i]->count() > 0)
+                out.append(m_names.at(int(i)));
+        return out;
+    }
+
+private:
+    std::vector<std::unique_ptr<QSignalSpy>> m_spies;
+    QStringList m_names;
+};
+
+// The stored shapes a room's mode can be in. Index 0 of each list is "no key".
+const QList<QVariant> kModeValues = {QVariant(), 0, 1, 2, 3, -1, 7};
+const QList<QVariant> kUnsyncedValues = {QVariant(), -1, 0, 1, 2, 3, 9,
+                                         QStringLiteral("junk")};
+const int kGridRooms =
+    int(kModeValues.size() * kModeValues.size() * kUnsyncedValues.size());
+
+QString gridRoom(int i)
+{
+    return QStringLiteral("!grid%1:matrix.example").arg(i);
+}
+
+void putOrSkip(QSettings &s, const QString &key, const QVariant &value)
+{
+    if (value.isValid())
+        s.setValue(key, value);
+}
+
+// One room per combination of: the account's own mode key (absent, 0..3,
+// out of range), the legacy device-global key (same), and the unsynced flag
+// (absent, bases -1 and 0..3, out of range, unparsable). `alice` gets the
+// combination itself; `bob` and the device scope get rotated copies, so that
+// for most rooms the three scopes answer differently and a reader looking in
+// the wrong scope cannot agree by accident.
+void seedModeGrid(const QString &aliceSlug, const QString &bobSlug)
+{
+    QSettings seed;
+    const int nm = int(kModeValues.size());
+    const int nu = int(kUnsyncedValues.size());
+    for (int i = 0; i < kGridRooms; ++i) {
+        const int accountIdx = i % nm;
+        const int legacyIdx = (i / nm) % nm;
+        const int unsyncedIdx = i / (nm * nm);
+        const QString room = gridRoom(i);
+        const QString modeTail = QStringLiteral("/notifications/room-mode/") + room;
+        const QString unsyncedTail =
+            QStringLiteral("/notifications/room-mode-unsynced/") + room;
+        putOrSkip(seed, QStringLiteral("notifications/room-mode/") + room,
+                  kModeValues.at(legacyIdx));
+        putOrSkip(seed, QStringLiteral("accounts/") + aliceSlug + modeTail,
+                  kModeValues.at(accountIdx));
+        putOrSkip(seed, QStringLiteral("accounts/") + aliceSlug + unsyncedTail,
+                  kUnsyncedValues.at(unsyncedIdx));
+        putOrSkip(seed, QStringLiteral("accounts/") + bobSlug + modeTail,
+                  kModeValues.at((accountIdx + 3) % nm));
+        putOrSkip(seed, QStringLiteral("accounts/") + bobSlug + unsyncedTail,
+                  kUnsyncedValues.at((unsyncedIdx + 5) % nu));
+        putOrSkip(seed,
+                  QStringLiteral("notifications/room-mode-unsynced/") + room,
+                  kUnsyncedValues.at((unsyncedIdx + 2) % nu));
+    }
+    seed.sync();
+}
+
+// The rooms checked: the whole grid plus the empty room id, which every
+// reader short-circuits.
+QStringList modeGridRooms()
+{
+    QStringList rooms;
+    for (int i = 0; i < kGridRooms; ++i)
+        rooms.append(gridRoom(i));
+    rooms.append(QString());
+    return rooms;
+}
+
+} // namespace
+
+// For the active account, every *For answer equals the active accessor's, and
+// both equal the pre-refactor rule (the verbatim copy above), over every
+// stored shape. Then the same with no active account (device scope, uid "").
+// The coverage counts at the end assert that the grid really produced every
+// answer the readers can give, so a fixture that stopped seeding would fail
+// rather than compare a few identical defaults.
+void SettingsSessionTest::perAccountModeReadersMatchTheActiveAccessorsAndTheOldRule()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+    const QString aliceSlug = matrix::app_data::safeUserSlug(alice);
+    const QString bobSlug = matrix::app_data::safeUserSlug(bob);
+    seedModeGrid(aliceSlug, bobSlug);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.activeAccountUserId(), alice);
+
+    QSettings raw;
+    const QStringList rooms = modeGridRooms();
+    QCOMPARE(rooms.size(), kGridRooms + 1);
+
+    QSet<int> modesSeen, basesSeen, unreadSeen;
+    QSet<bool> unsyncedSeen, deviceOnlySeen, storedSeen, decidesSeen;
+    int checked = 0;
+    for (const QString &room : rooms) {
+        const ModeAnswers old = oldRuleAnswers(raw, aliceSlug, room);
+        const ModeAnswers active = activeAnswers(settings, room);
+        const ModeAnswers twin = forAnswers(settings, alice, room);
+        QVERIFY2(active == old,
+                 qPrintable(QStringLiteral("room %1: the active accessors "
+                                           "changed behaviour: %2, the old "
+                                           "rule says %3")
+                                .arg(room, active.toString(), old.toString())));
+        QVERIFY2(twin == active,
+                 qPrintable(QStringLiteral("room %1: the *For twin disagrees "
+                                           "with the active accessor for the "
+                                           "active account: %2 vs %3")
+                                .arg(room, twin.toString(), active.toString())));
+        modesSeen.insert(twin.mode);
+        basesSeen.insert(twin.base);
+        unreadSeen.insert(twin.unread);
+        unsyncedSeen.insert(twin.unsynced);
+        deviceOnlySeen.insert(twin.deviceOnly);
+        storedSeen.insert(twin.stored);
+        decidesSeen.insert(twin.decidesLocally);
+        ++checked;
+    }
+    QCOMPARE(checked, kGridRooms + 1);
+    QCOMPARE(modesSeen, (QSet<int>{0, 1, 2, 3}));
+    QCOMPARE(basesSeen, (QSet<int>{-1, 0, 1, 2, 3}));
+    QCOMPARE(unreadSeen,
+             (QSet<int>{0, 1, 2, 3, roomunread::kModeMentionsUnverified}));
+    QCOMPARE(unsyncedSeen.size(), 2);
+    QCOMPARE(deviceOnlySeen.size(), 2);
+    QCOMPARE(storedSeen.size(), 2);
+    QCOMPARE(decidesSeen.size(), 2);
+
+    // No active account: the active accessors read the device scope, and so
+    // does the twin for an empty user id.
+    settings.setActiveAccountUserId(QString());
+    QVERIFY(settings.activeAccountUserId().isEmpty());
+    QSet<int> deviceUnreadSeen;
+    QSet<bool> deviceUnsyncedSeen;
+    for (const QString &room : rooms) {
+        const ModeAnswers old = oldRuleAnswers(raw, QString(), room);
+        const ModeAnswers active = activeAnswers(settings, room);
+        const ModeAnswers twin = forAnswers(settings, QString(), room);
+        QVERIFY2(active == old,
+                 qPrintable(QStringLiteral("room %1, device scope: %2, the old "
+                                           "rule says %3")
+                                .arg(room, active.toString(), old.toString())));
+        QVERIFY2(twin == active,
+                 qPrintable(QStringLiteral("room %1, device scope: twin %2 vs "
+                                           "active %3")
+                                .arg(room, twin.toString(), active.toString())));
+        deviceUnreadSeen.insert(twin.unread);
+        deviceUnsyncedSeen.insert(twin.unsynced);
+    }
+    QVERIFY2(deviceUnreadSeen.contains(roomunread::kModeMentionsUnverified),
+             "the device-scope grid never produced an unverified mentions "
+             "mode, so it did not exercise the unsynced/device-only branch");
+    QCOMPARE(deviceUnsyncedSeen.size(), 2);
+}
+
+// A non-active saved account is read from ITS keys, without touching the
+// active account and without a single signal. The expected answers are taken
+// two independent ways: the old rule over Bob's slug, and the active
+// accessors once Bob really is the active account.
+void SettingsSessionTest::perAccountModeReadersReadANonActiveAccountsOwnScope()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+    const QString aliceSlug = matrix::app_data::safeUserSlug(alice);
+    const QString bobSlug = matrix::app_data::safeUserSlug(bob);
+    seedModeGrid(aliceSlug, bobSlug);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.activeAccountUserId(), alice);
+
+    QSettings raw;
+    const QStringList rooms = modeGridRooms();
+    QHash<QString, ModeAnswers> bobWhileAliceActive;
+    int differFromAlice = 0;
+    {
+        EverySignalSpy spy(&settings);
+        QVERIFY2(spy.watched() > 20,
+                 "the signal spy found almost no signals; it is not watching "
+                 "SettingsManager");
+        QVERIFY(spy.allValid());
+        for (const QString &room : rooms) {
+            const ModeAnswers forBob = forAnswers(settings, bob, room);
+            const ModeAnswers old = oldRuleAnswers(raw, bobSlug, room);
+            QVERIFY2(forBob == old,
+                     qPrintable(QStringLiteral("room %1: Bob's answers while "
+                                               "Alice is active are %2, Bob's "
+                                               "own keys say %3")
+                                    .arg(room, forBob.toString(),
+                                         old.toString())));
+            if (forBob != activeAnswers(settings, room))
+                ++differFromAlice;
+            bobWhileAliceActive.insert(room, forBob);
+        }
+        QVERIFY2(spy.fired().isEmpty(),
+                 qPrintable(QStringLiteral("reading another account's modes "
+                                           "emitted: %1")
+                                .arg(spy.fired().join(QStringLiteral(", ")))));
+    }
+    QCOMPARE(settings.activeAccountUserId(), alice);
+    // The fixture gives Bob rotated keys; if almost every room agreed with
+    // Alice the case could not tell the two scopes apart.
+    QVERIFY2(differFromAlice > kGridRooms / 2,
+             qPrintable(QStringLiteral("only %1 of %2 rooms differ between "
+                                       "Alice and Bob; the fixture no longer "
+                                       "separates the scopes")
+                            .arg(differFromAlice)
+                            .arg(kGridRooms)));
+
+    // The second oracle: make Bob active and ask the active accessors.
+    settings.setActiveAccountUserId(bob);
+    QCOMPARE(settings.activeAccountUserId(), bob);
+    for (const QString &room : rooms) {
+        const ModeAnswers active = activeAnswers(settings, room);
+        QVERIFY2(bobWhileAliceActive.value(room) == active,
+                 qPrintable(QStringLiteral("room %1: Bob read while Alice was "
+                                           "active (%2) is not what Bob reads "
+                                           "as the active account (%3)")
+                                .arg(room,
+                                     bobWhileAliceActive.value(room).toString(),
+                                     active.toString())));
+        // And the twin for Alice, now inactive, still reads Alice's keys.
+        QVERIFY(forAnswers(settings, alice, room)
+                == oldRuleAnswers(raw, aliceSlug, room));
+    }
+}
+
+// An empty user id, one with no saved record, one that is not a Matrix id,
+// and one whose slug collides with a saved account's (the slug mapping is not
+// injective) all read the device scope: exactly what the active accessors
+// answer with no active account. Never the active account's scope.
+void SettingsSessionTest::perAccountModeReadersUseTheDeviceScopeForAnEmptyOrUnknownUser()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    // "@eve:a_b.example" and "@eve_a:b.example" share the slug
+    // "eve_a_b.example"; only the first is saved.
+    const QString eve = QStringLiteral("@eve:a_b.example");
+    const QString eveCollision = QStringLiteral("@eve_a:b.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+    seedAccountRecord(eve, QStringLiteral("https://a_b.example"));
+    const QString aliceSlug = matrix::app_data::safeUserSlug(alice);
+    const QString eveSlug = matrix::app_data::safeUserSlug(eve);
+    QCOMPARE(matrix::app_data::safeUserSlug(eveCollision), eveSlug);
+    QVERIFY(settings.hasSavedAccount(eve));
+    QVERIFY(!settings.hasSavedAccount(eveCollision));
+    // Eve's scope gets Alice's grid, so the colliding id would read
+    // account-scoped answers if the lookup matched on the slug alone.
+    seedModeGrid(aliceSlug, eveSlug);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.activeAccountUserId(), alice);
+
+    QSettings raw;
+    const QStringList rooms = modeGridRooms();
+    const QStringList strangers = {
+        QString(),
+        QStringLiteral("@nobody:matrix.example"),
+        QStringLiteral("not-a-matrix-id"),
+        eveCollision,
+    };
+    int differFromActive = 0;
+    {
+        EverySignalSpy spy(&settings);
+        QVERIFY(spy.allValid());
+        for (const QString &stranger : strangers) {
+            for (const QString &room : rooms) {
+                const ModeAnswers got = forAnswers(settings, stranger, room);
+                const ModeAnswers device = oldRuleAnswers(raw, QString(), room);
+                QVERIFY2(got == device,
+                         qPrintable(QStringLiteral("user '%1' room %2: %3, the "
+                                                   "device scope says %4")
+                                        .arg(stranger, room, got.toString(),
+                                             device.toString())));
+                if (got != activeAnswers(settings, room))
+                    ++differFromActive;
+            }
+        }
+        QVERIFY2(spy.fired().isEmpty(),
+                 qPrintable(QStringLiteral("reading an unknown account's "
+                                           "modes emitted: %1")
+                                .arg(spy.fired().join(QStringLiteral(", ")))));
+    }
+    QCOMPARE(settings.activeAccountUserId(), alice);
+    // Without this, a twin that fell back to the ACTIVE account's scope would
+    // pass wherever the active and device scopes happen to agree.
+    QVERIFY2(differFromActive > int(strangers.size()) * kGridRooms / 2,
+             qPrintable(QStringLiteral("only %1 answers differ between the "
+                                       "device scope and the active account")
+                            .arg(differFromActive)));
+
+    // The same device-scope answers the active accessors give once no
+    // account is active.
+    settings.setActiveAccountUserId(QString());
+    for (const QString &room : rooms)
+        QVERIFY(forAnswers(settings, QStringLiteral("@nobody:matrix.example"),
+                           room)
+                == activeAnswers(settings, room));
 }
 
 QTEST_MAIN(SettingsSessionTest)

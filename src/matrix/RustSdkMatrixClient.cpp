@@ -10,7 +10,11 @@
 #include <QThreadPool>
 #include "app/SyncLatencyTracer.h"
 
+#include "accounts/RevocationProofs.h"
+#include "accounts/SessionTokenCustody.h"
+#include "accounts/StoreOwnershipRegistry.h"
 #include "app/SettingsManager.h"
+#include "app/SwitchTrace.h"
 #include "auth/OAuthCallbackServer.h"
 #include "crypto/BackupController.h"
 #include "crypto/E2eeDiagnostics.h"
@@ -213,6 +217,23 @@ bool RustSdkMatrixClient::rustSupportsE2ee() const
     return mx_rust_supports_e2ee(m_rustHandle) != 0;
 }
 
+void RustSdkMatrixClient::setStoreOwnershipRegistry(
+    lightning::accounts::StoreOwnershipRegistry *r)
+{
+    m_storeOwnershipRegistry = r;
+}
+
+lightning::accounts::StoreOwnershipRegistry &RustSdkMatrixClient::storeOwnershipRegistry() const
+{
+    return m_storeOwnershipRegistry ? *m_storeOwnershipRegistry
+                                    : lightning::accounts::StoreOwnershipRegistry::process();
+}
+
+void RustSdkMatrixClient::setRevocationProofs(lightning::accounts::RevocationProofs *proofs)
+{
+    m_revocationProofs = proofs;
+}
+
 void RustSdkMatrixClient::setStorePathOverride(const QString &absolutePath)
 {
     m_storePathOverride = absolutePath;
@@ -404,12 +425,25 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     }
     restrictNewParents();
 
+    // RECORD-ONLY in Phase 0: what the Phase 1 store claim would have said,
+    // logged and never acted on. The previous handle released above is still
+    // Retiring until its worker confirms the close, so a quick switch back to
+    // the account just left is exactly what this line is here to count.
+    lightning::accounts::StoreOwnershipRegistry &ownership = storeOwnershipRegistry();
+    quint64 conflictSerial = 0;
+    if (ownership.wouldRefuse(storePath, &conflictSerial)) {
+        qCInfo(lcRust) << "store ownership: would refuse (record-only)"
+                       << "slug=" << slug << "conflict_serial=" << conflictSerial;
+    }
+
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());
     if (!m_rustHandle) {
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
         return false;
     }
+    m_storeOwnershipSerial = ownership.recordOpen(
+        storePath, slug, lightning::accounts::StoreOwnershipRegistry::Role::Foreground);
 
     m_storePath = storePath;
     m_handleGeneration = m_lifecycle.beginSession();
@@ -437,6 +471,11 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
             mx_rust_destroy(m_rustHandle);
             m_rustHandle = nullptr;
             m_handleGeneration = 0;
+            // Destroyed synchronously, so its store is closed here.
+            if (m_storeOwnershipSerial != 0) {
+                ownership.noteClosed(m_storeOwnershipSerial, true);
+                m_storeOwnershipSerial = 0;
+            }
             Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
                                  : result);
@@ -555,12 +594,33 @@ QThreadPool &rustRetirementPool()
     return *pool;
 }
 
-QByteArray accessTokenDigest(const QString &accessToken)
+namespace custody = lightning::accounts::custody;
+using custody::accessTokenDigest;
+
+// The production TokenStore: SettingsManager's own calls, one for one, so the
+// custody functions read and write exactly what this file always did.
+// SENSITIVE: carries tokens through; never logs.
+class SettingsTokenStore final : public lightning::accounts::TokenStore
 {
-    return accessToken.isEmpty()
-        ? QByteArray()
-        : QCryptographicHash::hash(accessToken.toUtf8(), QCryptographicHash::Sha256);
-}
+public:
+    explicit SettingsTokenStore(SettingsManager *settings) : m_settings(settings) {}
+    QVariantMap accountRecord(const QString &userId) const override
+    {
+        return m_settings->accountRecord(userId);
+    }
+    QString accessTokenFor(const QString &userId) const override
+    {
+        return m_settings->accessTokenFor(userId);
+    }
+    bool updateSessionTokens(const QString &userId, const QString &access,
+                             const QString &refresh) override
+    {
+        return m_settings->updateSessionTokens(userId, access, refresh);
+    }
+
+private:
+    SettingsManager *m_settings;
+};
 
 // SENSITIVE: sign-ins a retired handle held that were never written down,
 // waiting for the GUI thread. Filled by retirement workers; emptied by
@@ -597,7 +657,9 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
 void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                                 const QString &typingRoom,
                                                 const RetiringSignIn &signIn,
-                                                QPointer<RustSdkMatrixClient> sink)
+                                                QPointer<RustSdkMatrixClient> sink,
+                                                quint64 storeOwnershipSerial,
+                                                lightning::accounts::StoreOwnershipRegistry *storeRegistry)
 {
     if (!handle)
         return;
@@ -606,7 +668,8 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
         QMutexLocker lock(&retiredSignIns().mutex);
         ++retiredSignIns().retiring[signIn.userId];
     }
-    rustRetirementPool().start([handle, typingRoom, signIn, sink, tracked] {
+    rustRetirementPool().start([handle, typingRoom, signIn, sink, tracked,
+                                storeOwnershipSerial, storeRegistry] {
         QElapsedTimer teardown;
         teardown.start();
         // The courtesy "stopped typing" is a network send, so it belongs here
@@ -623,17 +686,15 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
         // refresh token and an OAuth server refuses the whole sign-in.
         bool handedBack = false;
         if (tracked) {
-            // SENSITIVE: never log `json`.
+            // SENSITIVE: never log `json` or `tokens`.
             const QString json = takeRustString(mx_rust_final_session_tokens(handle));
-            const QJsonObject tokens = json.isEmpty() || json.startsWith(QLatin1String("error: "))
-                ? QJsonObject()
-                : QJsonDocument::fromJson(json.toUtf8()).object();
-            const QString access = tokens.value(QStringLiteral("access_token")).toString();
-            if (!access.isEmpty() && accessTokenDigest(access) != signIn.accessDigest) {
+            const lightning::accounts::SessionTokenPair tokens =
+                custody::parseFinalSessionTokens(json);
+            if (custody::needsHandback(tokens.accessToken, signIn.accessDigest)) {
                 QMutexLocker lock(&retiredSignIns().mutex);
                 retiredSignIns().waiting.append(RetiredSignIn{
-                    signIn.userId, signIn.deviceId, signIn.accessDigest, access,
-                    tokens.value(QStringLiteral("refresh_token")).toString()});
+                    signIn.userId, signIn.deviceId, signIn.accessDigest,
+                    tokens.accessToken, tokens.refreshToken});
                 handedBack = true;
             }
         }
@@ -659,6 +720,10 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                  "account store closed; a sign-out or reset that "
                                  "deletes the store now may not finish on Windows"
                               << released;
+        // Record-only: an unconfirmed close keeps the record, Retiring.
+        if (storeRegistry && storeOwnershipSerial != 0)
+            storeRegistry->noteClosed(storeOwnershipSerial,
+                                      released.startsWith(QLatin1String("store_closed=true")));
         if (tracked) {
             QMutexLocker lock(&retiredSignIns().mutex);
             auto &retiring = retiredSignIns().retiring;
@@ -687,49 +752,57 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
         QMutexLocker lock(&retiredSignIns().mutex);
         waiting.swap(retiredSignIns().waiting);
     }
+    SettingsTokenStore settingsStore(m_settings);
+    lightning::accounts::TokenStore *store = m_settings ? &settingsStore : nullptr;
     for (const RetiredSignIn &signIn : std::as_const(waiting)) {
         const QString slug = matrix::app_data::safeUserSlug(signIn.userId);
-        if (!m_settings)
-            continue;
         // A session of that very device running again already holds newer
         // tokens than the one that retired. Not for the account a restore is
         // about to read: its retired tokens are the newest there are.
+        // Evaluated only with a store, and short-circuited as it always was:
+        // tokenOwnerForRunningSession() reads account records.
         const bool restoring = !restoringUserId.isEmpty()
             && signIn.userId == restoringUserId;
-        if (!restoring && m_rustHandle && m_loggedIn
+        const bool sameDeviceRunning = store && !restoring && m_rustHandle && m_loggedIn
             && m_deviceId == signIn.deviceId
-            && tokenOwnerForRunningSession() == signIn.userId) {
+            && tokenOwnerForRunningSession() == signIn.userId;
+        // Signed out, removed, or signed in again as another device since:
+        // what was deleted must stay deleted (CLAUDE.md §6). Compare and swap:
+        // only over the pair this handle itself last wrote. Anything else
+        // there is newer (a later session's rotation, or a retirement that
+        // overran the settle wait) and must never be replaced by an older one.
+        // SENSITIVE: `entry` carries the tokens; never log it.
+        const custody::HandbackEntry entry{
+            signIn.userId, signIn.deviceId, signIn.expectedDigest,
+            lightning::accounts::SessionTokenPair{signIn.accessToken, signIn.refreshToken}};
+        const custody::Handback outcome =
+            custody::writeHandback(store, entry, sameDeviceRunning);
+        switch (outcome) {
+        case custody::Handback::SkippedNoStore:
+            break;
+        case custody::Handback::SkippedSameDeviceRunning:
             qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
                               "the same device is running again"
                            << "slug=" << slug;
-            continue;
-        }
-        // Signed out, removed, or signed in again as another device since:
-        // what was deleted must stay deleted (CLAUDE.md §6).
-        const QVariantMap record = m_settings->accountRecord(signIn.userId);
-        if (record.isEmpty()
-            || record.value(QStringLiteral("deviceId")).toString() != signIn.deviceId) {
+            break;
+        case custody::Handback::SkippedRecordGoneOrOtherDevice:
             qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
                               "its account record is gone or names another device"
                            << "slug=" << slug;
-            continue;
-        }
-        // Compare and swap: only over the pair this handle itself last wrote.
-        // Anything else there is newer (a later session's rotation, or a
-        // retirement that overran the settle wait) and must never be
-        // replaced by an older one.
-        const QString stored = m_settings->accessTokenFor(signIn.userId);
-        if (accessTokenDigest(stored) != signIn.expectedDigest) {
+            break;
+        case custody::Handback::SkippedKeyringChanged:
             qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
                               "the keyring holds a different sign-in now"
                            << "slug=" << slug;
-            continue;
+            break;
+        case custody::Handback::Written:
+        case custody::Handback::WriteFailed:
+            qCInfo(lcRust) << "kept a token rotation the retired session made after "
+                              "its last write"
+                           << "slug=" << slug
+                           << "ok=" << (outcome == custody::Handback::Written);
+            break;
         }
-        const bool ok = m_settings->updateSessionTokens(
-            signIn.userId, signIn.accessToken, signIn.refreshToken);
-        qCInfo(lcRust) << "kept a token rotation the retired session made after "
-                          "its last write"
-                       << "slug=" << slug << "ok=" << ok;
     }
 }
 
@@ -748,18 +821,15 @@ void RustSdkMatrixClient::retryRotatedTokenWrite()
     const QString owner = tokenOwnerForRunningSession();
     if (owner.isEmpty())
         return;
-    // SENSITIVE: never log `json`. The session's tokens now, which are newer
-    // than any the refused write carried.
+    // SENSITIVE: never log `json` or `tokens`. The session's tokens now,
+    // which are newer than any the refused write carried.
     const QString json = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
-    const QJsonObject tokens = json.isEmpty() || json.startsWith(QLatin1String("error: "))
-        ? QJsonObject()
-        : QJsonDocument::fromJson(json.toUtf8()).object();
-    const QString access = tokens.value(QStringLiteral("access_token")).toString();
-    if (access.isEmpty() || accessTokenDigest(access) == m_persistedAccessDigest)
+    const lightning::accounts::SessionTokenPair tokens = custody::parseFinalSessionTokens(json);
+    const QString &access = tokens.accessToken;
+    if (!custody::retryWriteNeeded(access, m_persistedAccessDigest))
         return;
     ++m_tokenWriteAttempts;
-    if (m_settings->updateSessionTokens(
-            owner, access, tokens.value(QStringLiteral("refresh_token")).toString())) {
+    if (m_settings->updateSessionTokens(owner, access, tokens.refreshToken)) {
         m_persistedAccessDigest = accessTokenDigest(access);
         m_tokenWriteFailingFor.invalidate();
         qCInfo(lcRust) << "a rotated sign-in the keyring refused earlier is saved now"
@@ -816,15 +886,7 @@ QString RustSdkMatrixClient::tokenOwnerForRunningSession() const
     if (matrix::app_data::resolveAccountIdentity(m_homeserver, m_userId, &identity))
         candidates << identity.userId;
     candidates << m_settings->userId();
-    for (const QString &candidate : std::as_const(candidates)) {
-        if (candidate.isEmpty())
-            continue;
-        const QVariantMap record = m_settings->accountRecord(candidate);
-        if (!record.isEmpty()
-            && record.value(QStringLiteral("deviceId")).toString() == m_deviceId)
-            return candidate;
-    }
-    return {};
+    return custody::tokenOwnerFor(SettingsTokenStore(m_settings), candidates, m_deviceId);
 }
 
 bool RustSdkMatrixClient::waitForRustRetirement(int budgetMs)
@@ -860,6 +922,14 @@ void RustSdkMatrixClient::releaseRustHandle()
     signIn.accessDigest = m_persistedAccessDigest;
     signIn.persist = !signIn.userId.isEmpty() && !m_lifecycle.signingOut()
         && !m_retireAsSignOut;
+    // Record-only: the store stays owned (Retiring) until the worker reports
+    // that it closed.
+    const quint64 storeSerial = m_storeOwnershipSerial;
+    lightning::accounts::StoreOwnershipRegistry *storeRegistry =
+        storeSerial != 0 ? &storeOwnershipRegistry() : nullptr;
+    if (storeRegistry)
+        storeRegistry->noteReleasing(storeSerial);
+    m_storeOwnershipSerial = 0;
     m_persistedAccessDigest.clear();
     // The retiring worker writes whatever this was waiting to.
     m_tokenWriteRetry.stop();
@@ -878,7 +948,8 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_pagination.clear();
 
     retireRustHandleAsync(retiring, typingRoom, signIn,
-                          QPointer<RustSdkMatrixClient>(this));
+                          QPointer<RustSdkMatrixClient>(this), storeSerial,
+                          storeRegistry);
 }
 
 void RustSdkMatrixClient::login(const QString &homeserver,
@@ -2363,6 +2434,11 @@ bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
         return false;
     // Used once: the store it proved dead is aside, and the next store at this
     // path is the new session's, whatever device id the server gives it.
+    if (m_revocationProofs) {
+        m_revocationProofs->clearHard(m_revokedUserId);
+        if (identity.userId != m_revokedUserId)
+            m_revocationProofs->clearHard(identity.userId);
+    }
     m_revokedUserId.clear();
     m_revokedDeviceId.clear();
     return true;
@@ -2385,6 +2461,9 @@ bool RustSdkMatrixClient::restoreSession()
 {
     // Named scope for the stall tracer, as in detachSession().
     stalltrace::Scope stallScope("session-restore");
+    // LIGHTNING_SWITCH_TRACE S7: entry to the mx_rust_restore dispatch, which
+    // is this function's last act on every path. A no-op with no trace open.
+    lightning::switchtrace::StepScope switchTraceS7(lightning::switchtrace::Step::S7);
     // A restore replaces whatever attempt was running; nothing of that
     // attempt may be rolled back against the store this one opens.
     m_freshLoginIdentity = {};
@@ -2949,6 +3028,9 @@ void RustSdkMatrixClient::startSync()
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
+    // LIGHTNING_SWITCH_TRACE S9, ended by the first room list reset handled
+    // below (noteFirstReset). A no-op with no trace open.
+    lightning::switchtrace::stepBegin(lightning::switchtrace::Step::S9);
     setState(Syncing);
     mx_rust_start_sync(m_rustHandle);
     ensurePollTimer();
@@ -5633,47 +5715,47 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // active: those can differ, and the tokens would land on another
         // account.
         const QString tokenOwner = tokenOwnerForRunningSession();
-        const QString access = event.value(QStringLiteral("access_token")).toString();
+        // SENSITIVE: never log `rotated`.
+        const lightning::accounts::SessionTokenPair rotated{
+            event.value(QStringLiteral("access_token")).toString(),
+            event.value(QStringLiteral("refresh_token")).toString()};
         // Only the pair the session holds NOW is written: two rotations can
         // wait in one drain, and the older one must never land over the newer
         // (its refresh token is already used up). An event older than the
         // session's tokens is skipped; the newer one follows it.
+        QString currentAccess;
         if (m_rustHandle) {
             // SENSITIVE: never log `current`.
             const QString current = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
-            const QString currentAccess = current.isEmpty()
-                    || current.startsWith(QLatin1String("error: "))
-                ? QString()
-                : QJsonDocument::fromJson(current.toUtf8()).object()
-                      .value(QStringLiteral("access_token")).toString();
-            if (!currentAccess.isEmpty()
-                && accessTokenDigest(currentAccess) != accessTokenDigest(access)) {
-                qCInfo(lcRust) << "skipped a rotation the session has already "
-                                  "rotated past"
-                               << "slug=" << matrix::app_data::safeUserSlug(m_userId);
-                return;
-            }
+            currentAccess = custody::parseFinalSessionTokens(current).accessToken;
         }
-        if (m_settings && !tokenOwner.isEmpty()) {
-            if (m_settings->updateSessionTokens(
-                    tokenOwner, access,
-                    event.value(QStringLiteral("refresh_token")).toString())) {
-                m_persistedAccessDigest = accessTokenDigest(access);
-                m_tokenWriteRetry.stop();
-                m_tokenWriteFailingFor.invalidate();
-            } else {
-                // Not left to the next rotation (minutes away) or to the
-                // retirement write (only a clean quit reaches it). A new
-                // rotation restarts the retries even after a give-up.
-                m_tokenWriteAttempts = 0;
-                if (!m_tokenWriteFailingFor.isValid())
-                    m_tokenWriteFailingFor.start();
-                scheduleRotatedTokenWrite();
-            }
-        } else {
+        SettingsTokenStore settingsStore(m_settings);
+        switch (custody::writeLive(m_settings ? &settingsStore : nullptr, tokenOwner,
+                                   currentAccess, rotated)) {
+        case custody::LiveWrite::SkippedRotatedPast:
+            qCInfo(lcRust) << "skipped a rotation the session has already "
+                              "rotated past"
+                           << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+            return;
+        case custody::LiveWrite::Written:
+            m_persistedAccessDigest = accessTokenDigest(rotated.accessToken);
+            m_tokenWriteRetry.stop();
+            m_tokenWriteFailingFor.invalidate();
+            break;
+        case custody::LiveWrite::WriteFailed:
+            // Not left to the next rotation (minutes away) or to the
+            // retirement write (only a clean quit reaches it). A new
+            // rotation restarts the retries even after a give-up.
+            m_tokenWriteAttempts = 0;
+            if (!m_tokenWriteFailingFor.isValid())
+                m_tokenWriteFailingFor.start();
+            scheduleRotatedTokenWrite();
+            break;
+        case custody::LiveWrite::SkippedNoOwner:
             qCWarning(lcRust) << "a rotated sign-in matches no saved account "
                                  "for this device; not stored"
                               << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+            break;
         }
         return;
     }
@@ -5686,19 +5768,26 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // A soft logout keeps the device on the server, so signing in again
         // may resume it with this store; only a hard one proves this store's
         // device gone. A missing field proves neither: the old card, no proof.
+        // The classification itself is lightning::accounts::classifyRevocation
+        // (pure, and parity-tested against this handler's old inline logic).
         const QJsonValue softValue = event.value(QStringLiteral("soft_logout"));
-        const bool softLogoutReported = softValue.isBool() && softValue.toBool();
-        const bool oauthSession = m_settings && !m_userId.isEmpty()
+        const QJsonValue hadRefresh = event.value(QStringLiteral("had_refresh_token"));
+        lightning::accounts::RevocationEventFacts facts;
+        if (softValue.isBool())
+            facts.softLogout = softValue.toBool();
+        if (hadRefresh.isBool())
+            facts.hadRefreshToken = hadRefresh.toBool();
+        facts.oauthSession = m_settings && !m_userId.isEmpty()
             && m_settings->isOAuthAccount(m_userId);
+        const bool oauthSession = facts.oauthSession;
         // had_refresh_token=false: matrix-sdk had no refresh token to try and
         // gave up without asking the server (RefreshTokenRequired). If the
         // keyring holds a refresh token for this OAuth sign-in, or cannot
         // answer, the session simply never got it: the non-destructive
         // keyring card, whose "Try again" restores with it, and no
         // revocation. Absent from older events: unchanged below.
-        const QJsonValue hadRefresh = event.value(QStringLiteral("had_refresh_token"));
         bool keyringHoldsOrCannotTell = false;
-        if (oauthSession && hadRefresh.isBool() && !hadRefresh.toBool()) {
+        if (lightning::accounts::revocationNeedsKeyringProbe(facts)) {
             // This account's own record, read now: the flag below is this
             // read's answer and no earlier one's.
             QString owner = tokenOwnerForRunningSession();
@@ -5716,7 +5805,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // never be continued from here, so it ends as before (hard, below);
         // its next sign-in moves the store aside for a new device rather than
         // leave "Remove", which deletes it, as the only way on.
-        if (keyringHoldsOrCannotTell) {
+        const lightning::accounts::RevocationClassification classified =
+            lightning::accounts::classifyRevocation(facts, keyringHoldsOrCannotTell);
+        const bool softLogoutReported = classified.softLogoutReported;
+        if (classified.outcome
+            == lightning::accounts::RevocationOutcome::KeyringHoldsOrCannotTell) {
             const auto reason =
                 matrix::rust_session::StoreBlockReason::SecretBackendUnavailable;
             const QString user = m_loggedIn ? m_userId : m_openingIdentity.userId;
@@ -5736,11 +5829,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // Lightning's browser sign-in never asks for this device again, so it
         // counts as ended: the next sign-in moves the store aside for a new
         // device (never deletes it).
-        const bool oauthWithoutRefreshToken =
-            oauthSession && hadRefresh.isBool() && !hadRefresh.toBool();
-        const bool hardLogout = (softValue.isBool() && !softValue.toBool())
-            || (softLogoutReported && oauthSession) || oauthWithoutRefreshToken;
-        const bool softLogout = softLogoutReported && !oauthSession;
+        const bool hardLogout =
+            classified.outcome == lightning::accounts::RevocationOutcome::Hard;
+        const bool softLogout =
+            classified.outcome == lightning::accounts::RevocationOutcome::Soft;
         if (hardLogout && !m_userId.isEmpty() && !m_deviceId.isEmpty()) {
             m_revokedUserId = m_userId;
             m_revokedDeviceId = m_deviceId;
@@ -5751,6 +5843,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 m_softLogoutHomeserver.clear();
                 m_softLogoutDeviceId.clear();
             }
+            // Mirror only (never read in Phase 0); recordHard drops that
+            // account's soft proof for the same device, as above.
+            if (m_revocationProofs)
+                m_revocationProofs->recordHard(m_userId, m_deviceId);
         } else if (softLogout && !m_userId.isEmpty() && !m_deviceId.isEmpty()
                    && !(m_revokedUserId == m_userId
                         && m_revokedDeviceId == m_deviceId)) {
@@ -5761,6 +5857,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 m_softLogoutUserId = m_userId;
                 m_softLogoutHomeserver = running.homeserver;
                 m_softLogoutDeviceId = m_deviceId;
+                if (m_revocationProofs)
+                    m_revocationProofs->recordSoft(m_userId, running.homeserver,
+                                                   m_deviceId);
             }
         }
         const auto reason = softLogout
@@ -5802,6 +5901,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("login_ok")) {
+        // LIGHTNING_SWITCH_TRACE S8 ends here, before loginSucceeded fans out.
+        // The Rust "trace" object carries timings and counts only.
+        if (lightning::switchtrace::active()) {
+            const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
+            const QJsonValue trace = event.value(QStringLiteral("trace"));
+            if (trace.isObject())
+                lightning::switchtrace::noteRustRestore(trace.toObject(), receivedWallMs);
+        }
         m_freshLoginIdentity = {};
         m_freshBrowserRecord = {};
         // SENSITIVE: this event carries `access_token`. Never log `event` or
@@ -5827,6 +5934,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_softLogoutHomeserver.clear();
             m_softLogoutDeviceId.clear();
         }
+        // Mirror, per account: the proofs of the account now running are
+        // consumed whether or not the single slot still named it.
+        if (m_loggedIn && m_revocationProofs)
+            m_revocationProofs->clear(m_userId);
         // The SDK refuses a device its store does not hold, so this cannot
         // differ; said aloud if it ever does.
         if (!m_resumeDeviceId.isEmpty() && m_deviceId != m_resumeDeviceId) {
@@ -5875,6 +5986,13 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("login_failed")) {
+        // LIGHTNING_SWITCH_TRACE: as login_ok. Timings and counts only.
+        if (lightning::switchtrace::active()) {
+            const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
+            const QJsonValue trace = event.value(QStringLiteral("trace"));
+            if (trace.isObject())
+                lightning::switchtrace::noteRustRestore(trace.toObject(), receivedWallMs);
+        }
         m_loggedIn = false;
         // The soft-logout proof stays: a mistyped password may try again.
         const bool resumeAttempt = !m_resumeDeviceId.isEmpty();
@@ -5985,7 +6103,20 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("rooms") || type == QLatin1String("room_list_reset")) {
-        handleRoomsEvent(event.value(QStringLiteral("rooms")).toArray());
+        const QJsonArray rooms = event.value(QStringLiteral("rooms")).toArray();
+        if (!lightning::switchtrace::active()) {
+            handleRoomsEvent(rooms);
+            return;
+        }
+        // LIGHTNING_SWITCH_TRACE: the JSON-to-RoomInfo parse and the
+        // synchronous model emit timed apart. Counts and timings only.
+        const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
+        qint64 parseMs = -1;
+        qint64 modelMs = -1;
+        handleRoomsEvent(rooms, &parseMs, &modelMs);
+        lightning::switchtrace::noteFirstReset(
+            int(rooms.size()), parseMs, modelMs,
+            event.value(QStringLiteral("trace")).toObject(), receivedWallMs);
         return;
     }
 
@@ -6173,6 +6304,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         m_softLogoutUserId.clear();
         m_softLogoutHomeserver.clear();
         m_softLogoutDeviceId.clear();
+        if (m_revocationProofs) {
+            m_revocationProofs->recordHard(userId, deviceId);
+            m_revocationProofs->clearSoft(userId);
+        }
         Q_EMIT localSessionBlocked(
             matrix::rust_session::diagnosticName(
                 matrix::rust_session::StoreBlockReason::AccessTokenRevoked),
@@ -6964,14 +7099,24 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 }
 
-void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms)
+void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms, qint64 *parseMs,
+                                           qint64 *modelMs)
 {
+    QElapsedTimer timed;
+    if (parseMs || modelMs)
+        timed.start();
     matrix::rust_rooms::applyIndexReset({m_rooms, m_roomOrder}, rooms);
     // The reset is the whole list: a room absent from it has left it.
     m_highlightGaps.forgetRoomsNotIn(
         QSet<QString>(m_roomOrder.cbegin(), m_roomOrder.cend()));
     observeHighlightCounts(rooms);
+    if (parseMs)
+        *parseMs = timed.elapsed();
+    if (modelMs)
+        timed.restart();
     Q_EMIT roomsChanged();
+    if (modelMs)
+        *modelMs = timed.elapsed();
 }
 
 void RustSdkMatrixClient::handleRoomSnapshotEvent(const QJsonArray &rooms)

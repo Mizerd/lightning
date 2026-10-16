@@ -776,14 +776,23 @@ where
     // build_client_for_restore).
     let client = crate::build_client_for_restore(homeserver, store_path, events).await?;
     let changes = client.subscribe_to_session_changes();
-    if let Err(err) = client.oauth().restore_session(session, RoomLoadSettings::default()).await {
+    if let Err(err) = crate::switchtrace::timed(
+        Some(crate::switchtrace::RestoreStep::Restore),
+        client.oauth().restore_session(session, RoomLoadSettings::default()),
+    )
+    .await
+    {
         drop(client);
         return Err(format_matrix_error("Matrix OAuth session restore failed", err));
     }
     after_restore(client.clone()).await;
     // On the shared runtime with rooms loaded, as the send-queue respawn
     // requires (see resume_unsent_requests in lib.rs).
-    crate::resume_unsent_requests(&client).await;
+    crate::switchtrace::timed(
+        Some(crate::switchtrace::RestoreStep::ResumeUnsent),
+        crate::resume_unsent_requests(&client),
+    )
+    .await;
     Ok((client, changes))
 }
 
@@ -838,7 +847,9 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
-            run_async_on(shared_runtime, runtime_events, "oauth_restore", async move {
+            run_async_on(shared_runtime, runtime_events, "oauth_restore",
+                crate::switchtrace::restore_scope(
+                    crate::switchtrace::switch_trace_enabled(), async move {
                 let session = OAuthSession {
                     client_id: ClientId::new(client_id),
                     user: UserSession {
@@ -880,19 +891,20 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                         }
                         enqueue(
                             &events,
-                            json!({
+                            crate::switchtrace::with_restore_trace(json!({
                                 "type": "login_ok",
                                 "homeserver": homeserver,
                                 "user_id": user_id,
                                 "device_id": device_id,
-                            }),
+                            })),
                         );
                     }
                     Err(message) => {
-                        enqueue(&events, json!({ "type": "login_failed", "message": message }));
+                        enqueue(&events, crate::switchtrace::with_restore_trace(
+                            json!({ "type": "login_failed", "message": message })));
                     }
                 }
-            });
+            }));
         });
 
         Ok(String::new())

@@ -610,6 +610,28 @@ public:
     /// device key). roomNotificationMode() returns 0 for an absent key, so
     /// this is the only way to tell "all messages" from "never configured".
     bool hasStoredRoomNotificationMode(const QString &roomId) const;
+    // Same answers as the active-account accessors above, for ANY saved
+    // account, without switching the active account. The scope is
+    // slugForSavedAccount(userId) (exact stored id match, uncached); an empty
+    // userId or one with no saved record reads the device scope, exactly as
+    // the accessors above behave with no active account. Never write, never
+    // emit. For the active account each one equals its accessor above.
+    int roomNotificationModeFor(const QString &userId,
+                                const QString &roomId) const;
+    bool roomNotificationModeUnsyncedFor(const QString &userId,
+                                         const QString &roomId) const;
+    int roomNotificationModeUnsyncedBaseFor(const QString &userId,
+                                            const QString &roomId) const;
+    bool roomNotificationModeDeviceOnlyFor(const QString &userId,
+                                           const QString &roomId) const;
+    bool hasStoredRoomNotificationModeFor(const QString &userId,
+                                          const QString &roomId) const;
+    int roomUnreadModeFor(const QString &userId, const QString &roomId) const;
+    // The twin of NotificationManager::Context::localModeUnsynced: the
+    // account's local mode decides alone (unsynced or device only). For the
+    // active account it equals AppController::roomNotificationModeDecidesLocally.
+    bool roomNotificationModeDecidesLocallyFor(const QString &userId,
+                                               const QString &roomId) const;
     // Rooms with a mode stored under the active account's own key (never the
     // legacy device-global ones). Empty without an account.
     QStringList accountRoomNotificationModeRooms() const;
@@ -1234,6 +1256,24 @@ private:
     // "accounts/<slug>/" for the active account, or empty for the signed-out
     // device scope, as setRoomNotificationMode writes.
     QString roomNotificationScopePrefix() const;
+    // The same two keys for an explicit account slug (empty = device scope).
+    // The two above are these with activeAccountSlugCached().
+    static QString scopePrefixFor(const QString &slug);
+    static QString scopedKeyFor(const QString &slug, const QString &roomId);
+    // The per-room mode readers, for one scope. The active accessors pass
+    // activeAccountSlugCached() (the hot path keeps its cache); the *For
+    // versions pass slugForSavedAccount(userId).
+    int roomNotificationModeInScope(const QString &slug,
+                                    const QString &roomId) const;
+    bool roomNotificationModeUnsyncedInScope(const QString &slug,
+                                             const QString &roomId) const;
+    int roomNotificationModeUnsyncedBaseInScope(const QString &slug,
+                                                const QString &roomId) const;
+    bool roomNotificationModeDeviceOnlyInScope(const QString &slug,
+                                               const QString &roomId) const;
+    bool hasStoredRoomNotificationModeInScope(const QString &slug,
+                                              const QString &roomId) const;
+    int roomUnreadModeInScope(const QString &slug, const QString &roomId) const;
     // Learned-media store: one LRU index covers dimension and size keys.
     static QString mediaInfoIndexKeyForSlug(const QString &slug);
     void touchMediaInfoIndex(const QString &slug, const QString &hash);
@@ -1241,6 +1281,7 @@ private:
     // active slug is cached keyed by user id. Every removal path clears the
     // active id, and setActiveAccountUserId clears the cache explicitly.
     QString activeAccountSlugCached() const;
+    QString slugForAccountScope(const QString &userId) const;
     // Reads and validates the stored window geometry once, from the
     // constructor.
     void loadWindowGeometry();

@@ -132,6 +132,15 @@ private Q_SLOTS:
     void aMissedCallSurvivesTheReadWalk();
     void twoRoomsOfBalloonsOpenNeitherByGuess();
     void aDeliveredMessageAsksForAttention();
+    // Live accounts, Phase 0 (WP0-N): per-account tables, with the foreground
+    // ("") account exactly as before.
+    void anEmptyAccountKeepsTodaysPayloadsEvictionAndTombstones();
+    void clearPendingIsExactlyTheForegroundAccountsClear();
+    void everyOpenNamesItsAccountFirst();
+    void clearingOneAccountSparesAnothersCards();
+    void aSixtyFifthCardEvictsOnlyThatAccountsOldest();
+    void aClearOfOneAccountDoesNotRejectAnothersReply();
+    void aBalloonCarriesTheAccountItWasRaisedFor();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -2638,6 +2647,607 @@ void NotificationManagerTest::aDeliveredMessageAsksForAttention()
     muted.roomMode = NotificationManager::Muted;
     manager.processEvent(incomingText(), muted);
     QCOMPARE(delivered.count(), 1);
+}
+
+// ── Live accounts, Phase 0 (WP0-N) ─────────────────────────────────────────
+// The click-payload table, its delivery generation and the avatar waits are
+// kept per account. The empty account is the foreground one and must behave
+// exactly as the single table did; the others must not disturb each other.
+
+namespace {
+const QString kAnn = QStringLiteral("@ann:example.org");
+const QString kBea = QStringLiteral("@bea:example.org");
+
+// Parks every delivery waiting for its avatar: the only way to read a built
+// payload without a daemon.
+void parkDeliveries(NotificationManager &manager)
+{
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+}
+
+NotificationManager::Context parkedContext(const QString &account = QString())
+{
+    auto context = baseContext();
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    context.accountUserId = account;
+    return context;
+}
+
+TimelineEvent textIn(const QString &room, const QString &eventId)
+{
+    TimelineEvent event = incomingText();
+    event.roomId = room;
+    event.eventId = eventId;
+    return event;
+}
+
+// The group key deliverDecision() writes into a message card's payload.
+QString messageGroup(const QString &room, const QString &thread = QString())
+{
+    const QChar separator(0x1f);
+    return QStringLiteral("m") + separator + room + separator + thread;
+}
+
+QString line(const QStringList &parts)
+{
+    return parts.join(QLatin1Char('|'));
+}
+
+// Every routing signal, one line each, in the order they were emitted.
+void recordRouting(NotificationManager &manager, QStringList &log)
+{
+    QObject::connect(&manager, &NotificationManager::openRequestedForAccount,
+                     &manager,
+                     [&log](const QString &account, const QString &room,
+                            const QString &event, const QString &thread) {
+                         log << line({ QStringLiteral("account"), account,
+                                       room, event, thread });
+                     });
+    QObject::connect(&manager, &NotificationManager::openRequested, &manager,
+                     [&log](const QString &room, const QString &event,
+                            const QString &thread) {
+                         log << line({ QStringLiteral("open"), room, event,
+                                       thread });
+                     });
+    QObject::connect(&manager, &NotificationManager::markReadRequested,
+                     &manager,
+                     [&log](const QString &account, const QString &room,
+                            const QString &event) {
+                         log << line({ QStringLiteral("read"), account, room,
+                                       event });
+                     });
+    QObject::connect(&manager, &NotificationManager::replyRequested, &manager,
+                     [&log](const QString &account, const QString &room,
+                            const QString &thread, const QString &text) {
+                         log << line({ QStringLiteral("reply"), account, room,
+                                       thread, text });
+                     });
+}
+
+void act(NotificationManager &manager, quint32 id, const char *action)
+{
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, id),
+                                      Q_ARG(QString,
+                                            QString::fromLatin1(action))));
+}
+
+// The sign-out script both clears are put through: 66 cards (two evicted),
+// an account switch, actions before and after the clear.
+QStringList runSignOutScript(bool throughClearPendingFor)
+{
+    QStringList log;
+    NotificationManager manager;
+    recordRouting(manager, log);
+    manager.setAccountUserId(kAnn);
+    for (quint32 id = 1; id <= 66; ++id) {
+        manager.recordPayloadForTest(
+            id, messagePayload(QStringLiteral("!r%1").arg(id),
+                               QStringLiteral("$e%1").arg(id), QString(),
+                               kAnn));
+    }
+    manager.setAccountUserId(kBea);
+    act(manager, 1, "mark-read");   // evicted: Ann's tombstone answers
+    act(manager, 66, "default");    // the newest still routes
+    if (throughClearPendingFor)
+        manager.clearPendingFor(QString());
+    else
+        manager.clearPending();
+    act(manager, 65, "mark-read");  // withdrawn by the clear
+    act(manager, 64, "default");    // raises the window only
+    QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                              Q_ARG(quint32, 63u),
+                              Q_ARG(QString, QStringLiteral("hi")));
+    act(manager, 2, "mark-read");   // the other evicted card
+    log << QStringLiteral("pending=%1")
+               .arg(manager.pendingPayloadCountForTest())
+        << QStringLiteral("generation=%1")
+               .arg(manager.deliveryGenerationForTest(QString()));
+    return log;
+}
+} // namespace
+
+// The foreground account's payload, eviction, tombstones and clear, written
+// out as the single table produced them. Not compared against clearPending(),
+// which is now this clear itself.
+void NotificationManagerTest::anEmptyAccountKeepsTodaysPayloadsEvictionAndTombstones()
+{
+    // The payload: stamped with the manager's account when the context names
+    // none, as it always was. Compared whole, so a key added or lost fails.
+    NotificationManager manager;
+    manager.setAccountUserId(kAnn);
+    parkDeliveries(manager);
+    const auto context = parkedContext();
+    QVERIFY(context.accountUserId.isEmpty());
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QCOMPARE(manager.avatarWaitCountForTest(QString()), 1);
+    const QVariantMap expected{
+        { QStringLiteral("roomId"), QStringLiteral("!room:example.org") },
+        { QStringLiteral("eventId"), QStringLiteral("$ev:example.org") },
+        { QStringLiteral("threadRootId"), QString() },
+        { QStringLiteral("accountUserId"), kAnn },
+        { QStringLiteral("mention"), false },
+        { QStringLiteral("group"),
+          messageGroup(QStringLiteral("!room:example.org")) },
+    };
+    QVERIFY2(manager.avatarWaitPayloadForTest(0) == expected,
+             "the foreground account's click payload is not the one the "
+             "single table built");
+
+    // A label is carried but read by nothing yet.
+    auto labelled = context;
+    labelled.accountLabel = QStringLiteral("Work");
+    manager.processEvent(
+        textIn(QStringLiteral("!other:example.org"),
+               QStringLiteral("$ev2:example.org")),
+        labelled);
+    QCOMPARE(manager.avatarWaitCountForTest(), 2);
+    QCOMPARE(manager.avatarWaitPayloadForTest(1)
+                 .value(QStringLiteral("accountUserId")).toString(),
+             kAnn);
+
+    // The new fields take part in a Context's equality.
+    QVERIFY(baseContext() == baseContext());
+    auto other = baseContext();
+    other.accountUserId = kBea;
+    QVERIFY(!(other == baseContext()));
+    other = baseContext();
+    other.accountLabel = QStringLiteral("Work");
+    QVERIFY(!(other == baseContext()));
+
+    // The clear drops the foreground's waits and moves its generation on.
+    const quint64 before = manager.deliveryGenerationForTest(QString());
+    manager.clearPendingFor(QString());
+    QCOMPARE(manager.avatarWaitCountForTest(), 0);
+    QCOMPARE(manager.deliveryGenerationForTest(QString()), before + 1);
+
+    // Eviction is FIFO and the evicted cards are tombstoned for the account
+    // they were raised for; the clear tombstones the rest. The golden lines
+    // are what the single table emitted for this script.
+    const QStringList golden{
+        line({ QStringLiteral("read"), kAnn, QString(), QString() }),
+        line({ QStringLiteral("account"), kAnn, QStringLiteral("!r66"),
+               QStringLiteral("$e66"), QString() }),
+        line({ QStringLiteral("open"), QStringLiteral("!r66"),
+               QStringLiteral("$e66"), QString() }),
+        line({ QStringLiteral("read"), kAnn, QString(), QString() }),
+        line({ QStringLiteral("account"), QString(), QString(), QString(),
+               QString() }),
+        line({ QStringLiteral("open"), QString(), QString(), QString() }),
+        line({ QStringLiteral("reply"), kAnn, QString(), QString(),
+               QStringLiteral("hi") }),
+        line({ QStringLiteral("read"), kAnn, QString(), QString() }),
+        QStringLiteral("pending=0"),
+        QStringLiteral("generation=1"),
+    };
+    const QStringList actual = runSignOutScript(true);
+    QVERIFY2(actual == golden,
+             qPrintable(QStringLiteral("sign-out script diverged:\n%1")
+                            .arg(actual.join(QLatin1Char('\n')))));
+
+    // The third oldest card was not evicted with the first two.
+    NotificationManager fifo;
+    QStringList log;
+    recordRouting(fifo, log);
+    for (quint32 id = 1; id <= 66; ++id) {
+        fifo.recordPayloadForTest(
+            id, messagePayload(QStringLiteral("!r%1").arg(id),
+                               QStringLiteral("$e%1").arg(id), QString(),
+                               kAnn));
+    }
+    QCOMPARE(fifo.pendingPayloadCountForTest(), 64);
+    act(fifo, 3, "mark-read");
+    QCOMPARE(log, QStringList{ line({ QStringLiteral("read"), kAnn,
+                                      QStringLiteral("!r3"),
+                                      QStringLiteral("$e3") }) });
+}
+
+// clearPending() is kept for its callers and must stay the foreground
+// account's clear, line for line.
+void NotificationManagerTest::clearPendingIsExactlyTheForegroundAccountsClear()
+{
+    const QStringList viaClearPending = runSignOutScript(false);
+    const QStringList viaClearPendingFor = runSignOutScript(true);
+    QCOMPARE(viaClearPending.size(), 10);
+    QCOMPARE(viaClearPending, viaClearPendingFor);
+
+    // The process-wide state goes with the foreground's clear, as before: the
+    // ring, held messages and the balloon.
+    NotificationManager manager;
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), true, 60);
+    TimelineEvent utd = incomingText();
+    utd.undecryptable = true;
+    manager.processEvent(utd, baseContext());
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 1);
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!tray:example.org"),
+                       QStringLiteral("$t:example.org")));
+    manager.clearPendingFor(QString());
+    QVERIFY(!manager.callRingActiveForTest());
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QVERIFY(opened.first().at(0).toString().isEmpty());
+}
+
+// openRequestedForAccount precedes every openRequested, once, with the same
+// normalised ids and the account the card was raised for.
+void NotificationManagerTest::everyOpenNamesItsAccountFirst()
+{
+    const QString room = QStringLiteral("!room:example.org");
+    const QString root = QStringLiteral("$root:example.org");
+    QStringList log;
+    NotificationManager manager;
+    recordRouting(manager, log);
+    manager.setAccountUserId(kAnn);
+
+    // A card in the foreground table, raised for a thread through its
+    // composite timeline id: normalised in both signals.
+    manager.recordPayloadForTest(
+        5, messagePayload(MatrixClient::threadTimelineId(room, root),
+                          QStringLiteral("$a"), QString(), kAnn));
+    act(manager, 5, "default");
+    // A card in another account's table is found by its id.
+    manager.recordPayloadForTest(
+        kBea, 6, messagePayload(QStringLiteral("!b:example.org"),
+                                QStringLiteral("$b"), QString(), kBea));
+    act(manager, 6, "default");
+    // A balloon's payload names its account too.
+    manager.deliverThroughTrayForTest(
+        kBea, messagePayload(QStringLiteral("!t:example.org"),
+                             QStringLiteral("$t"), QString(), kBea));
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    // Two rooms of balloons: the window only, so no account either.
+    manager.deliverThroughTrayForTest(
+        messagePayload(QStringLiteral("!x:example.org"),
+                       QStringLiteral("$x"), QString(), kAnn));
+    manager.deliverThroughTrayForTest(
+        kBea, messagePayload(QStringLiteral("!y:example.org"),
+                             QStringLiteral("$y"), QString(), kBea));
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    // A withdrawn card: the window only.
+    manager.recordPayloadForTest(
+        7, messagePayload(room, QStringLiteral("$c"), QString(), kAnn));
+    manager.clearPendingFor(QString());
+    act(manager, 7, "default");
+
+    const QStringList expected{
+        line({ QStringLiteral("account"), kAnn, room, QStringLiteral("$a"),
+               root }),
+        line({ QStringLiteral("open"), room, QStringLiteral("$a"), root }),
+        line({ QStringLiteral("account"), kBea,
+               QStringLiteral("!b:example.org"), QStringLiteral("$b"),
+               QString() }),
+        line({ QStringLiteral("open"), QStringLiteral("!b:example.org"),
+               QStringLiteral("$b"), QString() }),
+        line({ QStringLiteral("account"), kBea,
+               QStringLiteral("!t:example.org"), QStringLiteral("$t"),
+               QString() }),
+        line({ QStringLiteral("open"), QStringLiteral("!t:example.org"),
+               QStringLiteral("$t"), QString() }),
+        line({ QStringLiteral("account"), QString(), QString(), QString(),
+               QString() }),
+        line({ QStringLiteral("open"), QString(), QString(), QString() }),
+        line({ QStringLiteral("account"), QString(), QString(), QString(),
+               QString() }),
+        line({ QStringLiteral("open"), QString(), QString(), QString() }),
+    };
+    QVERIFY2(log == expected,
+             qPrintable(QStringLiteral("routing diverged:\n%1")
+                            .arg(log.join(QLatin1Char('\n')))));
+}
+
+// Clearing one account withdraws its cards only: another account's table,
+// waits and held messages survive, and the foreground's ring keeps ringing.
+void NotificationManagerTest::clearingOneAccountSparesAnothersCards()
+{
+    const QString a = QStringLiteral("@a:example.org");
+    const QString b = QStringLiteral("@b:example.org");
+    QStringList log;
+    NotificationManager manager;
+    recordRouting(manager, log);
+    manager.setAccountUserId(kAnn);
+    parkDeliveries(manager);
+
+    manager.recordPayloadForTest(
+        a, 1, messagePayload(QStringLiteral("!ra"), QStringLiteral("$a1"),
+                             QString(), a));
+    manager.recordPayloadForTest(
+        b, 2, messagePayload(QStringLiteral("!rb"), QStringLiteral("$b1"),
+                             QString(), b));
+    manager.recordPayloadForTest(
+        b, 4, messagePayload(QStringLiteral("!rb2"), QStringLiteral("$b2"),
+                             QString(), b));
+    manager.recordPayloadForTest(
+        3, messagePayload(QStringLiteral("!rf"), QStringLiteral("$f1"),
+                          QString(), kAnn));
+    manager.processEvent(textIn(QStringLiteral("!ra"), QStringLiteral("$wa")),
+                         parkedContext(a));
+    manager.processEvent(textIn(QStringLiteral("!rb"), QStringLiteral("$wb")),
+                         parkedContext(b));
+    QCOMPARE(manager.avatarWaitCountForTest(a), 1);
+    QCOMPARE(manager.avatarWaitCountForTest(b), 1);
+    QCOMPARE(manager.avatarWaitCountForTest(), 0);
+    // A message of each held for its key.
+    TimelineEvent utdA = textIn(QStringLiteral("!ra"), QStringLiteral("$ua"));
+    utdA.undecryptable = true;
+    TimelineEvent utdB = textIn(QStringLiteral("!rb"), QStringLiteral("$ub"));
+    utdB.undecryptable = true;
+    auto heldA = baseContext();
+    heldA.accountUserId = a;
+    auto heldB = baseContext();
+    heldB.accountUserId = b;
+    manager.processEvent(utdA, heldA);
+    manager.processEvent(utdB, heldB);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 2);
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), true, 60);
+    QVERIFY(manager.callRingActiveForTest());
+    const quint64 generationA = manager.deliveryGenerationForTest(a);
+    const quint64 generationB = manager.deliveryGenerationForTest(b);
+    const quint64 generationF = manager.deliveryGenerationForTest(QString());
+
+    manager.clearPendingFor(a);
+
+    QCOMPARE(manager.pendingPayloadCountForTest(a), 0);
+    QCOMPARE(manager.pendingPayloadCountForTest(b), 2);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    QCOMPARE(manager.avatarWaitCountForTest(a), 0);
+    QCOMPARE(manager.avatarWaitCountForTest(b), 1);
+    QCOMPARE(manager.heldUndecryptableCountForTest(), 1);
+    QCOMPARE(manager.deliveryGenerationForTest(a), generationA + 1);
+    QCOMPARE(manager.deliveryGenerationForTest(b), generationB);
+    QCOMPARE(manager.deliveryGenerationForTest(QString()), generationF);
+    QVERIFY2(manager.callRingActiveForTest(),
+             "clearing another account stopped the foreground's call ring");
+    QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-1"));
+
+    // B's card still routes to its room; A's raises the window only.
+    act(manager, 2, "default");
+    act(manager, 1, "default");
+    QCOMPARE(log, (QStringList{
+        line({ QStringLiteral("account"), b, QStringLiteral("!rb"),
+               QStringLiteral("$b1"), QString() }),
+        line({ QStringLiteral("open"), QStringLiteral("!rb"),
+               QStringLiteral("$b1"), QString() }),
+        line({ QStringLiteral("account"), QString(), QString(), QString(),
+               QString() }),
+        line({ QStringLiteral("open"), QString(), QString(), QString() }),
+    }));
+
+    // The foreground's clear is today's: its table and the process-wide
+    // state, and not another account's table.
+    manager.clearPendingFor(QString());
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    QCOMPARE(manager.pendingPayloadCountForTest(b), 1);
+    QCOMPARE(manager.avatarWaitCountForTest(b), 1);
+    QVERIFY(!manager.callRingActiveForTest());
+}
+
+// The 64-card cap is per account: one account's 65th card evicts that
+// account's oldest, never another's; the same for parked avatar waits.
+void NotificationManagerTest::aSixtyFifthCardEvictsOnlyThatAccountsOldest()
+{
+    const QString a = QStringLiteral("@a:example.org");
+    const QString b = QStringLiteral("@b:example.org");
+    QStringList log;
+    NotificationManager manager;
+    recordRouting(manager, log);
+    manager.setAccountUserId(kAnn);
+    for (quint32 id = 101; id <= 110; ++id) {
+        manager.recordPayloadForTest(
+            b, id, messagePayload(QStringLiteral("!b%1").arg(id),
+                                  QStringLiteral("$b%1").arg(id), QString(),
+                                  b));
+    }
+    manager.recordPayloadForTest(
+        200, messagePayload(QStringLiteral("!f"), QStringLiteral("$f"),
+                            QString(), kAnn));
+    for (quint32 id = 1; id <= 64; ++id) {
+        manager.recordPayloadForTest(
+            a, id, messagePayload(QStringLiteral("!a%1").arg(id),
+                                  QStringLiteral("$a%1").arg(id), QString(),
+                                  a));
+    }
+    QCOMPARE(manager.pendingPayloadCountForTest(a), 64);
+    QCOMPARE(manager.pendingPayloadCountForTest(b), 10);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    manager.recordPayloadForTest(
+        a, 65, messagePayload(QStringLiteral("!a65"), QStringLiteral("$a65"),
+                              QString(), a));
+    QCOMPARE(manager.pendingPayloadCountForTest(a), 64);
+    QCOMPARE(manager.pendingPayloadCountForTest(b), 10);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    // A's oldest went, tombstoned for A (the different-account refusal);
+    // A's second, B's oldest and the foreground's card all still route.
+    act(manager, 1, "mark-read");
+    act(manager, 2, "mark-read");
+    act(manager, 101, "mark-read");
+    act(manager, 200, "mark-read");
+    QCOMPARE(log, (QStringList{
+        line({ QStringLiteral("read"), a, QString(), QString() }),
+        line({ QStringLiteral("read"), a, QStringLiteral("!a2"),
+               QStringLiteral("$a2") }),
+        line({ QStringLiteral("read"), b, QStringLiteral("!b101"),
+               QStringLiteral("$b101") }),
+        line({ QStringLiteral("read"), kAnn, QStringLiteral("!f"),
+               QStringLiteral("$f") }),
+    }));
+
+    // Avatar waits: B's one wait survives the foreground's 65th.
+    NotificationManager waits;
+    parkDeliveries(waits);
+    waits.processEvent(textIn(QStringLiteral("!wb"), QStringLiteral("$wb")),
+                       parkedContext(b));
+    for (int i = 1; i <= 64; ++i) {
+        waits.processEvent(textIn(QStringLiteral("!w%1").arg(i),
+                                  QStringLiteral("$w%1").arg(i)),
+                           parkedContext());
+    }
+    QCOMPARE(waits.avatarWaitCountForTest(), 64);
+    QVERIFY2(waits.avatarWaitCountForTest(b) == 1,
+             "the foreground's 64th wait flushed another account's");
+    waits.processEvent(textIn(QStringLiteral("!w65"), QStringLiteral("$w65")),
+                       parkedContext());
+    QCOMPARE(waits.avatarWaitCountForTest(), 64);
+    QCOMPARE(waits.avatarWaitCountForTest(b), 1);
+    // The foreground's own oldest is the one that left.
+    QCOMPARE(waits.avatarWaitPayloadForTest(0)
+                 .value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$w2"));
+}
+
+// A Notify reply is judged by its own account's generation: clearing A turns
+// away A's late replies and none of B's.
+void NotificationManagerTest::aClearOfOneAccountDoesNotRejectAnothersReply()
+{
+    const QString a = QStringLiteral("@a:example.org");
+    const QString b = QStringLiteral("@b:example.org");
+    QStringList log;
+    NotificationManager manager;
+    recordRouting(manager, log);
+    manager.setAccountUserId(kAnn);
+    manager.recordPayloadForTest(
+        a, 1, messagePayload(QStringLiteral("!ra"), QStringLiteral("$a1"),
+                             QString(), a));
+    manager.recordPayloadForTest(
+        b, 2, messagePayload(QStringLiteral("!rb"), QStringLiteral("$b1"),
+                             QString(), b));
+    // The generations the in-flight Notify calls were sent with.
+    const quint64 generationA = manager.deliveryGenerationForTest(a);
+    const quint64 generationB = manager.deliveryGenerationForTest(b);
+    const quint64 generationF = manager.deliveryGenerationForTest(QString());
+
+    manager.clearPendingFor(a);
+    QCOMPARE(manager.deliveryGenerationForTest(a), generationA + 1);
+    QCOMPARE(manager.deliveryGenerationForTest(b), generationB);
+    QCOMPARE(manager.deliveryGenerationForTest(QString()), generationF);
+
+    // B's card answered after A's clear is still B's to route.
+    manager.notifyReplyForTest(
+        b, generationB, 7,
+        messagePayload(QStringLiteral("!rb7"), QStringLiteral("$b7"),
+                       QString(), b));
+    QVERIFY2(manager.pendingPayloadCountForTest(b) == 2,
+             "clearing account A rejected account B's Notify reply");
+    // A's card from before its clear is closed and tombstoned, not routed.
+    manager.notifyReplyForTest(
+        a, generationA, 8,
+        messagePayload(QStringLiteral("!ra8"), QStringLiteral("$a8"),
+                       QString(), a));
+    QCOMPARE(manager.pendingPayloadCountForTest(a), 0);
+    // The foreground's reply is judged by its own table.
+    manager.notifyReplyForTest(
+        QString(), generationF, 9,
+        messagePayload(QStringLiteral("!rf9"), QStringLiteral("$f9"),
+                       QString(), kAnn));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    // And A's next card, sent after the clear, is A's again.
+    manager.notifyReplyForTest(
+        a, generationA + 1, 10,
+        messagePayload(QStringLiteral("!ra10"), QStringLiteral("$a10"),
+                       QString(), a));
+    QCOMPARE(manager.pendingPayloadCountForTest(a), 1);
+
+    act(manager, 8, "mark-read");
+    act(manager, 7, "mark-read");
+    QCOMPARE(log, (QStringList{
+        line({ QStringLiteral("read"), a, QString(), QString() }),
+        line({ QStringLiteral("read"), b, QStringLiteral("!rb7"),
+               QStringLiteral("$b7") }),
+    }));
+}
+
+// The balloon (Windows, macOS) carries the account in its payload, so its
+// click names it like a daemon card's does.
+void NotificationManagerTest::aBalloonCarriesTheAccountItWasRaisedFor()
+{
+    NotificationManager manager;
+    manager.setAccountUserId(kAnn);
+    auto other = baseContext();
+    other.accountUserId = kBea;
+    manager.processEvent(incomingText(), other);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    QCOMPARE(manager.lastTrayPayloadForTest()
+                 .value(QStringLiteral("accountUserId")).toString(),
+             kBea);
+    // The foreground's names the manager's account, as its payload always
+    // did.
+    manager.processEvent(textIn(QStringLiteral("!f:example.org"),
+                                QStringLiteral("$f:example.org")),
+                         baseContext());
+    QCOMPARE(manager.trayAttemptsForTest(), 2);
+    QCOMPARE(manager.lastTrayPayloadForTest()
+                 .value(QStringLiteral("accountUserId")).toString(),
+             kAnn);
+    // So does the call's.
+    manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-1"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"), false, 60);
+    QCOMPARE(manager.lastCallTrayPayloadForTest()
+                 .value(QStringLiteral("accountUserId")).toString(),
+             kAnn);
+    manager.stopIncomingCall(QStringLiteral("call-1"));
+
+    QStringList log;
+    recordRouting(manager, log);
+    const QVariantMap beas = messagePayload(
+        QStringLiteral("!room:example.org"), QStringLiteral("$ev:example.org"),
+        QString(), kBea);
+    manager.deliverThroughTrayForTest(kBea, beas);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    // Another account's clear leaves it.
+    manager.deliverThroughTrayForTest(kBea, beas);
+    manager.clearPendingFor(QStringLiteral("@cy:example.org"));
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    // Its own account's clear leaves only the window to raise.
+    manager.deliverThroughTrayForTest(kBea, beas);
+    manager.clearPendingFor(kBea);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    const QString opened = line({ QStringLiteral("account"), kBea,
+                                  QStringLiteral("!room:example.org"),
+                                  QStringLiteral("$ev:example.org"),
+                                  QString() });
+    const QString openedRoom = line({ QStringLiteral("open"),
+                                      QStringLiteral("!room:example.org"),
+                                      QStringLiteral("$ev:example.org"),
+                                      QString() });
+    QCOMPARE(log, (QStringList{
+        opened, openedRoom, opened, openedRoom,
+        line({ QStringLiteral("account"), QString(), QString(), QString(),
+               QString() }),
+        line({ QStringLiteral("open"), QString(), QString(), QString() }),
+    }));
 }
 
 QTEST_MAIN(NotificationManagerTest)

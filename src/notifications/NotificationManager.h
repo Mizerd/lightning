@@ -135,6 +135,15 @@ public:
         QString avatarColorKey;
         // Active SettingsManager::Theme; identity disc colours derive from it.
         int themeId = 0;
+        // The account the event belongs to. Empty = the foreground account
+        // (today): the payload is stamped with accountUserId() and the card
+        // lives in the "" table. Non-empty: the payload is stamped with it and
+        // the card lives in that account's own table.
+        QString accountUserId;
+        // Display label for titles once more than one account is live. Not
+        // read anywhere yet.
+        QString accountLabel;
+        friend bool operator==(const Context &, const Context &) = default;
     };
     struct Decision {
         bool notify = false;
@@ -262,17 +271,42 @@ public:
     // another device). Safe to call when nothing is showing.
     void stopIncomingCall(const QString &callId);
 
-    // Logout/account switch/removal: withdraw every card this account raised
-    // (their previews must not outlive it) and forget their click payloads.
-    // An action on one that still arrives reaches the different-account
-    // refusal through a tombstone rather than vanishing.
-    void clearPending();
+    /// Logout/account switch/removal: withdraw every card the account raised
+    /// (their previews must not outlive it) and forget their click payloads.
+    /// An action on one that still arrives reaches the different-account
+    /// refusal through a tombstone rather than vanishing.
+    ///
+    /// An empty `accountUserId` is the foreground account and is exactly the
+    /// clear this class has always done: the "" table plus every process-wide
+    /// piece of state (the call card, capability waits, held and live
+    /// undecryptable messages, rooms awaiting unread, activation tokens, the
+    /// balloon's payload and rooms). A non-empty one touches only what is
+    /// tagged with that account: its table and delivery generation, its
+    /// avatar and capability waits, its held messages, and the balloon's
+    /// payload when that account raised it. It never stops the call ring.
+    void clearPendingFor(const QString &accountUserId);
+    /// The foreground account's clear; see clearPendingFor().
+    void clearPending() { clearPendingFor(QString()); }
 
     // Test hook: record a click payload as deliver() would, exercising the
-    // bounded FIFO eviction without D-Bus.
+    // bounded FIFO eviction without D-Bus. The "" (foreground) table.
     void recordPayloadForTest(quint32 id, const QVariantMap &payload)
-    { recordPayload(id, payload); }
-    int pendingPayloadCountForTest() const { return m_pendingPayloads.size(); }
+    { recordPayload(QString(), id, payload); }
+    /// The same, into `accountUserId`'s table ("" is the foreground's).
+    void recordPayloadForTest(const QString &accountUserId, quint32 id,
+                              const QVariantMap &payload)
+    { recordPayload(accountUserId, id, payload); }
+    /// Click payloads held in the "" (foreground) table, or in one account's.
+    int pendingPayloadCountForTest() const
+    { return pendingPayloadCountForTest(QString()); }
+    int pendingPayloadCountForTest(const QString &accountUserId) const;
+    /// The generation a Notify reply for `accountUserId`'s table must carry.
+    quint64 deliveryGenerationForTest(const QString &accountUserId) const;
+    /// Stands in for a Notify reply naming `id`, for a card raised under
+    /// `accountUserId`'s table at `generation`: what the D-Bus reply runs
+    /// after its daemon check, so the generation rule is tested without one.
+    void notifyReplyForTest(const QString &accountUserId, quint64 generation,
+                            quint32 id, const QVariantMap &payload);
     bool callRingActiveForTest() const { return m_callRingTimer.isActive(); }
     /// Whether the showing card would be delivered with the themed call sound
     /// (setCallAcceptOffered redraws with it even when the timer is idle), and
@@ -294,7 +328,13 @@ public:
     // payload it carries, and which rooms have balloons outstanding.
     void setFallbackTray(TrayIcon *tray);
     void deliverThroughTrayForTest(const QVariantMap &payload)
-    { noteBalloon(payload); }
+    { noteBalloon(QString(), payload); }
+    /// The same, for a balloon raised from `accountUserId`'s table.
+    void deliverThroughTrayForTest(const QString &accountUserId,
+                                   const QVariantMap &payload)
+    { noteBalloon(accountUserId, payload); }
+    /// The payload of the last balloon attempt (messages, notices and calls).
+    QVariantMap lastTrayPayloadForTest() const { return m_lastTrayPayload; }
     // Tray balloon attempts by the call ring, and their payload. Counts
     // attempts rather than deliveries because offscreen tests have no tray.
     int callTrayAttemptsForTest() const { return m_callTrayAttempts; }
@@ -313,18 +353,23 @@ public:
     void setTrayCarriesSoundForTest(bool carries)
     { m_trayCarriesSoundOverride = carries ? 1 : 0; }
     // Deliveries parked waiting for an avatar fetch. They have no notification
-    // id yet, so tests observe them here.
-    int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
-    // The payload a parked delivery carries, and its body.
+    // id yet, so tests observe them here. The "" (foreground) account's, or
+    // one account's.
+    int avatarWaitCountForTest() const
+    { return avatarWaitCount(QString()); }
+    int avatarWaitCountForTest(const QString &accountUserId) const
+    { return avatarWaitCount(accountUserId); }
+    // The payload a parked "" delivery carries, and its body; `index` counts
+    // the foreground account's waits only, oldest first.
     QVariantMap avatarWaitPayloadForTest(int index) const
     {
-        return index >= 0 && index < m_avatarWaits.size()
-            ? m_avatarWaits.at(index).payload : QVariantMap{};
+        const Card *card = foregroundAvatarWait(index);
+        return card ? card->payload : QVariantMap{};
     }
     QString avatarWaitBodyForTest(int index) const
     {
-        return index >= 0 && index < m_avatarWaits.size()
-            ? m_avatarWaits.at(index).body : QString();
+        const Card *card = foregroundAvatarWait(index);
+        return card ? card->body : QString();
     }
     /// Messages held for their decryption key, and the hold.
     int heldUndecryptableCountForTest() const { return m_heldUtds.size(); }
@@ -352,6 +397,13 @@ Q_SIGNALS:
     // balloon that cannot say which of several rooms was clicked).
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
+    /// Emitted immediately before every openRequested, with the same
+    /// normalised ids and the account the card was raised for (the payload's
+    /// "accountUserId"). Empty for a raise-window open: an empty payload, or
+    /// a balloon click with more than one room outstanding.
+    void openRequestedForAccount(const QString &accountUserId,
+                                 const QString &roomId, const QString &eventId,
+                                 const QString &threadRootId);
     // The user pressed Decline on the incoming-call notification.
     void callDeclineRequested(const QString &callId);
     /// The user pressed Answer/Join on the incoming-call notification.
@@ -413,6 +465,9 @@ private:
         // A silent in-place update (a decrypted "Encrypted message"): no
         // sound and no messageDelivered.
         bool replacement = false;
+        // The table the card belongs to: Context::accountUserId, "" for the
+        // foreground account, generic notices and the call card.
+        QString accountKey;
     };
     // `fallback` is shown when the avatar is absent or cannot be fetched;
     // an empty image reverts to the daemon's own generic icon.
@@ -426,9 +481,19 @@ private:
     void deliverCallNotification();
     void flushAvatarWaits(bool fallbackAll);
     void flushHeldUndecryptable();
-    // Store a click payload, evicting the oldest past the cap so the most
-    // recent notifications stay clickable. An evicted card is withdrawn.
-    void recordPayload(quint32 id, const QVariantMap &payload);
+    // Store a click payload in `accountKey`'s table, evicting that table's
+    // oldest past the cap so its most recent notifications stay clickable.
+    // An evicted card is withdrawn.
+    void recordPayload(const QString &accountKey, quint32 id,
+                       const QVariantMap &payload);
+    // A Notify reply for `card`, after the daemon check. `id` is the
+    // daemon's answer, nullopt for an error. A card whose table was cleared
+    // since it left is closed and tombstoned. True when the caller still has
+    // the error's fallback to run.
+    bool takeNotifyReply(const Card &card, const QString &groupKey,
+                         quint64 generation, std::optional<quint32> id);
+    int avatarWaitCount(const QString &accountKey) const;
+    const Card *foregroundAvatarWait(int index) const;
 public:
     /// Withdraw every still-showing notification for a room that has been read
     /// (here or elsewhere), so the notification centre does not keep stale
@@ -451,13 +516,19 @@ public:
     void setCapabilityRetryMsForTest(int ms) { m_capabilityRetryMs = ms; }
     int capabilityRequestsForTest() const { return m_capabilityRequests; }
 private:
-    // Remove a payload, and the group mapping that points at it.
+    // Remove a payload, whichever table holds it, and the group mapping that
+    // points at it.
     void forgetPayload(quint32 id);
     // CloseNotification without waiting for an answer.
     void closeNotification(quint32 id);
-    // Withdraw and forget the cards matching `match`, sparing the call card;
-    // also drops matching deliveries not shown yet. Returns cards withdrawn.
-    int withdrawWhere(const std::function<bool(const QVariantMap &)> &match);
+    // Withdraw and forget `accountKey`'s cards matching `match`, sparing the
+    // call card; also drops its matching deliveries not shown yet. Returns
+    // cards withdrawn.
+    int withdrawWhere(const QString &accountKey,
+                      const std::function<bool(const QVariantMap &)> &match);
+    // The same over every account's table.
+    int withdrawEverywhere(
+        const std::function<bool(const QVariantMap &)> &match);
     // Remember that `id` was ours and for which account, after its payload
     // went (sign-out, eviction).
     void tombstone(quint32 id, const QString &accountUserId);
@@ -485,16 +556,20 @@ private:
     /// tray showed it. `platformSound` is the sound plan's: the balloon may
     /// make the platform's own sound only when the plan asks for it (System
     /// default chosen), never on top of or instead of silence by Lightning.
+    /// `accountKey`: the table the card was raised from.
     bool deliverThroughTray(const QString &title, const QString &body,
                             const QVariantMap &payload, const QImage &avatar,
-                            bool platformSound);
-    void noteBalloon(const QVariantMap &payload);
+                            bool platformSound, const QString &accountKey);
+    void noteBalloon(const QString &accountKey, const QVariantMap &payload);
     bool trayCarriesSound() const;
     // Monotonic milliseconds; immune to wall-clock steps.
     qint64 nowMs() const { return m_clock.elapsed(); }
 
     QPointer<TrayIcon> m_fallbackTray;
     QVariantMap m_lastFallbackPayload;
+    // The table the balloon in m_lastFallbackPayload was raised from.
+    QString m_lastFallbackAccountKey;
+    QVariantMap m_lastTrayPayload;
     // Distinct rooms with a balloon raised since the last balloon click. A
     // click cannot say which balloon it was, so with more than one the window
     // is raised without guessing.
@@ -505,14 +580,12 @@ private:
     QString m_lastTrayBody;
     int m_trayCarriesSoundOverride = -1;
 
-    // Bounded number of click payloads retained for routing.
+    // Bounded number of click payloads retained for routing, per account.
     static constexpr int kMaxPendingPayloads = 64;
     static constexpr int kMaxTombstones = 64;
 
-    QHash<quint32, QVariantMap> m_pendingPayloads;
-    // Insertion order of m_pendingPayloads, oldest first (QHash is unordered).
-    QList<quint32> m_payloadOrder;
     // Cards we raised and can no longer route, and the account each was for.
+    // Process-wide: a tombstone records its own account.
     QHash<quint32, QString> m_tombstones;
     QList<quint32> m_tombstoneOrder;
     // One card per group (room, thread, or keyed notice): its id once the
@@ -529,7 +602,30 @@ private:
         QVariantMap payload;
         std::optional<Card> next;
     };
-    QHash<QString, CardGroup> m_groups;
+    // One account's cards. "" is the foreground account, which is the only
+    // table there has ever been: every path without an account argument
+    // works on it exactly as before. Daemon ids are unique, so an id is in
+    // at most one table.
+    struct AccountTable {
+        QHash<quint32, QVariantMap> pendingPayloads;
+        // Insertion order of pendingPayloads, oldest first (QHash is
+        // unordered).
+        QList<quint32> payloadOrder;
+        QHash<QString, CardGroup> groups;
+        // Bumped by clearPendingFor(), so a reply for a card raised before
+        // the clear is not routed (and its card is closed).
+        quint64 deliveryGeneration = 0;
+    };
+    // Never shrinks: a cleared table keeps its generation, or a reply from
+    // before the clear would match a fresh table's 0. Bounded by accounts.
+    // References into it are held only across code that adds no key.
+    QHash<QString, AccountTable> m_tables;
+    AccountTable &table(const QString &accountKey)
+    { return m_tables[accountKey]; }
+    // The table holding `id`, or null.
+    AccountTable *tableHolding(quint32 id);
+    // The click payload `id` names in any table; empty when none does.
+    QVariantMap payloadFor(quint32 id) const;
     // Activation tokens by notification id, until the action they precede.
     QHash<quint32, QString> m_activationTokens;
     bool m_assumeWayland = false;
@@ -572,9 +668,6 @@ private:
     // The call card's Notify is in flight; a redraw meanwhile waits for it.
     bool m_callNotifyInFlight = false;
     bool m_callRedrawPending = false;
-    // Bumped by clearPending(), so a reply for the previous account is not
-    // routed (and its card is closed).
-    quint64 m_deliveryGeneration = 0;
     // Bumped when the daemon changes hands: a reply from the old one names an
     // id the new one may have given to another application.
     quint64 m_daemonGeneration = 0;
@@ -632,6 +725,9 @@ private:
     int m_genericNoticeCount = 0;
     std::function<QImage(const QString &, bool)> m_avatarImage;
     std::function<bool(const QString &)> m_avatarFailed;
+    // Arrival order across accounts; each card carries its accountKey, and
+    // the cap (kMaxPendingPayloads) and its oldest-first flush are per
+    // account.
     QList<Card> m_avatarWaits;
     QTimer m_avatarWaitTimer;
 };

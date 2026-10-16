@@ -1479,16 +1479,16 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
             let runtime_events = Arc::clone(&events);
             run_async_on(
                 shared_runtime, runtime_events, "restore_from_file",
-                async move {
+                switchtrace::restore_scope(switchtrace::switch_trace_enabled(), async move {
                 let stored = match read_persistent_session(&session_file) {
                     Ok(stored) => stored,
                     Err(err) => {
                         enqueue(
                             &events,
-                            json!({
+                            switchtrace::with_restore_trace(json!({
                                 "type": "login_failed",
                                 "message": format!("Rust SDK smoke session restore unavailable: {err}"),
-                            }),
+                            })),
                         );
                         return;
                     }
@@ -1497,10 +1497,10 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                 if stored.homeserver != homeserver {
                     enqueue(
                         &events,
-                        json!({
+                        switchtrace::with_restore_trace(json!({
                             "type": "login_failed",
                             "message": "Rust SDK smoke session homeserver does not match this run.",
-                        }),
+                        })),
                     );
                     return;
                 }
@@ -1509,10 +1509,10 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                 if !expected_user_id.is_empty() && stored_user != expected_user_id {
                     enqueue(
                         &events,
-                        json!({
+                        switchtrace::with_restore_trace(json!({
                             "type": "login_failed",
                             "message": "Rust SDK smoke session account does not match this run.",
-                        }),
+                        })),
                     );
                     return;
                 }
@@ -1549,23 +1549,23 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                         }
                         enqueue(
                             &events,
-                            json!({
+                            switchtrace::with_restore_trace(json!({
                                 "type": "login_ok",
                                 "homeserver": homeserver,
                                 "user_id": stored_user,
                                 "device_id": stored.session.meta.device_id.to_string(),
-                            }),
+                            })),
                         );
                     }
                     Err(err) => enqueue(
                         &events,
-                        json!({
+                        switchtrace::with_restore_trace(json!({
                             "type": "login_failed",
                             "message": err,
-                        }),
+                        })),
                     ),
                 }
-            });
+            }));
         });
 
         Ok(String::new())
@@ -1610,7 +1610,8 @@ pub unsafe extern "C" fn mx_rust_restore(
         let token_task = Arc::clone(&bridge.token_task);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
-            run_async_on(shared_runtime, runtime_events, "restore", async move {
+            run_async_on(shared_runtime, runtime_events, "restore",
+                switchtrace::restore_scope(switchtrace::switch_trace_enabled(), async move {
                 match restore_client(
                     &homeserver,
                     &store_path,
@@ -1646,23 +1647,23 @@ pub unsafe extern "C" fn mx_rust_restore(
                         }
                         enqueue(
                             &events,
-                            json!({
+                            switchtrace::with_restore_trace(json!({
                                 "type": "login_ok",
                                 "homeserver": homeserver,
                                 "user_id": user_id,
                                 "device_id": device_id,
-                            }),
+                            })),
                         );
                     }
                     Err(err) => enqueue(
                         &events,
-                        json!({
+                        switchtrace::with_restore_trace(json!({
                             "type": "login_failed",
                             "message": err,
-                        }),
+                        })),
                     ),
                 }
-            });
+            }));
         });
 
         Ok(String::new())
@@ -1750,6 +1751,8 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
+        // Switch trace: `since_start_sync_ms` counts from here. None when off.
+        let switch_trace_started = switchtrace::sync_start_stamp();
         let Ok(bridge) = (unsafe { bridge(ptr) }) else {
             return;
         };
@@ -1803,11 +1806,11 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                     sync_client.clone(), Arc::clone(&events),
                 );
                 tokio::select! {
-                    _ = run_authoritative_sync(
+                    _ = switchtrace::sync_scope(switch_trace_started, run_authoritative_sync(
                         sync_client, events, sync_search_index, sync_mode, room_list_slot,
                         entries_slot, active_subscription, sync_timelines,
                         sync_media_capable, sync_verification_live, sync_notify, cancel_rx,
-                    ) => {}
+                    )) => {}
                     _ = stale_invites => {}
                 }
             });
@@ -10936,6 +10939,8 @@ async fn build_client_with(
     // does discovery and verifies the result; `homeserver_url()` does neither,
     // which broke delegated servers (issue #5).
     let base = Client::builder();
+    // Switch trace (S8): only the discovering build's `build()` is discovery.
+    let discovering = matches!(homeserver, HomeserverInput::Discover(_));
     // Decides whether this build needs a live server.
     let base = match homeserver {
         HomeserverInput::Discover(value) => base.server_name_or_homeserver_url(value),
@@ -10982,15 +10987,20 @@ async fn build_client_with(
     // (mediastore.rs).
     let mut store_probe = None;
     if !store_path.as_os_str().is_empty() {
-        let (store_config, probe) =
-            mediastore::open_account_stores(store_path, store_lock_config).await?;
+        let (store_config, probe) = switchtrace::timed(
+            Some(switchtrace::RestoreStep::StoreOpen),
+            mediastore::open_account_stores(store_path, store_lock_config),
+        )
+        .await?;
         builder = builder.store_config(store_config);
         store_probe = Some(probe);
     }
-    let client = builder
-        .build()
-        .await
-        .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
+    let client = switchtrace::timed(
+        discovering.then_some(switchtrace::RestoreStep::Discovery),
+        builder.build(),
+    )
+    .await
+    .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
     // Recorded so retirement can wait for these very stores to be dropped,
     // rather than for its handle to be (storeclose.rs, GitHub #2).
     if let Some(mut probe) = store_probe {
@@ -11119,7 +11129,10 @@ async fn build_client_for_restore(
         // Nothing recorded: return the original failure.
         return Err(reason);
     };
-    let client = build_client_with(HomeserverInput::Url(&url), store_path)
+    let client = switchtrace::timed(
+        Some(switchtrace::RestoreStep::FallbackBuild),
+        build_client_with(HomeserverInput::Url(&url), store_path),
+    )
         .await
         // Keep both: the original failure says why the server was not used,
         // the fallback's says why the store could not be opened without it.
@@ -11127,6 +11140,7 @@ async fn build_client_for_restore(
     // No URL, server name or account id: C++ only needs to know the data came
     // off the disk.
     enqueue(events, json!({ "type": "session_restored_offline" }));
+    switchtrace::note_offline_fallback();
     Ok(client)
 }
 
@@ -11160,13 +11174,18 @@ where
 {
     let client = build_client_for_restore(homeserver, store_path, events).await?;
     let changes = client.subscribe_to_session_changes();
-    client
-        .matrix_auth()
-        .restore_session(session, RoomLoadSettings::default())
-        .await
-        .map_err(|err| format_matrix_error("Matrix Rust SDK session restore failed", err))?;
+    switchtrace::timed(
+        Some(switchtrace::RestoreStep::Restore),
+        client.matrix_auth().restore_session(session, RoomLoadSettings::default()),
+    )
+    .await
+    .map_err(|err| format_matrix_error("Matrix Rust SDK session restore failed", err))?;
     after_restore(client.clone()).await;
-    resume_unsent_requests(&client).await;
+    switchtrace::timed(
+        Some(switchtrace::RestoreStep::ResumeUnsent),
+        resume_unsent_requests(&client),
+    )
+    .await;
     Ok((client, changes))
 }
 
@@ -12485,7 +12504,11 @@ async fn run_modern_sync(
         .map(|user| previewbackfill::RunGuard::new(user.to_owned()));
 
     loop {
-        let service = match SyncService::builder(client.clone()).build().await {
+        let service = match switchtrace::timed_sync_service_build(
+            SyncService::builder(client.clone()).build(),
+        )
+        .await
+        {
             Ok(service) => service,
             Err(error) if unsupported_modern_error(&error) => return Some(cancel),
             Err(error) => {
@@ -13419,6 +13442,8 @@ async fn forward_room_list_diffs(
     for diff in batches {
         let value = match diff {
             VectorDiff::Reset { values } => {
+                // Switch trace: Some only for the first Reset of a traced sync.
+                let trace_started = switchtrace::first_reset_serialize_start();
                 let mut rooms = Vec::with_capacity(values.len());
                 order.clear();
                 for item in values {
@@ -13426,7 +13451,11 @@ async fn forward_room_list_diffs(
                     order.push(room.room_id().to_owned());
                     rooms.push(payload(room, latest_events, watched).await);
                 }
-                json!({ "type": "room_list_reset", "rooms": rooms })
+                let room_count = rooms.len();
+                let mut value = json!({ "type": "room_list_reset", "rooms": rooms });
+                let trace = switchtrace::take_first_reset_trace(trace_started, room_count);
+                switchtrace::attach_trace(&mut value, trace.as_ref());
+                value
             }
             VectorDiff::Append { values } => {
                 let mut rooms = Vec::with_capacity(values.len());
@@ -14383,6 +14412,575 @@ pub(crate) fn sync_trace_stamp_ms() -> Option<u64> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|d| d.as_millis() as u64)
+}
+
+/// LIGHTNING_SWITCH_TRACE: the Rust half of the account-switch trace.
+///
+/// C++ `switchtrace` (src/app/SwitchTrace.*) writes one line per switch; the
+/// steps it cannot see from the GUI thread are timed here and handed over as a
+/// `"trace"` object on three events: `login_ok` / `login_failed` from
+/// `mx_rust_restore` and `mx_rust_restore_from_file` (never from password or
+/// OAuth login), and the first `room_list_reset` after each
+/// `mx_rust_start_sync` (modern lane only).
+///
+/// Off, nothing changes: no scope is entered, every recorder below is a no-op
+/// outside one, and an event without a trace is byte-identical to today's.
+/// Numbers only; no ids, names or paths reach a trace object (CLAUDE.md §6).
+///
+/// The recorders reach the trace through tokio task-locals scoped around the
+/// restore future and the sync future, so the shared build and restore helpers
+/// keep their signatures and the login paths that also use them, which run
+/// outside any scope, record nothing.
+pub(crate) mod switchtrace {
+    use std::cell::RefCell;
+    use std::future::{Future, IntoFuture};
+    use std::time::Instant;
+
+    use serde_json::{json, Value};
+
+    tokio::task_local! {
+        static RESTORE_TRACE: RefCell<RestoreTrace>;
+        static SYNC_TRACE: RefCell<SyncTrace>;
+    }
+
+    /// The Phase 0 contract's switch rule, shared with C++ and with
+    /// LIGHTNING_SYNC_TRACE: on when set and, trimmed and lowercased, not one
+    /// of "", "0", "false", "off", "no".
+    pub(crate) fn switch_trace_enabled_from(value: Option<&str>) -> bool {
+        value
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                !(v.is_empty() || v == "0" || v == "false" || v == "off" || v == "no")
+            })
+            .unwrap_or(false)
+    }
+
+    /// LIGHTNING_SWITCH_TRACE, read once per process.
+    pub(crate) fn switch_trace_enabled() -> bool {
+        use std::sync::OnceLock;
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            switch_trace_enabled_from(std::env::var("LIGHTNING_SWITCH_TRACE").ok().as_deref())
+        })
+    }
+
+    /// Wall-clock UNIX-epoch milliseconds, computed as `sync_trace_stamp_ms`
+    /// computes them (C++ compares with QDateTime::currentMSecsSinceEpoch()).
+    pub(crate) fn unix_epoch_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn ms_between(earlier: Instant, later: Instant) -> u64 {
+        later.saturating_duration_since(earlier).as_millis() as u64
+    }
+
+    /// Something that can be attached as an event's `"trace"` object.
+    pub(crate) trait TraceObject {
+        fn to_json(&self) -> Value;
+    }
+
+    /// Add `"trace"` to an event object. `None` (the trace is off, or this is
+    /// not the event being traced) leaves the event exactly as it was.
+    pub(crate) fn attach_trace<T: TraceObject>(event: &mut Value, trace: Option<&T>) {
+        let (Some(trace), Some(map)) = (trace, event.as_object_mut()) else {
+            return;
+        };
+        map.insert("trace".to_owned(), trace.to_json());
+    }
+
+    /// The restore steps timed for S8. Durations ACCUMULATE per step.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum RestoreStep {
+        /// `builder.build()` of the discovering attempt: well-known, /versions
+        /// and client construction (the stores are already open).
+        Discovery,
+        /// One `mediastore::open_account_stores`; also counts the opens.
+        StoreOpen,
+        /// The whole recorded-URL fallback `build_client_with`.
+        FallbackBuild,
+        /// `matrix_auth().restore_session`.
+        Restore,
+        /// `resume_unsent_requests`.
+        ResumeUnsent,
+    }
+
+    /// What one restore cost, from scope entry to the event it is attached to.
+    #[derive(Debug, Clone)]
+    pub(crate) struct RestoreTrace {
+        started: Instant,
+        discovery_ms: u64,
+        store_open_ms: u64,
+        store_opens: u32,
+        fallback_build_ms: u64,
+        offline_fallback: bool,
+        restore_ms: u64,
+        resume_unsent_ms: u64,
+    }
+
+    impl RestoreTrace {
+        pub(crate) fn new(started: Instant) -> Self {
+            Self {
+                started,
+                discovery_ms: 0,
+                store_open_ms: 0,
+                store_opens: 0,
+                fallback_build_ms: 0,
+                offline_fallback: false,
+                restore_ms: 0,
+                resume_unsent_ms: 0,
+            }
+        }
+
+        pub(crate) fn add(&mut self, step: RestoreStep, ms: u64) {
+            match step {
+                RestoreStep::Discovery => self.discovery_ms = self.discovery_ms.saturating_add(ms),
+                RestoreStep::StoreOpen => {
+                    self.store_open_ms = self.store_open_ms.saturating_add(ms);
+                    self.store_opens = self.store_opens.saturating_add(1);
+                }
+                RestoreStep::FallbackBuild => {
+                    self.fallback_build_ms = self.fallback_build_ms.saturating_add(ms)
+                }
+                RestoreStep::Restore => self.restore_ms = self.restore_ms.saturating_add(ms),
+                RestoreStep::ResumeUnsent => {
+                    self.resume_unsent_ms = self.resume_unsent_ms.saturating_add(ms)
+                }
+            }
+        }
+
+        pub(crate) fn note_offline_fallback(&mut self) {
+            self.offline_fallback = true;
+        }
+
+        /// The object at a given enqueue instant and wall clock. Pure.
+        pub(crate) fn to_json_at(&self, now: Instant, wall_ms: u64) -> Value {
+            json!({
+                "v": 1,
+                "discovery_ms": self.discovery_ms,
+                "store_open_ms": self.store_open_ms,
+                "store_opens": self.store_opens,
+                "fallback_build_ms": self.fallback_build_ms,
+                "offline_fallback": self.offline_fallback,
+                "restore_ms": self.restore_ms,
+                "resume_unsent_ms": self.resume_unsent_ms,
+                "restore_total_ms": ms_between(self.started, now),
+                "enq_wall_ms": wall_ms,
+            })
+        }
+    }
+
+    impl TraceObject for RestoreTrace {
+        fn to_json(&self) -> Value {
+            self.to_json_at(Instant::now(), unix_epoch_ms())
+        }
+    }
+
+    /// Run a restore future inside a trace scope when `enabled`, otherwise
+    /// exactly as it is. Callers pass `switch_trace_enabled()`.
+    pub(crate) async fn restore_scope<F>(enabled: bool, future: F)
+    where
+        F: Future<Output = ()>,
+    {
+        if enabled {
+            RESTORE_TRACE.scope(RefCell::new(RestoreTrace::new(Instant::now())), future).await
+        } else {
+            future.await
+        }
+    }
+
+    /// `event` with the current restore trace attached, or unchanged outside a
+    /// restore scope.
+    pub(crate) fn with_restore_trace(mut event: Value) -> Value {
+        let trace = RESTORE_TRACE
+            .try_with(|cell| cell.try_borrow().ok().map(|trace| trace.clone()))
+            .ok()
+            .flatten();
+        attach_trace(&mut event, trace.as_ref());
+        event
+    }
+
+    /// Mark the current restore as served from the recorded URL.
+    pub(crate) fn note_offline_fallback() {
+        let _ = RESTORE_TRACE.try_with(|cell| {
+            if let Ok(mut trace) = cell.try_borrow_mut() {
+                trace.note_offline_fallback();
+            }
+        });
+    }
+
+    /// Records on DROP, so a step cut off by a timeout (the discovering build
+    /// under RESTORE_BUILD_BUDGET) still reports the time it took.
+    struct RestoreStepTimer {
+        step: RestoreStep,
+        started: Instant,
+    }
+
+    impl Drop for RestoreStepTimer {
+        fn drop(&mut self) {
+            let ms = ms_between(self.started, Instant::now());
+            let step = self.step;
+            let _ = RESTORE_TRACE.try_with(|cell| {
+                if let Ok(mut trace) = cell.try_borrow_mut() {
+                    trace.add(step, ms);
+                }
+            });
+        }
+    }
+
+    /// Await `future`, timing it as `step` when one is given and a restore
+    /// scope is open. Otherwise exactly `future.await`.
+    pub(crate) async fn timed<F: IntoFuture>(step: Option<RestoreStep>, future: F) -> F::Output {
+        let _timer = step
+            .filter(|_| RESTORE_TRACE.try_with(|_| ()).is_ok())
+            .map(|step| RestoreStepTimer { step, started: Instant::now() });
+        future.await
+    }
+
+    /// The `"trace"` object of the first `room_list_reset` after a start.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct ResetTrace {
+        pub(crate) since_start_sync_ms: u64,
+        pub(crate) sync_service_build_ms: u64,
+        pub(crate) serialize_ms: u64,
+        pub(crate) rooms: u32,
+        pub(crate) enq_wall_ms: u64,
+    }
+
+    impl TraceObject for ResetTrace {
+        fn to_json(&self) -> Value {
+            json!({
+                "v": 1,
+                "since_start_sync_ms": self.since_start_sync_ms,
+                "sync_service_build_ms": self.sync_service_build_ms,
+                "serialize_ms": self.serialize_ms,
+                "rooms": self.rooms,
+                "enq_wall_ms": self.enq_wall_ms,
+            })
+        }
+    }
+
+    /// One sync session's trace state, scoped around the sync future.
+    #[derive(Debug, Clone)]
+    pub(crate) struct SyncTrace {
+        started: Instant,
+        /// The most recent `SyncService` build: the one whose list produced
+        /// the first Reset, across supervisor rebuilds.
+        sync_service_build_ms: u64,
+        reset_reported: bool,
+    }
+
+    impl SyncTrace {
+        pub(crate) fn new(started: Instant) -> Self {
+            Self { started, sync_service_build_ms: 0, reset_reported: false }
+        }
+
+        pub(crate) fn note_sync_service_build(&mut self, ms: u64) {
+            self.sync_service_build_ms = ms;
+        }
+
+        /// The first Reset's trace, once; `None` for every later Reset. Pure.
+        pub(crate) fn take_first_reset(
+            &mut self,
+            serialize_started: Instant,
+            now: Instant,
+            rooms: usize,
+            wall_ms: u64,
+        ) -> Option<ResetTrace> {
+            if self.reset_reported {
+                return None;
+            }
+            self.reset_reported = true;
+            Some(ResetTrace {
+                since_start_sync_ms: ms_between(self.started, now),
+                sync_service_build_ms: self.sync_service_build_ms,
+                serialize_ms: ms_between(serialize_started, now),
+                rooms: u32::try_from(rooms).unwrap_or(u32::MAX),
+                enq_wall_ms: wall_ms,
+            })
+        }
+    }
+
+    /// Taken at `mx_rust_start_sync` entry: `Some` only while the trace is on.
+    pub(crate) fn sync_start_stamp() -> Option<Instant> {
+        switch_trace_enabled().then(Instant::now)
+    }
+
+    /// Run the sync future inside a trace scope when a start stamp was taken,
+    /// otherwise exactly as it is.
+    pub(crate) async fn sync_scope<F>(started: Option<Instant>, future: F) -> F::Output
+    where
+        F: Future,
+    {
+        match started {
+            Some(started) => SYNC_TRACE.scope(RefCell::new(SyncTrace::new(started)), future).await,
+            None => future.await,
+        }
+    }
+
+    /// Await the `SyncService` build, recording its duration in a sync scope.
+    pub(crate) async fn timed_sync_service_build<F: IntoFuture>(future: F) -> F::Output {
+        let started = SYNC_TRACE.try_with(|_| ()).is_ok().then(Instant::now);
+        let output = future.await;
+        if let Some(started) = started {
+            let ms = ms_between(started, Instant::now());
+            let _ = SYNC_TRACE.try_with(|cell| {
+                if let Ok(mut trace) = cell.try_borrow_mut() {
+                    trace.note_sync_service_build(ms);
+                }
+            });
+        }
+        output
+    }
+
+    /// Called at the top of the Reset arm: when the first Reset of this sync
+    /// session is still unreported, the instant serializing began.
+    pub(crate) fn first_reset_serialize_start() -> Option<Instant> {
+        SYNC_TRACE
+            .try_with(|cell| cell.try_borrow().map(|t| !t.reset_reported).unwrap_or(false))
+            .unwrap_or(false)
+            .then(Instant::now)
+    }
+
+    /// The first Reset's trace, given the instant from
+    /// `first_reset_serialize_start`; `None` outside a scope or after it.
+    pub(crate) fn take_first_reset_trace(
+        serialize_started: Option<Instant>,
+        rooms: usize,
+    ) -> Option<ResetTrace> {
+        let serialize_started = serialize_started?;
+        SYNC_TRACE
+            .try_with(|cell| {
+                cell.try_borrow_mut().ok().and_then(|mut trace| {
+                    trace.take_first_reset(serialize_started, Instant::now(), rooms, unix_epoch_ms())
+                })
+            })
+            .ok()
+            .flatten()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::collections::BTreeSet;
+        use std::time::Duration;
+
+        fn keys(value: &Value) -> BTreeSet<String> {
+            value.as_object().expect("an object").keys().cloned().collect()
+        }
+
+        fn set(list: &[&str]) -> BTreeSet<String> {
+            list.iter().map(|k| (*k).to_owned()).collect()
+        }
+
+        /// Written out from the Phase 0 contract §6.2, not from the code: C++
+        /// WP0-C reads exactly these keys.
+        const RESTORE_KEYS: [&str; 10] = [
+            "v", "discovery_ms", "store_open_ms", "store_opens", "fallback_build_ms",
+            "offline_fallback", "restore_ms", "resume_unsent_ms", "restore_total_ms",
+            "enq_wall_ms",
+        ];
+        const RESET_KEYS: [&str; 6] = [
+            "v", "since_start_sync_ms", "sync_service_build_ms", "serialize_ms", "rooms",
+            "enq_wall_ms",
+        ];
+
+        #[test]
+        fn switch_trace_enabled_from_follows_the_shared_rule() {
+            for off in [None, Some(""), Some("   "), Some("0"), Some("false"), Some("FALSE"),
+                        Some(" off "), Some("Off"), Some("no"), Some("NO\n")] {
+                assert!(!switch_trace_enabled_from(off), "{off:?} must be off");
+            }
+            for on in [Some("1"), Some("true"), Some("yes"), Some("on"), Some(" 1 "),
+                       Some("2"), Some("trace")] {
+                assert!(switch_trace_enabled_from(on), "{on:?} must be on");
+            }
+        }
+
+        #[test]
+        fn restore_trace_json_carries_exactly_the_contract_keys() {
+            let start = Instant::now();
+            let mut trace = RestoreTrace::new(start);
+            trace.add(RestoreStep::Discovery, 7);
+            trace.add(RestoreStep::StoreOpen, 3);
+            trace.add(RestoreStep::StoreOpen, 4);
+            trace.add(RestoreStep::FallbackBuild, 11);
+            trace.add(RestoreStep::Restore, 5);
+            trace.add(RestoreStep::ResumeUnsent, 2);
+            trace.note_offline_fallback();
+            let value = trace.to_json_at(start + Duration::from_millis(40), 1_700_000_000_123);
+            assert_eq!(keys(&value), set(&RESTORE_KEYS));
+            assert_eq!(value["v"], 1);
+            assert_eq!(value["discovery_ms"], 7);
+            assert_eq!(value["store_open_ms"], 7);
+            assert_eq!(value["store_opens"], 2);
+            assert_eq!(value["fallback_build_ms"], 11);
+            assert_eq!(value["offline_fallback"], true);
+            assert_eq!(value["restore_ms"], 5);
+            assert_eq!(value["resume_unsent_ms"], 2);
+            assert_eq!(value["restore_total_ms"], 40);
+            assert_eq!(value["enq_wall_ms"], 1_700_000_000_123u64);
+            // The production path stamps the clocks itself; same keys.
+            assert_eq!(keys(&TraceObject::to_json(&trace)), set(&RESTORE_KEYS));
+        }
+
+        #[test]
+        fn reset_trace_json_carries_exactly_the_contract_keys() {
+            let start = Instant::now();
+            let mut sync = SyncTrace::new(start);
+            sync.note_sync_service_build(9);
+            let trace = sync
+                .take_first_reset(start + Duration::from_millis(30),
+                                  start + Duration::from_millis(45), 1234, 42)
+                .expect("the first Reset is traced");
+            let value = trace.to_json();
+            assert_eq!(keys(&value), set(&RESET_KEYS));
+            assert_eq!(value["v"], 1);
+            assert_eq!(value["since_start_sync_ms"], 45);
+            assert_eq!(value["sync_service_build_ms"], 9);
+            assert_eq!(value["serialize_ms"], 15);
+            assert_eq!(value["rooms"], 1234);
+            assert_eq!(value["enq_wall_ms"], 42);
+        }
+
+        #[test]
+        fn only_the_first_reset_of_a_sync_session_is_traced() {
+            let start = Instant::now();
+            let mut sync = SyncTrace::new(start);
+            assert!(sync.take_first_reset(start, start, 1, 0).is_some());
+            assert!(sync.take_first_reset(start, start, 1, 0).is_none());
+            assert!(sync.take_first_reset(start, start, 1, 0).is_none());
+        }
+
+        fn login_ok() -> Value {
+            json!({
+                "type": "login_ok", "homeserver": "https://hs.invalid",
+                "user_id": "@a:hs.invalid", "device_id": "DEV",
+            })
+        }
+
+        #[test]
+        fn attach_trace_with_none_leaves_the_event_byte_identical() {
+            for original in [
+                login_ok(),
+                json!({ "type": "login_failed", "message": "nope" }),
+                json!({ "type": "room_list_reset", "rooms": [{ "id": "!r:hs" }] }),
+            ] {
+                let before = serde_json::to_string(&original).unwrap();
+                let mut restored = original.clone();
+                attach_trace::<RestoreTrace>(&mut restored, None);
+                assert_eq!(serde_json::to_string(&restored).unwrap(), before);
+                let mut reset = original.clone();
+                attach_trace::<ResetTrace>(&mut reset, None);
+                assert_eq!(serde_json::to_string(&reset).unwrap(), before);
+            }
+        }
+
+        #[test]
+        fn attach_trace_with_some_adds_the_trace_key_and_nothing_else() {
+            let original = login_ok();
+            let mut event = original.clone();
+            attach_trace(&mut event, Some(&RestoreTrace::new(Instant::now())));
+            let mut expected = keys(&original);
+            expected.insert("trace".to_owned());
+            assert_eq!(keys(&event), expected);
+            for key in keys(&original) {
+                assert_eq!(event[&key], original[&key], "{key} changed");
+            }
+            assert_eq!(keys(&event["trace"]), set(&RESTORE_KEYS));
+            // A non-object event is left alone rather than replaced.
+            let mut scalar = json!("text");
+            attach_trace(&mut scalar, Some(&RestoreTrace::new(Instant::now())));
+            assert_eq!(scalar, json!("text"));
+        }
+
+        /// Off: the restore future runs unscoped, every recorder is a no-op,
+        /// and the events it emits are byte-identical to today's.
+        #[tokio::test]
+        async fn a_restore_with_the_trace_off_emits_identical_events() {
+            let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let sink = std::sync::Arc::clone(&emitted);
+            restore_scope(false, async move {
+                timed(Some(RestoreStep::StoreOpen), async {}).await;
+                timed(Some(RestoreStep::Discovery), async {}).await;
+                note_offline_fallback();
+                let event = with_restore_trace(login_ok());
+                sink.lock().unwrap().push(serde_json::to_string(&event).unwrap());
+            })
+            .await;
+            let emitted = emitted.lock().unwrap();
+            assert_eq!(emitted.as_slice(), [serde_json::to_string(&login_ok()).unwrap()]);
+        }
+
+        /// On: the steps recorded inside the scope reach the event, a step cut
+        /// off by a timeout still reports its time, and nothing outside the
+        /// scope is touched.
+        #[tokio::test]
+        async fn a_restore_with_the_trace_on_attaches_what_its_steps_recorded() {
+            let emitted = std::sync::Arc::new(std::sync::Mutex::new(None::<Value>));
+            let sink = std::sync::Arc::clone(&emitted);
+            restore_scope(true, async move {
+                // A discovering build that never answers, cut off by its budget.
+                let cut = tokio::time::timeout(
+                    Duration::from_millis(30),
+                    timed(Some(RestoreStep::Discovery), std::future::pending::<()>()),
+                )
+                .await;
+                assert!(cut.is_err());
+                timed(Some(RestoreStep::StoreOpen), async {}).await;
+                timed(Some(RestoreStep::StoreOpen), async {}).await;
+                // No step: untimed, as for a non-discovering build.
+                timed(None, async {}).await;
+                note_offline_fallback();
+                *sink.lock().unwrap() = Some(with_restore_trace(login_ok()));
+            })
+            .await;
+            let event = emitted.lock().unwrap().take().expect("an event");
+            let trace = &event["trace"];
+            assert_eq!(keys(trace), set(&RESTORE_KEYS));
+            assert!(trace["discovery_ms"].as_u64().unwrap() >= 25,
+                    "a cut-off discovery must still report its time: {trace}");
+            assert_eq!(trace["store_opens"], 2);
+            assert_eq!(trace["offline_fallback"], true);
+            assert_eq!(trace["fallback_build_ms"], 0);
+            assert!(trace["restore_total_ms"].as_u64().unwrap() >= 25);
+            // Outside the scope: identical event, and recorders do not panic.
+            note_offline_fallback();
+            timed(Some(RestoreStep::Restore), async {}).await;
+            assert_eq!(with_restore_trace(login_ok()), login_ok());
+        }
+
+        #[tokio::test]
+        async fn a_sync_session_traces_its_first_reset_only_and_only_when_on() {
+            // Off: no stamp, no scope, nothing recorded or returned.
+            let off = sync_scope(None, async {
+                timed_sync_service_build(async {}).await;
+                let started = first_reset_serialize_start();
+                (started.is_some(), take_first_reset_trace(started, 3))
+            })
+            .await;
+            assert_eq!(off, (false, None));
+
+            let on = sync_scope(Some(Instant::now()), async {
+                timed_sync_service_build(tokio::time::sleep(Duration::from_millis(20))).await;
+                let first = first_reset_serialize_start();
+                let first = take_first_reset_trace(first, 5);
+                let second = first_reset_serialize_start();
+                let second_trace = take_first_reset_trace(second.or(Some(Instant::now())), 5);
+                (first, second.is_some(), second_trace)
+            })
+            .await;
+            let (first, second_started, second) = on;
+            let first = first.expect("the first Reset is traced");
+            assert_eq!(first.rooms, 5);
+            assert!(first.sync_service_build_ms >= 15, "{first:?}");
+            assert!(first.since_start_sync_ms >= first.sync_service_build_ms, "{first:?}");
+            assert!(!second_started, "a second Reset must not start a trace");
+            assert_eq!(second, None);
+        }
+    }
 }
 
 pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
@@ -17435,6 +18033,50 @@ mod delegation_tests {
         });
     }
 
+    // LIGHTNING_SWITCH_TRACE: the real restore helpers record into a traced
+    // restore, so the steps the C++ trace reports are the ones that ran. An
+    // online restore opens the stores once; an offline one opens them twice
+    // (the discovering attempt, then the recorded-URL fallback) and says so.
+    #[test]
+    fn a_traced_restore_records_what_the_build_actually_did() {
+        use crate::switchtrace;
+        use serde_json::{json, Value};
+        let (homeserver, stop) = serve_stoppable(versions_body());
+        let store = StoreDir::new("switch-trace-restore");
+        let typed = format!("http://{homeserver}");
+        let events: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+
+        let traced = |online: bool| {
+            let typed = typed.clone();
+            let path = store.path().to_path_buf();
+            let events = Arc::clone(&events);
+            let out: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+            let sink = Arc::clone(&out);
+            runtime().block_on(switchtrace::restore_scope(true, async move {
+                let client = build_client_for_restore(&typed, &path, &events).await;
+                assert!(client.is_ok(), "online={online}: the restore must build");
+                drop(client);
+                *sink.lock().unwrap() =
+                    Some(switchtrace::with_restore_trace(json!({ "type": "login_ok" })));
+            }));
+            let event = out.lock().unwrap().take().expect("an event");
+            event["trace"].clone()
+        };
+
+        // Online: discovery succeeds, one store open, no fallback.
+        let trace = traced(true);
+        assert_eq!(trace["store_opens"], 1, "{trace}");
+        assert_eq!(trace["offline_fallback"], false, "{trace}");
+        assert_eq!(trace["fallback_build_ms"], 0, "{trace}");
+
+        // Offline: the discovering attempt and the recorded-URL fallback.
+        stop_serving(&homeserver, &stop);
+        let trace = traced(false);
+        assert_eq!(trace["store_opens"], 2, "{trace}");
+        assert_eq!(trace["offline_fallback"], true, "{trace}");
+    }
+
     // A recorded URL must never skip discovery while the server is up, or a
     // changed `/.well-known` delegation would never be followed.
     #[test]
@@ -18953,6 +19595,93 @@ mod modern_sync_auth_tests {
             assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
         }
         assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
+    }
+
+    /// LIGHTNING_SWITCH_TRACE through the real modern loop: a traced sync's
+    /// first `room_list_reset` carries the trace and no later one does; an
+    /// untraced sync's resets carry none, exactly as before the trace existed.
+    #[test]
+    fn only_the_first_reset_of_a_traced_sync_carries_the_switch_trace() {
+        use crate::switchtrace;
+        fn is_reset(v: &serde_json::Value) -> bool {
+            v["type"] == "room_list_reset"
+        }
+        let run_once = |traced: bool| -> Vec<serde_json::Value> {
+            // Answer everything: no refusals.
+            let addr = serve(Script::Rounds { rounds: 0, refuse: 0, answered: 0 },
+                             Arc::new(Seen::default()));
+            let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            runtime.block_on(async {
+                let client = matrix_sdk::Client::builder()
+                    .homeserver_url(format!("http://{addr}"))
+                    .build()
+                    .await
+                    .expect("client");
+                let session = MatrixSession {
+                    meta: SessionMeta {
+                        user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                        device_id: OwnedDeviceId::from("TESTDEVICE"),
+                    },
+                    tokens: SessionTokens { access_token: "access-0".to_owned(), refresh_token: None },
+                };
+                client
+                    .matrix_auth()
+                    .restore_session(session, RoomLoadSettings::default())
+                    .await
+                    .expect("restore");
+                let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+                let watched = Arc::clone(&events);
+                let watcher = async move {
+                    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                    while tokio::time::Instant::now() < deadline {
+                        let seen = drain(&watched);
+                        if seen.iter().any(is_reset) && seen.iter().any(is_running) {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    let _ = cancel_tx.send(());
+                };
+                let started = traced.then(std::time::Instant::now);
+                let _ = tokio::join!(
+                    switchtrace::sync_scope(started, run_modern_sync(
+                        client,
+                        Arc::clone(&events),
+                        Arc::new(Mutex::new(SyncMode::Probing)),
+                        Arc::new(Mutex::new(None)),
+                        Arc::new(Mutex::new(None)),
+                        Arc::new(Mutex::new(Default::default())),
+                        Default::default(),
+                        cancel_rx,
+                    )),
+                    watcher
+                );
+            });
+            drain(&events)
+        };
+
+        let events = run_once(true);
+        let resets: Vec<&serde_json::Value> = events.iter().filter(|v| is_reset(v)).collect();
+        let first = resets.first().copied().unwrap_or_else(|| {
+            panic!("the loop never sent a room_list_reset; this proved nothing: {events:?}")
+        });
+        let trace = &first["trace"];
+        assert!(trace.is_object(), "the first reset of a traced sync has no trace: {first}");
+        assert_eq!(trace["v"], 1, "{trace}");
+        assert_eq!(trace["rooms"].as_u64(), first["rooms"].as_array().map(|r| r.len() as u64));
+        assert!(trace["since_start_sync_ms"].as_u64() >= trace["sync_service_build_ms"].as_u64(),
+                "{trace}");
+        assert!(resets[1..].iter().all(|v| v.get("trace").is_none()),
+                "a later reset was traced too: {resets:?}");
+
+        let events = run_once(false);
+        assert!(events.iter().any(is_reset), "no reset untraced: {events:?}");
+        assert!(events.iter().all(|v| v.get("trace").is_none()),
+                "an untraced sync emitted a trace: {events:?}");
     }
 }
 

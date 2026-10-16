@@ -21,6 +21,11 @@
 
 class SettingsManager;
 
+namespace lightning::accounts {
+class RevocationProofs;
+class StoreOwnershipRegistry;
+}
+
 // QObject/C++ wrapper for the Matrix Rust SDK bridge. QML and models still
 // talk only to MatrixClient; Rust owns the SDK client, async work, and SDK
 // SQLite store behind the C ABI.
@@ -58,9 +63,15 @@ public:
         QByteArray accessDigest;
         bool persist = false;
     };
+    // `storeOwnershipSerial`/`storeRegistry`: the record this handle's store
+    // holds in the StoreOwnershipRegistry; the worker reports the close to it
+    // after mx_rust_destroy_and_report. 0/nullptr report nothing.
     static void retireRustHandleAsync(void *handle, const QString &typingRoom,
                                       const RetiringSignIn &signIn,
-                                      QPointer<RustSdkMatrixClient> sink);
+                                      QPointer<RustSdkMatrixClient> sink,
+                                      quint64 storeOwnershipSerial = 0,
+                                      lightning::accounts::StoreOwnershipRegistry *storeRegistry
+                                      = nullptr);
 
     /// Writes the sign-ins retired handles left behind, each under the account
     /// captured at release, and only while that record still names the same
@@ -72,6 +83,17 @@ public:
 
     explicit RustSdkMatrixClient(SettingsManager *settings, QObject *parent = nullptr);
     ~RustSdkMatrixClient() override;
+
+    // Which registry this client records its store ownership in. Record-only
+    // in Phase 0: it changes one log line and nothing else. For tests;
+    // nullptr means StoreOwnershipRegistry::process().
+    void setStoreOwnershipRegistry(lightning::accounts::StoreOwnershipRegistry *r);
+
+    // A per-account mirror of the single-slot revocation proofs below
+    // (m_revokedUserId/m_revokedDeviceId, m_softLogout*). Not owned; nullptr
+    // detaches. Phase 0 writes every proof change into it and NEVER reads it:
+    // every login and move-aside decision still reads the fields alone.
+    void setRevocationProofs(lightning::accounts::RevocationProofs *proofs);
 
     // Introspection surfaced for the Settings screen / logs.
     QString rustBackendName() const;
@@ -1020,6 +1042,14 @@ private:
     QString m_softLogoutUserId;
     QString m_softLogoutHomeserver;
     QString m_softLogoutDeviceId;
+    // Mirror of the two proofs above, per account (setRevocationProofs()).
+    // Written wherever they are; never consulted in Phase 0.
+    lightning::accounts::RevocationProofs *m_revocationProofs = nullptr;
+    // The StoreOwnershipRegistry record of the running handle's store; 0 when
+    // none. Record-only in Phase 0.
+    lightning::accounts::StoreOwnershipRegistry *m_storeOwnershipRegistry = nullptr;
+    quint64 m_storeOwnershipSerial = 0;
+    lightning::accounts::StoreOwnershipRegistry &storeOwnershipRegistry() const;
     // The device the password sign-in in flight asked to resume; empty for a
     // new device. Cleared by its terminal event.
     QString m_resumeDeviceId;
@@ -1185,7 +1215,10 @@ private:
     // The index base: `room_list_reset` (and the legacy `rooms` envelope), the
     // only producer allowed to define m_roomOrder's indices. See
     // matrix::rust_rooms.
-    void handleRoomsEvent(const QJsonArray &rooms);
+    // parseMs/modelMs (LIGHTNING_SWITCH_TRACE only): the reset's parse into
+    // the room registry and the synchronous roomsChanged emit, timed apart.
+    void handleRoomsEvent(const QJsonArray &rooms, qint64 *parseMs = nullptr,
+                          qint64 *modelMs = nullptr);
     // `room_snapshot`: the SDK state-store walk. Updates m_rooms; never
     // touches m_roomOrder.
     void handleRoomSnapshotEvent(const QJsonArray &rooms);

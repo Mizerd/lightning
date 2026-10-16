@@ -38,6 +38,7 @@
 #include "app/TrayIcon.h"
 #include "notifications/InviteNoticeTracker.h"
 #include "notifications/NotificationManager.h"
+#include "accounts/RevocationProofs.h"
 #include "app/NotificationNotices.h"
 #include "text/SpellChecker.h"
 
@@ -1331,6 +1332,14 @@ private:
     // Clears every cache that must not leak across accounts. Used on account
     // change; logout clears the same state through loggedOut connections.
     void clearCrossAccountCaches();
+    // LIGHTNING_SWITCH_TRACE only: the first frame swapped after the room
+    // list has rows marks the trace's first target. Armed from
+    // onLoginSucceeded() while a trace is open; disarms itself.
+    void armSwitchTraceFirstFrame();
+    void disarmSwitchTraceFirstFrame();
+    QMetaObject::Connection m_switchTraceRowsConnection;
+    QMetaObject::Connection m_switchTraceResetConnection;
+    QMetaObject::Connection m_switchTraceFrameConnection;
 
     // Resolve an account's on-disk layout for removal: the recorded identity
     // first, then the canonical layout. False = nothing to act on.
@@ -1488,6 +1497,11 @@ private:
     // QObject* keeps ScreenshotDemoController out of this header. Parented to
     // this; null in non-demo builds.
     QObject *m_demoController = nullptr;
+    // Per-account revocation proofs (live accounts, Phase 0): the Rust client
+    // mirrors its own single-slot proof fields into it, and nothing consults
+    // it yet. Process memory only, never persisted. Declared BEFORE m_client
+    // so it is destroyed after the client that points at it.
+    lightning::accounts::RevocationProofs m_revocationProofs;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;

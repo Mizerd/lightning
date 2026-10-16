@@ -40,6 +40,8 @@
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
 #include "notifications/NotificationManager.h"
+#include "notifications/NotificationContextBuilder.h"
+#include "app/SwitchTrace.h"
 #include "spaces/SpaceManager.h"
 #include "storage/SecretStore.h"
 #include "storage/InMemorySecretStore.h"
@@ -227,6 +229,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_imageCrop.setStagedImages(&m_stagedImages);
 
     m_client       = makeClient(backend, m_settings.get(), this);
+#ifdef ENABLE_RUST_SDK_BACKEND
+    // The client mirrors its revocation proofs into the per-account map
+    // (live accounts, Phase 0). Nothing consults the map yet: login and the
+    // move-aside still read the client's own fields.
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->setRevocationProofs(&m_revocationProofs);
+#endif
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
     m_directAvatars = std::make_unique<DirectAvatarResolver>(this);
@@ -823,6 +832,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                    const QString &threadRootId) {
         routeNotificationOpen(roomId, eventId, threadRootId);
     });
+    // The same click, naming the account the card was raised for. It routes
+    // nothing yet: the three-argument signal above still opens the room. An
+    // open for an account that is not the active one is only recorded.
+    connect(m_notifications.get(), &NotificationManager::openRequestedForAccount,
+            this, [this](const QString &accountUserId, const QString &,
+                         const QString &, const QString &) {
+        if (!accountUserId.isEmpty()
+            && accountUserId != m_settings->activeAccountUserId()) {
+            qCInfo(lcApp) << "notification open for another account acct="
+                          << matrix::app_data::safeUserSlug(accountUserId);
+        }
+    });
     // A notification card outlives the account that raised it. Acting under
     // whichever account is current could mark another account's room read
     // or send a reply from the wrong identity, so both actions are refused on
@@ -976,7 +997,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // account's rows until the next login. Deletion is separate
                 // (onLoggedOut() and removeAccount()).
                 m_gif->closeStarredStore();
-                m_notifications->clearPending();
+                m_notifications->clearPendingFor(QString());
                 m_inviteNotices.clear();
                 m_inviteNoticeTimer.stop();
                 // Unsynced rooms are kept per account in settings and survive
@@ -2330,6 +2351,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::onLoginSucceeded);
     connect(m_auth.get(), &AuthManager::loggedOut,
             this, &AppController::onLoggedOut);
+    // LIGHTNING_SWITCH_TRACE probe: every loggedIn transition QML can see,
+    // so a switch that drops to the login screen for a frame shows up.
+    // SwitchTrace ignores a repeat of the last value.
+    if (lightning::switchtrace::enabled()) {
+        connect(this, &AppController::loggedInChanged, this, [this] {
+            lightning::switchtrace::noteLoggedIn(loggedIn());
+        });
+    }
     // A failed switch falls back to the previous account once, else the login
     // screen. A failed add-account restores the previous account in the
     // background, since the attempt released the shared client's session.
@@ -2339,6 +2368,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // account to return to itself, so this must not start a second one.
         if (m_abandoningBrowserSignIn)
             return;
+        // A traced switch or launch restore ends here, whichever branch
+        // follows (a fallback restore is not part of it). A failure after the
+        // traced login (an add-account attempt) is not that switch's.
+        if (lightning::switchtrace::awaitingLogin())
+            lightning::switchtrace::finish(lightning::switchtrace::Outcome::Failed);
         if (m_accountSwitching) {
             if (!m_switchFallbackUserId.isEmpty()) {
                 failAccountSwitch(tr("Could not switch accounts — returning "
@@ -3065,8 +3099,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 && !m_settings->activeAccountUserId().isEmpty()));
     if (hasRestorableSession) {
         setCurrentScreen(BootScreen);
-        if (!m_client->restoreSession())
+        // LIGHTNING_SWITCH_TRACE: the launch restore is traced like a switch
+        // from no account, so a cold start has a baseline too.
+        if (lightning::switchtrace::enabled()) {
+            lightning::switchtrace::begin(QString(),
+                                          m_settings->activeAccountUserId(),
+                                          lightning::switchtrace::Path::Startup);
+        }
+        if (!m_client->restoreSession()) {
+            lightning::switchtrace::finish(
+                lightning::switchtrace::Outcome::Failed);
             setCurrentScreen(LoginScreen);
+        }
         Q_EMIT rustDeviceIdChanged();
     }
 }
@@ -4012,6 +4056,12 @@ void AppController::setCurrentRoomId(const QString &roomId)
     if (m_currentRoomId == roomId)
         return;
     m_currentRoomId = roomId;
+    // LIGHTNING_SWITCH_TRACE: leaving the room S11 measures before it filled
+    // gives target 2 up; the first room opened after a traced login starts
+    // S11 (both no-ops otherwise, and S11 begins only once per trace).
+    lightning::switchtrace::abandonRoomInteractive();
+    if (!roomId.isEmpty())
+        lightning::switchtrace::stepBegin(lightning::switchtrace::Step::S11);
     // Close the thread panel before the timeline switches rooms.
     m_thread->handleCurrentRoomChanged(roomId);
     m_eventContext->handleCurrentRoomChanged(roomId);
@@ -4451,56 +4501,43 @@ void AppController::handleLiveEvent(const QString &composedRoomId,
 NotificationManager::Context AppController::notificationContextFor(
     const QString &roomId, const TimelineEvent &event, bool fromThread) const
 {
-    NotificationManager::Context context;
-    context.selfUserId = m_client->currentUserId();
+    // The rules live in NotificationContextBuilder, which a background
+    // account's host will share; this only gathers the foreground's inputs.
+    // The account stays empty: the foreground's stamping is today's.
+    lightning::notifications::NotificationContextInputs in;
+    const QString uid = m_settings->activeAccountUserId();
+    in.selfUserId = m_client->currentUserId();
+    in.roomId = roomId;
     // Targeted lookup; rooms() deep-copies the whole list per event.
     const RoomInfo info = m_client->roomInfo(roomId);
-    context.roomName = info.name.isEmpty() ? roomId : info.name;
-    context.roomIsDirect = info.isDirect;
+    in.roomInfoName = info.name;
+    in.roomIsDirect = info.isDirect;
     const QVariantMap notifyRoomRow = m_roomList->findRoom(roomId);
-    context.avatarMxc =
-        notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
-    // Initials colour and theme from the same row the room list uses, so the
-    // two never disagree about an identity.
-    context.avatarColorKey =
+    in.avatarMxc = notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
+    in.avatarColorKey =
         notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
-    context.themeId = int(m_settings->theme());
-    context.roomMode = static_cast<NotificationManager::RoomMode>(
-        m_settings->roomNotificationMode(roomId));
-    // The server does not have this device's choice (a failed write, or a
-    // device-only legacy mode); the local mode then decides alone.
-    context.localModeUnsynced = roomNotificationModeDecidesLocally(roomId);
-    // Encrypted rooms may withhold more; a room not listed yet resolves like
-    // unknown encryption (the stricter level).
-    context.previewMode =
-        static_cast<NotificationManager::PreviewMode>(noticePreviewFor(roomId));
-    context.notificationsEnabled = m_settings->notificationsEnabled();
-    // "On screen" is thread-aware. The room timeline hides threaded events,
-    // so a thread reply is on screen only while the panel shows its thread
-    // and the panel itself follows the latest reply in a focused window; the
-    // main timeline's own scroll position says nothing about it.
-    const bool threaded = fromThread
-        || (!event.threadRootId.isEmpty()
-            && event.threadRootId != event.eventId);
-    if (threaded) {
-        context.roomVisibleAtLatest = roomId == m_currentRoomId && m_thread
-            && m_thread->rootEventId() == event.threadRootId
-            && m_thread->viewerAtLatest();
-    } else {
-        context.roomVisibleAtLatest =
-            roomId == m_currentRoomId && m_activeRoomAtLatest;
-    }
-    // The open room's backlog arrives as live appends while its view is still
-    // hydrating.
-    context.roomHydrating = roomId == m_currentRoomId && m_activeRoomHydrating;
-    // Initial-sync backlog is history and must not re-notify each launch.
-    context.initialSyncComplete = m_client->initialSyncDone();
-    context.soundMode = static_cast<NotificationManager::SoundMode>(
-        m_settings->notificationSound());
-    // Events from an ignored user already in flight must not notify.
-    context.senderIsIgnored =
-        m_moderation && m_moderation->isIgnored(event.sender);
-    return context;
+    in.themeId = int(m_settings->theme());
+    // The *For(uid) reads answer exactly as the active-account accessors do
+    // for the active account, without depending on which account is active.
+    in.roomMode = m_settings->roomNotificationModeFor(uid, roomId);
+    in.localModeUnsynced =
+        m_settings->roomNotificationModeDecidesLocallyFor(uid, roomId);
+    in.previewMode = noticePreviewFor(roomId);
+    in.notificationsEnabled = m_settings->notificationsEnabled();
+    in.eventId = event.eventId;
+    in.eventThreadRootId = event.threadRootId;
+    in.fromThread = fromThread;
+    in.currentRoomId = m_currentRoomId;
+    in.activeRoomAtLatest = m_activeRoomAtLatest;
+    in.activeRoomHydrating = m_activeRoomHydrating;
+    // Const getters, so reading them eagerly changes nothing.
+    in.threadPanelPresent = m_thread != nullptr;
+    in.threadPanelRootId = m_thread ? m_thread->rootEventId() : QString();
+    in.threadPanelAtLatest = m_thread && m_thread->viewerAtLatest();
+    in.initialSyncComplete = m_client->initialSyncDone();
+    in.soundMode = m_settings->notificationSound();
+    in.senderIsIgnored = m_moderation && m_moderation->isIgnored(event.sender);
+    return lightning::notifications::NotificationContextBuilder::build(in);
 }
 
 int AppController::noticePreviewFor(const QString &roomId) const
@@ -5392,6 +5429,63 @@ void AppController::setActiveRoomHydrating(bool hydrating)
         return;
     m_activeRoomHydrating = hydrating;
     Q_EMIT activeRoomHydratingChanged();
+    // LIGHTNING_SWITCH_TRACE target 2: the open room's timeline has filled.
+    // QML's value also drops when the window loses focus or the chat shell is
+    // hidden, which is not a fill: only an edge seen with the main window
+    // active on the main screen counts (SwitchTrace.h, target 2). The trace
+    // keeps the first one after its login only.
+    if (!hydrating && !m_currentRoomId.isEmpty()
+        && lightning::switchtrace::active() && m_currentScreen == MainScreen) {
+        // isActive() is the very predicate QML's Window.active reads.
+        // mainWindow() finds the window if focus tracking has not yet.
+        QQuickWindow *window = mainWindow();
+        if (window && window->isActive())
+            lightning::switchtrace::markRoomInteractive();
+    }
+}
+
+void AppController::armSwitchTraceFirstFrame()
+{
+    disarmSwitchTraceFirstFrame();
+    if (!m_roomList)
+        return;
+    // The frame after the room list first has rows. frameSwapped is emitted
+    // on the render thread; `this` as the context queues it here, so the
+    // stamp is when the GUI thread learns of the swap.
+    const auto onRows = [this] {
+        if (!lightning::switchtrace::active()) {
+            disarmSwitchTraceFirstFrame();
+            return;
+        }
+        if (m_roomList->rowCount() <= 0 || m_switchTraceFrameConnection)
+            return;
+        // mainWindow(), not m_mainWindow: the member is filled lazily by
+        // focus tracking and may still be empty this early in a launch.
+        QQuickWindow *window = mainWindow();
+        if (!window)
+            return;
+        QObject::disconnect(m_switchTraceRowsConnection);
+        QObject::disconnect(m_switchTraceResetConnection);
+        m_switchTraceFrameConnection = connect(
+            window, &QQuickWindow::frameSwapped, this, [this] {
+                disarmSwitchTraceFirstFrame();
+                lightning::switchtrace::markFirstFrame();
+            });
+    };
+    m_switchTraceRowsConnection =
+        connect(m_roomList.get(), &QAbstractItemModel::rowsInserted, this, onRows);
+    m_switchTraceResetConnection =
+        connect(m_roomList.get(), &QAbstractItemModel::modelReset, this, onRows);
+}
+
+void AppController::disarmSwitchTraceFirstFrame()
+{
+    QObject::disconnect(m_switchTraceRowsConnection);
+    QObject::disconnect(m_switchTraceResetConnection);
+    QObject::disconnect(m_switchTraceFrameConnection);
+    m_switchTraceRowsConnection = {};
+    m_switchTraceResetConnection = {};
+    m_switchTraceFrameConnection = {};
 }
 
 void AppController::renameSessionDevice(const QString &deviceId,
@@ -5942,6 +6036,13 @@ void AppController::setConnectionStatus(const QString &s)
 
 void AppController::onLoginSucceeded()
 {
+    // LIGHTNING_SWITCH_TRACE: the 30 s deadline for the two targets starts
+    // here, and S10 is this whole body.
+    lightning::switchtrace::markLoginSucceeded();
+    const lightning::switchtrace::StepScope traceS10(
+        lightning::switchtrace::Step::S10);
+    if (lightning::switchtrace::active())
+        armSwitchTraceFirstFrame();
     const QString uid = m_auth->currentUserId();
     qCInfo(lcApp) << "login succeeded slug="
                   << matrix::app_data::safeUserSlug(uid)
@@ -6343,6 +6444,10 @@ void AppController::resetSessionNotificationState()
 
 void AppController::clearCrossAccountCaches()
 {
+    // Runs twice per switch (here and from onLoginSucceeded); the trace adds
+    // both runs and counts them.
+    const lightning::switchtrace::StepScope traceS6(
+        lightning::switchtrace::Step::S6);
     // Playback stops before the decrypted media files are wiped, so no
     // player holds an open handle into the previous account's cache.
     m_voicePlayback->stop();
@@ -6353,7 +6458,7 @@ void AppController::clearCrossAccountCaches()
     // emission, so the claim sets would otherwise strand their keys.
     m_pendingStarKeys.clear();
     m_pendingCopyKeys.clear();
-    m_notifications->clearPending();
+    m_notifications->clearPendingFor(QString());
     // Anything still on screen must not be attributed to the next account.
     m_notifications->setAccountUserId(QString());
     m_inviteNotices.clear();
@@ -6702,7 +6807,17 @@ void AppController::switchToAccount(const QString &userId)
         Q_EMIT errorReported(tr("That account is not signed in on this device."));
         return;
     }
-    switch (signInStateFor(target)) {
+    // LIGHTNING_SWITCH_TRACE: every stamp below is a no-op unless it is set.
+    namespace trace = lightning::switchtrace;
+    if (trace::enabled())
+        trace::begin(m_settings->activeAccountUserId(), target, trace::Path::Cold);
+    const SignInState signIn = [&] {
+        const trace::StepScope traceS1(trace::Step::S1);
+        return signInStateFor(target);
+    }();
+    if (signIn != SignInState::Usable)
+        trace::finish(trace::Outcome::Refused);
+    switch (signIn) {
     case SignInState::Usable:
         break;
     case SignInState::Gone:
@@ -6744,6 +6859,7 @@ void AppController::switchToAccount(const QString &userId)
     // membership retraction and the SFU Leave both need it, otherwise the
     // membership lingers in the room until it expires. leave() is safe in any
     // state, including mid-join.
+    trace::stepBegin(trace::Step::S2);
     if (m_groupCall)
         m_groupCall->leave();
 
@@ -6751,8 +6867,14 @@ void AppController::switchToAccount(const QString &userId)
     // pending send, or open thread survives into the next account.
     setCurrentRoomId(QString{});
     m_roomInfo->setRoomId(QString{});
+    trace::stepEnd(trace::Step::S2);
 
-    if (m_client->isLoggedIn() && !m_client->detachSession()) {
+    trace::stepBegin(trace::Step::S3);
+    const bool detachRefused =
+        m_client->isLoggedIn() && !m_client->detachSession();
+    trace::stepEnd(trace::Step::S3);
+    if (detachRefused) {
+        trace::finish(trace::Outcome::Refused);
         m_switchFallbackUserId.clear();
         setAccountSwitching(false);
         // Either the backend cannot detach, or a real sign-out is still
@@ -6768,7 +6890,11 @@ void AppController::switchToAccount(const QString &userId)
     if (m_groupCall)
         m_groupCall->abandonOutstandingMembershipWrites();
 
+    // S5 (accountsChanged -> accounts() keyring reads) runs inside this
+    // call's signal fan-out, so the trace folds it into S4.
+    trace::stepBegin(trace::Step::S4);
     m_settings->setActiveAccountUserId(target);
+    trace::stepEnd(trace::Step::S4);
     clearCrossAccountCaches();
     // Shortcut bindings are per account and cached by the registry, so the
     // switch must be announced.
@@ -6817,6 +6943,7 @@ AppController::signInStateFor(const QString &userId) const
 
 void AppController::failAccountSwitch(const QString &message)
 {
+    lightning::switchtrace::finish(lightning::switchtrace::Outcome::Failed);
     const QString fallback = m_switchFallbackUserId;
     m_switchFallbackUserId.clear();
     if (!message.isEmpty())

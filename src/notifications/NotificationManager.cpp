@@ -407,6 +407,9 @@ NotificationManager::NotificationManager(QObject *parent)
     : QObject(parent)
 {
     m_clock.start();
+    // The foreground account's table always exists, so every card's
+    // accountKey names a table.
+    m_tables.insert(QString(), AccountTable{});
 #ifdef HAVE_QT_DBUS
     qDBusRegisterMetaType<FreedesktopNotificationImage>();
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -771,9 +774,13 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
     }
     // Delivered as "Encrypted message". Not shown yet (waiting for an avatar
     // or the capabilities): it leaves with the text instead, alert and all.
-    const auto sameEvent = [&event](const Card &card) {
-        return card.payload.value(QStringLiteral("eventId")).toString()
-            == event.eventId;
+    // Only the account the event arrived for: two live accounts can share a
+    // room, and so an event.
+    const QString accountKey = context.accountUserId;
+    const auto sameEvent = [&event, &accountKey](const Card &card) {
+        return card.accountKey == accountKey
+            && card.payload.value(QStringLiteral("eventId")).toString()
+                == event.eventId;
     };
     qsizetype unshown = m_avatarWaits.removeIf(sameEvent)
         + m_capabilityWaits.removeIf(sameEvent);
@@ -781,19 +788,25 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
     const QString groupKey = messageGroupKey(
         routableRoomId(event.roomId),
         routableThreadRootId(event.roomId, event.threadRootId));
-    const auto waitingGroup = m_groups.find(groupKey);
-    if (waitingGroup != m_groups.end() && waitingGroup->next
-        && sameEvent(*waitingGroup->next)) {
-        waitingGroup->next.reset();
-        ++unshown;
+    {
+        AccountTable &own = table(accountKey);
+        const auto waitingGroup = own.groups.find(groupKey);
+        if (waitingGroup != own.groups.end() && waitingGroup->next
+            && sameEvent(*waitingGroup->next)) {
+            waitingGroup->next.reset();
+            ++unshown;
+        }
     }
     if (unshown > 0) {
         if (m_avatarWaits.isEmpty())
             m_avatarWaitTimer.stop();
         // It was counted once already; it is delivered again, not anew.
-        const auto counted = m_groups.find(groupKey);
-        if (counted != m_groups.end())
-            counted->count = std::max(0, counted->count - int(unshown));
+        {
+            AccountTable &own = table(accountKey);
+            const auto counted = own.groups.find(groupKey);
+            if (counted != own.groups.end())
+                counted->count = std::max(0, counted->count - int(unshown));
+        }
         if (decision.notify)
             deliverDecision(event, context, decision, false, false);
         return;
@@ -801,9 +814,10 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
     // Shown: replaced in place and silently (it has alerted once), or
     // withdrawn if the plaintext would not have notified. A card that has
     // since moved on to a newer message stays as it is.
+    const AccountTable &own = table(accountKey);
     quint32 cardId = 0;
-    for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
-         ++it) {
+    for (auto it = own.pendingPayloads.cbegin();
+         it != own.pendingPayloads.cend(); ++it) {
         if (it.value().value(QStringLiteral("eventId")).toString()
                 == event.eventId
             && it.value().value(QStringLiteral("utd")).toBool()) {
@@ -813,10 +827,10 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
     }
     if (cardId == 0)
         return;
-    const QString group =
-        m_pendingPayloads.value(cardId).value(QStringLiteral("group")).toString();
-    const auto groupIt = m_groups.constFind(group);
-    if (groupIt != m_groups.cend()
+    const QString group = own.pendingPayloads.value(cardId)
+                              .value(QStringLiteral("group")).toString();
+    const auto groupIt = own.groups.constFind(group);
+    if (groupIt != own.groups.cend()
         && (groupIt->inFlight || groupIt->id != cardId))
         return; // a newer card is on its way and replaces it anyway
     if (!decision.notify) {
@@ -839,9 +853,11 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     if (!replacement)
         m_roomsAwaitingUnread.insert(roomId, nowMs() + m_awaitUnreadMs);
     const QString groupKey = messageGroupKey(roomId, threadRootId);
+    // The table this card lives in; "" is the foreground account's.
+    const QString accountKey = context.accountUserId;
     int count = 0;
     {
-        CardGroup &group = m_groups[groupKey];
+        CardGroup &group = table(accountKey).groups[groupKey];
         if (!replacement)
             ++group.count;
         count = group.count;
@@ -867,15 +883,18 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), threadRootId);
-    // The owning account; actions taken after a switch are checked against it.
-    payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
+    // The owning account; actions taken after a switch are checked against
+    // it. The foreground's (empty context account) is the one set on this
+    // manager, as it always was.
+    payload.insert(QStringLiteral("accountUserId"),
+                   accountKey.isEmpty() ? m_accountUserId : accountKey);
     // Selects the mention chime.
     payload.insert(QStringLiteral("mention"), decision.mention);
     payload.insert(QStringLiteral("group"), groupKey);
     // A card a late decryption may replace in place.
     if (undecryptable)
         payload.insert(QStringLiteral("utd"), true);
-    m_groups[groupKey].payload = payload;
+    table(accountKey).groups[groupKey].payload = payload;
 
     Card card;
     card.title = decision.title;
@@ -883,6 +902,7 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     card.payload = payload;
     card.sound = decision.playSound && !replacement;
     card.replacement = replacement;
+    card.accountKey = accountKey;
     // Private preview keeps the generic app identity: a room avatar or initials
     // disc would disclose the conversation.
     if (context.previewMode != Private) {
@@ -907,10 +927,11 @@ void NotificationManager::showGeneric(const QString &title,
     payload.insert(QStringLiteral("eventId"), QString{});
     payload.insert(QStringLiteral("threadRootId"), QString{});
     payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
+    // Generic notices are the foreground account's: the "" table.
     if (!key.isEmpty()) {
         const QString groupKey = genericGroupKey(key);
         payload.insert(QStringLiteral("group"), groupKey);
-        m_groups[groupKey].payload = payload;
+        table(QString()).groups[groupKey].payload = payload;
     }
     Card card;
     card.title = title;
@@ -926,7 +947,7 @@ void NotificationManager::withdrawGeneric(const QString &key)
     if (key.isEmpty())
         return;
     const QString groupKey = genericGroupKey(key);
-    withdrawWhere([&groupKey](const QVariantMap &payload) {
+    withdrawWhere(QString(), [&groupKey](const QVariantMap &payload) {
         return payload.value(QStringLiteral("group")).toString() == groupKey;
     });
 }
@@ -943,46 +964,87 @@ void NotificationManager::withdrawEvent(const QString &eventId)
         m_utdHoldTimer.stop();
     if (m_liveUtds.remove(eventId) > 0)
         m_liveUtdOrder.removeOne(eventId);
-    const int withdrawn = withdrawWhere([&eventId](const QVariantMap &payload) {
-        return payload.value(QStringLiteral("eventId")).toString() == eventId;
-    });
+    // Every account's: a redaction removes the message for all of them.
+    const int withdrawn =
+        withdrawEverywhere([&eventId](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("eventId")).toString()
+                == eventId;
+        });
     if (withdrawn > 0)
         qCInfo(lcNotify) << "withdrew a notification for a removed message";
 }
 
-void NotificationManager::clearPending()
+void NotificationManager::clearPendingFor(const QString &accountUserId)
 {
-    stopIncomingCall(QString());
-    // The previous account's cards (and their previews) go with it. An action
-    // on one that still arrives meets its tombstone, and the app's refusal.
-    const QList<quint32> shown = m_payloadOrder;
+    const bool foreground = accountUserId.isEmpty();
+    // The ring is the foreground account's and process-wide; another
+    // account's clear never stops it.
+    if (foreground)
+        stopIncomingCall(QString());
+    // The account's cards (and their previews) go with it. An action on one
+    // that still arrives meets its tombstone, and the app's refusal.
+    AccountTable &own = table(accountUserId);
+    const QList<quint32> shown = own.payloadOrder;
     for (const quint32 id : shown) {
         closeNotification(id);
-        tombstone(id, m_pendingPayloads.value(id)
+        tombstone(id, own.pendingPayloads.value(id)
                           .value(QStringLiteral("accountUserId")).toString());
     }
     if (!shown.isEmpty())
         qCInfo(lcNotify) << "withdrew" << shown.size()
                          << "notification(s) of the previous session";
-    m_pendingPayloads.clear();
-    m_payloadOrder.clear();
-    m_groups.clear();
-    m_activationTokens.clear();
-    m_avatarWaits.clear();
-    m_avatarWaitTimer.stop();
-    m_capabilityWaits.clear();
-    m_heldUtds.clear();
-    m_utdHoldTimer.stop();
-    m_liveUtds.clear();
-    m_liveUtdOrder.clear();
-    m_roomsAwaitingUnread.clear();
-    // A Notify still in flight belongs to the previous account; its reply must
+    own.pendingPayloads.clear();
+    own.payloadOrder.clear();
+    own.groups.clear();
+    // A Notify still in flight belongs to the cleared account; its reply must
     // not record a click payload, and its card is closed on arrival.
-    ++m_deliveryGeneration;
-    // The tray balloon's payload is a pending click too; clear it so a balloon
-    // left on screen cannot route into the previous account's room.
-    m_lastFallbackPayload.clear();
-    m_balloonRooms.clear();
+    ++own.deliveryGeneration;
+    const auto ownCard = [&accountUserId](const Card &card) {
+        return card.accountKey == accountUserId;
+    };
+    m_avatarWaits.removeIf(ownCard);
+    if (m_avatarWaits.isEmpty())
+        m_avatarWaitTimer.stop();
+    if (foreground) {
+        m_activationTokens.clear();
+        m_capabilityWaits.clear();
+        m_heldUtds.clear();
+        m_utdHoldTimer.stop();
+        m_liveUtds.clear();
+        m_liveUtdOrder.clear();
+        m_roomsAwaitingUnread.clear();
+        // The tray balloon's payload is a pending click too; clear it so a
+        // balloon left on screen cannot route into the previous account's
+        // room.
+        m_lastFallbackPayload.clear();
+        m_lastFallbackAccountKey.clear();
+        m_balloonRooms.clear();
+        return;
+    }
+    // Another account: only what is tagged with it. Its withdrawn cards'
+    // activation tokens, its undelivered cards, and its held messages, which
+    // are forgotten as live arrivals too so a late decryption raises nothing.
+    for (const quint32 id : shown)
+        m_activationTokens.remove(id);
+    m_capabilityWaits.removeIf(ownCard);
+    for (auto it = m_heldUtds.begin(); it != m_heldUtds.end();) {
+        if (it->context.accountUserId == accountUserId) {
+            const QString eventId = it->event->eventId;
+            if (m_liveUtds.remove(eventId) > 0)
+                m_liveUtdOrder.removeOne(eventId);
+            it = m_heldUtds.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (m_heldUtds.isEmpty())
+        m_utdHoldTimer.stop();
+    // A balloon this account raised cannot route into it any more; a click
+    // still raises the window.
+    if (m_lastFallbackAccountKey == accountUserId) {
+        m_lastFallbackPayload.clear();
+        m_lastFallbackAccountKey.clear();
+    }
 }
 
 void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
@@ -1004,12 +1066,15 @@ void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
     // Only the room's own messages: its unread fields never count a thread
     // reply (matrix-sdk with threading support skips them) and say nothing
     // about a notice such as a missed call, so "read" says nothing about
-    // those either.
-    const int withdrawn = withdrawWhere([&roomId](const QVariantMap &payload) {
-        return payload.value(QStringLiteral("roomId")).toString() == roomId
-            && !payload.value(QStringLiteral("eventId")).toString().isEmpty()
-            && payload.value(QStringLiteral("threadRootId")).toString().isEmpty();
-    });
+    // those either. The foreground account's room list, so its table.
+    const int withdrawn = withdrawWhere(
+        QString(), [&roomId](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("roomId")).toString() == roomId
+                && !payload.value(QStringLiteral("eventId")).toString()
+                        .isEmpty()
+                && payload.value(QStringLiteral("threadRootId")).toString()
+                        .isEmpty();
+        });
     if (withdrawn > 0)
         qCInfo(lcNotify) << "withdrew" << withdrawn
                          << "notification(s) for a room that has been read";
@@ -1020,15 +1085,19 @@ void NotificationManager::closeRoomNotifications(const QString &roomId)
     if (roomId.isEmpty())
         return;
     m_roomsAwaitingUnread.remove(roomId);
-    // A message still held for its key belongs to the room just read.
+    // A message still held for its key belongs to the room just read. The
+    // foreground account's room, so only its messages and its table.
     m_heldUtds.removeIf([&roomId](const HeldUtd &held) {
-        return routableRoomId(held.event->roomId) == roomId;
+        return held.context.accountUserId.isEmpty()
+            && routableRoomId(held.event->roomId) == roomId;
     });
     if (m_heldUtds.isEmpty())
         m_utdHoldTimer.stop();
-    const int withdrawn = withdrawWhere([&roomId](const QVariantMap &payload) {
-        return payload.value(QStringLiteral("roomId")).toString() == roomId;
-    });
+    const int withdrawn = withdrawWhere(
+        QString(), [&roomId](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("roomId")).toString()
+                == roomId;
+        });
     if (withdrawn > 0)
         qCInfo(lcNotify) << "withdrew" << withdrawn
                          << "notification(s) for a room that has been read";
@@ -1040,7 +1109,8 @@ void NotificationManager::closeThreadNotifications(const QString &roomId,
     if (roomId.isEmpty() || rootEventId.isEmpty())
         return;
     m_heldUtds.removeIf([&roomId, &rootEventId](const HeldUtd &held) {
-        return routableRoomId(held.event->roomId) == roomId
+        return held.context.accountUserId.isEmpty()
+            && routableRoomId(held.event->roomId) == roomId
             && routableThreadRootId(held.event->roomId,
                                     held.event->threadRootId)
                 == rootEventId;
@@ -1048,7 +1118,7 @@ void NotificationManager::closeThreadNotifications(const QString &roomId,
     if (m_heldUtds.isEmpty())
         m_utdHoldTimer.stop();
     const int withdrawn = withdrawWhere(
-        [&roomId, &rootEventId](const QVariantMap &payload) {
+        QString(), [&roomId, &rootEventId](const QVariantMap &payload) {
             return payload.value(QStringLiteral("roomId")).toString() == roomId
                 && payload.value(QStringLiteral("threadRootId")).toString()
                     == rootEventId;
@@ -1058,12 +1128,25 @@ void NotificationManager::closeThreadNotifications(const QString &roomId,
                          << "notification(s) for a thread that has been read";
 }
 
+int NotificationManager::withdrawEverywhere(
+    const std::function<bool(const QVariantMap &)> &match)
+{
+    // Every card's accountKey names a table (the constructor makes "", and
+    // a card's table is made before the card), so this reaches every wait.
+    const QList<QString> keys = m_tables.keys();
+    int withdrawn = 0;
+    for (const QString &key : keys)
+        withdrawn += withdrawWhere(key, match);
+    return withdrawn;
+}
+
 int NotificationManager::withdrawWhere(
+    const QString &accountKey,
     const std::function<bool(const QVariantMap &)> &match)
 {
     // Deliveries not shown yet: waiting for an avatar or the capabilities.
-    const auto cardMatches = [&match](const Card &card) {
-        return match(card.payload);
+    const auto cardMatches = [&match, &accountKey](const Card &card) {
+        return card.accountKey == accountKey && match(card.payload);
     };
     const qsizetype dropped = m_avatarWaits.removeIf(cardMatches)
         + m_capabilityWaits.removeIf(cardMatches);
@@ -1075,10 +1158,13 @@ int NotificationManager::withdrawWhere(
             m_avatarWaitTimer.stop();
     }
     QList<quint32> stale;
-    for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
-         ++it) {
-        if (match(it.value()))
-            stale.append(it.key());
+    {
+        const AccountTable &own = table(accountKey);
+        for (auto it = own.pendingPayloads.cbegin();
+             it != own.pendingPayloads.cend(); ++it) {
+            if (match(it.value()))
+                stale.append(it.key());
+        }
     }
     // The ring owns its own lifetime; reading its room must not silence it.
     stale.removeOne(m_activeCallNotificationId);
@@ -1088,7 +1174,8 @@ int NotificationManager::withdrawWhere(
     }
     // Cards still being raised are closed when their id arrives; a group with
     // nothing shown is forgotten, so its count starts again.
-    for (auto it = m_groups.begin(); it != m_groups.end();) {
+    QHash<QString, CardGroup> &groups = table(accountKey).groups;
+    for (auto it = groups.begin(); it != groups.end();) {
         if (it->next && match(it->next->payload))
             it->next.reset();
         if (!match(it->payload)) {
@@ -1097,7 +1184,7 @@ int NotificationManager::withdrawWhere(
             it->withdrawn = true;
             ++it;
         } else if (it->id == 0) {
-            it = m_groups.erase(it);
+            it = groups.erase(it);
         } else {
             ++it;
         }
@@ -1105,55 +1192,190 @@ int NotificationManager::withdrawWhere(
     return int(stale.size());
 }
 
-void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
+void NotificationManager::recordPayload(const QString &accountKey, quint32 id,
+                                        const QVariantMap &payload)
 {
     if (m_tombstones.remove(id) > 0)
         m_tombstoneOrder.removeOne(id);
+    // A daemon id names one card, so it is in one table only. Never true
+    // with a single account; kept so lookups by id cannot be ambiguous.
+    for (auto it = m_tables.begin(); it != m_tables.end(); ++it) {
+        if (it.key() != accountKey && it->pendingPayloads.remove(id) > 0)
+            it->payloadOrder.removeOne(id);
+    }
+    AccountTable &own = table(accountKey);
     // Re-recording promotes an id to most recent, so a refreshed call card is
     // not evicted first.
-    m_payloadOrder.removeOne(id);
-    m_payloadOrder.append(id);
-    m_pendingPayloads.insert(id, payload);
-    // Evict the oldest past the cap so recent notifications stay clickable.
-    // The evicted card is withdrawn rather than left in the history, where a
+    own.payloadOrder.removeOne(id);
+    own.payloadOrder.append(id);
+    own.pendingPayloads.insert(id, payload);
+    // Evict the table's oldest past the cap so recent notifications stay
+    // clickable; another account's cards are not this one's to evict. The
+    // evicted card is withdrawn rather than left in the history, where a
     // click would do nothing and no read could ever remove it.
-    while (m_payloadOrder.size() > kMaxPendingPayloads) {
+    while (own.payloadOrder.size() > kMaxPendingPayloads) {
         qsizetype index = 0;
-        if (m_payloadOrder.first() == m_activeCallNotificationId
-            && m_payloadOrder.size() > 1)
+        if (own.payloadOrder.first() == m_activeCallNotificationId
+            && own.payloadOrder.size() > 1)
             index = 1;
-        const quint32 oldest = m_payloadOrder.at(index);
-        const QString account = m_pendingPayloads.value(oldest)
+        const quint32 oldest = own.payloadOrder.at(index);
+        const QString account = own.pendingPayloads.value(oldest)
                                     .value(QStringLiteral("accountUserId"))
                                     .toString();
         closeNotification(oldest);
         forgetPayload(oldest);
         // forgetPayload() only removes what it finds; never loop forever.
-        m_payloadOrder.removeOne(oldest);
+        own.payloadOrder.removeOne(oldest);
         tombstone(oldest, account);
     }
 }
 
+NotificationManager::AccountTable *NotificationManager::tableHolding(quint32 id)
+{
+    for (auto it = m_tables.begin(); it != m_tables.end(); ++it) {
+        if (it->pendingPayloads.contains(id))
+            return &it.value();
+    }
+    return nullptr;
+}
+
+QVariantMap NotificationManager::payloadFor(quint32 id) const
+{
+    for (auto it = m_tables.cbegin(); it != m_tables.cend(); ++it) {
+        const auto found = it->pendingPayloads.constFind(id);
+        if (found != it->pendingPayloads.cend())
+            return found.value();
+    }
+    return {};
+}
+
+int NotificationManager::pendingPayloadCountForTest(
+    const QString &accountUserId) const
+{
+    const auto it = m_tables.constFind(accountUserId);
+    return it == m_tables.cend() ? 0 : int(it->pendingPayloads.size());
+}
+
+quint64 NotificationManager::deliveryGenerationForTest(
+    const QString &accountUserId) const
+{
+    const auto it = m_tables.constFind(accountUserId);
+    return it == m_tables.cend() ? 0 : it->deliveryGeneration;
+}
+
+int NotificationManager::avatarWaitCount(const QString &accountKey) const
+{
+    return int(std::count_if(m_avatarWaits.cbegin(), m_avatarWaits.cend(),
+                             [&accountKey](const Card &card) {
+                                 return card.accountKey == accountKey;
+                             }));
+}
+
+const NotificationManager::Card *
+NotificationManager::foregroundAvatarWait(int index) const
+{
+    if (index < 0)
+        return nullptr;
+    for (const Card &card : m_avatarWaits) {
+        if (!card.accountKey.isEmpty())
+            continue;
+        if (index-- == 0)
+            return &card;
+    }
+    return nullptr;
+}
+
 void NotificationManager::forgetPayload(quint32 id)
 {
-    const auto it = m_pendingPayloads.constFind(id);
-    if (it == m_pendingPayloads.cend())
+    AccountTable *own = tableHolding(id);
+    if (!own)
         return;
+    const auto it = own->pendingPayloads.constFind(id);
     const QString groupKey = it->value(QStringLiteral("group")).toString();
-    m_pendingPayloads.erase(it);
-    m_payloadOrder.removeOne(id);
+    own->pendingPayloads.erase(it);
+    own->payloadOrder.removeOne(id);
     m_activationTokens.remove(id);
     if (groupKey.isEmpty())
         return;
-    const auto group = m_groups.find(groupKey);
-    if (group == m_groups.end() || group->id != id)
+    const auto group = own->groups.find(groupKey);
+    if (group == own->groups.end() || group->id != id)
         return;
     // The card is gone; the next message raises a new one. One still on its
     // way keeps the group (and its count) for its answer.
     if (group->inFlight || group->next)
         group->id = 0;
     else
-        m_groups.erase(group);
+        own->groups.erase(group);
+}
+
+bool NotificationManager::takeNotifyReply(const Card &card,
+                                          const QString &groupKey,
+                                          quint64 generation,
+                                          std::optional<quint32> id)
+{
+    // Its account was cleared meanwhile (sign-out, a switch, a removal): the
+    // card is not that table's to route any more, and its preview must not
+    // outlive the account either. Only the card's own table's clear counts.
+    if (generation != table(card.accountKey).deliveryGeneration) {
+        if (id) {
+            closeNotification(*id);
+            tombstone(*id, card.payload.value(QStringLiteral("accountUserId"))
+                               .toString());
+        }
+        return false;
+    }
+    if (!groupKey.isEmpty()) {
+        QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
+        const auto group = groups.find(groupKey);
+        if (group != groups.end())
+            group->inFlight = false;
+    }
+    if (!id)
+        return true;
+    const quint32 shown = *id;
+    quint32 previous = 0;
+    if (!groupKey.isEmpty()) {
+        QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
+        auto group = groups.find(groupKey);
+        if (group == groups.end())
+            group = groups.insert(groupKey, CardGroup{});
+        previous = std::exchange(group->id, shown);
+    }
+    // A daemon that no longer had the card it was asked to replace raises a
+    // new one; the old id is gone.
+    if (previous != 0 && previous != shown)
+        forgetPayload(previous);
+    recordPayload(card.accountKey, shown, card.payload);
+    if (groupKey.isEmpty())
+        return false;
+    QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
+    const auto group = groups.find(groupKey);
+    if (group == groups.end())
+        return false;
+    if (group->withdrawn) {
+        // Read or redacted while it was being raised.
+        group->next.reset();
+        closeNotification(shown);
+        forgetPayload(shown);
+        return false;
+    }
+    if (group->next) {
+        Card next = std::move(*group->next);
+        group->next.reset();
+        deliverNow(std::move(next));
+    }
+    return false;
+}
+
+void NotificationManager::notifyReplyForTest(const QString &accountUserId,
+                                             quint64 generation, quint32 id,
+                                             const QVariantMap &payload)
+{
+    Card card;
+    card.payload = payload;
+    card.accountKey = accountUserId;
+    takeNotifyReply(card, payload.value(QStringLiteral("group")).toString(),
+                    generation, id);
 }
 
 void NotificationManager::tombstone(quint32 id, const QString &accountUserId)
@@ -1201,9 +1423,16 @@ void NotificationManager::deliver(Card card)
         return;
     }
     // Bounded: if the avatar stalls, the notification appears with the fallback
-    // after a short grace period.
-    if (m_avatarWaits.size() >= kMaxPendingPayloads) {
-        Card oldest = m_avatarWaits.takeFirst();
+    // after a short grace period. Per account: one busy account flushes its
+    // own oldest, never another's.
+    if (avatarWaitCount(card.accountKey) >= kMaxPendingPayloads) {
+        const auto oldestIt = std::find_if(
+            m_avatarWaits.begin(), m_avatarWaits.end(),
+            [&card](const Card &waiting) {
+                return waiting.accountKey == card.accountKey;
+            });
+        Card oldest = std::move(*oldestIt);
+        m_avatarWaits.erase(oldestIt);
         oldest.avatar = oldest.fallback;
         deliverNow(std::move(oldest));
     }
@@ -1421,7 +1650,7 @@ void NotificationManager::deliverNow(Card card)
         const SoundPlan plan =
             takeSoundPlan(c.sound, mention, trayCarriesSound());
         if (!deliverThroughTray(c.title, c.body, c.payload, c.avatar,
-                                plan.platformSound))
+                                plan.platformSound, c.accountKey))
             qCInfo(lcNotify) << "notification service unavailable";
         // Delivered or not, the window can still ask for attention.
         if (isMessage)
@@ -1455,9 +1684,10 @@ void NotificationManager::deliverNow(Card card)
         card.payload.value(QStringLiteral("group")).toString();
     quint32 replacesId = 0;
     if (!groupKey.isEmpty()) {
-        auto group = m_groups.find(groupKey);
-        if (group == m_groups.end())
-            group = m_groups.insert(groupKey, CardGroup{});
+        QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
+        auto group = groups.find(groupKey);
+        if (group == groups.end())
+            group = groups.insert(groupKey, CardGroup{});
         if (group->inFlight) {
             if (group->next) {
                 // The held one never sounded; the one replacing it carries
@@ -1509,7 +1739,7 @@ void NotificationManager::deliverNow(Card card)
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
             [this, watcher, card, groupKey, throughTray,
              platformSound = plan.platformSound,
-             generation = m_deliveryGeneration,
+             generation = table(card.accountKey).deliveryGeneration,
              daemon = m_daemonGeneration] {
         watcher->deleteLater();
         ++m_notifyReplies;
@@ -1518,55 +1748,11 @@ void NotificationManager::deliverNow(Card card)
         // may already name another application's card on the new one.
         if (daemon != m_daemonGeneration)
             return;
-        // Signed out meanwhile: the card is not this account's to route, and
-        // its preview must not outlive the account either.
-        if (generation != m_deliveryGeneration) {
-            if (!reply.isError()) {
-                closeNotification(reply.value());
-                tombstone(reply.value(),
-                          card.payload.value(QStringLiteral("accountUserId"))
-                              .toString());
-            }
+        if (!takeNotifyReply(card, groupKey, generation,
+                             reply.isError()
+                                 ? std::nullopt
+                                 : std::optional<quint32>(reply.value())))
             return;
-        }
-        if (!groupKey.isEmpty()) {
-            const auto group = m_groups.find(groupKey);
-            if (group != m_groups.end())
-                group->inFlight = false;
-        }
-        if (!reply.isError()) {
-            const quint32 id = reply.value();
-            quint32 previous = 0;
-            if (!groupKey.isEmpty()) {
-                auto group = m_groups.find(groupKey);
-                if (group == m_groups.end())
-                    group = m_groups.insert(groupKey, CardGroup{});
-                previous = std::exchange(group->id, id);
-            }
-            // A daemon that no longer had the card it was asked to replace
-            // raises a new one; the old id is gone.
-            if (previous != 0 && previous != id)
-                forgetPayload(previous);
-            recordPayload(id, card.payload);
-            if (groupKey.isEmpty())
-                return;
-            const auto group = m_groups.find(groupKey);
-            if (group == m_groups.end())
-                return;
-            if (group->withdrawn) {
-                // Read or redacted while it was being raised.
-                group->next.reset();
-                closeNotification(id);
-                forgetPayload(id);
-                return;
-            }
-            if (group->next) {
-                Card next = std::move(*group->next);
-                group->next.reset();
-                deliverNow(std::move(next));
-            }
-            return;
-        }
         // No daemon, or a refusal: log the error name only (never title or
         // body) and fall back to the balloon.
         if (reply.error().type() == QDBusError::ServiceUnknown)
@@ -1576,11 +1762,13 @@ void NotificationManager::deliverNow(Card card)
                                 << reply.error().name();
         if (!card.replacement
             && !deliverThroughTray(card.title, card.body, card.payload,
-                                   card.avatar, platformSound))
+                                   card.avatar, platformSound,
+                                   card.accountKey))
             qCInfo(lcNotify) << "notification service unavailable";
         if (!groupKey.isEmpty()) {
-            const auto group = m_groups.find(groupKey);
-            if (group != m_groups.end() && group->next) {
+            QHash<QString, CardGroup> &groups = table(card.accountKey).groups;
+            const auto group = groups.find(groupKey);
+            if (group != groups.end() && group->next) {
                 Card next = std::move(*group->next);
                 group->next.reset();
                 throughTray(next);
@@ -1730,26 +1918,31 @@ bool NotificationManager::deliverThroughTray(const QString &title,
                                              const QString &body,
                                              const QVariantMap &payload,
                                              const QImage &avatar,
-                                             bool platformSound)
+                                             bool platformSound,
+                                             const QString &accountKey)
 {
     ++m_trayAttempts;
     m_lastTrayPlatformSound = platformSound;
     m_lastTrayTitle = title;
     m_lastTrayBody = body;
+    m_lastTrayPayload = payload;
     if (!m_fallbackTray
         || !m_fallbackTray->showMessage(title, body, avatar, platformSound))
         return false;
-    noteBalloon(payload);
+    noteBalloon(accountKey, payload);
     if (!payload.value(QStringLiteral("roomId")).toString().isEmpty())
         qCInfo(lcNotify) << "notification delivered through the tray balloon";
     return true;
 }
 
-void NotificationManager::noteBalloon(const QVariantMap &payload)
+void NotificationManager::noteBalloon(const QString &accountKey,
+                                      const QVariantMap &payload)
 {
     // One balloon slot: the latest payload is the one a click resolves to,
-    // unless balloons for other rooms are outstanding too.
+    // unless balloons for other rooms are outstanding too. The payload names
+    // its account, which the click carries (openRequestedForAccount).
     m_lastFallbackPayload = payload;
+    m_lastFallbackAccountKey = accountKey;
     m_balloonRooms.insert(
         routableRoomId(payload.value(QStringLiteral("roomId")).toString()));
 }
@@ -1757,6 +1950,7 @@ void NotificationManager::noteBalloon(const QVariantMap &payload)
 void NotificationManager::onFallbackMessageClicked()
 {
     const QVariantMap payload = std::exchange(m_lastFallbackPayload, {});
+    m_lastFallbackAccountKey.clear();
     const qsizetype rooms = m_balloonRooms.size();
     m_balloonRooms.clear();
     // Windows toast click reported as doing nothing on the first of three
@@ -1790,11 +1984,16 @@ void NotificationManager::emitOpenFor(const QVariantMap &payload)
     // routes into the previous account's rooms.
     const QString roomId =
         routableRoomId(payload.value(QStringLiteral("roomId")).toString());
-    Q_EMIT openRequested(
-        roomId, payload.value(QStringLiteral("eventId")).toString(),
-        routableThreadRootId(
-            payload.value(QStringLiteral("roomId")).toString(),
-            payload.value(QStringLiteral("threadRootId")).toString()));
+    const QString eventId = payload.value(QStringLiteral("eventId")).toString();
+    const QString threadRootId = routableThreadRootId(
+        payload.value(QStringLiteral("roomId")).toString(),
+        payload.value(QStringLiteral("threadRootId")).toString());
+    // The account first, so a listener routing by account has it before the
+    // room-only signal that every existing listener follows.
+    Q_EMIT openRequestedForAccount(
+        payload.value(QStringLiteral("accountUserId")).toString(), roomId,
+        eventId, threadRootId);
+    Q_EMIT openRequested(roomId, eventId, threadRootId);
 }
 
 void NotificationManager::onActivationToken(quint32 id, const QString &token)
@@ -1802,7 +2001,7 @@ void NotificationManager::onActivationToken(quint32 id, const QString &token)
     // Only for our cards; the signal can reach every listener on the bus.
     if (id == 0 || token.isEmpty())
         return;
-    if (!m_pendingPayloads.contains(id) && !m_tombstones.contains(id)
+    if (!tableHolding(id) && !m_tombstones.contains(id)
         && id != m_activeCallNotificationId)
         return;
     m_activationTokens.insert(id, token);
@@ -1859,7 +2058,7 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         return;
     }
     if (action == QLatin1String("mark-read")) {
-        const QVariantMap payload = m_pendingPayloads.value(id);
+        const QVariantMap payload = payloadFor(id);
         if (payload.isEmpty()) {
             handleStaleAction(id, action, QString());
             return;
@@ -1879,7 +2078,7 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         return;
     if (action != QLatin1String("default"))
         return;
-    const QVariantMap payload = m_pendingPayloads.value(id);
+    const QVariantMap payload = payloadFor(id);
     if (payload.isEmpty()) {
         handleStaleAction(id, action, QString());
         return;
@@ -1891,7 +2090,7 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 
 void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
 {
-    const QVariantMap payload = m_pendingPayloads.value(id);
+    const QVariantMap payload = payloadFor(id);
     if (payload.isEmpty()) {
         handleStaleAction(id, QStringLiteral("inline-reply-text"), text);
         return;
@@ -2016,11 +2215,16 @@ void NotificationManager::onDaemonOwnerChanged(const QString &service,
     // Every id the old daemon gave out may name another application's card on
     // the new one: forget them all, and what it said it could do.
     ++m_daemonGeneration;
-    m_pendingPayloads.clear();
-    m_payloadOrder.clear();
+    // Every account's ids came from the old daemon. The tables stay, with
+    // their delivery generations; the daemon generation already rejects the
+    // old daemon's replies.
+    for (auto it = m_tables.begin(); it != m_tables.end(); ++it) {
+        it->pendingPayloads.clear();
+        it->payloadOrder.clear();
+        it->groups.clear();
+    }
     m_tombstones.clear();
     m_tombstoneOrder.clear();
-    m_groups.clear();
     m_activationTokens.clear();
     m_activeCallNotificationId = 0;
     m_activeCallCardExpired = false;
@@ -2223,7 +2427,8 @@ void NotificationManager::deliverCallNotification()
                 forgetPayload(m_activeCallNotificationId);
             m_activeCallNotificationId = reply.value();
             m_activeCallCardExpired = false;
-            recordPayload(m_activeCallNotificationId,
+            // The call card is the foreground account's: the "" table.
+            recordPayload(QString(), m_activeCallNotificationId,
                           QVariantMap{
                               { QStringLiteral("roomId"), m_activeCallRoomId },
                               { QStringLiteral("eventId"), QString() },
@@ -2263,17 +2468,20 @@ bool NotificationManager::deliverCallThroughTray()
         return false;
     m_activeCallTrayDelivered = true;
     ++m_callTrayAttempts;
+    // The account it rings for, so the click names it like a message
+    // balloon's does (openRequestedForAccount).
     const QVariantMap payload{
         { QStringLiteral("roomId"), m_activeCallRoomId },
         { QStringLiteral("eventId"), QString() },
         { QStringLiteral("threadRootId"), QString() },
+        { QStringLiteral("accountUserId"), m_accountUserId },
     };
     m_lastCallTrayPayload = payload;
     // m_activeCallSound is the caller's "the desktop rings", true only when
     // ringing is on and Lightning's own ringer cannot play (AppController);
     // with our ringer running, or ringing off, the balloon stays silent.
     if (!deliverThroughTray(m_activeCallTitle, m_activeCallBody, payload,
-                            QImage(), m_activeCallSound)) {
+                            QImage(), m_activeCallSound, QString())) {
         qCInfo(lcNotify) << "incoming call could not be announced: no "
                             "notification service and no tray balloon";
         return false;
