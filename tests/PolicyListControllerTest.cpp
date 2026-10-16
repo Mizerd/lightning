@@ -7,8 +7,13 @@
 #include "app/PolicyListController.h"
 #include "matrix/MockMatrixClient.h"
 
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
+
+#include <memory>
 
 namespace {
 
@@ -77,6 +82,19 @@ QVariantList oneRule(const QString &entity = QStringLiteral("@spam:bad.example")
         { QStringLiteral("stateKey"), QStringLiteral("rule:") + entity },
     } };
 }
+
+// The `app` the dialog reads: only its `policy`.
+class AppStub final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *policy READ policy CONSTANT)
+public:
+    explicit AppStub(QObject *policy) : m_policy(policy) {}
+    QObject *policy() const { return m_policy; }
+
+private:
+    QObject *m_policy;
+};
 
 const QString kRoomA = QStringLiteral("!a:example.org");
 const QString kRoomB = QStringLiteral("!b:example.org");
@@ -378,6 +396,75 @@ private Q_SLOTS:
         QCOMPARE(client.writeCalls, 1);
         QVERIFY2(client.lastStateKey.isEmpty(),
                  "a new rule must let the bridge derive the conventional key");
+    }
+
+    // Break-it B105: a rule whose entity matches everyone (`*`) bans the
+    // whole kind for every follower of the list. Legitimate in Mjolnir-style
+    // lists, so the dialog asks once more instead of refusing; an ordinary
+    // entity publishes on the first click.
+    void anAllMatchingEntityNeedsASecondExplicitPublish()
+    {
+        PolicyClient client;
+        PolicyListController policy;
+        policy.setClient(&client);
+        policy.openRoom(kRoomA);
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, {});
+
+        QQmlEngine engine;
+        AppStub app(&policy);
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), &app);
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MatrixClient\nPolicyListDialog {}\n",
+                          QUrl(QStringLiteral("qrc:/policyListDialogTest.qml")));
+        QVERIFY2(component.errors().isEmpty(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> dialog(component.create(engine.rootContext()));
+        QVERIFY(dialog);
+        QObject *entity = dialog->findChild<QObject *>(QStringLiteral("policyEntityField"));
+        if (!entity) {
+            if (auto *content = dialog->property("contentItem").value<QObject *>())
+                entity = content->findChild<QObject *>(QStringLiteral("policyEntityField"));
+        }
+        QVERIFY2(entity, "the entity field is gone — re-anchor this case");
+
+        auto matchesEverything = [&](const QString &text) {
+            QVariant result;
+            const bool invoked = QMetaObject::invokeMethod(
+                dialog.get(), "entityMatchesEverything",
+                Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, text));
+            return invoked && result.toBool();
+        };
+        auto publish = [&](bool confirmed) {
+            QVariant result;
+            QMetaObject::invokeMethod(dialog.get(), "publishRule",
+                                      Q_RETURN_ARG(QVariant, result),
+                                      Q_ARG(QVariant, confirmed));
+            return result.toBool();
+        };
+
+        for (const char *broad : { "*", " * ", "@*:*", "*:*", "*.*", "!*:*", "**" })
+            QVERIFY2(matchesEverything(QString::fromLatin1(broad)), broad);
+        for (const char *narrow : { "@spam:bad.example", "*.bad.example", "@*:bad.example",
+                                    "?", "", "@spam*" })
+            QVERIFY2(!matchesEverything(QString::fromLatin1(narrow)), narrow);
+
+        // An ordinary entity goes out on the first click.
+        entity->setProperty("text", QStringLiteral("@spam:bad.example"));
+        QVERIFY(publish(false));
+        QCOMPARE(client.writeCalls, 1);
+        Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
+
+        // `*` waits: nothing written, the confirmation is pending.
+        entity->setProperty("text", QStringLiteral("*"));
+        QVERIFY(!publish(false));
+        QCOMPARE(client.writeCalls, 1);
+        QCOMPARE(dialog->property("pendingBroadEntity").toString(), QStringLiteral("*"));
+        // The explicit second Publish sends it, as typed.
+        QVERIFY(publish(true));
+        QCOMPARE(client.writeCalls, 2);
+        QCOMPARE(client.lastEntity, QStringLiteral("*"));
+        QCOMPARE(client.lastRecommendation, QStringLiteral("m.ban"));
+        QVERIFY(dialog->property("pendingBroadEntity").toString().isEmpty());
     }
 };
 

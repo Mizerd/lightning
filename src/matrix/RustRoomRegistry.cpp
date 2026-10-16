@@ -42,15 +42,21 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
         // bodies and mention markdown.
         const QString incomingPreview = matrix::preview::normalizePreviewText(
             obj.value(QStringLiteral("last_message_preview")).toString());
+        const bool undecryptable =
+            obj.value(QStringLiteral("last_message_undecryptable")).toBool(false);
+        // raiseActivity is monotonic and the only writer of the sort key.
+        const bool newer = room.raiseActivity(timestampFromMs(static_cast<qint64>(
+            obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
         if (!incomingPreview.isEmpty())
             room.lastMessagePreview = incomingPreview;
-        else if (obj.value(QStringLiteral("last_message_undecryptable")).toBool(false)
-                 && room.lastMessagePreview.isEmpty())
+        // The newest event cannot be decrypted. It replaces a kept preview only
+        // when it is newer than everything this row knows: the kept text is
+        // then an OLDER message, and keeping it paired the old text with the
+        // new event's time (break-it B084). A preview as new or newer (the
+        // event decrypted in an open timeline) stays.
+        else if (undecryptable && (room.lastMessagePreview.isEmpty() || newer))
             room.lastMessagePreview = matrix::preview::undecryptablePreview();
     }
-    // raiseActivity is monotonic and the only writer of the sort key.
-    room.raiseActivity(timestampFromMs(static_cast<qint64>(
-        obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
     room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
     // Stamped only by a payload that carries the counters, so a consumer can
@@ -273,7 +279,8 @@ QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms)
         if (id.isEmpty())
             continue;
         // Only rooms the registry already knows: this payload carries only a
-        // timestamp, and `order` may only grow through room-list diffs. Known
+        // timestamp (and an undecryptable flag), and `order` may only grow
+        // through room-list diffs. Known
         // gap: the harvested stamp is then lost, and Rust's high-water mark
         // means it is not re-emitted, so a room entering the registry later
         // keeps its possibly stale room_ordering_timestamp_ms until new
@@ -292,8 +299,14 @@ QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms)
             obj.value(QStringLiteral("last_activity_ms")).toDouble(0));
         // Monotonic (see RoomInfo.h): older, absent or repeated stamps move
         // nothing.
-        if (it->raiseActivity(timestampFromMs(ms)))
+        if (it->raiseActivity(timestampFromMs(ms))) {
+            // The event that raised it cannot be decrypted (the SDK's latest
+            // event skips it, so the preview is an older message): show the
+            // placeholder, so preview and time describe the same event.
+            if (obj.value(QStringLiteral("last_message_undecryptable")).toBool(false))
+                it->lastMessagePreview = matrix::preview::undecryptablePreview();
             moved.append(id);
+        }
     }
     return moved;
 }

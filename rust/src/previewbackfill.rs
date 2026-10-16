@@ -19,9 +19,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk::ruma::{
-    api::client::filter::RoomEventFilter, events::AnySyncTimelineEvent, serde::Raw, OwnedRoomId,
-    OwnedUserId, RoomId, UserId,
+    api::client::filter::RoomEventFilter, EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    UserId,
 };
 
 /// Events requested per room: the server filters to conversation types, so a
@@ -44,10 +45,10 @@ pub(crate) enum Outcome {
     /// The newest conversation event: its preview line and ordering stamp.
     Found(String, u64),
     /// The newest conversation event could not be decrypted (yet): only its
-    /// ordering stamp. C++ renders the room list's placeholder; there is no
-    /// text here, so a real message whose body reads like the placeholder can
-    /// never be mistaken for one.
-    Undecryptable(u64),
+    /// ordering stamp and id. C++ renders the room list's placeholder; there is
+    /// no text here, so a real message whose body reads like the placeholder
+    /// can never be mistaken for one.
+    Undecryptable(u64, Option<OwnedEventId>),
     /// The request completed and the page held no usable conversation event.
     Nothing,
     /// The request did not complete (network, timeout, server error).
@@ -120,7 +121,7 @@ impl Backfill {
             Outcome::Failed => {
                 *self.failures.entry(room.clone()).or_insert(0) += 1;
             }
-            Outcome::Undecryptable(_) => {
+            Outcome::Undecryptable(..) => {
                 let looks = self.relook.get(room).map_or(0, |(_, n)| *n) + 1;
                 if looks >= UNDECRYPTABLE_RELOOKS {
                     self.relook.remove(room);
@@ -159,13 +160,16 @@ impl Backfill {
 /// in `newest_first`, or `None` when the page holds none or that event has no
 /// previewable body. It stops at the first conversation event: an undecryptable
 /// one yields `Undecryptable` rather than an older decrypted
-/// message, which would be the wrong "last message".
-pub(crate) fn pick_preview(newest_first: &[Raw<AnySyncTimelineEvent>]) -> Option<Outcome> {
-    let (raw, ts) = newest_first
+/// message, which would be the wrong "last message". The stamp is the event's
+/// own (`crate::event_ordering_stamp_ms`), on the clock the SDK's latest event
+/// uses.
+pub(crate) fn pick_preview(newest_first: &[TimelineEvent]) -> Option<Outcome> {
+    let (event, ts) = newest_first
         .iter()
-        .find_map(|raw| Some((raw, crate::conversation_timestamp_ms(raw)?)))?;
+        .find_map(|event| Some((event, crate::event_ordering_stamp_ms(event)?)))?;
+    let raw = event.raw();
     if raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.room.encrypted") {
-        return Some(Outcome::Undecryptable(ts));
+        return Some(Outcome::Undecryptable(ts, event.event_id()));
     }
     let text = crate::raw_event_preview_text(raw);
     if text.is_empty() { None } else { Some(Outcome::Found(text, ts)) }
@@ -195,16 +199,17 @@ pub(crate) async fn look(room: &matrix_sdk::Room) -> Outcome {
     let Ok(Ok(messages)) = response else {
         return Outcome::Failed;
     };
-    let raws: Vec<Raw<AnySyncTimelineEvent>> =
-        messages.chunk.iter().map(|event| event.raw().clone()).collect();
-    pick_preview(&raws).unwrap_or(Outcome::Nothing)
+    pick_preview(&messages.chunk).unwrap_or(Outcome::Nothing)
 }
 
 /// What a look left for a room's row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Remembered {
     Message(String, u64),
-    Undecryptable(u64),
+    /// The stamp, and the event's id when it is known: `settle` matches the id,
+    /// never the stamp, because the stamp a later latest event carries for the
+    /// SAME event need not be equal (break-it B084 review).
+    Undecryptable(u64, Option<OwnedEventId>),
 }
 
 /// What the looks found, for one account's run, consulted by `room_payload`
@@ -276,11 +281,82 @@ pub(crate) fn remembered(user: &UserId, room: &RoomId) -> Option<Remembered> {
     st.entries.get(&(user.to_owned(), room.to_owned())).cloned()
 }
 
+/// Replaces what is remembered for `room` with `now` (`None` forgets it), but
+/// only while the entry is still `was`: a newer result recorded in between is
+/// never overwritten. Generation-free on purpose: it can only retire a fact
+/// that `settle` showed to be stale, whichever run recorded it.
+pub(crate) fn replace_remembered(
+    user: &UserId,
+    room: &RoomId,
+    was: &Remembered,
+    now: Option<Remembered>,
+) {
+    let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+    let key = (user.to_owned(), room.to_owned());
+    if st.entries.get(&key) != Some(was) {
+        return;
+    }
+    match now {
+        Some(what) => {
+            st.entries.insert(key, what);
+        }
+        None => {
+            st.entries.remove(&key);
+        }
+    }
+}
+
+/// What the event cache says of a remembered undecryptable event now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UndecryptableNow {
+    /// Not looked up, or not in the cache: no evidence either way.
+    Unknown,
+    /// In the cache and still `UnableToDecrypt`.
+    StillUndecryptable,
+    /// In the cache and decrypted; its preview line (empty when its plaintext
+    /// type has none, e.g. a legacy call event the latest event never shows).
+    Decrypted(String),
+}
+
+/// A remembered undecryptable event, checked against what the room knows now
+/// (break-it B084 review). It is resolved, by ID and never by stamp, when the
+/// room's latest event IS that event (it decrypted and became the preview), or
+/// when the event cache holds it decrypted. A resolved one that decrypted to a
+/// previewable message becomes that message (`merge_remembered` then uses it
+/// only for a blank row); one with no preview line is forgotten, so the room's
+/// own, older preview shows. Anything else is returned unchanged. Pure for
+/// tests.
+pub(crate) fn settle(
+    remembered: Option<Remembered>,
+    latest_event_id: Option<&EventId>,
+    now: UndecryptableNow,
+) -> Option<Remembered> {
+    match remembered {
+        Some(Remembered::Undecryptable(ts, Some(id))) => {
+            if latest_event_id == Some(&*id) {
+                return None;
+            }
+            match now {
+                UndecryptableNow::Decrypted(text) if text.is_empty() => None,
+                UndecryptableNow::Decrypted(text) => Some(Remembered::Message(text, ts)),
+                UndecryptableNow::Unknown | UndecryptableNow::StillUndecryptable => {
+                    Some(Remembered::Undecryptable(ts, Some(id)))
+                }
+            }
+        }
+        other => other,
+    }
+}
+
 /// The payload's own preview and stamp, completed by a remembered look when the
 /// own preview is empty: the preview comes from the look and the stamp is the
-/// later of the two. A room with a preview of its own is never touched. The
-/// third value is true when the room's last message could not be decrypted (no
-/// text crosses; C++ renders the placeholder).
+/// later of the two. A room with a preview of its own keeps it, with one
+/// exception: a remembered undecryptable event NEWER than that preview (the
+/// sync harvest records one; the SDK's latest event skips `m.room.encrypted`,
+/// so its preview is an older message) wins, or the row would pair the old
+/// text with the new event's time. The third value is true when the room's
+/// last message could not be decrypted (no text crosses; C++ renders the
+/// placeholder).
 pub(crate) fn merge_remembered(
     own_preview: String,
     own_activity: u64,
@@ -290,9 +366,12 @@ pub(crate) fn merge_remembered(
         Some(Remembered::Message(preview, ts)) if own_preview.is_empty() => {
             (preview, own_activity.max(ts), false)
         }
-        Some(Remembered::Undecryptable(ts)) if own_preview.is_empty() => {
+        Some(Remembered::Undecryptable(ts, _)) if own_preview.is_empty() => {
             (own_preview, own_activity.max(ts), true)
         }
+        // Strictly newer. The event decrypting is NOT detected here, by stamps:
+        // `settle` has already removed a resolved one by its id.
+        Some(Remembered::Undecryptable(ts, _)) if ts > own_activity => (String::new(), ts, true),
         _ => (own_preview, own_activity, false),
     }
 }
@@ -301,11 +380,12 @@ pub(crate) fn merge_remembered(
 mod tests {
     use super::*;
     use matrix_sdk::ruma::room_id;
+    use matrix_sdk::ruma::serde::Raw;
     use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate};
     use serde_json::json;
 
-    fn raw(value: serde_json::Value) -> Raw<AnySyncTimelineEvent> {
-        serde_json::from_value(value).unwrap()
+    fn raw(value: serde_json::Value) -> TimelineEvent {
+        TimelineEvent::from_plaintext(serde_json::from_value(value).unwrap())
     }
 
     fn message(ts: u64, body: &str) -> serde_json::Value {
@@ -370,7 +450,7 @@ mod tests {
         let mut now = 1_000;
         for look in 1..=UNDECRYPTABLE_RELOOKS {
             assert_eq!(backfill.pick([room.clone()], 0, now), vec![room.clone()], "look {look}");
-            backfill.finish(&room, &Outcome::Undecryptable(5), now);
+            backfill.finish(&room, &Outcome::Undecryptable(5, None), now);
             if look < UNDECRYPTABLE_RELOOKS {
                 assert!(!backfill.is_done(&room));
                 // Too soon: spaced.
@@ -391,7 +471,7 @@ mod tests {
         let room = rooms(1).remove(0);
         backfill.pick([room.clone()], 0, backfill.now_ms());
         let before = backfill.now_ms();
-        backfill.finish(&room, &Outcome::Undecryptable(5), before);
+        backfill.finish(&room, &Outcome::Undecryptable(5, None), before);
         // ---- rebuild: only loop-local state is recreated ----
         let after = backfill.now_ms();
         assert!(after >= before, "the clock never restarts");
@@ -404,7 +484,7 @@ mod tests {
         let mut backfill = Backfill::default();
         let room = rooms(1).remove(0);
         backfill.pick([room.clone()], 0, 0);
-        backfill.finish(&room, &Outcome::Undecryptable(5), 0);
+        backfill.finish(&room, &Outcome::Undecryptable(5, None), 0);
         backfill.pick([room.clone()], 0, UNDECRYPTABLE_RELOOK_MS);
         backfill.finish(&room, &Outcome::Found("now readable".into(), 5), UNDECRYPTABLE_RELOOK_MS);
         assert!(backfill.is_done(&room));
@@ -426,7 +506,10 @@ mod tests {
                          "session_id": "s", "sender_key": "k", "device_id": "d" }
         }));
         let page = vec![raw(churn(40)), utd, raw(message(20, "older decrypted"))];
-        assert_eq!(pick_preview(&page), Some(Outcome::Undecryptable(30)));
+        assert_eq!(
+            pick_preview(&page),
+            Some(Outcome::Undecryptable(30, Some(OwnedEventId::try_from("$u:x").unwrap())))
+        );
         // A real message that merely READS like the placeholder is just a message.
         let lookalike = vec![raw(message(31, "Unable to decrypt"))];
         assert_eq!(
@@ -461,10 +544,85 @@ mod tests {
         assert_eq!(merge_remembered(String::new(), 50, found.clone()), ("last words".into(), 50, false));
         assert_eq!(merge_remembered("own".into(), 5, found), ("own".into(), 5, false));
         assert_eq!(merge_remembered(String::new(), 0, None), (String::new(), 0, false));
-        // Undecryptable: no text, the flag, the stamp; never over a real preview.
-        let utd = Some(Remembered::Undecryptable(9));
+        // Undecryptable: no text, the flag, the stamp; never over a real preview
+        // that is as new or newer.
+        let utd = Some(Remembered::Undecryptable(9, None));
         assert_eq!(merge_remembered(String::new(), 3, utd.clone()), (String::new(), 9, true));
-        assert_eq!(merge_remembered("own".into(), 3, utd), ("own".into(), 3, false));
+        assert_eq!(merge_remembered("own".into(), 3, utd.clone()), (String::new(), 9, true));
+        // Break-it B084: an older own preview loses to a newer undecryptable
+        // event; an own preview as new as it (the event decrypted) or newer wins.
+        assert_eq!(merge_remembered("own".into(), 9, utd.clone()), ("own".into(), 9, false));
+        assert_eq!(merge_remembered("own".into(), 12, utd), ("own".into(), 12, false));
+    }
+
+    // Break-it B084 review: the stamp the room's latest event carries for the
+    // SAME event can be below the remembered one (the SDK clamps a sender's
+    // future clock to ours when it builds the event; the harvest used to read
+    // the raw field). Settling goes by id, so the decrypted event's own preview
+    // wins however the stamps compare.
+    #[test]
+    fn a_remembered_undecryptable_event_is_settled_by_its_id_not_its_stamp() {
+        let id = OwnedEventId::try_from("$late:x").unwrap();
+        let other = OwnedEventId::try_from("$other:x").unwrap();
+        let utd = Some(Remembered::Undecryptable(1_000, Some(id.clone())));
+
+        // It decrypted and became the latest event, stamped 3 ms lower.
+        let settled = settle(utd.clone(), Some(&id), UndecryptableNow::Unknown);
+        assert_eq!(settled, None);
+        assert_eq!(
+            merge_remembered("now readable".into(), 997, settled),
+            ("now readable".into(), 997, false)
+        );
+
+        // The latest event is another, older one and the cache says nothing or
+        // still fails: still the placeholder (no text) at the newer stamp.
+        for now in [UndecryptableNow::Unknown, UndecryptableNow::StillUndecryptable] {
+            let settled = settle(utd.clone(), Some(&other), now);
+            assert_eq!(settled, utd);
+            assert_eq!(merge_remembered("older".into(), 500, settled), (String::new(), 1_000, true));
+        }
+
+        // Decrypted in the cache to something the latest event never shows (a
+        // legacy call event): forgotten, the own preview shows.
+        let settled = settle(utd.clone(), Some(&other), UndecryptableNow::Decrypted(String::new()));
+        assert_eq!(settled, None);
+        assert_eq!(merge_remembered("older".into(), 500, settled), ("older".into(), 500, false));
+
+        // Decrypted to a message while the row is blank (the backfill path):
+        // that message, at its stamp, and not flagged.
+        let settled = settle(utd.clone(), None, UndecryptableNow::Decrypted("hello".into()));
+        assert_eq!(settled, Some(Remembered::Message("hello".into(), 1_000)));
+        assert_eq!(merge_remembered(String::new(), 0, settled), ("hello".into(), 1_000, false));
+
+        // No id known: nothing to match, unchanged.
+        let anonymous = Some(Remembered::Undecryptable(1_000, None));
+        assert_eq!(
+            settle(anonymous.clone(), Some(&id), UndecryptableNow::Decrypted("x".into())),
+            anonymous
+        );
+        // A remembered message is never touched.
+        let message = Some(Remembered::Message("m".into(), 1));
+        assert_eq!(settle(message.clone(), Some(&id), UndecryptableNow::Unknown), message);
+    }
+
+    #[test]
+    fn a_settled_entry_replaces_only_what_it_was_checked_against() {
+        let user: OwnedUserId = "@settle:x".try_into().unwrap();
+        let room = room_id!("!settle:x");
+        let run = RunGuard::new(user.clone());
+        let id = OwnedEventId::try_from("$s:x").unwrap();
+        let utd = Remembered::Undecryptable(7, Some(id));
+        run.remember(room, utd.clone());
+        // A newer result landed in between: the stale replacement is refused.
+        run.remember(room, Remembered::Message("newer".into(), 9));
+        replace_remembered(&user, room, &utd, None);
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("newer".into(), 9)));
+        // Still what it was checked against: replaced.
+        run.remember(room, utd.clone());
+        replace_remembered(&user, room, &utd, Some(Remembered::Message("hello".into(), 7)));
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("hello".into(), 7)));
+        replace_remembered(&user, room, &Remembered::Message("hello".into(), 7), None);
+        assert_eq!(remembered(&user, room), None);
     }
 
     #[test]
@@ -491,14 +649,14 @@ mod tests {
         // Another account never sees it, even for the same room id.
         assert_eq!(remembered(&bob, room), None);
         let other = RunGuard::new(bob.clone());
-        other.remember(room, Remembered::Undecryptable(4));
+        other.remember(room, Remembered::Undecryptable(4, None));
         assert_eq!(remembered(&alice, room), Some(Remembered::Message("fresh".into(), 2)));
-        assert_eq!(remembered(&bob, room), Some(Remembered::Undecryptable(4)));
+        assert_eq!(remembered(&bob, room), Some(Remembered::Undecryptable(4, None)));
 
         // The current run's own drop does clear its user's results.
         drop(new);
         assert_eq!(remembered(&alice, room), None);
-        assert_eq!(remembered(&bob, room), Some(Remembered::Undecryptable(4)));
+        assert_eq!(remembered(&bob, room), Some(Remembered::Undecryptable(4, None)));
     }
 
     #[test]

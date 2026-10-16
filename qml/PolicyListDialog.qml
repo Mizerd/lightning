@@ -26,9 +26,42 @@ Dialog {
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     padding: AppTheme.spacing16
 
+    /// The entity awaiting a second, explicit Publish: a glob that matches
+    /// everything. Cleared on publish, cancel and reopen.
+    property string pendingBroadEntity: ""
+
+    /// True when a rule's entity matches EVERY entity of its kind: at least
+    /// one `*`, and nothing literal besides globs and the sigils and
+    /// separators every id has (`*`, `@*:*`, `*.*`, `!*:*`). Legitimate in a
+    /// Mjolnir-style list, so it is confirmed, never refused.
+    function entityMatchesEverything(entity) {
+        var text = String(entity || "").trim()
+        return text.indexOf("*") >= 0
+            && text.replace(/[*?@!#:.]/g, "").length === 0
+    }
+
+    /// Publish the typed rule. A broad entity waits for `confirmed`; returns
+    /// whether the rule went out.
+    function publishRule(confirmed) {
+        var entity = entityField.text.trim()
+        if (entity.length === 0 || !root.policy)
+            return false
+        if (!confirmed && root.entityMatchesEverything(entity)) {
+            root.pendingBroadEntity = entity
+            return false
+        }
+        var kinds = ["user", "server", "room"]
+        root.policy.addRule(kinds[kindBox.currentIndex], entity, reasonField.text)
+        root.pendingBroadEntity = ""
+        entityField.text = ""
+        reasonField.text = ""
+        return true
+    }
+
     function openFor(id, name) {
         root.roomId = id
         root.roomName = name
+        root.pendingBroadEntity = ""
         entityField.text = ""
         reasonField.text = ""
         if (root.policy) {
@@ -225,6 +258,7 @@ Dialog {
                 }
                 AppTextField {
                     id: entityField
+                    objectName: "policyEntityField"
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("@someone:example.org or *.example.org")
@@ -244,12 +278,52 @@ Dialog {
                     kind: "primary"
                     size: "sm"
                     enabled: entityField.text.trim().length > 0
-                    onClicked: {
-                        var kinds = ["user", "server", "room"]
-                        root.policy.addRule(kinds[kindBox.currentIndex],
-                                            entityField.text, reasonField.text)
-                        entityField.text = ""
-                        reasonField.text = ""
+                             && !broadConfirm.visible
+                    onClicked: root.publishRule(false)
+                }
+            }
+            // A rule matching everyone (`*`) is a ban on the whole kind for
+            // every follower of this list: say so and ask once more.
+            ColumnLayout {
+                id: broadConfirm
+                objectName: "policyBroadConfirm"
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing4
+                // Editing the entity away from the pending one withdraws it.
+                visible: root.pendingBroadEntity.length > 0
+                         && root.pendingBroadEntity === entityField.text.trim()
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    color: AppTheme.danger
+                    font.pixelSize: AppTheme.textMeta
+                    text: {
+                        var what = kindBox.currentIndex === 1
+                            ? qsTr("every server")
+                            : (kindBox.currentIndex === 2 ? qsTr("every room")
+                                                          : qsTr("every user"))
+                        return qsTr("“%1” matches %2. Everyone who follows this "
+                                    + "list will be told it bans all of them.")
+                            .arg(root.pendingBroadEntity).arg(what)
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        text: qsTr("Cancel")
+                        kind: "ghost"
+                        size: "sm"
+                        onClicked: root.pendingBroadEntity = ""
+                    }
+                    AppButton {
+                        objectName: "policyBroadPublish"
+                        text: qsTr("Publish anyway")
+                        kind: "danger"
+                        size: "sm"
+                        onClicked: root.publishRule(true)
                     }
                 }
             }

@@ -867,6 +867,63 @@ private Q_SLOTS:
         QCOMPARE(after.lastMessagePreview, before.lastMessagePreview);
         QCOMPARE(order, (QStringList{ roomId(0), roomId(1) }));
     }
+
+    // Break-it B084: the newest event cannot be decrypted, so the SDK's latest
+    // event (which skips it) still previews an OLDER message. A flagged stamp
+    // that moves the room replaces that text with the placeholder; a flagged
+    // stamp that moves nothing, or an unflagged one, leaves it.
+    void aNewerUndecryptableEventReplacesAStalePreview()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+        const qint64 older = 1'700'000'000'000LL;
+        const qint64 newer = 1'700'000'060'000LL;
+
+        QJsonObject seeded = roomJsonAt(roomId(0), older);
+        seeded.insert(QStringLiteral("last_message_preview"), QStringLiteral("hello from bk035"));
+        applyIndexReset(registry, QJsonArray{ seeded });
+
+        // The harvest: newer stamp, flagged.
+        QJsonObject flagged = activityJson(roomId(0), newer);
+        flagged.insert(QStringLiteral("last_message_undecryptable"), true);
+        QCOMPARE(applyRoomActivity(registry, QJsonArray{ flagged }), QStringList{ roomId(0) });
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview, matrix::preview::undecryptablePreview());
+
+        // A later room payload repeats the flag at the same stamp, no text: kept.
+        QJsonObject payload = roomJsonAt(roomId(0), newer);
+        payload.insert(QStringLiteral("last_message_preview"), QString());
+        payload.insert(QStringLiteral("last_message_undecryptable"), true);
+        applySnapshot(registry, QJsonArray{ payload });
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview, matrix::preview::undecryptablePreview());
+
+        // The event decrypts: Rust sends its text, which wins.
+        QJsonObject decrypted = roomJsonAt(roomId(0), newer);
+        decrypted.insert(QStringLiteral("last_message_preview"), QStringLiteral("the new one"));
+        applySnapshot(registry, QJsonArray{ decrypted });
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("the new one"));
+
+        // A flag that does not move the room (not newer than what the row
+        // knows) never replaces a preview.
+        QJsonObject stale = roomJsonAt(roomId(0), older);
+        stale.insert(QStringLiteral("last_message_preview"), QString());
+        stale.insert(QStringLiteral("last_message_undecryptable"), true);
+        applySnapshot(registry, QJsonArray{ stale });
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("the new one"));
+        QVERIFY(applyRoomActivity(registry, QJsonArray{ flagged }).isEmpty());
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("the new one"));
+
+        // The same newer payload path (room payload first, no harvest yet).
+        QJsonObject seeded1 = roomJsonAt(roomId(1), older);
+        seeded1.insert(QStringLiteral("last_message_preview"), QStringLiteral("old text"));
+        applySnapshot(registry, QJsonArray{ seeded1 });
+        QJsonObject payload1 = roomJsonAt(roomId(1), newer);
+        payload1.insert(QStringLiteral("last_message_preview"), QString());
+        payload1.insert(QStringLiteral("last_message_undecryptable"), true);
+        applySnapshot(registry, QJsonArray{ payload1 });
+        QCOMPARE(map.value(roomId(1)).lastMessagePreview, matrix::preview::undecryptablePreview());
+        QCOMPARE(map.value(roomId(1)).lastActivity.toMSecsSinceEpoch(), newer);
+    }
 };
 
 QTEST_MAIN(RustRoomRegistryTest)

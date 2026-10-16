@@ -3611,8 +3611,11 @@ pub unsafe extern "C" fn mx_rust_send_text(
             // An empty `m.mentions` says this message pings nobody, so the
             // legacy display-name and @room body rules cannot fire on it
             // (MSC3952; the composer's sends do the same, timeline.rs).
-            let content = RoomMessageEventContent::text_markdown(body)
+            let mut content = RoomMessageEventContent::text_markdown(body)
                 .add_mentions(matrix_sdk::ruma::events::Mentions::new());
+            // Same strict outgoing sanitizer as the composer's lanes: raw HTML
+            // and a `javascript:` link would otherwise reach other clients.
+            timeline::sanitize_outgoing_formatted(&mut content.msgtype);
             let txn: OwnedTransactionId = transaction_id.clone().into();
             match room.send(content).with_transaction_id(txn).await {
                 Ok(result) => enqueue(
@@ -4480,6 +4483,137 @@ impl FlowLiveness for QrVerification {
     }
 }
 
+/// Where an incoming request stands while it waits for the user's Accept
+/// (break-it B015).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PendingRequest {
+    /// Still `Requested`: the dialog's Accept is live.
+    Waiting,
+    /// Left `Requested` some other way (accepted here): a driver owns it now.
+    Answered,
+    /// Cancelled by the requester (or answered by another of our sessions)
+    /// before anyone accepted it; the `message` for `verification_cancelled`.
+    Cancelled(String),
+}
+
+/// A trait only so the watch rules can be unit tested (crate-private SDK
+/// constructors, as `FlowLiveness`).
+trait PendingRequestView: FlowIdentity {
+    fn pending(&self) -> PendingRequest;
+}
+
+/// The `message` a cancelled request reports: the SDK's reason in the same
+/// `{:?}` form `drive_sas_flow` uses, or "cancelled" when another of our
+/// sessions answered it (`is_passive`), as `drive_qr_flow` reports that.
+fn request_cancel_message(request: &VerificationRequest) -> String {
+    match request.state() {
+        VerificationRequestState::Cancelled(info) => format!("{:?}", info.reason()),
+        _ => "cancelled".to_owned(),
+    }
+}
+
+impl PendingRequestView for VerificationRequest {
+    fn pending(&self) -> PendingRequest {
+        if self.is_cancelled() || self.is_passive() {
+            PendingRequest::Cancelled(request_cancel_message(self))
+        } else if matches!(self.state(), VerificationRequestState::Requested { .. }) {
+            PendingRequest::Waiting
+        } else {
+            PendingRequest::Answered
+        }
+    }
+}
+
+/// One tick of the pending-request watch. `Some(message)` when the request
+/// in `slot` for `flow_id` was cancelled while still waiting: the slot is
+/// cleared (compare-and-clear, so a newer request is never evicted) and the
+/// caller reports it. `None` with `keep_watching` false when the slot no
+/// longer holds this flow or a driver has taken it over.
+fn pending_request_step<R: PendingRequestView>(
+    slot: &Mutex<Option<R>>,
+    flow_id: &str,
+) -> (bool, Option<String>) {
+    let Ok(mut guard) = slot.lock() else { return (false, None) };
+    let state = match guard.as_ref() {
+        Some(request) if request.flow_key() == flow_id => request.pending(),
+        _ => return (false, None),
+    };
+    match state {
+        PendingRequest::Waiting => (true, None),
+        PendingRequest::Answered => (false, None),
+        PendingRequest::Cancelled(message) => {
+            // Noted BEFORE the slot is cleared, under its lock: an Accept that
+            // finds the slot empty afterwards also finds the note.
+            note_pending_cancelled(flow_id);
+            *guard = None;
+            (false, Some(message))
+        }
+    }
+}
+
+/// Flows the pending-request watch cancelled and released, newest last,
+/// bounded. Flow ids are random per request, so one list serves every bridge.
+fn pending_cancelled_flows() -> &'static Mutex<VecDeque<String>> {
+    static FLOWS: std::sync::OnceLock<Mutex<VecDeque<String>>> = std::sync::OnceLock::new();
+    FLOWS.get_or_init(Default::default)
+}
+
+const PENDING_CANCELLED_REMEMBERED: usize = 16;
+
+fn note_pending_cancelled(flow_id: &str) {
+    let mut flows = pending_cancelled_flows().lock().unwrap_or_else(|e| e.into_inner());
+    if flows.len() >= PENDING_CANCELLED_REMEMBERED {
+        flows.pop_front();
+    }
+    flows.push_back(flow_id.to_owned());
+}
+
+/// What Accept answers when the slot holds no request (break-it B015 review):
+/// nothing when the watch cancelled this very flow (its `verification_cancelled`
+/// is already queued, and an error now would put a second, misleading failure
+/// over the cancel), the old error otherwise.
+fn accept_without_request_reply(flow_id: &str) -> String {
+    let flows = pending_cancelled_flows().lock().unwrap_or_else(|e| e.into_inner());
+    if flows.iter().any(|flow| flow == flow_id) {
+        String::new()
+    } else {
+        "error: no active verification request.".to_owned()
+    }
+}
+
+/// How long an unanswered incoming request is watched: the SDK's own
+/// `VERIFICATION_TIMEOUT` is 10 minutes.
+const PENDING_REQUEST_WATCH_SECS: u64 = 11 * 60;
+
+/// Watch an incoming request while it sits in `Requested`, so a cancel from
+/// the requester closes the responder's dialog at once instead of leaving
+/// Accept live until it fails as a handshake timeout (break-it B015).
+/// Holds no Client: it reads the request through the slot each tick, and
+/// teardown empties the slot (`take_pending_flows`), which ends it.
+async fn watch_pending_request(
+    slot: Arc<Mutex<Option<VerificationRequest>>>,
+    events: Arc<Mutex<VecDeque<String>>>,
+    flow_id: String,
+) {
+    let poll = std::time::Duration::from_millis(VERIFICATION_POLL_MS);
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(PENDING_REQUEST_WATCH_SECS);
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(poll).await;
+        let (keep_watching, cancelled) = pending_request_step(&slot, &flow_id);
+        if let Some(message) = cancelled {
+            enqueue(&events, json!({
+                "type": "verification_cancelled",
+                "flow_id": flow_id,
+                "message": message,
+            }));
+        }
+        if !keep_watching {
+            return;
+        }
+    }
+}
+
 /// A flow slot keyed by flow id, for handles with no `flow_id()` accessor.
 type KeyedFlowSlot<T> = Arc<Mutex<Option<(String, T)>>>;
 
@@ -4676,7 +4810,17 @@ async fn drive_sas_flow(
         },
     };
     let Some(mut sas) = sas else {
-        fail("Timed out waiting for SAS handshake.".to_owned());
+        // A request the peer had already cancelled never reaches SAS; that is a
+        // cancel, not a handshake timeout (break-it B015).
+        if request.is_cancelled() || request.is_passive() {
+            enqueue(events, json!({
+                "type": "verification_cancelled",
+                "flow_id": flow_id,
+                "message": request_cancel_message(request),
+            }));
+        } else {
+            fail("Timed out waiting for SAS handshake.".to_owned());
+        }
         return;
     };
 
@@ -4800,7 +4944,7 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
             Err(_) => None,
         };
         let Some(request) = request else {
-            return Ok("error: no active verification request.".to_owned());
+            return Ok(accept_without_request_reply(&flow_id));
         };
         if request.flow_id() != flow_id {
             return Ok("error: verification flow id mismatch.".to_owned());
@@ -4828,6 +4972,16 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                 flow_id.clone(),
             );
 
+            // Cancelled before the click landed (the watcher reports it within a
+            // tick; this closes the gap between).
+            if request.is_cancelled() || request.is_passive() {
+                enqueue(&events, json!({
+                    "type": "verification_cancelled",
+                    "flow_id": flow_id,
+                    "message": request_cancel_message(&request),
+                }));
+                return;
+            }
             // Advertise our own method list rather than `accept()`'s SDK default, so a
             // future SDK adding `m.qr_code.scan.v1` cannot make us claim a scanner.
             if let Err(err) = request
@@ -5535,9 +5689,24 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
             // Never while a cross-signing job holds the UIA slot: a reset
             // parked at its password or OAuth approval is in exactly this
             // state, and the query would delete the keys it is about to upload.
-            if has_master && has_self_signing && has_user_signing && !device_cross_signed
-                && uia::health_may_realign(&uia_slot)
-            {
+            // Break-it B014: see `own_identity_refetch_wanted`.
+            let seen = [
+                own_identity_available,
+                own_identity_verified,
+                device_cross_signed,
+                has_master,
+                has_self_signing,
+                has_user_signing,
+            ];
+            let refetch = match &user_id {
+                Some(uid) => own_identity_refetch_wanted(
+                    seen,
+                    uia::health_may_realign(&uia_slot),
+                    || own_identity_refetch_claim(uid, seen),
+                ),
+                None => false,
+            };
+            if refetch {
                 if let Some(uid) = &user_id {
                     if client.encryption().request_user_identity(uid).await.is_ok() {
                         own_identity_available = false;
@@ -5556,6 +5725,17 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                             has_self_signing = status.has_self_signing;
                             has_user_signing = status.has_user_signing;
                         }
+                        own_identity_refetch_record(
+                            uid,
+                            [
+                                own_identity_available,
+                                own_identity_verified,
+                                device_cross_signed,
+                                has_master,
+                                has_self_signing,
+                                has_user_signing,
+                            ],
+                        );
                     }
                 }
             }
@@ -5607,6 +5787,81 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
         });
         Ok(String::new())
     })
+}
+
+/// Minimum spacing between the health snapshot's own-identity refetches for
+/// one account while its local state has not moved (break-it B014).
+const OWN_IDENTITY_REFETCH_MIN: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Per account: when the health snapshot last refetched our own keys, and the
+/// local state that fetch left.
+fn own_identity_refetches(
+) -> &'static std::sync::Mutex<HashMap<OwnedUserId, (std::time::Instant, [bool; 6])>> {
+    static REFETCHES: std::sync::OnceLock<
+        std::sync::Mutex<HashMap<OwnedUserId, (std::time::Instant, [bool; 6])>>,
+    > = std::sync::OnceLock::new();
+    REFETCHES.get_or_init(Default::default)
+}
+
+/// Whether a refetch is due: never fetched, the local state moved since the
+/// last one left it (secrets arrived, a verification finished), or the
+/// spacing has passed. Pure for tests.
+fn own_identity_refetch_due(
+    last: Option<(std::time::Instant, [bool; 6])>,
+    seen: [bool; 6],
+    now: std::time::Instant,
+) -> bool {
+    match last {
+        None => true,
+        Some((at, left)) => left != seen || now.duration_since(at) >= OWN_IDENTITY_REFETCH_MIN,
+    }
+}
+
+/// Whether the health snapshot refetches our own keys, from what it `seen`
+/// (`[own identity available, own identity verified, device cross-signed,
+/// has master, has self-signing, has user-signing]`). Never unless
+/// `may_realign` (a cross-signing job holding the UIA slot would lose the keys
+/// it is about to upload). All three private keys present with this device
+/// not cross-signed is an unconfirmed setup and is refetched every time, as
+/// before. Break-it B014: our identity missing or unverified, or this device
+/// not cross-signed, is also what a STALE store looks like when another
+/// session set up cross-signing or verified this one and sync's own-user
+/// device-list change never reached us; Refresh and the verification-done
+/// refresh then re-read the same store. So those refetch too, but only when
+/// `claim` (the per-account throttle) grants it, since a fresh account without
+/// cross-signing stays in that state. Only a re-read: nothing is trusted or
+/// signed here. Pure for tests.
+fn own_identity_refetch_wanted(
+    seen: [bool; 6],
+    may_realign: bool,
+    claim: impl FnOnce() -> bool,
+) -> bool {
+    let [available, verified, device_cross_signed, master, self_signing, user_signing] = seen;
+    if !may_realign {
+        return false;
+    }
+    let unconfirmed_setup = master && self_signing && user_signing && !device_cross_signed;
+    let suspect_stale = !available || !verified || !device_cross_signed;
+    unconfirmed_setup || (suspect_stale && claim())
+}
+
+/// Claims a refetch for `user` when one is due, stamping it now so that
+/// concurrent snapshots do not all fetch.
+fn own_identity_refetch_claim(user: &UserId, seen: [bool; 6]) -> bool {
+    let now = std::time::Instant::now();
+    let mut map = own_identity_refetches().lock().unwrap_or_else(|e| e.into_inner());
+    if !own_identity_refetch_due(map.get(user).copied(), seen, now) {
+        return false;
+    }
+    map.insert(user.to_owned(), (now, seen));
+    true
+}
+
+/// Records the local state a refetch left, so the next snapshot is throttled
+/// against it rather than against what it saw before.
+fn own_identity_refetch_record(user: &UserId, left: [bool; 6]) {
+    let mut map = own_identity_refetches().lock().unwrap_or_else(|e| e.into_inner());
+    map.insert(user.to_owned(), (std::time::Instant::now(), left));
 }
 
 /// "Request keys again": nudge the recovery coordinator to run one
@@ -11769,9 +12024,12 @@ fn install_event_handlers(
                         "we_started": request.we_started(),
                     }),
                 );
+                let watched_flow = request.flow_id().to_string();
                 if let Ok(mut g) = slot.lock() {
                     *g = Some(request);
                 }
+                // Not a verification task: it holds no Client between ticks.
+                tokio::spawn(watch_pending_request(Arc::clone(&slot), Arc::clone(&events), watched_flow));
             }
         },
     );
@@ -12638,8 +12896,8 @@ async fn run_modern_sync(
                                 previewbackfill::Outcome::Found(preview, ts) => {
                                     Some(previewbackfill::Remembered::Message(preview.clone(), *ts))
                                 }
-                                previewbackfill::Outcome::Undecryptable(ts) => {
-                                    Some(previewbackfill::Remembered::Undecryptable(*ts))
+                                previewbackfill::Outcome::Undecryptable(ts, id) => {
+                                    Some(previewbackfill::Remembered::Undecryptable(*ts, id.clone()))
                                 }
                                 _ => None,
                             };
@@ -12649,7 +12907,7 @@ async fn run_modern_sync(
                                 // undecryptable result carries a flag, never text.
                                 let (preview, ts, utd) = match &what {
                                     previewbackfill::Remembered::Message(p, t) => (p.clone(), *t, false),
-                                    previewbackfill::Remembered::Undecryptable(t) => (String::new(), *t, true),
+                                    previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
                                 };
                                 results.remember(&room_id, what);
                                 enqueue(&events, json!({
@@ -12711,10 +12969,23 @@ async fn run_modern_sync(
                             if !moved.is_empty() {
                                 let rooms: Vec<serde_json::Value> = moved
                                     .into_iter()
-                                    .map(|(room_id, ts)| json!({
-                                        "id": room_id.to_string(),
-                                        "last_activity_ms": ts,
-                                    }))
+                                    .map(|(room_id, ts, undecryptable, event_id)| {
+                                        // Remembered so every later room_payload says
+                                        // so too (merge_remembered), rather than the
+                                        // older message the latest event still holds,
+                                        // until `settle` finds it decrypted by its id.
+                                        if let (true, Some(results)) = (undecryptable, &backfill_results) {
+                                            results.remember(
+                                                &room_id,
+                                                previewbackfill::Remembered::Undecryptable(ts, event_id),
+                                            );
+                                        }
+                                        json!({
+                                            "id": room_id.to_string(),
+                                            "last_activity_ms": ts,
+                                            "last_message_undecryptable": undecryptable,
+                                        })
+                                    })
                                     .collect();
                                 enqueue(&events, json!({
                                     "type": "room_activity", "rooms": rooms
@@ -13542,10 +13813,11 @@ async fn forward_room_list_diffs(
 /// One Space's direct children, in the order its `m.space.child` state
 /// declares. (The payload's `descendants` is transitive.)
 ///
-/// Spec order: `order` keys lexicographically, keyless children last, room
-/// id as tiebreak (as matrix-sdk-ui does). An empty `via` is MSC1772
-/// removal and is skipped. Reads the local state store only; unsynced
-/// Spaces return nothing and the caller falls back to the SDK graph.
+/// Spec order: `order` keys lexicographically, keyless children last, then
+/// the `m.space.child` event's `origin_server_ts`, then room id (the spec's
+/// and Element's order). An empty `via` is MSC1772 removal and is skipped.
+/// Reads the local state store only; unsynced Spaces return nothing and the
+/// caller falls back to the SDK graph.
 async fn direct_children_of(room: &Room) -> Vec<String> {
     let Ok(events) = room
         .get_state_events_static::<SpaceChildEventContent>()
@@ -13553,12 +13825,12 @@ async fn direct_children_of(room: &Room) -> Vec<String> {
     else {
         return Vec::new();
     };
-    let mut entries: Vec<(Option<String>, String)> = Vec::new();
+    let mut entries: Vec<(Option<String>, u64, String)> = Vec::new();
     for raw in events {
         let Ok(event) = raw.deserialize() else { continue };
-        let (state_key, content) = match event {
+        let (state_key, content, ts) = match event {
             SyncOrStrippedState::Sync(SyncStateEvent::Original(original)) => {
-                (original.state_key, original.content)
+                (original.state_key, original.content, u64::from(original.origin_server_ts.get()))
             }
             _ => continue,
         };
@@ -13567,16 +13839,28 @@ async fn direct_children_of(room: &Room) -> Vec<String> {
         }
         entries.push((
             content.order.map(|order| order.as_str().to_owned()),
+            ts,
             state_key.to_string(),
         ));
     }
-    entries.sort_by(|a, b| match (&a.0, &b.0) {
-        (Some(left), Some(right)) => left.cmp(right).then(a.1.cmp(&b.1)),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => a.1.cmp(&b.1),
+    sort_space_children(entries)
+}
+
+/// The ordering `direct_children_of` applies, apart so it can be tested:
+/// (order key, `origin_server_ts`, room id). Without the timestamp, keyless
+/// children fell back to ROOM-ID order, so rooms added Alpha, Beta, Delta
+/// listed as Beta, Alpha, Delta.
+fn sort_space_children(mut entries: Vec<(Option<String>, u64, String)>) -> Vec<String> {
+    entries.sort_by(|a, b| {
+        let by_order = match (&a.0, &b.0) {
+            (Some(left), Some(right)) => left.cmp(right),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        };
+        by_order.then(a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2))
     });
-    entries.into_iter().map(|(_, id)| id).collect()
+    entries.into_iter().map(|(_, _, id)| id).collect()
 }
 
 /// Children the Space's own state unlinked: an `m.space.child` with an
@@ -13824,9 +14108,41 @@ pub(crate) fn conversation_timestamp_ms(
     if replaced_event_id(raw).is_some() {
         return None;
     }
+    // Nor is an undecrypted reaction or reference (a poll vote): decrypted
+    // they are `m.reaction` / a response type, which never count, and an
+    // `m.room.encrypted` wrapper must not make them a "last message".
+    // `m.relates_to` is outside the ciphertext.
+    if kind == "m.room.encrypted" {
+        let rel_type = raw
+            .get_field::<serde_json::Value>("content")
+            .ok()
+            .flatten()
+            .and_then(|content| {
+                content.get("m.relates_to")?.get("rel_type")?.as_str().map(str::to_owned)
+            });
+        if matches!(rel_type.as_deref(), Some("m.annotation" | "m.reference")) {
+            return None;
+        }
+    }
     let ts = raw.get_field::<UInt>("origin_server_ts").ok().flatten()?;
     let ts = u64::from(ts);
     if ts == 0 { None } else { Some(ts) }
+}
+
+/// A conversation event's ordering stamp on the clock the room list orders by:
+/// `None` when `conversation_timestamp_ms` refuses it, otherwise the event's
+/// own `TimelineEvent::timestamp`, which the SDK clamps to the local clock when
+/// it builds the event (`extract_timestamp`) and which the latest event, the
+/// event cache and redecryption all keep. The raw `origin_server_ts` is used
+/// only when the event carries none, and never above it. Reading the raw field
+/// instead put a sender whose clock runs ahead on a different clock from the
+/// latest event (break-it B084 review).
+pub(crate) fn event_ordering_stamp_ms(
+    event: &matrix_sdk::deserialized_responses::TimelineEvent,
+) -> Option<u64> {
+    let raw_ts = conversation_timestamp_ms(event.raw())?;
+    let own = event.timestamp_raw().map(|ts| u64::from(ts.get())).filter(|ts| *ts != 0);
+    Some(own.map_or(raw_ts, |ts| ts.min(raw_ts)))
 }
 
 /// Response-harvested recency for the sliding lane.
@@ -13836,29 +14152,62 @@ pub(crate) fn conversation_timestamp_ms(
 /// local echo is unsent, and it ignores undecrypted events. The payload then
 /// resends a stale stamp until the room is opened. This reads the events in
 /// the response instead. `stamps` is a per-room high-water mark; only rooms
-/// whose mark moved are returned. Timestamps only.
+/// whose mark moved are returned. Timestamps (`event_ordering_stamp_ms`, the
+/// latest event's clock), whether that newest event is still undecryptable
+/// (`m.room.encrypted` after the SDK's own attempt), and its id: the latest
+/// event skips such an event, so the room's preview would otherwise stay on an
+/// OLDER message while this stamp moves its time to the new one.
 fn harvest_room_activity(
     updates: &matrix_sdk::sync::RoomUpdates,
     stamps: &mut HashMap<OwnedRoomId, u64>,
-) -> Vec<(OwnedRoomId, u64)> {
+) -> Vec<(OwnedRoomId, u64, bool, Option<OwnedEventId>)> {
     let mut moved = Vec::new();
     for (room_id, update) in &updates.joined {
-        let mut newest = 0u64;
-        for event in &update.timeline.events {
-            if let Some(ts) = conversation_timestamp_ms(event.raw()) {
-                newest = newest.max(ts);
-            }
-        }
-        if newest == 0 {
+        let Some((newest, undecryptable, event_id)) = newest_conversation(&update.timeline.events)
+        else {
             continue;
-        }
+        };
         let entry = stamps.entry(room_id.clone()).or_default();
         if newest > *entry {
             *entry = newest;
-            moved.push((room_id.clone(), newest));
+            moved.push((room_id.clone(), newest, undecryptable, event_id));
         }
     }
     moved
+}
+
+/// The newest conversation stamp among `events` (oldest first, as a sync
+/// timeline is), whether that event is undecryptable, and its id. On a tie the
+/// later event wins. Pure for tests.
+fn newest_conversation<'a>(
+    events: impl IntoIterator<Item = &'a matrix_sdk::deserialized_responses::TimelineEvent>,
+) -> Option<(u64, bool, Option<OwnedEventId>)> {
+    let mut newest: Option<(u64, &matrix_sdk::deserialized_responses::TimelineEvent)> = None;
+    for event in events {
+        let Some(ts) = event_ordering_stamp_ms(event) else { continue };
+        if newest.map_or(true, |(best, _)| ts >= best) {
+            newest = Some((ts, event));
+        }
+    }
+    newest.map(|(ts, event)| {
+        let encrypted = event.raw().get_field::<String>("type").ok().flatten().as_deref()
+            == Some("m.room.encrypted");
+        (ts, encrypted, event.event_id())
+    })
+}
+
+/// What the event cache says now of an event remembered as undecryptable
+/// (memory, then the store; never a request), for `previewbackfill::settle`.
+async fn undecryptable_now(room: &Room, event_id: &EventId) -> previewbackfill::UndecryptableNow {
+    use previewbackfill::UndecryptableNow;
+    let Ok((cache, _drop_handles)) = room.event_cache().await else {
+        return UndecryptableNow::Unknown;
+    };
+    match cache.find_event(event_id).await {
+        Ok(Some(event)) if event.kind.is_utd() => UndecryptableNow::StillUndecryptable,
+        Ok(Some(event)) => UndecryptableNow::Decrypted(raw_event_preview_text(event.raw())),
+        _ => UndecryptableNow::Unknown,
+    }
 }
 
 /// What a DM peer's member event says about the face of that conversation,
@@ -13948,14 +14297,23 @@ fn unread_and_highlight_counts(
 /// nothing, because its server counts are not used at all (see
 /// `unread_and_highlight_counts`) and the client counts exclude threads, so
 /// there is no honest signal. Never an exact per-thread count.
+///
+/// `counted_from_receipt`: the client counts are evidence only when they were
+/// counted FROM our own read receipt (`RoomReadReceipts::latest_active`). A
+/// room joined this session and never read has no receipt, and its counts are
+/// zero because nothing was counted, not because the main timeline was read:
+/// classifying that as thread-only drew the thread glyph, with no number, over
+/// plain main-timeline unread. Without a receipt, report ordinary unread.
 fn unread_in_threads_only(
     is_encrypted: bool,
+    counted_from_receipt: bool,
     client_notifications: u64,
     client_mentions: u64,
     server_notification_count: u64,
     server_highlight_count: u64,
 ) -> (bool, bool) {
     if is_encrypted
+        || !counted_from_receipt
         || client_notifications != 0
         || client_mentions != 0
         || (server_notification_count == 0 && server_highlight_count == 0)
@@ -14022,6 +14380,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     }
     let (unread_threads_only, mention_in_threads) = unread_in_threads_only(
         room.encryption_state().is_encrypted(),
+        room.read_receipts().latest_active.is_some(),
         room.num_unread_notifications(),
         room.num_unread_mentions(),
         notifications.notification_count,
@@ -14051,11 +14410,28 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         _ => None,
     };
     // A room whose own latest event gives no preview (newest event filtered
-    // churn) shows what the blank-preview look found, if it has run.
+    // churn) shows what the blank-preview look found, if it has run. A
+    // remembered undecryptable event is first checked by its ID against the
+    // latest event and the event cache (`settle`): once it has decrypted, it
+    // must not keep the placeholder up, whatever the stamps say.
+    let remembered = previewbackfill::remembered(room.own_user_id(), room.room_id());
+    let latest_event_id = latest_event.event_id();
+    let utd_now = match &remembered {
+        Some(previewbackfill::Remembered::Undecryptable(_, Some(id)))
+            if latest_event_id.as_deref() != Some(&**id) =>
+        {
+            undecryptable_now(room, id).await
+        }
+        _ => previewbackfill::UndecryptableNow::Unknown,
+    };
+    let settled = previewbackfill::settle(remembered.clone(), latest_event_id.as_deref(), utd_now);
+    if let Some(was) = remembered.as_ref().filter(|was| settled.as_ref() != Some(*was)) {
+        previewbackfill::replace_remembered(room.own_user_id(), room.room_id(), was, settled.clone());
+    }
     let (own_preview, own_activity, own_undecryptable) = previewbackfill::merge_remembered(
         latest_event_preview_text(&latest_event),
         room_ordering_timestamp_ms(&latest_event, edited_ts),
-        previewbackfill::remembered(room.own_user_id(), room.room_id()),
+        settled,
     );
 
     json!({
@@ -14222,7 +14598,10 @@ pub(crate) fn raw_event_preview_text(
                 MessageType::Image(content) => body_or(one_line(&content.body), "Image"),
                 MessageType::File(content) => body_or(one_line(&content.body), "File"),
                 MessageType::Video(content) => body_or(one_line(&content.body), "Video"),
-                MessageType::Audio(content) => body_or(one_line(&content.body), "Audio"),
+                MessageType::Audio(content) => match crate::timeline::voice_message_label(&content) {
+                    Some(label) => one_line(&label),
+                    None => body_or(one_line(&content.body), "Audio"),
+                },
                 // MSC4274 gallery: caption, else a summary. Never the body (Sable fills it
                 // with `[name: mxc://…]` lines).
                 other => match crate::timeline::parse_gallery(&other)
@@ -15892,20 +16271,110 @@ mod tests {
     fn unread_only_a_thread_can_explain_is_reported_for_a_plaintext_room() {
         // Main timeline read (client counts 0), server still counts 4 and one
         // highlight: the remainder is a thread.
-        assert_eq!(super::unread_in_threads_only(false, 0, 0, 4, 1), (true, true));
-        assert_eq!(super::unread_in_threads_only(false, 0, 0, 4, 0), (true, false));
+        assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 4, 1), (true, true));
+        assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 4, 0), (true, false));
     }
 
     #[test]
     fn thread_only_unread_is_not_claimed_when_it_cannot_be_known() {
         // Nothing unread at all.
-        assert_eq!(super::unread_in_threads_only(false, 0, 0, 0, 0), (false, false));
+        assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 0, 0), (false, false));
         // Plain main-timeline unread is just unread, even if threads add to it.
-        assert_eq!(super::unread_in_threads_only(false, 2, 0, 9, 0), (false, false));
-        assert_eq!(super::unread_in_threads_only(false, 0, 1, 9, 1), (false, false));
+        assert_eq!(super::unread_in_threads_only(false, true, 2, 0, 9, 0), (false, false));
+        assert_eq!(super::unread_in_threads_only(false, true, 0, 1, 9, 1), (false, false));
         // Encrypted: client counts exclude threads and server counts are unused,
         // so there is no honest signal.
-        assert_eq!(super::unread_in_threads_only(true, 0, 0, 9, 3), (false, false));
+        assert_eq!(super::unread_in_threads_only(true, true, 0, 0, 9, 3), (false, false));
+    }
+
+    #[test]
+    fn the_own_identity_refetch_is_throttled_unless_local_state_moved() {
+        // Break-it B014: a stale own identity is refetched, but a state that
+        // stays put (an account with no cross-signing at all) is not fetched on
+        // every snapshot.
+        use super::{own_identity_refetch_due, OWN_IDENTITY_REFETCH_MIN};
+        let t0 = std::time::Instant::now();
+        let stuck = [false, false, false, false, false, false];
+        assert!(own_identity_refetch_due(None, stuck, t0));
+        assert!(!own_identity_refetch_due(Some((t0, stuck)), stuck, t0));
+        assert!(!own_identity_refetch_due(
+            Some((t0, stuck)),
+            stuck,
+            t0 + OWN_IDENTITY_REFETCH_MIN / 2
+        ));
+        assert!(own_identity_refetch_due(Some((t0, stuck)), stuck, t0 + OWN_IDENTITY_REFETCH_MIN));
+        // Secrets arrived (a verification finished): due at once.
+        let moved = [true, false, false, true, true, true];
+        assert!(own_identity_refetch_due(Some((t0, stuck)), moved, t0));
+    }
+
+    #[test]
+    fn the_own_identity_is_refetched_when_it_looks_stale_and_never_against_the_uia_guard() {
+        // Break-it B014 review: the decision itself, not only its throttle.
+        use super::own_identity_refetch_wanted as wanted;
+        let granted = || true;
+        let throttled = || false;
+        // Nothing known locally (another session set cross-signing up and the
+        // device-list change never reached us): refetched when the throttle allows.
+        let stale = [false; 6];
+        assert!(wanted(stale, true, granted));
+        assert!(!wanted(stale, true, throttled));
+        // Identity there but unverified, or this device not cross-signed.
+        assert!(wanted([true, false, true, true, true, true], true, granted));
+        assert!(wanted([true, true, false, false, false, false], true, granted));
+        // A cross-signing job holds the UIA slot: never, whatever the state.
+        assert!(!wanted(stale, false, granted));
+        assert!(!wanted([true, true, false, true, true, true], false, granted));
+        // Fully verified and cross-signed: never, and the throttle is not even
+        // consulted (a claim would stamp the account for nothing).
+        let asked = std::cell::Cell::new(false);
+        assert!(!wanted([true; 6], true, || {
+            asked.set(true);
+            true
+        }));
+        assert!(!asked.get());
+        // All three private keys present, this device not cross-signed: the
+        // unconfirmed-setup case, refetched unthrottled as before.
+        assert!(wanted([true, true, false, true, true, true], true, throttled));
+    }
+
+    #[test]
+    fn space_children_without_an_order_key_follow_their_add_time() {
+        // Break-it B051: added Alpha, Beta, Delta in that order; room ids
+        // sort Beta < Alpha < Delta. Keyless children follow origin_server_ts.
+        let keyless = vec![
+            (None, 1_000, "!zzalpha:x".to_owned()),
+            (None, 2_000, "!aabeta:x".to_owned()),
+            (None, 3_000, "!mmdelta:x".to_owned()),
+        ];
+        assert_eq!(
+            super::sort_space_children(keyless),
+            vec!["!zzalpha:x", "!aabeta:x", "!mmdelta:x"]
+        );
+        // An order key still wins, an equal key falls to the timestamp, and
+        // the room id breaks a timestamp tie.
+        let mixed = vec![
+            (None, 1, "!keyless:x".to_owned()),
+            (Some("b".to_owned()), 5, "!b5:x".to_owned()),
+            (Some("a".to_owned()), 9, "!a9:x".to_owned()),
+            (Some("b".to_owned()), 2, "!b2:x".to_owned()),
+            (None, 1, "!another:x".to_owned()),
+        ];
+        assert_eq!(
+            super::sort_space_children(mixed),
+            vec!["!a9:x", "!b2:x", "!b5:x", "!another:x", "!keyless:x"]
+        );
+    }
+
+    #[test]
+    fn a_room_never_read_is_not_thread_only_on_zero_client_counts() {
+        // Break-it B012: joined live, never opened, no receipt. The client
+        // counted nothing, so its zeros say nothing about the main timeline;
+        // the server's 3 (and its highlight) are ordinary unread, not a thread.
+        assert_eq!(super::unread_in_threads_only(false, false, 0, 0, 3, 0), (false, false));
+        assert_eq!(super::unread_in_threads_only(false, false, 0, 0, 1, 1), (false, false));
+        // The same counts once a receipt anchors the client's count still are.
+        assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 3, 0), (true, false));
     }
 
     #[test]
@@ -16134,6 +16603,64 @@ mod tests {
             assert!(crate::flow_slots_are_live(&request, &sas, &qr));
             // A live flow must not be evicted.
             assert_eq!(request_flow(&request).as_deref(), Some("flow-a"));
+        }
+
+        // Break-it B015: an incoming request cancelled by its requester while it
+        // still waits for Accept is reported and released at once; one that was
+        // accepted, or replaced by a newer flow, is left to its owner.
+        #[test]
+        fn a_request_cancelled_while_waiting_is_reported_and_released() {
+            use crate::{pending_request_step, PendingRequest, PendingRequestView};
+
+            #[derive(Debug)]
+            struct Pending {
+                flow_id: String,
+                state: PendingRequest,
+            }
+            impl FlowIdentity for Pending {
+                fn flow_key(&self) -> &str {
+                    &self.flow_id
+                }
+            }
+            impl PendingRequestView for Pending {
+                fn pending(&self) -> PendingRequest {
+                    self.state.clone()
+                }
+            }
+            let slot = |state| {
+                Mutex::new(Some(Pending { flow_id: "flow-a".to_owned(), state }))
+            };
+
+            let waiting = slot(PendingRequest::Waiting);
+            assert_eq!(pending_request_step(&waiting, "flow-a"), (true, None));
+            assert!(waiting.lock().unwrap().is_some());
+
+            let cancelled = slot(PendingRequest::Cancelled("\"The user cancelled the verification.\"".to_owned()));
+            assert_eq!(
+                pending_request_step(&cancelled, "flow-a"),
+                (false, Some("\"The user cancelled the verification.\"".to_owned()))
+            );
+            assert!(cancelled.lock().unwrap().is_none(), "a cancelled request keeps the slot");
+            // Break-it B015 review: an Accept landing after that release answers
+            // nothing (the cancel is already queued), not "no active request".
+            assert_eq!(crate::accept_without_request_reply("flow-a"), "");
+            assert_eq!(
+                crate::accept_without_request_reply("flow-never-seen"),
+                "error: no active verification request."
+            );
+
+            // Accepted: the driver reports its own outcome; the watch just ends.
+            let answered = slot(PendingRequest::Answered);
+            assert_eq!(pending_request_step(&answered, "flow-a"), (false, None));
+            assert!(answered.lock().unwrap().is_some());
+
+            // A newer flow in the slot is never touched, even if it is cancelled.
+            let newer = slot(PendingRequest::Cancelled("x".to_owned()));
+            assert_eq!(pending_request_step(&newer, "flow-old"), (false, None));
+            assert!(newer.lock().unwrap().is_some());
+
+            let empty: Mutex<Option<Pending>> = Mutex::new(None);
+            assert_eq!(pending_request_step(&empty, "flow-a"), (false, None));
         }
 
         // An incoming request occupies the slot with no user action; once dead it
@@ -16627,6 +17154,29 @@ mod latest_event_preview_tests {
             latest_event_preview_text(&quote_only),
             "> <@a:b.c> quoted no separator"
         );
+    }
+
+    // Break-it B108: a voice message's body is a file name; the room list
+    // said "t12.ogg" where a loaded row said "Voice message".
+    #[test]
+    fn a_voice_message_previews_as_a_voice_message() {
+        let voice = remote(
+            json!({
+                "msgtype": "m.audio",
+                "body": "t12.ogg",
+                "url": "mxc://example.org/v",
+                "org.matrix.msc3245.voice": {},
+                "org.matrix.msc1767.audio": { "duration": 3000 },
+            }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&voice), "Voice message");
+        // Ordinary audio keeps its name.
+        let audio = remote(
+            json!({ "msgtype": "m.audio", "body": "song.ogg", "url": "mxc://example.org/a" }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&audio), "song.ogg");
     }
 
     #[test]
@@ -18806,6 +19356,7 @@ mod classic_sync_wedge_tests {
 mod conversation_recency_tests {
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use matrix_sdk::ruma::serde::Raw;
+    use matrix_sdk::ruma::OwnedEventId;
     use serde_json::json;
 
     use super::conversation_timestamp_ms;
@@ -18960,6 +19511,94 @@ mod conversation_recency_tests {
             }));
             assert_eq!(conversation_timestamp_ms(&event), None, "{kind}");
         }
+    }
+
+    // Break-it B084: an undecrypted reaction or poll vote is not a message
+    // (decrypted, neither counts), but an undecrypted message or thread reply is.
+    #[test]
+    fn an_undecrypted_reaction_or_reference_is_not_a_conversation() {
+        for rel_type in ["m.annotation", "m.reference"] {
+            let event = raw(json!({
+                "type": "m.room.encrypted",
+                "event_id": "$enc-rel",
+                "sender": "@a:example.org",
+                "origin_server_ts": 1_700_000_000_008u64,
+                "content": {
+                    "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "x",
+                    "m.relates_to": { "rel_type": rel_type, "event_id": "$target" },
+                },
+            }));
+            assert_eq!(conversation_timestamp_ms(&event), None, "{rel_type}");
+        }
+        let thread_reply = raw(json!({
+            "type": "m.room.encrypted",
+            "event_id": "$enc-thread",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_009u64,
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "x",
+                "m.relates_to": { "rel_type": "m.thread", "event_id": "$root" },
+            },
+        }));
+        assert_eq!(conversation_timestamp_ms(&thread_reply), Some(1_700_000_000_009));
+    }
+
+    // Break-it B084: the harvest says whether the newest conversation event is
+    // still undecryptable, and which event it is, so the room's preview can
+    // follow its stamp until that event decrypts.
+    #[test]
+    fn the_harvest_flags_a_newest_event_that_is_undecryptable() {
+        use super::newest_conversation;
+        use matrix_sdk::deserialized_responses::TimelineEvent;
+        let ev = |value| TimelineEvent::from_plaintext(raw(value));
+        let message = ev(json!({
+            "type": "m.room.message", "event_id": "$m", "sender": "@a:example.org",
+            "origin_server_ts": 100u64, "content": { "msgtype": "m.text", "body": "hello" },
+        }));
+        let encrypted = ev(json!({
+            "type": "m.room.encrypted", "event_id": "$e", "sender": "@a:example.org",
+            "origin_server_ts": 200u64,
+            "content": { "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "x" },
+        }));
+        let reaction = ev(json!({
+            "type": "m.room.encrypted", "event_id": "$r", "sender": "@a:example.org",
+            "origin_server_ts": 300u64,
+            "content": { "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "x",
+                         "m.relates_to": { "rel_type": "m.annotation", "event_id": "$m" } },
+        }));
+        let e = Some(OwnedEventId::try_from("$e").unwrap());
+        let m = Some(OwnedEventId::try_from("$m").unwrap());
+        assert_eq!(newest_conversation([&message, &encrypted]), Some((200, true, e.clone())));
+        assert_eq!(newest_conversation([&encrypted, &message]), Some((200, true, e)));
+        assert_eq!(newest_conversation([&message]), Some((100, false, m.clone())));
+        // A later undecrypted reaction neither moves the stamp nor flags it.
+        assert_eq!(newest_conversation([&message, &reaction]), Some((100, false, m)));
+        assert_eq!(newest_conversation([&reaction]), None);
+    }
+
+    // Break-it B084 review: the harvest stamps an event on the clock the SDK's
+    // latest event uses. A sender whose clock runs ahead of ours is clamped to
+    // ours when the SDK builds the event; the harvest must read that, not the
+    // raw `origin_server_ts`, or the two disagree about the same event.
+    #[test]
+    fn the_harvest_stamp_is_the_clamped_one_the_latest_event_carries() {
+        use super::{event_ordering_stamp_ms, newest_conversation};
+        use matrix_sdk::deserialized_responses::TimelineEvent;
+        use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+        let ahead = raw(json!({
+            "type": "m.room.encrypted", "event_id": "$ahead", "sender": "@a:example.org",
+            "origin_server_ts": 5_000u64,
+            "content": { "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "x" },
+        }));
+        let our_now = MilliSecondsSinceUnixEpoch(4_000u32.into());
+        let event = TimelineEvent::from_plaintext_with_max_timestamp(ahead, our_now);
+        let sdk_stamp = event.timestamp().map(|ts| u64::from(ts.get()));
+        assert_eq!(sdk_stamp, Some(4_000), "fixture: the SDK clamps");
+        assert_eq!(event_ordering_stamp_ms(&event), sdk_stamp);
+        assert_eq!(
+            newest_conversation([&event]),
+            Some((4_000, true, Some(OwnedEventId::try_from("$ahead").unwrap())))
+        );
     }
 
     // A state event wearing a message's type name is still a state event.

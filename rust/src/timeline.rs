@@ -4543,8 +4543,24 @@ fn state_row_text(kind: &str, actor: &str) -> String {
         // events arriving as OtherState.
         "m.call" => format!("{actor} started a call."),
         "m.call.video" => format!("{actor} started a video call."),
+        // A published (or re-published) policy-list rule. Never the entity or
+        // reason: both are free text the list's writer chose.
+        kind if is_policy_rule_type(kind) => format!("{actor} updated a moderation rule."),
         _ => format!("{actor} updated room settings."),
     }
+}
+
+/// The policy-list rule state types: the spec's `m.policy.rule.*`, and the
+/// older `m.room.rule.*` and Mjolnir `org.matrix.mjolnir.rule.*` spellings
+/// lists still carry.
+fn is_policy_rule_type(event_type: &str) -> bool {
+    ["m.policy.rule.", "m.room.rule.", "org.matrix.mjolnir.rule."]
+        .iter()
+        .any(|prefix| {
+            event_type
+                .strip_prefix(prefix)
+                .is_some_and(|rest| matches!(rest, "user" | "room" | "server"))
+        })
 }
 
 /// `m.space.parent`'s `via` field is REQUIRED by the type ruma generates
@@ -4559,9 +4575,15 @@ fn state_row_text(kind: &str, actor: &str) -> String {
 /// and describe it. Any OTHER parse failure on this type (a `via` of the
 /// wrong JSON shape, say) is genuinely malformed data, not a removal, and
 /// keeps the generic unsupported fallback.
+///
+/// Policy-list rules are the same shape: ruma's `PolicyRuleEventContent`
+/// requires `entity`, and the empty content Mjolnir (and Lightning's own
+/// Remove) writes to retire a rule fails on "missing field `entity`".
 fn failed_state_parse_body(event_type: &str, error_display: &str, actor: &str) -> Option<String> {
     if event_type == "m.space.parent" && error_display.contains("missing field `via`") {
         Some(format!("{actor} removed this room from a space."))
+    } else if is_policy_rule_type(event_type) && error_display.contains("missing field `entity`") {
+        Some(format!("{actor} removed a moderation rule."))
     } else {
         None
     }
@@ -5018,10 +5040,11 @@ fn event_item_to_json(
         }
         TimelineItemContent::FailedToParseState { event_type, error, .. } => {
             let actor = event.sender().to_string();
-            match failed_state_parse_body(&event_type.to_string(), &error.to_string(), &actor) {
+            let event_type = event_type.to_string();
+            match failed_state_parse_body(&event_type, &error.to_string(), &actor) {
                 Some(body) => {
                     out["msgtype"] = "state".into();
-                    out["state_kind"] = "m.space.parent".into();
+                    out["state_kind"] = event_type.into();
                     out["body"] = body.into();
                 }
                 None => {
@@ -5361,6 +5384,17 @@ pub(crate) struct MessageSummary {
     pub text: String,
 }
 
+/// The one-line label for an MSC3245 voice message, `None` for ordinary
+/// audio. A voice message's `body` is a file name (`voice-1.ogg`), which the
+/// room list and the reply quote showed while a loaded row said "Voice
+/// message" (`EventPreview.cpp`, `TimelineEvent::Audio`). Same rule as that
+/// one, so every one-line surface names the event alike.
+pub(crate) fn voice_message_label(
+    content: &matrix_sdk::ruma::events::room::message::AudioMessageEventContent,
+) -> Option<String> {
+    content.voice.as_ref().map(|_| "Voice message".to_owned())
+}
+
 pub(crate) fn message_summary(msgtype: &MessageType) -> MessageSummary {
     let media = |kind: &'static str, body: &str, filename: Option<&str>| MessageSummary {
         kind,
@@ -5381,7 +5415,10 @@ pub(crate) fn message_summary(msgtype: &MessageType) -> MessageSummary {
             media(if gif { "gif" } else { "image" }, &c.body, c.filename.as_deref())
         }
         MessageType::Video(c) => media("video", &c.body, c.filename.as_deref()),
-        MessageType::Audio(c) => media("audio", &c.body, c.filename.as_deref()),
+        MessageType::Audio(c) => match voice_message_label(c) {
+            Some(text) => MessageSummary { kind: "audio", count: 0, text },
+            None => media("audio", &c.body, c.filename.as_deref()),
+        },
         MessageType::File(c) => media("file", &c.body, c.filename.as_deref()),
         other => match parse_gallery(other).filter(|g| !g.items.is_empty()) {
             Some(gallery) if gallery.items.len() == 1 => {
@@ -6023,23 +6060,27 @@ fn img_src_is_mxc(tag: &str) -> bool {
 }
 
 /// Strict-sanitize the formatted half of an outgoing message in place;
-/// no-op without a formatted body.
+/// no-op without a formatted body. Every lane that produces a formatted body
+/// runs it, the markdown lane included: pulldown-cmark passes inline raw HTML
+/// (`<script>`) and emits a `javascript:` link target as an href verbatim, so
+/// without it other clients received both. A formatted body that sanitizes
+/// to nothing is dropped, so receivers show the plain body instead of a blank.
 ///
 /// ruma's Strict config allows `img` with `src` restricted to `mxc`, but not
 /// `data-mx-emoticon` (data-mx-* is allowed on `span` only), which is what
 /// makes an MSC2545 inline emoji an emoji. So exactly that one attribute is
 /// added; nothing else is widened.
-fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
+pub(crate) fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
     use matrix_sdk::ruma::html::{
         ElementAttributesSchemes, Html, ListBehavior, PropertiesNames,
         SanitizerConfig,
     };
-    let formatted = match msgtype {
-        MessageType::Text(text) => text.formatted.as_mut(),
-        MessageType::Emote(emote) => emote.formatted.as_mut(),
-        _ => None,
+    let slot = match msgtype {
+        MessageType::Text(text) => &mut text.formatted,
+        MessageType::Emote(emote) => &mut emote.formatted,
+        _ => return,
     };
-    let Some(formatted) = formatted else { return };
+    let Some(formatted) = slot.as_mut() else { return };
     // Pin the scheme rather than inherit it: with the attribute added and the
     // scheme implicit, `<img src="https://tracker.example/pixel.png">` passed
     // the strict config.
@@ -6073,6 +6114,9 @@ fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
     let html = Html::parse(&strip_non_mxc_images(&formatted.body));
     html.sanitize_with(&config);
     formatted.body = html.to_string();
+    if formatted.body.trim().is_empty() {
+        *slot = None;
+    }
 }
 
 /// Put the message's inline custom emoji in. A markdown message without
@@ -6115,7 +6159,10 @@ pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEv
         }
     };
     match spec.format {
-        BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
+        BodyFormat::Markdown => {
+            set_mention_plain_body(&mut message.msgtype, body);
+            sanitize_outgoing_formatted(&mut message.msgtype);
+        }
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
     }
@@ -6154,7 +6201,10 @@ pub(crate) fn composed_content_without_relation(
         }
     };
     match spec.format {
-        BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
+        BodyFormat::Markdown => {
+            set_mention_plain_body(&mut message.msgtype, body);
+            sanitize_outgoing_formatted(&mut message.msgtype);
+        }
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
     }
@@ -7467,6 +7517,46 @@ mod tests {
         );
     }
 
+    // Break-it B105: removing a policy rule writes `{}`, which ruma cannot
+    // parse (entity is required); it read "[unsupported event]". Publishing
+    // read "updated room settings".
+    #[test]
+    fn policy_rule_rows_say_what_happened() {
+        // The complaint is ruma's own for the removal shape `{}`, read off the
+        // same deserializer the timeline uses, not assumed.
+        use matrix_sdk::ruma::events::AnySyncStateEvent;
+        let removal = serde_json::from_value::<AnySyncStateEvent>(serde_json::json!({
+            "type": "m.policy.rule.user", "state_key": "rule:*", "event_id": "$p",
+            "sender": "@a:b.c", "origin_server_ts": 1, "content": {},
+        }))
+        .expect_err("an empty policy rule does not parse");
+        assert!(removal.to_string().contains("missing field `entity`"), "{removal}");
+        for kind in [
+            "m.policy.rule.user",
+            "m.policy.rule.server",
+            "m.policy.rule.room",
+            "m.room.rule.user",
+            "org.matrix.mjolnir.rule.server",
+        ] {
+            assert_eq!(
+                failed_state_parse_body(kind, "missing field `entity` at line 1 column 2", "@a:b.c"),
+                Some("@a:b.c removed a moderation rule.".to_owned()),
+                "{kind}"
+            );
+            assert_eq!(state_row_text(kind, "@a:b.c"), "@a:b.c updated a moderation rule.", "{kind}");
+        }
+        // Other malformation stays unsupported, and a lookalike type is not one.
+        assert_eq!(
+            failed_state_parse_body("m.policy.rule.user", "invalid type: integer `5`, expected a string", "@a:b.c"),
+            None
+        );
+        assert_eq!(
+            failed_state_parse_body("m.policy.rule.users", "missing field `entity`", "@a:b.c"),
+            None
+        );
+        assert_eq!(state_row_text("m.policy.rule.userx", "@a:b.c"), "@a:b.c updated room settings.");
+    }
+
     #[test]
     fn import_result_maps_to_room_session_pairs() {
         let mut keys = BTreeMap::new();
@@ -7785,6 +7875,80 @@ mod tests {
                 assert!(!formatted.body.contains("javascript:"),
                         "unsafe scheme survived: {}", formatted.body);
                 assert!(formatted.body.contains("<b>b</b>"));
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// Break-it B064: the markdown lane is sanitized like the html lane.
+    /// Inline raw HTML and a `javascript:` link target must not reach the
+    /// formatted body other clients receive; markdown itself survives.
+    #[test]
+    fn outgoing_markdown_is_strict_sanitized_too() {
+        use super::{composed_content, composed_content_without_relation, SendBodySpec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = SendBodySpec::default();
+        let body = "**bold** <b onclick=\"x()\">raw</b> &amp; <script>alert(1)</script> [link](javascript:alert(1))";
+        let check = |msgtype: MessageType| match msgtype {
+            MessageType::Text(text) => {
+                let formatted = text.formatted.expect("formatted body");
+                assert!(!formatted.body.contains("<script"), "script survived: {}", formatted.body);
+                assert!(!formatted.body.contains("onclick"), "handler survived: {}", formatted.body);
+                assert!(!formatted.body.contains("javascript:"), "scheme survived: {}", formatted.body);
+                assert!(formatted.body.contains("<strong>bold</strong>"), "{}", formatted.body);
+                assert!(formatted.body.contains("<b>raw</b>"), "{}", formatted.body);
+                // The plain body is the user's text, untouched.
+                assert_eq!(text.body, body);
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        };
+        check(composed_content(body, &spec).msgtype);
+        check(composed_content_without_relation(body, &spec).msgtype);
+        // A safe link is kept, and so is a mention pill.
+        let ok = "[site](https://example.org) [@a](https://matrix.to/#/%40a%3Ax)";
+        match composed_content(ok, &spec).msgtype {
+            MessageType::Text(text) => {
+                let formatted = text.formatted.expect("formatted body").body;
+                assert!(formatted.contains("href=\"https://example.org\""), "{formatted}");
+                assert!(formatted.contains("https://matrix.to/#/%40a%3Ax"), "{formatted}");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// Break-it B064 review: a formatted body that sanitizes to NOTHING is
+    /// dropped, so receivers show the plain body rather than a blank. The input
+    /// is one a strict pass is certain to empty (a lone non-mxc image, which
+    /// `strip_non_mxc_images` removes outright), and the assertion is on the
+    /// drop itself, with a control that keeps its formatted body.
+    #[test]
+    fn a_formatted_body_that_sanitizes_to_nothing_is_dropped() {
+        use super::sanitize_outgoing_formatted;
+        use matrix_sdk::ruma::events::room::message::{
+            EmoteMessageEventContent, MessageType, TextMessageEventContent,
+        };
+        let empties = "<img src=\"https://tracker.example/pixel.png\"> ";
+        let mut text = MessageType::Text(TextMessageEventContent::html("plain words", empties));
+        sanitize_outgoing_formatted(&mut text);
+        match text {
+            MessageType::Text(text) => {
+                assert!(text.formatted.is_none(), "kept: {:?}", text.formatted);
+                assert_eq!(text.body, "plain words");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+        let mut emote = MessageType::Emote(EmoteMessageEventContent::html("waves", empties));
+        sanitize_outgoing_formatted(&mut emote);
+        match emote {
+            MessageType::Emote(emote) => assert!(emote.formatted.is_none(), "kept: {:?}", emote.formatted),
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+        // Control: something survives, so the formatted body is kept.
+        let mut kept = MessageType::Text(TextMessageEventContent::html("hi", "<em>hi</em><img src=\"https://x/p.png\">"));
+        sanitize_outgoing_formatted(&mut kept);
+        match kept {
+            MessageType::Text(text) => {
+                assert_eq!(text.formatted.expect("formatted body kept").body, "<em>hi</em>");
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
@@ -8743,6 +8907,21 @@ mod gallery_tests {
         let wire_json = out.to_string();
         assert!(!wire_json.contains("A256CTR") && !wire_json.contains(MXC_B));
         assert_eq!(out["gallery_items"].as_array().map(Vec::len), Some(2));
+    }
+
+    /// Break-it B108: the reply quote and thread card read a voice message
+    /// as "Voice message", not its file name; ordinary audio keeps its name.
+    #[test]
+    fn a_voice_message_summary_is_a_voice_message() {
+        let voice = content(json!({
+            "msgtype": "m.audio", "body": "t12.ogg", "url": MXC_A,
+            "org.matrix.msc3245.voice": {},
+        }));
+        let summary = message_summary(&voice.msgtype);
+        assert_eq!(summary.kind, "audio");
+        assert_eq!(summary.text, "Voice message");
+        let audio = content(json!({ "msgtype": "m.audio", "body": "song.ogg", "url": MXC_A }));
+        assert_eq!(message_summary(&audio.msgtype).text, "song.ogg");
     }
 
     #[test]
