@@ -125,6 +125,17 @@ Rectangle {
         if (root.isCurrent)
             root.voice.seek(ms)
     }
+    // The clip fraction a tap at `x` on the waveform asks for. The bars are
+    // left-aligned at 3 px a bar, so a short waveform draws over only part of
+    // the row: the tap maps over the DRAWN bars (it used to map over the whole
+    // row, so a click at 77% of the bars sought to 17%), and one in the empty
+    // space past them is -1, ignored.
+    function waveSeekFraction(x) {
+        var drawn = waveRow.drawnWidth
+        if (drawn <= 0 || x < 0 || x > drawn + 3)
+            return -1
+        return Math.max(0, Math.min(1, x / drawn))
+    }
     // Bounded speculative prefetch (size-capped, lowest priority, deduplicated
     // by MediaBridge) so Play starts without a download wait.
     function maybePrefetch() {
@@ -280,6 +291,8 @@ Rectangle {
                     property int barCount: Math.max(
                         1, Math.min(root.waveform ? root.waveform.length : 0,
                                     Math.floor(width / 3)))
+                    // What the bars cover: 2 px each plus 1 px spacing.
+                    readonly property real drawnWidth: barCount * 3 - 1
                     Repeater {
                         model: waveRow.visible ? waveRow.barCount : 0
                         delegate: Rectangle {
@@ -303,16 +316,19 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             height: parent.height * amp
                             radius: 1
-                            color: (index / waveRow.barCount) <= progress
+                            // Lit from the same x a tap at its left edge
+                            // seeks to (waveSeekFraction).
+                            color: (index * 3 / waveRow.drawnWidth) <= progress
                                    ? AppTheme.accent : AppTheme.borderStrong
                         }
                     }
                     TapHandler {
                         enabled: root.seekable
                         onTapped: (eventPoint) => {
-                            root.seekTo(root.liveDuration
-                                        * (eventPoint.position.x
-                                           / waveRow.width))
+                            var fraction = root.waveSeekFraction(
+                                eventPoint.position.x)
+                            if (fraction >= 0)
+                                root.seekTo(root.liveDuration * fraction)
                         }
                     }
                 }

@@ -30,7 +30,9 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "spaces/SpaceManager.h"
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSettings>
 #include <QSignalSpy>
@@ -46,6 +48,84 @@ const QString kRoomId = QStringLiteral("!room:example.org");
 const QString kAliceId = QStringLiteral("@alice:example.org");
 const QString kBobId = QStringLiteral("@bob:example.org");
 const QString kHomeserver = QStringLiteral("https://example.org");
+
+// Answers with a fixed room list, so a Space's rooms are what the test says
+// (SpaceManager rebuilds on roomsChanged, production's own path). Only the
+// AppController's SpaceManager is pointed at it.
+class SpaceFakeClient final : public MatrixClient
+{
+    Q_OBJECT
+public:
+    using MatrixClient::MatrixClient;
+
+    QList<RoomInfo> roomList;
+
+    void announce() { Q_EMIT roomsChanged(); }
+
+    void login(const QString &, const QString &, const QString &) override {}
+    void logout() override { Q_EMIT loggedOut(); }
+    bool restoreSession() override { return false; }
+    bool isLoggedIn() const override { return true; }
+    QString currentUserId() const override { return kAliceId; }
+    QString homeserverUrl() const override { return {}; }
+    void startSync() override {}
+    void stopSync() override {}
+    ConnectionState connectionState() const override { return Syncing; }
+    QList<RoomInfo> rooms() const override { return roomList; }
+    QList<TimelineEvent> timeline(const QString &) const override { return {}; }
+    QString displayNameFor(const QString &, const QString &id) const override
+    { return id; }
+    QString avatarMxcFor(const QString &, const QString &) const override
+    { return {}; }
+    QStringList typingUsersFor(const QString &) const override { return {}; }
+    QUrl mediaDownloadUrl(const QString &) const override { return {}; }
+    QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override
+    { return {}; }
+    void sendTextMessage(const QString &, const QString &) override {}
+    void sendReply(const QString &, const QString &, const QString &) override {}
+    void editMessage(const QString &, const QString &,
+                     const QString &) override {}
+    void redactEvent(const QString &, const QString &,
+                     const QString &) override {}
+    void toggleReaction(const QString &, const QString &,
+                        const QString &) override {}
+    void sendTyping(const QString &, bool, int) override {}
+    void sendReadReceipt(const QString &, const QString &) override {}
+    void sendImage(const QString &, const QString &) override {}
+    void sendFile(const QString &, const QString &) override {}
+    void loadOlderMessages(const QString &) override {}
+    bool canPaginate(const QString &) const override { return false; }
+    bool paginating(const QString &) const override { return false; }
+};
+
+const QString kSpaceId = QStringLiteral("!space:example.org");
+const QString kAlphaId = QStringLiteral("!alpha:example.org");
+const QString kBetaId = QStringLiteral("!beta:example.org");
+const QString kGammaId = QStringLiteral("!gamma:example.org");
+const QString kDeltaId = QStringLiteral("!delta:example.org");
+
+RoomInfo joinedRoom(const QString &id, bool isSpace = false)
+{
+    RoomInfo info;
+    info.id = id;
+    info.name = id;
+    info.isSpace = isSpace;
+    info.membership = RoomInfo::Joined;
+    return info;
+}
+
+// Points `app`'s SpaceManager at one Space holding Alpha..Delta.
+void attachSpace(AppController &app)
+{
+    auto *fake = new SpaceFakeClient(&app);
+    RoomInfo space = joinedRoom(kSpaceId, true);
+    space.childRoomIds = { kAlphaId, kBetaId, kGammaId, kDeltaId };
+    fake->roomList = { space, joinedRoom(kAlphaId), joinedRoom(kBetaId),
+                       joinedRoom(kGammaId), joinedRoom(kDeltaId) };
+    app.spaces()->setClient(fake);
+    fake->announce();
+    QCoreApplication::processEvents();
+}
 }
 
 class RoomNotificationModeTest : public QObject
@@ -859,6 +939,164 @@ private Q_SLOTS:
         QVERIFY(app.pushRules() != nullptr);
         Q_EMIT app.pushRules()->accountDefaultChanged();
         QCOMPARE(refreshed.count(), 1);
+#endif
+    }
+
+    // B013: "Mute space" then "Unmute space" deleted a room's own
+    // "Mentions & keywords" rule. Unmute now restores what each room held
+    // when the Space was muted, across a restart, and leaves alone a room
+    // changed on its own while the Space was muted.
+    void unmutingASpaceRestoresEachRoomsOwnMode()
+    {
+        {
+            SettingsManager settings;
+            settings.saveSession(kHomeserver, kAliceId,
+                                 QStringLiteral("ALICEDEV"), QString{});
+            settings.setActiveAccountUserId(kAliceId);
+        }
+        {
+            AppController app(AppController::MockBackend);
+            QCOMPARE(app.settings()->activeAccountUserId(), kAliceId);
+            attachSpace(app);
+            QCOMPARE(app.spaces()->roomsInSpace(kSpaceId).size(), 4);
+            // Alpha never configured; Beta on mentions; Gamma muted on its
+            // own; Delta following the default explicitly.
+            app.setRoomNotificationMode(kBetaId, 1);
+            app.setRoomNotificationMode(kGammaId, 2);
+            app.setRoomNotificationMode(kDeltaId, 3);
+
+            app.setSpaceMuted(kSpaceId, true);
+            QVERIFY(app.spaceIsMuted(kSpaceId));
+            // Muting twice must not record "muted" as anyone's prior mode.
+            app.setSpaceMuted(kSpaceId, true);
+            // Delta is changed on its own while the Space is muted.
+            app.setRoomNotificationMode(kDeltaId, 1);
+        }
+        // A restart between mute and unmute.
+        AppController app(AppController::MockBackend);
+        QCOMPARE(app.settings()->activeAccountUserId(), kAliceId);
+        attachSpace(app);
+        auto *settings = app.settings();
+        app.setSpaceMuted(kSpaceId, false);
+        QCOMPARE(settings->roomNotificationMode(kAlphaId), 3);
+        QCOMPARE(settings->roomNotificationMode(kBetaId), 1);
+        QCOMPARE(settings->roomNotificationMode(kGammaId), 2);
+        QCOMPARE(settings->roomNotificationMode(kDeltaId), 1);
+        QVERIFY(!app.spaceIsMuted(kSpaceId));
+
+        // The records are spent: a second unmute asserts nothing, and a room
+        // muted again with no record follows the account default.
+        app.setRoomNotificationMode(kBetaId, 2);
+        app.setSpaceMuted(kSpaceId, false);
+        QCOMPARE(settings->roomNotificationMode(kBetaId), 3);
+        QCOMPARE(settings->roomNotificationMode(kGammaId), 3);
+    }
+
+    // ── Open-room lifecycle (B030, B035) ──
+    // Here because this suite may feed RustSdkMatrixClient real room-list
+    // payloads (handleRustEventForTest), which these cases need.
+
+    // B035: the open room leaving the list (an invite declined from the room
+    // list, a kick or leave elsewhere) closes it, as Leave does. A room listed
+    // as left goes at once, one merely absent after the invite grace, and one
+    // never seen listed (a restore before the list loaded) stays.
+    void anOpenRoomThatLeavesTheListIsClosed()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The room list is driven through the Rust backend here.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString joined = QStringLiteral("!joined:example.org");
+        const QString invite = QStringLiteral("!invite:example.org");
+        const auto listed = [](const QString &id, const char *membership) {
+            return QJsonObject{{QStringLiteral("id"), id},
+                               {QStringLiteral("name"), id},
+                               {QStringLiteral("membership"),
+                                QString::fromLatin1(membership)}};
+        };
+        const auto publish = [rust](const QJsonArray &rooms) {
+            rust->handleRustEventForTest(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("rooms")},
+                {QStringLiteral("rooms"), rooms}});
+        };
+        publish({listed(joined, "joined"), listed(invite, "invited")});
+
+        // Declined from the list: the SDK's list drops it.
+        app.openRoom(invite);
+        QCOMPARE(app.currentRoomId(), invite);
+        publish({listed(joined, "joined")});
+        QCOMPARE(app.currentRoomId(), invite);   // a re-sort looks the same
+        QTRY_COMPARE_WITH_TIMEOUT(app.currentRoomId(), QString(),
+                                  InviteNoticeTracker::kGoneGraceMs + 2000);
+
+        // Back within the grace: nothing happens.
+        publish({listed(joined, "joined"), listed(invite, "invited")});
+        app.openRoom(invite);
+        publish({listed(joined, "joined")});
+        publish({listed(joined, "joined"), listed(invite, "invited")});
+        QTest::qWait(InviteNoticeTracker::kGoneGraceMs + 300);
+        QCOMPARE(app.currentRoomId(), invite);
+
+        // The close is keyed to the opening that armed it: the same id
+        // opened again within the grace (here by moving away and back; after
+        // an account switch the next session can do the same before its list
+        // loads) is a new opening, and an unlisted one is left alone.
+        app.openRoom(invite);
+        publish({listed(joined, "joined")});
+        app.openRoom(joined);
+        app.openRoom(invite);
+        QTest::qWait(InviteNoticeTracker::kGoneGraceMs + 300);
+        QCOMPARE(app.currentRoomId(), invite);
+
+        // Listed as left (kicked, or left elsewhere): closed at once.
+        app.openRoom(joined);
+        publish({listed(joined, "left")});
+        QCOMPARE(app.currentRoomId(), QString());
+
+        // Never listed: left alone.
+        const QString unlisted = QStringLiteral("!unlisted:example.org");
+        app.openRoom(unlisted);
+        publish({listed(joined, "joined")});
+        QTest::qWait(InviteNoticeTracker::kGoneGraceMs + 300);
+        QCOMPARE(app.currentRoomId(), unlisted);
+#endif
+    }
+
+    // B030: matrix-sdk clears every room's event cache on an ignore-list
+    // change, which emptied the open timelines for good. The open room and
+    // thread are reopened, and only if still the ones open.
+    void anIgnoreListChangeReopensTheOpenTimelines()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The SDK event cache exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString room = QStringLiteral("!room-a:example.org");
+        const QString other = QStringLiteral("!room-b:example.org");
+        const QString root = QStringLiteral("$root:example.org");
+        QSignalSpy reloaded(&app,
+                            &AppController::timelinesReloadedAfterIgnoreChange);
+
+        app.openRoom(room);
+        app.thread()->openThread(room, root);
+        QVERIFY(app.thread()->state() != ThreadController::Closed);
+        Q_EMIT rust->ignoredUsersChanged({QStringLiteral("@troll:example.org")});
+        QTRY_COMPARE(reloaded.count(), 1);
+        QCOMPARE(reloaded.at(0).at(0).toBool(), true);
+        QCOMPARE(reloaded.at(0).at(1).toBool(), true);
+        QCOMPARE(app.thread()->rootEventId(), root);
+
+        // The user moved on before the reload: nothing stale is reopened.
+        Q_EMIT rust->ignoredUsersChanged({});
+        app.openRoom(other);
+        QTRY_COMPARE(reloaded.count(), 2);
+        QCOMPARE(reloaded.at(1).at(0).toBool(), false);
+        QCOMPARE(reloaded.at(1).at(1).toBool(), false);
+        QCOMPARE(app.currentRoomId(), other);
 #endif
     }
 

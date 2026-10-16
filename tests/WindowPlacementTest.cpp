@@ -2,7 +2,8 @@
 //
 //  1. centring uses the screen the window opens on, not the whole virtual
 //     desktop (which aims two monitors at the seam between them);
-//  2. an unreachable rect is refused.
+//  2. an unreachable rect is refused;
+//  3. a restored rect is fitted to the screen it lands on (B019).
 //
 // Behavioural: they ask where a window would go. The offscreen platform gives
 // one screen, which is enough for "inside its own screen" and the
@@ -102,6 +103,46 @@ private Q_SLOTS:
             available.width() * 2, available.height() * 2);
         if (!placed.isEmpty())
             QVERIFY(AppController::windowGeometryIsReachable(placed));
+    }
+
+    // B019: a size saved on a larger screen, or before the interface zoom
+    // went up (1600x1000 at 135% is 1185x741 logical), opened past the
+    // screen's right and bottom edges. The restored rect is fitted to the
+    // screen it lands on, never below the window's 640x420 minimum.
+    void aRestoredRectIsFittedToItsScreen()
+    {
+        const QRect zoomed(0, 0, 1185, 741);
+        QCOMPARE(AppController::fitWindowGeometry(QRect(50, 25, 1500, 950),
+                                                  {zoomed}),
+                 zoomed);
+
+        // A rect that already fits is untouched.
+        const QRect fits(50, 25, 900, 600);
+        QCOMPARE(AppController::fitWindowGeometry(fits, {zoomed}), fits);
+
+        // Fits by size but hangs off the bottom-right: moved inside.
+        QCOMPARE(AppController::fitWindowGeometry(QRect(600, 400, 900, 600),
+                                                  {zoomed}),
+                 QRect(285, 141, 900, 600));
+
+        // Never below the minimum, even on a screen smaller than it.
+        const QRect tiny(0, 0, 600, 400);
+        QCOMPARE(AppController::fitWindowGeometry(QRect(10, 10, 1100, 720),
+                                                  {tiny}),
+                 QRect(0, 0, 640, 420));
+
+        // Two screens: fitted to the one holding the grab band, including
+        // its origin (a monitor right of the primary).
+        const QRect left(0, 0, 1920, 1080);
+        const QRect right(1920, 0, 1280, 800);
+        QCOMPARE(AppController::fitWindowGeometry(QRect(2000, 100, 1500, 950),
+                                                  {left, right}),
+                 QRect(1920, 0, 1280, 800));
+
+        // No screen meets the band: the caller's reachability check decides,
+        // so the rect comes back as it was.
+        const QRect away(9000, 9000, 800, 600);
+        QCOMPARE(AppController::fitWindowGeometry(away, {zoomed}), away);
     }
 
     void aDegenerateSizeIsRefusedRatherThanGuessed()

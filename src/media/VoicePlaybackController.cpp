@@ -262,8 +262,17 @@ void VoicePlaybackController::togglePlayPause()
 
 void VoicePlaybackController::pause()
 {
-    if (m_player && playing())
+    if (m_player && playing()) {
         m_player->pause();
+        return;
+    }
+    // Still fetching: it would start by itself once the file arrives, in the
+    // middle of whatever asked for the pause (a recording, a call). It stays
+    // the current clip, and Play fetches it again.
+    if (active() && !m_loaded && m_fetchState == kFetching) {
+        cancelFetch();
+        setFetchState(kIdle);
+    }
 }
 
 void VoicePlaybackController::resume()

@@ -420,6 +420,60 @@ private Q_SLOTS:
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
+    // B112: a name changed on another device never reached the account menu
+    // or Settings > Account until the next sign-in (sync does not carry the
+    // global profile). Our own m.room.member profile event is the cue to ask
+    // again; another user's is not, and a burst asks once.
+    void anOwnProfileEventFromElsewhereRefreshesTheCachedName()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(cachedName(app), QStringLiteral("alice"));
+        MockMatrixClient *client = mock(app);
+        QVERIFY(client);
+        const QString me = client->currentUserId();
+        QVERIFY(!me.isEmpty());
+        // Renamed on another device: the server knows, this app does not.
+        client->mockDisplayNames.insert(me, QStringLiteral("Self Renamed"));
+        // Past the sign-in fetch's rate-limit window
+        // (AppController::kOwnProfileEventRefreshMs, 2 s).
+        QTest::qWait(2200);
+
+        const auto profileEvent = [](const QString &sender) {
+            TimelineEvent e;
+            e.type = TimelineEvent::StateChange;
+            e.eventId = QStringLiteral("$profile-") + sender;
+            e.roomId = QStringLiteral("!general:mock.local");
+            e.sender = sender;
+            e.stateKind = QStringLiteral("member_profile");
+            e.profileNameChange = QStringLiteral("changed");
+            return e;
+        };
+        QSignalSpy profiles(client, &MatrixClient::userProfileFinished);
+        // Answers about the own account only; other surfaces may ask about
+        // other users meanwhile.
+        const auto ownAnswers = [&profiles, me] {
+            int n = 0;
+            for (const QList<QVariant> &args : profiles)
+                n += args.at(2).toString() == me ? 1 : 0;
+            return n;
+        };
+        Q_EMIT client->eventAppended(QStringLiteral("!general:mock.local"),
+                                     profileEvent(QStringLiteral("@bob:mock.local")));
+        QTest::qWait(100);
+        QCOMPARE(ownAnswers(), 0);
+
+        Q_EMIT client->eventAppended(QStringLiteral("!general:mock.local"),
+                                     profileEvent(me));
+        Q_EMIT client->eventAppended(QStringLiteral("!devs:mock.local"),
+                                     profileEvent(me));
+        QTRY_COMPARE(cachedName(app), QStringLiteral("Self Renamed"));
+        QTest::qWait(100);
+        QCOMPARE(ownAnswers(), 1);
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;

@@ -35,9 +35,14 @@ ColumnLayout {
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             wrapMode: Text.WordWrap
+            // Carries a user id and the SDK's failure text.
+            textFormat: Text.PlainText
             color: app.verificationState === "done"
                    ? AppTheme.stormSuccess
-                   : AppTheme.stormTextMuted
+                   : (app.verificationState === "cancelled"
+                      && app.verificationCancelReason === "mismatch")
+                     ? AppTheme.stormDanger
+                     : AppTheme.stormTextMuted
             Accessible.role: Accessible.StaticText
             Accessible.name: text
             text: {
@@ -79,13 +84,42 @@ ColumnLayout {
                 if (app.verificationState === "waiting_for_peer")
                     return qsTr(
                         "Waiting for your other device to confirm…")
-                if (app.verificationState === "done")
+                // Which side was verified is read when the flow started
+                // (AppController::verificationRole): the session that was
+                // already verified used to be told it had just been.
+                if (app.verificationState === "done") {
+                    if (app.verificationRole === "this_session")
+                        return qsTr(
+                            "Verification complete. This session is now " +
+                            "verified; Lightning is refreshing the trust " +
+                            "state and requesting encryption keys.")
+                    if (app.verificationRole === "other_session")
+                        return qsTr(
+                            "Verification complete. You verified your " +
+                            "other session.")
+                    if (app.verificationRole === "other_user")
+                        return qsTr("Verification complete. You verified %1.")
+                            .arg(app.verificationOtherUser)
                     return qsTr(
-                        "Verification complete. This session is now " +
-                        "verified; Lightning is refreshing the trust " +
-                        "state and requesting encryption keys.")
-                if (app.verificationState === "cancelled")
+                        "Verification complete. Lightning is refreshing " +
+                        "the trust state and requesting encryption keys.")
+                }
+                if (app.verificationState === "cancelled") {
+                    // A mismatch is the one outcome that means something may
+                    // be wrong, so it says so rather than "cancelled". It
+                    // comes from emoji, numbers or a QR code alike, so it
+                    // names none of them.
+                    if (app.verificationCancelReason === "mismatch")
+                        return qsTr(
+                            "The security check did not match, so nothing " +
+                            "was verified. Someone may be intercepting the " +
+                            "connection: do not trust it until you know why.")
+                    if (app.verificationCancelReason === "timeout")
+                        return qsTr(
+                            "Verification timed out. Start it again to " +
+                            "try once more.")
                     return qsTr("Verification cancelled.")
+                }
                 if (app.verificationState.indexOf("failed") === 0) {
                     // The reason is what tells the user what to do.
                     // AppController stores it as "failed:<msg>".

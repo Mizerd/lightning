@@ -903,6 +903,81 @@ private Q_SLOTS:
 #endif
     }
 
+    // B079: the SDK's cancel message is classified so a SAS mismatch reads
+    // as a security warning rather than "cancelled". The real messages are
+    // the Debug form of matrix-sdk-crypto's CancelInfo::reason().
+    void theCancelReasonIsClassifiedFromTheSdksOwnWords()
+    {
+        const auto reason = &AppController::verificationCancelReasonFor;
+        QCOMPARE(reason(QStringLiteral("\"The SAS did not match.\"")),
+                 QStringLiteral("mismatch"));
+        QCOMPARE(reason(QStringLiteral(
+                     "\"The expected key did not match the verified one\"")),
+                 QStringLiteral("mismatch"));
+        QCOMPARE(reason(QStringLiteral("MismatchedSas")),
+                 QStringLiteral("mismatch"));
+        // The commitment a substituted key breaks is a mismatch too.
+        QCOMPARE(reason(QStringLiteral(
+                     "\"The hash commitment did not match.\"")),
+                 QStringLiteral("mismatch"));
+        QCOMPARE(reason(QStringLiteral("MismatchedCommitment")),
+                 QStringLiteral("mismatch"));
+        QCOMPARE(reason(QStringLiteral(
+                     "\"The user cancelled the verification.\"")),
+                 QStringLiteral("user"));
+        QCOMPARE(reason(QStringLiteral("cancelled")), QStringLiteral("user"));
+        QCOMPARE(reason(QStringLiteral("User")), QStringLiteral("user"));
+        QCOMPARE(reason(QStringLiteral(
+                     "\"The verification process timed out.\"")),
+                 QStringLiteral("timeout"));
+        QCOMPARE(reason(QStringLiteral("timed_out_waiting_for_peer")),
+                 QStringLiteral("timeout"));
+        // Anything else is a plain cancellation, never a guessed warning.
+        QCOMPARE(reason(QStringLiteral(
+                     "\"The device received an unexpected message.\"")),
+                 QString());
+        QCOMPARE(reason(QString()), QString());
+    }
+
+    // B079: the reason and the side being verified reach the card.
+    void aMismatchAndTheVerifiedSideReachTheCard()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+
+        reachSasReady(app, rust, QStringLiteral("flow-b079"));
+        Q_EMIT rust->verificationCancelled(
+            QStringLiteral("flow-b079"),
+            QStringLiteral("\"The SAS did not match.\""));
+        QCOMPARE(app.verificationState(), QStringLiteral("cancelled"));
+        QCOMPARE(app.verificationCancelReason(), QStringLiteral("mismatch"));
+
+        // The next flow's own ending replaces it.
+        app.cancelVerification();
+        Q_EMIT rust->verificationRequestStarted(
+            QStringLiteral("flow-b079-2"), QStringLiteral("@bob:example.org"),
+            false);
+        // Verifying another user is never "this session is now verified".
+        QCOMPARE(app.verificationRole(), QStringLiteral("other_user"));
+        Q_EMIT rust->verificationCancelled(
+            QStringLiteral("flow-b079-2"),
+            QStringLiteral("\"The user cancelled the verification.\""));
+        QCOMPARE(app.verificationCancelReason(), QStringLiteral("user"));
+
+        // A self-verification whose own trust state is undetermined (no
+        // session here) claims neither side.
+        app.cancelVerification();
+        Q_EMIT rust->verificationRequestReceived(
+            QStringLiteral("flow-b079-3"), QStringLiteral("@self:example.org"),
+            QStringLiteral("DEVICE"), true);
+        QCOMPARE(app.verificationRole(), QString());
+#endif
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;

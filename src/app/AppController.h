@@ -114,6 +114,7 @@ class MatrixClient;
 class NotificationManager;
 class QQuickItem;
 class QQuickWindow;
+class QSettings;
 class QWindow;
 class ReverseListProxyModel;
 class SecretStore;
@@ -265,6 +266,12 @@ class AppController : public QObject
     Q_PROPERTY(QString verificationOtherDevice READ verificationOtherDevice NOTIFY verificationStateChanged)
     Q_PROPERTY(bool verificationIsSelfVerification READ verificationIsSelfVerification NOTIFY verificationStateChanged)
     Q_PROPERTY(QString verificationState READ verificationState NOTIFY verificationStateChanged)
+    // Wording only, never trust: which side the flow verifies, read when it
+    // started ("this_session", "other_session", "other_user", or "" when
+    // this session's state was undetermined), and why a "cancelled" flow
+    // ended ("mismatch", "user", "timeout", or "").
+    Q_PROPERTY(QString verificationRole READ verificationRole NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationCancelReason READ verificationCancelReason NOTIFY verificationStateChanged)
     Q_PROPERTY(QVariantList verificationEmojis READ verificationEmojis NOTIFY verificationStateChanged)
     Q_PROPERTY(QVariantList verificationDecimals READ verificationDecimals NOTIFY verificationStateChanged)
 
@@ -544,6 +551,13 @@ public:
 
     /// True when the window's top grab band meets some screen.
     static bool windowGeometryIsReachable(const QRect &geometry);
+    /// A reachable stored rect fitted to the screen holding most of its grab
+    /// band: no larger than that screen's available area (never below the
+    /// 640x420 minimum), then moved inside it. Unchanged when no screen meets
+    /// the band. The overload takes the screens' available areas, for tests.
+    static QRect fitWindowGeometry(const QRect &geometry);
+    static QRect fitWindowGeometry(const QRect &geometry,
+                                   const QList<QRect> &screenAreas);
 
     /// Logs how the window was placed at startup (geometry only).
     Q_INVOKABLE void noteWindowPlacement(const QString &how, int x, int y,
@@ -1045,10 +1059,21 @@ public:
     // history, media and open thread. Used by every automatic trigger.
     void retryDecryptionInCurrentRoom();
 
-    // Rebuilds the room's timeline (new subscription, re-pagination, media
-    // and thread cleared). Only for the explicit user Refresh; never call it
-    // automatically. No-op on non-Rust.
+    // Rebuilds the room's timeline (new subscription, re-pagination, media,
+    // a jump-to-event context and the thread cleared). For the explicit user
+    // Refresh. ONE automatic caller is approved: an ignore-list change, after
+    // which matrix-sdk has already emptied every room's event cache, so the
+    // timeline it drops held nothing worth keeping (the ignoredUsersChanged
+    // handler, which reopens the thread itself). Never add another automatic
+    // caller: it throws away the reader's place. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
+    // The status strip's dismiss control: withdraws its message now.
+    Q_INVOKABLE void dismissStatusError();
+    // How long the strip shows a message of `length` characters that nobody
+    // dismisses: 8 s, longer for a long one, at most 30 s.
+    static int statusErrorExpiryMs(int length);
+    // Test seam: every message expires after `ms` (0 = the real rule).
+    void setStatusErrorExpiryMsForTest(int ms);
 
     // Release the paginated backlog and reopen at the live edge (as Element's
     // jumpToLiveTimeline() does). Returns true only when a trim was
@@ -1120,6 +1145,11 @@ public:
     QString verificationOtherDevice() const { return m_verificationOtherDevice; }
     bool verificationIsSelfVerification() const { return m_verificationIsSelf; }
     QString verificationState() const { return m_verificationState; }
+    QString verificationRole() const { return m_verificationRole; }
+    QString verificationCancelReason() const { return m_verificationCancelReason; }
+    // The SDK's cancel message classified: "mismatch" (MismatchedSas,
+    // KeyMismatch), "user", "timeout", or "" for anything else.
+    static QString verificationCancelReasonFor(const QString &message);
     QVariantList verificationEmojis() const { return m_verificationEmojis; }
     QVariantList verificationDecimals() const { return m_verificationDecimals; }
     bool verificationQrAvailable() const { return !m_verificationQrToken.isEmpty(); }
@@ -1242,6 +1272,12 @@ Q_SIGNALS:
     // Emitted after resetLocalRustStore() finishes.
     void localRustStoreResetResult(bool ok, const QString &message);
 
+    // After an ignore-list change emptied the SDK's event caches: whether the
+    // open room timeline and the open thread were reopened (each only if it
+    // was still the one open when the change arrived). Diagnostic, and the
+    // seam its regression test observes.
+    void timelinesReloadedAfterIgnoreChange(bool room, bool thread);
+
     // Fires after reloadCurrentRoomTimeline completes.
     void currentRoomTimelineReloaded(int totalEvents,
                                      int decryptedEvents,
@@ -1276,6 +1312,36 @@ Q_SIGNALS:
     void roomKeyImportCompleted(int imported, int total, int affectedRooms);
 
 private:
+    // "Mute space" records the mode each room held (account-scoped settings
+    // key; empty without a saved account) and "Unmute space" restores it.
+    QString spaceMutePriorKey(const QString &roomId) const;
+    void recordSpaceMutePrior(QSettings &store, const QString &roomId,
+                              int current) const;
+    // The mode to restore, or -1 to leave a room changed on its own alone.
+    int spaceUnmuteMode(QSettings &store, const QString &roomId, int current,
+                        int *restored) const;
+    // Asks /profile for the own account again (the account menu and
+    // Settings > Account read the cached copy), unless the last ask was less
+    // than `minIntervalMs` ago.
+    void refreshOwnProfile(qint64 minIntervalMs);
+    static constexpr qint64 kOwnProfileEventRefreshMs = 2000;
+    static constexpr qint64 kOwnProfileActivationRefreshMs = 60000;
+    // Auto-play next: starts the voice message after `afterEventId` in the
+    // open timeline, if one directly follows (TimelineModel::nextVoiceMessage).
+    void playNextVoiceMessage(const QString &roomId,
+                              const QString &afterEventId);
+    // verificationRole for a flow starting now.
+    QString verificationRoleAtStart(bool isSelf) const;
+    // The status strip's message: expires after a while (a running call's
+    // notice waits for the call to end), and clearStatusError() withdraws it
+    // unless `keepCallNotice` and a call is running.
+    void armStatusErrorExpiry(quint64 seq);
+    void clearStatusError(bool keepCallNotice);
+    // The strip shows the call lane's own notice and that call still runs.
+    bool statusErrorIsRunningCallNotice() const;
+    // The open room is no longer joined or invited (left via roomLeft, or
+    // gone from the room list): closes its timeline and clears the selection.
+    void closeCurrentRoomNoLongerIn(const QString &roomId);
     /// Whether the incoming-call notification may offer to answer. Shared by
     /// the raise site and the later update so they cannot disagree.
     bool callAcceptOffered(const QString &roomId, bool rtcLane) const;
@@ -1660,6 +1726,17 @@ private:
     void scheduleVoicePrefetchUpdate();
     void resetVoicePrefetch();
     QString m_voicePrefetchKey;
+    // When the own profile was last asked for (ms since epoch, 0 = never).
+    qint64 m_ownProfileRefreshMs = 0;
+    // The clip auto-play-next started (cleared once the current clip changes
+    // other than by the chain's own play()), and how many unplayable ones it
+    // has skipped in a row.
+    QString m_voiceAutoplayEventId;
+    // Set while playNextVoiceMessage() is inside play(), whose stop of the
+    // previous clip must not clear the mark it has just set.
+    bool m_voiceAutoplayStarting = false;
+    int m_voiceAutoplaySkips = 0;
+    static constexpr int kMaxVoiceAutoplaySkips = 3;
     // Whether THIS controller started the prefetch (a row may have started it
     // first, and that one is not ours to cancel).
     bool m_voicePrefetchOwned = false;
@@ -1711,6 +1788,26 @@ private:
     QTimer m_trayAvailabilityTimer;
     // Computed once in the constructor; see restorableWindowGeometry().
     QRect m_restorableWindowGeometry;
+    // The open room has been seen in the room list as joined or invited, so
+    // its absence from a later list means it went away (B035).
+    bool m_currentRoomListed = false;
+    // What the status strip shows (the last errorReported()), a sequence that
+    // tells its expiry timer whether it is still the same message, and set
+    // while a create's own landing navigates so the switch keeps it.
+    QString m_statusError;
+    quint64 m_statusErrorSeq = 0;
+    bool m_statusErrorOwnNavigation = false;
+    // The last notice the call lane reported through m_callNotice ("" once
+    // withdrawn): the only message a running call keeps on the strip.
+    QString m_callStatusNotice;
+    int m_statusErrorExpiryForTestMs = 0;
+    // busy() as last seen, so only an idle -> busy edge counts as a new
+    // create or join.
+    bool m_conversationsBusySeen = false;
+    bool m_discoveryBusySeen = false;
+    // Bumped on every change of the open room, so a deferred close armed for
+    // one opening never acts on a later one of the same id (B035).
+    quint64 m_currentRoomOpenSerial = 0;
     QString m_verificationQrToken;
     bool m_verificationQrScanned = false;
     bool m_verificationQrConfirming = false;
@@ -1725,6 +1822,8 @@ private:
     QString m_verificationNotifiedFlow;
     QString m_verificationOtherDevice;
     bool    m_verificationIsSelf = false;
+    QString m_verificationRole;
+    QString m_verificationCancelReason;
     QString m_verificationState;
     QVariantList m_verificationEmojis;
     QVariantList m_verificationDecimals;

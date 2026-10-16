@@ -83,6 +83,7 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QSaveFile>
+#include <QScopedValueRollback>
 #include <QScreen>
 #include <QStandardPaths>
 #include <QSysInfo>
@@ -341,10 +342,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // minimum size). With no screens at all the geometry is dropped.
     if (const QRect stored = m_settings->initialWindowGeometry();
             !stored.isEmpty()) {
-        if (windowGeometryIsReachable(stored))
-            m_restorableWindowGeometry = stored;
-        else
+        if (windowGeometryIsReachable(stored)) {
+            // Fitted to the screen it lands on: a size saved on a larger
+            // screen, or before the interface zoom went up, opened past the
+            // screen's edges.
+            m_restorableWindowGeometry = fitWindowGeometry(stored);
+            if (m_restorableWindowGeometry != stored)
+                qCInfo(lcApp, "stored window geometry fitted to its screen");
+        } else {
             qCInfo(lcApp, "stored window geometry ignored: off-screen");
+        }
     }
     // One shared draft store for the room and thread composers; drafts
     // persist only for unencrypted rooms.
@@ -1107,6 +1114,41 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_inviteNotices.observe(current, m_client->initialSyncDone(),
                                 QDateTime::currentMSecsSinceEpoch());
         processInviteNotices();
+        // The open room is no longer one the user is in or invited to: left
+        // or kicked elsewhere, or an invite declined from the room list,
+        // which unlike Leave never reaches RoomInfoController::roomLeft. The
+        // pane stayed on it, its name degraded to the raw id and every send
+        // failed. A room LISTED as left goes now; one merely absent (the SDK
+        // list filters left rooms out) waits out the invite grace, since a
+        // re-sort or resync drops a room for one emission. A room never seen
+        // listed (a restore before the list has loaded) is left alone.
+        if (m_currentRoomId.isEmpty())
+            return;
+        const auto listed = std::find_if(
+            rooms.cbegin(), rooms.cend(),
+            [this](const RoomInfo &room) { return room.id == m_currentRoomId; });
+        if (listed != rooms.cend() && listed->membership != RoomInfo::Left) {
+            m_currentRoomListed = true;
+        } else if (listed != rooms.cend()) {
+            closeCurrentRoomNoLongerIn(m_currentRoomId);
+        } else if (m_currentRoomListed) {
+            // Keyed to this opening and this account: after a switch or a
+            // sign-out the next session may open the same id before its own
+            // list has loaded, and that is not a room that went away.
+            const QString gone = m_currentRoomId;
+            const quint64 serial = m_currentRoomOpenSerial;
+            const QString account = m_client->currentUserId();
+            QTimer::singleShot(InviteNoticeTracker::kGoneGraceMs, this,
+                               [this, gone, serial, account] {
+                if (m_currentRoomId != gone || !m_client
+                    || m_currentRoomOpenSerial != serial
+                    || m_client->currentUserId() != account)
+                    return;
+                const RoomInfo info = m_client->roomInfo(gone);
+                if (info.id.isEmpty() || info.membership == RoomInfo::Left)
+                    closeCurrentRoomNoLongerIn(gone);
+            });
+        }
     });
     // The tray badge follows the same two signals the room list does. The
     // walk is local and the icon is only re-rasterised when the badge changes.
@@ -1152,12 +1194,26 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // call failure is still what it shows; withdrawCallFailure() must never
     // clear somebody else's message.
     connect(this, &AppController::errorReported, this,
-            [this](const QString &message) { m_callNotice.reported(message); });
+            [this](const QString &message) {
+                m_callNotice.reported(message);
+                // The strip's message used to stay until another replaced it,
+                // minutes later and across every screen. It now expires, goes
+                // when the user moves on or starts a new create/join, and can
+                // be dismissed; a running call's notice stays (see
+                // clearStatusError).
+                m_statusError = message;
+                const quint64 seq = ++m_statusErrorSeq;
+                if (!message.isEmpty())
+                    armStatusErrorExpiry(seq);
+            });
     // An empty reason withdraws, and only our own notice.
     connect(m_groupCall.get(), &SfuCallController::callFailed, this,
             [this](const QString &reason) {
-                if (const auto report = m_callNotice.failed(reason))
+                if (const auto report = m_callNotice.failed(reason)) {
+                    // What the strip's call exemption recognises as ours.
+                    m_callStatusNotice = *report;
                     Q_EMIT errorReported(*report);
+                }
             });
     // A call that carries on another lane makes the failure stale; it stayed
     // up through a whole working legacy call.
@@ -1198,7 +1254,38 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_groupCall->active() || m_calls->sessionLive();
         if (const auto report = m_callNotice.roomChanged(callRunning))
             Q_EMIT errorReported(*report);
+        // Moving to another room is moving on, unless the operation that
+        // reported the message is the one opening the room.
+        if (!m_statusErrorOwnNavigation)
+            clearStatusError(/*keepCallNotice=*/true);
     });
+    connect(m_spaces.get(), &SpaceManager::activeSpaceIdChanged, this, [this] {
+        if (!m_statusErrorOwnNavigation)
+            clearStatusError(/*keepCallNotice=*/true);
+    });
+    // A new create or join is a new attempt: the last one's message goes.
+    // Only on the idle -> busy EDGE: a create that succeeds goes busy again
+    // to wait for its room (beginWaitForRoom) right AFTER reporting "created,
+    // but adding it to the Space failed", and that message is the one the
+    // user must see in the room it opens.
+    m_conversationsBusySeen = m_conversations->busy();
+    connect(m_conversations.get(), &ConversationController::busyChanged, this,
+            [this] {
+                const bool busy = m_conversations->busy();
+                const bool started = busy && !m_conversationsBusySeen;
+                m_conversationsBusySeen = busy;
+                if (started)
+                    clearStatusError(/*keepCallNotice=*/true);
+            });
+    m_discoveryBusySeen = m_discovery->busy();
+    connect(m_discovery.get(), &RoomDiscoveryController::busyChanged, this,
+            [this] {
+                const bool busy = m_discovery->busy();
+                const bool started = busy && !m_discoveryBusySeen;
+                m_discoveryBusySeen = busy;
+                if (started)
+                    clearStatusError(/*keepCallNotice=*/true);
+            });
     connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
             [this] {
                 if (m_groupCall->active())
@@ -1754,6 +1841,44 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QStringList &users) {
         for (const QString &userId : users)
             m_activity->dropSender(userId);
+        // matrix-sdk clears EVERY room's event cache on an ignore-list change
+        // (event_cache/tasks.rs, ignore_user_list_update_task), which empties
+        // the open room and thread timelines, and nothing refilled them: the
+        // room read "No messages here yet" until it was reopened. Reopen them
+        // as Refresh does, a beat later so the SDK's own clear lands first,
+        // and only what is still the same room and thread by then.
+        if (m_backend != RustBackend)
+            return;
+        const QString room = m_currentRoomId;
+        const QString threadRoom = m_thread ? m_thread->roomId() : QString();
+        const QString threadRoot =
+            m_thread ? m_thread->rootEventId() : QString();
+        // The 250 ms is a bet that the SDK's clear_all_rooms() has landed;
+        // it is not ordered with this. The line below says how long it was
+        // and whether the open timeline had been emptied by then (items=0),
+        // so a recurrence can be read from a log rather than guessed at.
+        QElapsedTimer sinceChange;
+        sinceChange.start();
+        QTimer::singleShot(250, this, [this, room, threadRoom, threadRoot,
+                                       sinceChange] {
+            const bool reloadRoom =
+                !room.isEmpty() && m_currentRoomId == room;
+            if (reloadRoom) {
+                qCInfo(lcApp) << "ignore-list change: reopening the open room"
+                              << matrix::e2ee::redactId(room)
+                              << "after_ms=" << sinceChange.elapsed()
+                              << "items=" << m_client->timeline(room).size();
+                reloadCurrentRoomTimeline();
+            }
+            // After the room: opening a room timeline drops the thread's.
+            const bool reopenThread = m_thread && !threadRoot.isEmpty()
+                && m_thread->roomId() == threadRoom
+                && m_thread->rootEventId() == threadRoot;
+            if (reopenThread)
+                m_thread->reopen();
+            Q_EMIT timelinesReloadedAfterIgnoreChange(reloadRoom,
+                                                      reopenThread);
+        });
     });
     if (m_moderation) {
         connect(m_moderation.get(), &ModerationController::ignoreActionFinished,
@@ -1919,13 +2044,52 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                    const QString &threadRootId, bool isVoice) {
         if (!isVoice || !threadRootId.isEmpty() || m_voicePlayback->active())
             return;
-        const QVariantMap next = m_timeline->nextVoiceMessage(roomId, eventId);
-        if (next.isEmpty())
+        // A clip that played to its end resets the skip budget below.
+        m_voiceAutoplaySkips = 0;
+        playNextVoiceMessage(roomId, eventId);
+    });
+    // A clip the chain started that cannot be played (fetch refused, invalid
+    // media) used to end the run silently, leaving the rest unheard. It is
+    // skipped like a row that draws nothing, at most kMaxVoiceAutoplaySkips
+    // in a row so a run of broken clips cannot spin; only clips the CHAIN
+    // started, never one the reader chose. Queued: the failure can be
+    // reported from inside the player's own emission or play() itself.
+    connect(m_voicePlayback.get(), &VoicePlaybackController::currentChanged,
+            this, [this] {
+        // Any change of clip but the chain's own play() is the reader's: a
+        // stop, or another clip (or the same one again) chosen. The chain's
+        // play() stops the failed clip before starting the next, so that
+        // stop must keep the mark it has just set.
+        if (m_voiceAutoplayStarting)
             return;
-        m_voicePlayback->play(next.value(QStringLiteral("eventId")).toString(),
-                              roomId,
-                              next.value(QStringLiteral("mediaKey")).toString(),
-                              next);
+        if (m_voicePlayback->eventId() != m_voiceAutoplayEventId
+            || m_voiceAutoplayEventId.isEmpty()) {
+            m_voiceAutoplayEventId.clear();
+            m_voiceAutoplaySkips = 0;
+        }
+    });
+    connect(m_voicePlayback.get(), &VoicePlaybackController::fetchStateChanged,
+            this, [this] {
+        const QString failed = m_voicePlayback->eventId();
+        if (failed.isEmpty() || failed != m_voiceAutoplayEventId
+            || m_voicePlayback->fetchState() != QLatin1String("failed"))
+            return;
+        const QString room = m_voicePlayback->roomId();
+        QMetaObject::invokeMethod(this, [this, failed, room] {
+            if (m_voicePlayback->eventId() != failed
+                || m_voicePlayback->fetchState() != QLatin1String("failed"))
+                return;
+            if (m_voiceAutoplaySkips >= kMaxVoiceAutoplaySkips) {
+                qCInfo(lcApp) << "voice auto-play stopped after"
+                              << m_voiceAutoplaySkips << "unplayable clips";
+                // The run is over: the clip left failed is the reader's now.
+                m_voiceAutoplayEventId.clear();
+                return;
+            }
+            ++m_voiceAutoplaySkips;
+            qCInfo(lcApp) << "voice auto-play skipped an unplayable clip";
+            playNextVoiceMessage(room, failed);
+        }, Qt::QueuedConnection);
     });
     // Prefetch the clip auto-play-next would start, so the chain has no
     // download gap. One at a time: it follows whatever is playing, moves when
@@ -2227,7 +2391,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
         refreshMainWindowState();
         connect(guiApp, &QGuiApplication::applicationStateChanged, this,
-                [this](Qt::ApplicationState) { refreshMainWindowState(); });
+                [this](Qt::ApplicationState state) {
+                    refreshMainWindowState();
+                    // Coming back to the app: the own profile may have been
+                    // changed on another device meanwhile (refreshOwnProfile).
+                    if (state == Qt::ApplicationActive)
+                        refreshOwnProfile(kOwnProfileActivationRefreshMs);
+                });
         connect(guiApp, &QGuiApplication::focusWindowChanged, this,
                 [this](QWindow *) { refreshMainWindowState(); });
         // Orderly shutdown while the window and event dispatcher are still
@@ -2246,12 +2416,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 
     // A created or reused conversation opens once it is in the authoritative
     // room list.
+    // Opening it is the create's own landing, so a message it reported on
+    // the way ("created, but adding it to the Space failed") stays.
     connect(m_conversations.get(), &ConversationController::conversationReady,
-            this, &AppController::openRoom);
+            this, [this](const QString &roomId) {
+        const QScopedValueRollback keep(m_statusErrorOwnNavigation, true);
+        openRoom(roomId);
+    });
     // A created Space is selected, never opened as a timeline; clearing the
     // current room shows the Space Home.
     connect(m_conversations.get(), &ConversationController::spaceReady,
             this, [this](const QString &spaceId) {
+        const QScopedValueRollback keep(m_statusErrorOwnNavigation, true);
         if (m_spaces)
             m_spaces->setActiveSpaceId(spaceId);
         setCurrentRoomId(QString());
@@ -2335,17 +2511,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                               : RtcController::RoomEncryption::No;
     });
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
-            this, [this](const QString &roomId) {
-        if (m_currentRoomId == roomId) {
-#ifdef ENABLE_RUST_SDK_BACKEND
-            if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
-                rust->closeRoomTimeline();
-#endif
-            setCurrentRoomId(QString());
-        }
-        if (m_roomInfo->roomId() == roomId)
-            m_roomInfo->setRoomId(QString());
-    });
+            this, &AppController::closeCurrentRoomNoLongerIn);
 
     connect(m_auth.get(), &AuthManager::loginSucceeded,
             this, &AppController::onLoginSucceeded);
@@ -2421,6 +2587,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         if (!ok || userId.isEmpty() || userId != m_client->currentUserId())
             return;
         m_accounts->updateProfile(userId, displayName, avatarUrl);
+    });
+    // Sync does not carry the global profile, so a name or picture changed on
+    // another device never reached the account menu or Settings > Account
+    // until the next sign-in. The profile change does show up as our own
+    // m.room.member event in each room (in the open timeline here); that is
+    // the cue to ask /profile again, as Element's OwnProfileStore does.
+    connect(m_client.get(), &MatrixClient::eventAppended, this,
+            [this](const QString &roomId, const TimelineEvent &event) {
+        if (event.stateKind != QLatin1String("member_profile")
+            || MatrixClient::isThreadTimelineId(roomId) || !m_client
+            || event.sender.isEmpty()
+            || event.sender != m_client->currentUserId())
+            return;
+        refreshOwnProfile(kOwnProfileEventRefreshMs);
     });
     // Terminal answer for one own-avatar write.
     connect(m_client.get(), &MatrixClient::ownAvatarChanged, this,
@@ -2707,6 +2887,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationOtherUser.clear();
             m_verificationOtherDevice.clear();
             m_verificationIsSelf = false;
+            m_verificationRole.clear();
+            m_verificationCancelReason.clear();
             m_verificationState.clear();
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
@@ -2748,6 +2930,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationOtherUser = otherUser;
             m_verificationOtherDevice = otherDevice;
             m_verificationIsSelf = isSelf;
+            m_verificationRole = verificationRoleAtStart(isSelf);
             m_verificationState = QStringLiteral("requested");
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
@@ -2862,9 +3045,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // prevents that already, but this does not rely on it. Trust itself
         // always comes from SDK state, never from this string.
         connect(rust, &RustSdkMatrixClient::verificationCancelled,
-                this, [this](const QString &flowId, const QString &) {
+                this, [this](const QString &flowId, const QString &message) {
             if (flowId != m_verificationFlowId) return;
             if (m_verificationState == QLatin1String("done")) return;
+            // Why, so the card can say it: a mismatch is a security warning,
+            // not a plain "cancelled". The SDK's own word, never ours.
+            m_verificationCancelReason = verificationCancelReasonFor(message);
             m_verificationState = QStringLiteral("cancelled");
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
@@ -2888,6 +3074,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationOtherUser = otherUser;
             m_verificationOtherDevice.clear();
             m_verificationIsSelf = isSelf;
+            m_verificationRole = verificationRoleAtStart(isSelf);
             m_verificationState = QStringLiteral("waiting_for_other_session");
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
@@ -3456,6 +3643,41 @@ void AppController::refreshStoredNotificationModes()
     Q_EMIT roomNotificationModesRefreshed(asked);
 }
 
+void AppController::refreshOwnProfile(qint64 minIntervalMs)
+{
+    if (!m_client || !m_client->isLoggedIn())
+        return;
+    const QString uid = m_client->currentUserId();
+    if (uid.isEmpty())
+        return;
+    // Rate-limited, never polled: one request per cue at most, and the cues
+    // are human-paced (a window activation, a profile event).
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_ownProfileRefreshMs > 0 && now - m_ownProfileRefreshMs >= 0
+        && now - m_ownProfileRefreshMs < minIntervalMs)
+        return;
+    m_ownProfileRefreshMs = now;
+    m_client->fetchUserProfile(uid);
+}
+
+void AppController::playNextVoiceMessage(const QString &roomId,
+                                         const QString &afterEventId)
+{
+    const QVariantMap next = m_timeline->nextVoiceMessage(roomId, afterEventId);
+    // The run ends here: no clip stays marked as the chain's, or the reader
+    // replaying the last one would have a failure skipped forward.
+    m_voiceAutoplayEventId.clear();
+    if (next.isEmpty())
+        return;
+    // Marked before play(), which may report a failure synchronously, and
+    // its currentChanged emissions are the chain's own, not the reader's.
+    m_voiceAutoplayEventId = next.value(QStringLiteral("eventId")).toString();
+    const QScopedValueRollback starting(m_voiceAutoplayStarting, true);
+    m_voicePlayback->play(m_voiceAutoplayEventId, roomId,
+                          next.value(QStringLiteral("mediaKey")).toString(),
+                          next);
+}
+
 bool AppController::startVoiceRecording(const QString &owner)
 {
     // Only the two known composers may own the recorder; ownership is a send
@@ -3472,6 +3694,11 @@ bool AppController::startVoiceRecording(const QString &owner)
         return false;
     if (!voiceRecorder()->start())
         return false;
+    // A clip playing on through the recording is picked up by the
+    // microphone. Paused, not stopped, as a call pauses it: the reader can
+    // resume it afterwards.
+    if (m_voicePlayback)
+        m_voicePlayback->pause();
     if (m_voiceOwner != owner) {
         m_voiceOwner = owner;
         Q_EMIT voiceOwnerChanged();
@@ -3962,6 +4189,47 @@ void AppController::enableCallMediaEngine()
 #endif
 }
 
+QString AppController::verificationRoleAtStart(bool isSelf) const
+{
+    // Read when the flow starts: once it is done this session's own trust
+    // state may have changed. Wording only; trust is the SDK's to report.
+    if (!isSelf)
+        return QStringLiteral("other_user");
+    if (sessionVerificationNeeded())
+        return QStringLiteral("this_session");
+    if (m_sessionTrustState == QLatin1String("Verified"))
+        return QStringLiteral("other_session");
+    return {};
+}
+
+QString AppController::verificationCancelReasonFor(const QString &message)
+{
+    // rust/src/lib.rs reports a SAS or QR cancel as the Debug form of
+    // matrix-sdk-crypto's CancelInfo::reason() ("\"The SAS did not
+    // match.\""), its own request paths as "cancelled" or
+    // "timed_out_waiting_for_peer"; the cancel-code names are accepted too.
+    // A mismatch is any check of the other side's keys failing: the SAS
+    // (emoji or decimal), the QR code's key, or the commitment the SAS
+    // start carried, which a substituted key breaks just the same.
+    const QString m = message.toLower();
+    if (m.contains(QLatin1String("mismatchedsas"))
+        || m.contains(QLatin1String("keymismatch"))
+        || m.contains(QLatin1String("mismatchedcommitment"))
+        || m.contains(QLatin1String("the sas did not match"))
+        || m.contains(QLatin1String("expected key did not match"))
+        || m.contains(QLatin1String("hash commitment did not match")))
+        return QStringLiteral("mismatch");
+    if (m.contains(QLatin1String("timeout"))
+        || m.contains(QLatin1String("timed out"))
+        || m.contains(QLatin1String("timed_out")))
+        return QStringLiteral("timeout");
+    if (m.contains(QLatin1String("user cancelled"))
+        || m.trimmed() == QLatin1String("user")
+        || m.trimmed() == QLatin1String("cancelled"))
+        return QStringLiteral("user");
+    return {};
+}
+
 bool AppController::sessionVerificationNeeded() const
 {
     // Only "Not verified" is actionable: "Unknown" is undetermined, and
@@ -4051,11 +4319,89 @@ void AppController::requestRecoverFromBackup(const QString &recoveryKey)
 #endif
 }
 
+int AppController::statusErrorExpiryMs(int length)
+{
+    // A 4 s glance plus about 17 characters a second, so the long keyring
+    // and recovery messages are not gone before they are read; never under
+    // 8 s, and never over 30 s (the strip can be dismissed sooner).
+    return std::clamp(4000 + 60 * length, 8000, 30000);
+}
+
+void AppController::setStatusErrorExpiryMsForTest(int ms)
+{
+    m_statusErrorExpiryForTestMs = ms;
+}
+
+bool AppController::statusErrorIsRunningCallNotice() const
+{
+    const bool callRunning = m_groupCall->active() || m_calls->sessionLive();
+    return callRunning && !m_callStatusNotice.isEmpty()
+        && m_statusError == m_callStatusNotice;
+}
+
+void AppController::armStatusErrorExpiry(quint64 seq)
+{
+    const int ms = m_statusErrorExpiryForTestMs > 0
+        ? m_statusErrorExpiryForTestMs
+        : statusErrorExpiryMs(int(m_statusError.size()));
+    QTimer::singleShot(ms, this, [this, seq] {
+        if (seq != m_statusErrorSeq)
+            return;   // replaced, cleared or dismissed since
+        // A running call's own notice ("nobody hears you") outlives the
+        // timer while the call runs, then expires. Anything else shown
+        // during a call expires like any other message.
+        if (statusErrorIsRunningCallNotice())
+            armStatusErrorExpiry(seq);
+        else
+            clearStatusError(/*keepCallNotice=*/false);
+    });
+}
+
+void AppController::clearStatusError(bool keepCallNotice)
+{
+    if (m_statusError.isEmpty())
+        return;
+    if (keepCallNotice && statusErrorIsRunningCallNotice())
+        return;
+    Q_EMIT errorReported(QString());
+}
+
+void AppController::dismissStatusError()
+{
+    clearStatusError(/*keepCallNotice=*/false);
+}
+
+void AppController::closeCurrentRoomNoLongerIn(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return;
+    if (m_currentRoomId == roomId) {
+        qCInfo(lcApp) << "open room closed: no longer joined or invited";
+#ifdef ENABLE_RUST_SDK_BACKEND
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+            rust->closeRoomTimeline();
+#endif
+        setCurrentRoomId(QString());
+    }
+    if (m_roomInfo->roomId() == roomId)
+        m_roomInfo->setRoomId(QString());
+}
+
 void AppController::setCurrentRoomId(const QString &roomId)
 {
     if (m_currentRoomId == roomId)
         return;
     m_currentRoomId = roomId;
+    ++m_currentRoomOpenSerial;
+    // Whether the room list holds it now; the roomsChanged handler closes a
+    // listed room that then leaves the list (closeCurrentRoomNoLongerIn).
+    if (!roomId.isEmpty() && m_client) {
+        const RoomInfo info = m_client->roomInfo(roomId);
+        m_currentRoomListed =
+            !info.id.isEmpty() && info.membership != RoomInfo::Left;
+    } else {
+        m_currentRoomListed = false;
+    }
     // LIGHTNING_SWITCH_TRACE: leaving the room S11 measures before it filled
     // gives target 2 up; the first room opened after a traced login starts
     // S11 (both no-ops otherwise, and S11 begins only once per trace).
@@ -4348,6 +4694,56 @@ bool AppController::windowGeometryIsReachable(const QRect &geometry)
             return true;
     }
     return false;
+}
+
+QRect AppController::fitWindowGeometry(const QRect &geometry)
+{
+    QList<QRect> areas;
+    for (const QScreen *screen : QGuiApplication::screens()) {
+        if (screen)
+            areas.append(screen->availableGeometry());
+    }
+    return fitWindowGeometry(geometry, areas);
+}
+
+QRect AppController::fitWindowGeometry(const QRect &geometry,
+                                       const QList<QRect> &screenAreas)
+{
+    if (geometry.isEmpty())
+        return {};
+    // The screen the window lands on: the one holding most of its top grab
+    // band (the band windowGeometryIsReachable() requires).
+    const QRect grabBand(geometry.x(), geometry.y(), geometry.width(), 32);
+    QRect area;
+    qint64 best = 0;
+    for (const QRect &candidate : screenAreas) {
+        const QRect overlap = candidate.intersected(grabBand);
+        const qint64 size = qint64(overlap.width()) * overlap.height();
+        if (!overlap.isEmpty() && size > best) {
+            best = size;
+            area = candidate;
+        }
+    }
+    if (area.isEmpty())
+        return geometry;
+    // No larger than that screen's available area, and never below the
+    // window's own minimum (Main.qml's minimumWidth/Height).
+    constexpr int kMinWidth = 640;
+    constexpr int kMinHeight = 420;
+    const int width =
+        std::max(std::min(geometry.width(), area.width()), kMinWidth);
+    const int height =
+        std::max(std::min(geometry.height(), area.height()), kMinHeight);
+    // Then moved inside it; a window larger than the screen (only below the
+    // minimum) keeps the screen's top-left corner.
+    const auto fit = [](int pos, int length, int start, int span) {
+        if (length >= span)
+            return start;
+        return std::clamp(pos, start, start + span - length);
+    };
+    return QRect(fit(geometry.x(), width, area.x(), area.width()),
+                 fit(geometry.y(), height, area.y(), area.height()),
+                 width, height);
 }
 
 // Centres inside one screen's availableGeometry, taking origin and size from
@@ -4771,14 +5167,79 @@ void AppController::setSpaceMuted(const QString &spaceId, bool mute)
     const QStringList rooms = m_spaces->roomsInSpace(spaceId);
     if (rooms.isEmpty())
         return;
-    const int mode = mute ? 2 : 3;
+    const int requested = mute ? 2 : 3;
+    QSettings store;
+    int restored = 0;
     for (const QString &roomId : rooms) {
-        if (m_settings->roomNotificationMode(roomId) == mode)
+        const int current = m_settings->roomNotificationMode(roomId);
+        const int mode = mute ? requested
+                              : spaceUnmuteMode(store, roomId, current,
+                                                &restored);
+        if (mute)
+            recordSpaceMutePrior(store, roomId, current);
+        if (mode < 0 || current == mode)
             continue;   // idempotent: no write, no push-rule call
         setRoomNotificationMode(roomId, mode);
     }
     qCInfo(lcApp) << "space notification mode applied rooms=" << rooms.size()
-                  << "muted=" << mute;
+                  << "muted=" << mute << "restored=" << restored;
+}
+
+// Muting a Space replaces each room's own push rules with one mute override
+// (matrix-sdk deletes the room's other custom rules), so the mode the room
+// held is recorded before and put back on unmute: a "Mentions & keywords"
+// room used to come back as the account default. Kept under the account's
+// own settings group, which sign-out and account removal drop whole; without
+// a saved account nothing is recorded and unmute follows the default.
+QString AppController::spaceMutePriorKey(const QString &roomId) const
+{
+    const QString uid = m_settings->activeAccountUserId();
+    if (uid.isEmpty() || !m_settings->hasSavedAccount(uid))
+        return {};
+    const QString slug = matrix::app_data::safeUserSlug(uid);
+    if (slug.isEmpty())
+        return {};
+    return QStringLiteral("accounts/") + slug
+        + QStringLiteral("/notifications/space-mute-prior/") + roomId;
+}
+
+void AppController::recordSpaceMutePrior(QSettings &store,
+                                         const QString &roomId,
+                                         int current) const
+{
+    const QString key = spaceMutePriorKey(roomId);
+    if (key.isEmpty())
+        return;
+    // A room already muted may be so from an earlier Space mute, whose record
+    // holds the real prior mode: that one is never overwritten. A room in any
+    // other mode records it (a record left from before is stale). No stored
+    // key reads as 0 but is "no rule" unless the server reported an explicit
+    // all-messages rule this session.
+    if (current == 2 && store.contains(key))
+        return;
+    int prior = current;
+    if (!m_settings->hasStoredRoomNotificationMode(roomId))
+        prior = m_notificationModeServerSeen.value(roomId, -1) == 0 ? 0 : 3;
+    store.setValue(key, prior);
+}
+
+int AppController::spaceUnmuteMode(QSettings &store, const QString &roomId,
+                                   int current, int *restored) const
+{
+    const QString key = spaceMutePriorKey(roomId);
+    const QVariant prior = key.isEmpty() ? QVariant() : store.value(key);
+    if (!key.isEmpty())
+        store.remove(key);
+    // Changed on its own while the Space was muted (here or on another
+    // device): that later choice stands.
+    if (current != 2)
+        return -1;
+    bool ok = false;
+    const int mode = prior.toInt(&ok);
+    if (!prior.isValid() || !ok || mode < 0 || mode > 3)
+        return 3;   // no record: follow the account default, as before
+    ++*restored;
+    return mode;
 }
 
 bool AppController::spaceIsMuted(const QString &spaceId) const
@@ -6109,6 +6570,7 @@ void AppController::onLoginSucceeded()
     m_client->startSync();
     // Cache the account's own display name / avatar for the switcher UI.
     m_client->fetchUserProfile(uid);
+    m_ownProfileRefreshMs = QDateTime::currentMSecsSinceEpoch();
     // Offer "index all messages now?" once per account, after a sign-in made
     // here — never for a restore, which also disarms an offer armed for the
     // account signed in before it.
@@ -6251,6 +6713,8 @@ void AppController::refreshTrayUnread()
 void AppController::onLoggedOut()
 {
     m_currentRoomId.clear();
+    ++m_currentRoomOpenSerial;
+    m_currentRoomListed = false;
     // The roster cache died with the session (detach or logout); the next
     // account — or a re-login — must hydrate rooms afresh.
     m_memberHydratedRooms.clear();
@@ -6483,6 +6947,8 @@ void AppController::clearCrossAccountCaches()
     m_verificationOtherUser.clear();
     m_verificationOtherDevice.clear();
     m_verificationIsSelf = false;
+    m_verificationRole.clear();
+    m_verificationCancelReason.clear();
     m_verificationState.clear();
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();

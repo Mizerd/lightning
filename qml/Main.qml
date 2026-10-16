@@ -8,9 +8,9 @@ ApplicationWindow {
     id: window
 
     // Window geometry, restored from the last run and saved as the user moves
-    // and resizes. AppController::restorableWindowGeometry is constant and
-    // already validated against the current display layout; an invalid rect
-    // means "do not restore".
+    // and resizes. AppController::restorableWindowGeometry is constant,
+    // already validated against the current display layout and fitted to the
+    // screen it lands on; an invalid rect means "do not restore".
     readonly property rect startupGeometry: app.restorableWindowGeometry
     readonly property bool hasStartupGeometry: startupGeometry.width > 0
                                                && startupGeometry.height > 0
@@ -1171,8 +1171,24 @@ ApplicationWindow {
             Label {
                 visible: statusBar.lastError !== ""
                 text: statusBar.lastError
+                // Some messages carry server text.
+                textFormat: Text.PlainText
                 color: AppTheme.error
                 font.pixelSize: 12
+            }
+            // The message also expires on its own and goes when the user
+            // moves to another room (AppController::clearStatusError).
+            IconButton {
+                objectName: "statusErrorDismiss"
+                visible: statusBar.lastError !== ""
+                Layout.alignment: Qt.AlignVCenter
+                size: "sm"
+                iconName: "close"
+                Accessible.name: qsTr("Dismiss")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Dismiss")
+                onClicked: app.dismissStatusError()
             }
         }
     }

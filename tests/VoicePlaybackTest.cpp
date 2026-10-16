@@ -22,6 +22,7 @@
 #include "media/MediaBridge.h"
 #include "media/MediaPlaybackController.h"
 #include "media/VoicePlaybackController.h"
+#include "media/VoiceRecorder.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
 #include "calls/SfuCallController.h"
@@ -82,6 +83,24 @@ public:
 
 private:
     QHash<QString, QString> m_values;
+};
+
+// A recorder that starts without a microphone (VoiceOwnershipTest has the
+// full contract).
+class FakeRecorder final : public VoiceRecorder
+{
+public:
+    bool isRecording = false;
+    bool recording() const override { return isRecording; }
+    bool processing() const override { return false; }
+    bool start() override
+    {
+        if (isRecording)
+            return false;
+        isRecording = true;
+        return true;
+    }
+    void cancel() override { isRecording = false; }
 };
 
 const QString kAlice = QStringLiteral("@alice:one.example");
@@ -310,6 +329,96 @@ private Q_SLOTS:
         // ...and the run ends at the text message: nothing starts.
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
         QTRY_VERIFY(!vp->active());
+    }
+
+    // B111: a clip the chain started that cannot be played (here: invalid
+    // media) used to end the run silently. It is skipped, at most three in a
+    // row; a clip the READER started that fails is not, and a real message
+    // still ends the run.
+    void anUnplayableClipInTheChainIsSkipped()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        const QString general = QStringLiteral("!general:mock.local");
+        app.setCurrentRoomId(general);
+        QTRY_VERIFY(app.timeline()->rowCount() > 4);
+        const auto append = [&](const TimelineEvent &e) {
+            Q_EMIT client->eventAppended(general, e);
+        };
+        // The resolver answers "" for any key but mk-one/mk-two: a fetch in
+        // flight, which the invalid-media report below then fails.
+        append(voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
+        append(voiceEvent(general, QStringLiteral("$bad"), QStringLiteral("mk-bad")));
+        append(voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
+        append(plainEvent(general, QStringLiteral("$text"),
+                          TimelineEvent::TextMessage));
+        append(voiceEvent(general, QStringLiteral("$w1"), QStringLiteral("mk-one")));
+        for (int i = 1; i <= 4; ++i)
+            append(voiceEvent(general, QStringLiteral("$b%1").arg(i),
+                              QStringLiteral("mk-b%1").arg(i)));
+        append(voiceEvent(general, QStringLiteral("$w2"), QStringLiteral("mk-two")));
+        append(plainEvent(general, QStringLiteral("$text2"),
+                          TimelineEvent::TextMessage));
+        append(voiceEvent(general, QStringLiteral("$c1"), QStringLiteral("mk-one")));
+        append(voiceEvent(general, QStringLiteral("$c2"), QStringLiteral("mk-c2")));
+        append(voiceEvent(general, QStringLiteral("$c3"), QStringLiteral("mk-two")));
+        const auto failCurrent = [vp] {
+            Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::InvalidMedia);
+        };
+
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QVERIFY(vp->player());
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$bad"));
+        failCurrent();
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
+        // The text message still ends the run.
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_VERIFY(!vp->active());
+
+        // The reader's own choice failing stays on screen, failed.
+        vp->play(QStringLiteral("$bad"), general, QStringLiteral("mk-bad"),
+                 voiceMeta(QStringLiteral("A")));
+        failCurrent();
+        QTest::qWait(100);
+        QCOMPARE(vp->eventId(), QStringLiteral("$bad"));
+        QCOMPARE(vp->fetchState(), QStringLiteral("failed"));
+
+        // Bounded: three skips, then the fourth broken clip stays.
+        vp->play(QStringLiteral("$w1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$b1"));
+        for (int i = 2; i <= 4; ++i) {
+            failCurrent();
+            QTRY_COMPARE(vp->eventId(), QStringLiteral("$b%1").arg(i));
+        }
+        failCurrent();
+        QTest::qWait(100);
+        QCOMPARE(vp->eventId(), QStringLiteral("$b4"));
+        QCOMPARE(vp->fetchState(), QStringLiteral("failed"));
+
+        // A clip the chain started and the reader then stopped is the
+        // reader's when they play it again: its failure is not skipped (the
+        // chain's mark used to outlive the stop and move on to $c3).
+        vp->play(QStringLiteral("$c1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$c2"));
+        vp->stop();
+        vp->play(QStringLiteral("$c2"), general, QStringLiteral("mk-c2"),
+                 voiceMeta(QStringLiteral("A")));
+        failCurrent();
+        QTest::qWait(100);
+        QCOMPARE(vp->eventId(), QStringLiteral("$c2"));
+        QCOMPARE(vp->fetchState(), QStringLiteral("failed"));
+        vp->stop();
     }
 
     // A clip the reader paused or stopped never reaches its end, so it never
@@ -693,6 +802,39 @@ private Q_SLOTS:
         vp->stop();
     }
 
+    // B109: the microphone picked up a clip that kept playing through a
+    // recording. Starting one pauses the clip (not stops: it can be resumed),
+    // and a clip still fetching no longer starts by itself mid-recording.
+    void startingARecordingPausesTheClip()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *rec = new FakeRecorder;
+        app.setVoiceRecorderForTest(rec);
+
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("Alice")));
+        QTRY_VERIFY(vp->playing());
+        QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
+        QTRY_VERIFY2(!vp->playing(), "the clip played on through the recording");
+        QVERIFY(vp->active());
+        QCOMPARE(vp->eventId(), QStringLiteral("$one"));
+        rec->cancel();
+
+        // The resolver answers "" for this key: a fetch still in flight.
+        vp->play(QStringLiteral("$pending"), kRoomA,
+                 QStringLiteral("mk-pending"),
+                 voiceMeta(QStringLiteral("Alice")));
+        QCOMPARE(vp->fetchState(), QStringLiteral("fetching"));
+        QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
+        QCOMPARE(vp->fetchState(), QStringLiteral("idle"));
+        QVERIFY(vp->active());
+        QVERIFY(!vp->playing());
+        rec->cancel();
+        vp->stop();
+    }
+
     // The QML side: a row rebuilt after a room switch (a new AudioPlayerCard
     // for the same event) shows the live clip at its position, and a row for
     // another event shows idle.
@@ -760,6 +902,61 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         QCOMPARE(other->property("livePosition").toDouble(), 0.0);
         vp->stop();
         QVERIFY(!again->property("isCurrent").toBool());
+    }
+
+    // B107: a short waveform draws over only part of the row (3 px a bar,
+    // left-aligned), and a tap mapped over the whole row: a click at 77% of
+    // the bars sought to about 17%. It maps over the drawn bars now, and a
+    // tap in the empty space past them seeks nowhere.
+    void aWaveformTapMapsOverTheDrawnBars()
+    {
+        QQuickWindow window;
+        window.resize(420, 200);
+        QQmlApplicationEngine engine;
+        auto *app = new AppController(AppController::MockBackend, false,
+                                      &engine);
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), app);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import MatrixClient
+AudioPlayerCard { width: 360; isVoice: true; durationMs: 60000 }
+)", QUrl(QStringLiteral("qrc:/voiceWaveformCard.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> card(component.create(engine.rootContext()));
+        auto *cardItem = qobject_cast<QQuickItem *>(card.get());
+        QVERIFY(cardItem);
+        QVariantList buckets;
+        for (int i = 0; i < 20; ++i)
+            buckets.append(50);
+        cardItem->setProperty("waveform", buckets);
+        cardItem->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto *row = cardItem->findChild<QQuickItem *>(
+            QStringLiteral("audioWaveRow"));
+        QVERIFY(row);
+        QTRY_COMPARE(row->property("barCount").toInt(), 20);
+        const double drawn = row->property("drawnWidth").toDouble();
+        QCOMPARE(drawn, 59.0);
+        // The scenario only exists while the row is wider than the bars.
+        QVERIFY2(row->width() > drawn * 2,
+                 qPrintable(QStringLiteral("row %1").arg(row->width())));
+
+        const auto fractionAt = [&](double x) {
+            QVariant result;
+            const bool ok = QMetaObject::invokeMethod(
+                cardItem, "waveSeekFraction", Q_RETURN_ARG(QVariant, result),
+                Q_ARG(QVariant, QVariant(x)));
+            return ok ? result.toDouble() : -2.0;
+        };
+        QVERIFY(qAbs(fractionAt(0.77 * drawn) - 0.77) < 0.001);
+        QCOMPARE(fractionAt(0.0), 0.0);
+        QCOMPARE(fractionAt(drawn), 1.0);
+        // Past the bars: nothing, rather than the middle of the clip.
+        QCOMPARE(fractionAt(row->width() - 10), -1.0);
     }
 
     // The mini-player: shown while the clip's room is elsewhere, hidden in
