@@ -51,6 +51,10 @@ public:
     void setGain(int id, float gain);
     /// Ends every one-shot; loops go on.
     void stopOneShots();
+    /// Every one-shot starts again from its first frame, and one queued more
+    /// than once (the same PCM) is kept once, the newest; loops go on. For
+    /// cues an output took and never played (see CueEngine's stall check).
+    void rewindOneShots();
     void clear();
     bool isPlaying(int id) const { return m_voices.contains(id); }
     bool idle() const { return m_voices.isEmpty(); }
@@ -91,12 +95,24 @@ public:
     bool atEnd() const override { return false; }
     void kick();
 
+    /// Offers `frames` of silence, mixed under any cue, even while no cue
+    /// plays: something the output must take, so whether it still takes
+    /// audio can be seen without making a sound.
+    void addSilence(qint64 frames);
+    qint64 silenceLeft() const { return m_silenceFrames; }
+    /// Whether the output has anything to take now.
+    bool busy() const { return !m_mixer->idle() || m_silenceFrames > 0; }
+    /// Bytes the output has taken so far.
+    quint64 bytesTaken() const { return m_bytesTaken; }
+
 protected:
     qint64 readData(char *data, qint64 maxSize) override;
     qint64 writeData(const char *, qint64) override { return -1; }
 
 private:
     CueMixer *m_mixer;
+    qint64 m_silenceFrames = 0;
+    quint64 m_bytesTaken = 0;
 };
 
 } // namespace callsound

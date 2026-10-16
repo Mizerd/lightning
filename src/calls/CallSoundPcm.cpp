@@ -170,6 +170,28 @@ void CueMixer::stopOneShots()
         it = it->loop ? std::next(it) : m_voices.erase(it);
 }
 
+void CueMixer::rewindOneShots()
+{
+    // Cues of one sound share their PCM: the newest id of each.
+    QHash<const char *, int> newest;
+    for (auto it = m_voices.cbegin(); it != m_voices.cend(); ++it) {
+        if (!it->loop) {
+            int &id = newest[it->pcm.constData()];
+            id = qMax(id, it.key());
+        }
+    }
+    for (auto it = m_voices.begin(); it != m_voices.end();) {
+        if (it->loop) {
+            ++it;
+        } else if (newest.value(it->pcm.constData()) != it.key()) {
+            it = m_voices.erase(it);
+        } else {
+            it->position = 0;
+            ++it;
+        }
+    }
+}
+
 void CueMixer::clear()
 {
     m_voices.clear();
@@ -221,10 +243,10 @@ MixerFeed::MixerFeed(CueMixer *mixer, QObject *parent)
 
 qint64 MixerFeed::bytesAvailable() const
 {
-    if (m_mixer->idle())
-        return 0;
-    // Endless while anything plays, in whole frames.
     const qint64 frameBytes = qint64(sizeof(float)) * m_mixer->channels();
+    if (m_mixer->idle())
+        return m_silenceFrames * frameBytes;
+    // Endless while anything plays, in whole frames.
     return (std::numeric_limits<qint32>::max() / frameBytes) * frameBytes;
 }
 
@@ -233,11 +255,26 @@ void MixerFeed::kick()
     Q_EMIT readyRead();
 }
 
+void MixerFeed::addSilence(qint64 frames)
+{
+    if (frames > 0)
+        m_silenceFrames += frames;
+}
+
 qint64 MixerFeed::readData(char *data, qint64 maxSize)
 {
     const qint64 frameBytes = qint64(sizeof(float)) * m_mixer->channels();
     const qint64 frames = maxSize / frameBytes;
-    return m_mixer->mix(reinterpret_cast<float *>(data), frames) * frameBytes;
+    float *out = reinterpret_cast<float *>(data);
+    qint64 given = m_mixer->mix(out, frames);
+    if (given == 0 && m_silenceFrames > 0 && frames > 0) {
+        given = qMin(frames, m_silenceFrames);
+        std::fill(out, out + given * m_mixer->channels(), 0.0f);
+    }
+    // The silence runs out with whatever was given, cues or not.
+    m_silenceFrames -= qMin(m_silenceFrames, given);
+    m_bytesTaken += quint64(given * frameBytes);
+    return given * frameBytes;
 }
 
 } // namespace callsound

@@ -3,6 +3,7 @@
 #include "app/AsyncLogSink.h"
 #include "calls/CallSoundMixer.h"
 #include "calls/CallSoundRebuild.h"
+#include "calls/PulseServerProbe.h"
 
 #include <QAudioDevice>
 #include <QAudioSink>
@@ -31,6 +32,10 @@
 // Private Qt Multimedia API, for the stream's role (see AudioSinkOutput).
 // CMake defines the macro only after compiling against this header.
 #include <QtMultimedia/private/qaudiosystem_p.h>
+#endif
+#if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
+// Private too: the name of the audio backend Qt chose (see MixerCues).
+#include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
 
 Q_DECLARE_LOGGING_CATEGORY(lcCallSound)
@@ -493,7 +498,54 @@ private:
         h.setReady = [readiness](const QString &sound, bool ready) {
             setReady(readiness, sound, ready);
         };
+        // A new stream while Qt's PulseAudio backend has no connection
+        // aborts the process (CallSoundMixer.h), so unless the backend is
+        // known not to be PulseAudio a dead output waits for the server's
+        // socket to answer AND for Qt to still be connecting to it
+        // (PulseServerProbe.h).
+        if (qtAudioBackendMayBePulse()) {
+            auto clock = std::make_shared<QElapsedTimer>();
+            clock->start();
+            h.serverReachable = lightning::calls::PulseGate(
+                [] { return lightning::calls::qtPulseThreadRunning(); },
+                [] { return lightning::calls::pulseServerReachable(); },
+                [clock] { return clock->elapsed(); },
+                [] {
+                    // Once per process; no ids, no paths.
+                    static bool said = false;
+                    if (!std::exchange(said, true)) {
+                        qCWarning(lcCallSound)
+                            << "call sounds: Qt's PulseAudio connection did not come "
+                               "back; call sounds stay off until Lightning restarts";
+                    }
+                });
+        }
         return h;
+    }
+
+    /// Whether Qt's audio backend may be PulseAudio, the one whose new
+    /// streams abort while it has no connection. Asked of Qt where it can be
+    /// (private API, only with the very Qt it was built against); otherwise
+    /// not known, and assumed: the gate is safe on any backend, only slower,
+    /// and it never passes without a PulseAudio server.
+    static bool qtAudioBackendMayBePulse()
+    {
+#if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
+        if (qstrcmp(qVersion(), QT_VERSION_STR) == 0) {
+            const QString name = QString(QPlatformMediaIntegration::audioBackendName());
+            const bool pulse = name == QLatin1String("PulseAudio");
+            qCInfo(lcCallSound).noquote()
+                << QStringLiteral("call sounds: Qt audio backend %1; a dead output %2")
+                       .arg(name, pulse ? QStringLiteral("is reopened once the PulseAudio "
+                                                         "server and Qt's connection are back")
+                                        : QStringLiteral("needs no server gate"));
+            return pulse;
+        }
+#endif
+        qCInfo(lcCallSound) << "call sounds: Qt audio backend not known; a dead output "
+                               "is reopened once the PulseAudio server and Qt's "
+                               "connection are back";
+        return true;
     }
 
     CueEngine m_engine;

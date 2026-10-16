@@ -1,17 +1,19 @@
 // The Linux Qt 6.10+ call sounds (CallSoundPlayer): the bundled WAVs decode
 // sample for sample and anything else is refused; the mixer sums, ends and
 // loops voices exactly; and the engine keeps ONE output, opened at preload
-// and replaced only on failure, a routing change or an output-list change,
-// against a fake output. Opens no audio device.
+// and replaced only on failure, a routing change, an output-list change, or
+// when it stops taking audio, against a fake output. Opens no audio device.
 #include "calls/CallSoundMixer.h"
 #include "calls/CallSoundPcm.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QHash>
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QSet>
+#include <QThread>
 #include <QtEndian>
 #include <QtTest/QtTest>
 
@@ -116,10 +118,19 @@ struct Rig {
     QList<QPointer<FakeOutput>> opened;
     QHash<QString, bool> ready;
     std::unique_ptr<CueEngine> engine;
+    /// The server's socket, for a rig with the PulseAudio gate.
+    bool reachable = true;
+    int reachableAsked = 0;
 
-    Rig()
+    explicit Rig(bool pulseGate = false)
     {
         CueEngine::Hooks h;
+        if (pulseGate) {
+            h.serverReachable = [this] {
+                ++reachableAsked;
+                return reachable;
+            };
+        }
         h.resolveOutput = [this](const QString &wanted) -> std::optional<QByteArray> {
             if (!wanted.isEmpty() && outputs.contains(wanted.toUtf8()))
                 return wanted.toUtf8();
@@ -168,6 +179,11 @@ struct Rig {
 };
 
 constexpr float k16384 = 16384.0f / 32768.0f;
+
+/// A stall bound for cases that inspect the reopened output: well over
+/// QTRY's 50 ms polling step, so the reopened output (which the fake does not
+/// drain) is looked at before it could stall in turn.
+constexpr int kTestStallMs = 150;
 
 } // namespace
 
@@ -337,6 +353,46 @@ private slots:
         connect(&feed, &QIODevice::readyRead, this, [&kicks] { ++kicks; });
         feed.kick();
         QCOMPARE(kicks, 1);
+    }
+
+    // The silence an output is offered to prove it still takes audio: taken
+    // while no cue plays, used up by cues that play over it, and counted with
+    // them in what the output took. A rewound one-shot starts again.
+    void theFeedOffersSilenceAndCountsWhatWasTaken()
+    {
+        callsound::CueMixer mixer(2);
+        callsound::MixerFeed feed(&mixer);
+        QVERIFY(!feed.busy());
+        feed.addSilence(3);
+        QVERIFY(feed.busy());
+        QCOMPARE(feed.bytesAvailable(), qint64(24));
+        QByteArray buffer(64, char(1));
+        QCOMPARE(feed.read(buffer.data(), 16), qint64(16));
+        QCOMPARE(asFloats(buffer.left(16)), (QList<float>{0, 0, 0, 0}));
+        QCOMPARE(feed.silenceLeft(), qint64(1));
+        QCOMPARE(feed.bytesTaken(), quint64(16));
+        const int id = mixer.start(floats({0.5f, 0.5f, 0.25f, 0.25f}), 1.0f, false);
+        QCOMPARE(feed.read(buffer.data(), 8), qint64(8)); // the cue, over the silence
+        QCOMPARE(feed.silenceLeft(), qint64(0));
+        mixer.rewindOneShots();
+        QCOMPARE(feed.read(buffer.data(), 16), qint64(16));
+        QCOMPARE(asFloats(buffer.left(16)), (QList<float>{0.5f, 0.5f, 0.25f, 0.25f}));
+        QVERIFY(!mixer.isPlaying(id));
+        QVERIFY(!feed.busy());
+        QCOMPARE(feed.read(buffer.data(), 16), qint64(0));
+        QCOMPARE(feed.bytesTaken(), quint64(40));
+
+        // The same cue queued three times, nothing heard: once, the newest
+        // (its gain); another sound and the loop are kept.
+        const QByteArray cue = floats({0.5f, 0.5f});
+        mixer.start(cue, 1.0f, false);
+        mixer.start(cue, 1.0f, false);
+        const int newest = mixer.start(cue, 0.5f, false);
+        const int other = mixer.start(floats({0.25f, 0.25f}), 1.0f, false);
+        const int loop = mixer.start(cue, 1.0f, true);
+        mixer.rewindOneShots();
+        QCOMPARE(mixer.voiceCount(), 3);
+        QVERIFY(mixer.isPlaying(newest) && mixer.isPlaying(other) && mixer.isPlaying(loop));
     }
 
     // The stream-per-cue design failed review: a stream opened while the
@@ -587,6 +643,427 @@ private slots:
         rig.engine->loop(QStringLiteral("b"), 1.0f, QString());
         QTest::qWait(100);
         QVERIFY(!rig.current()->suspended());
+    }
+
+    // Found live 2026-10-16: after the sound server restarted, Qt's sink
+    // stayed active with no error, took one ring buffer of the next cue and
+    // never read again, so every cue queued behind it in silence. An output
+    // that takes nothing while a cue waits is reopened on the same device,
+    // and the cue plays there from its first frame.
+    void aCueOnAnOutputThatStoppedTakingAudioPlaysOnAReopenedOne()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->preload();
+        QPointer<FakeOutput> dead = rig.current();
+        rig.engine->play(QStringLiteral("a"), 0.5f, QString());
+        QCOMPARE(dead->pull(1).size(), 2); // its ring buffer, then nothing
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsOpenedForTest(), 2, 2000);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 1);
+        QVERIFY(dead.isNull() || dead->stopped);
+        QCOMPARE(rig.engine->outputIdsForTest(), QList<QByteArray>{QByteArrayLiteral("default")});
+        FakeOutput *fresh = rig.current();
+        QVERIFY(fresh && fresh != dead);
+        QVERIFY(!fresh->suspended());
+        QVERIFY(fresh->kicks > 0);
+        QCOMPARE(fresh->pull(2),
+                 (QList<float>{k16384 * 0.5f, -k16384 * 0.5f, k16384 * 0.25f,
+                               -k16384 * 0.25f}));
+        QCOMPARE(rig.engine->voicesForTest(), 0);
+        QCOMPARE(rig.readyCount(), 3);
+        // The next cue opens nothing more and plays at once.
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 2);
+        QCOMPARE(fresh->pull(1), (QList<float>{32767.0f / 32768, 32767.0f / 32768}));
+    }
+
+    // The ringer on an output that stopped taking audio goes on on the
+    // reopened one, as the same voice: re-asserting it adjusts its gain and
+    // neither doubles nor restarts it.
+    void aLoopIsCarriedToTheReopenedOutput()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->preload();
+        rig.engine->loop(QStringLiteral("b"), 1.0f, QString());
+        rig.current()->pull(1);
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 2000);
+        rig.engine->loop(QStringLiteral("b"), 0.5f, QString());
+        QCOMPARE(rig.engine->voicesForTest(), 1);
+        QCOMPARE(rig.current()->pull(1),
+                 (QList<float>{2000.0f / 32768 * 0.5f, 2000.0f / 32768 * 0.5f}));
+    }
+
+    // After an output change (the Pulse backend reports one when the server
+    // comes back) the kept output is offered a short silence: a dead one is
+    // found and reopened before the next cue, so that cue is not late. At
+    // once, not after the settle time: Qt listed the change over a live
+    // connection.
+    void anOutputChangeFindsADeadOutputBeforeTheNextCue()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 60000);
+        rig.engine->preload();
+        QPointer<FakeOutput> dead = rig.current();
+        rig.engine->reloadUnusable();
+        QCOMPARE(rig.engine->voicesForTest(), 0); // the silence is no cue
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 2000);
+        QVERIFY(dead.isNull() || dead->stopped);
+        FakeOutput *fresh = rig.current();
+        QVERIFY(fresh && fresh != dead);
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QCOMPARE(fresh->pull(1), (QList<float>{32767.0f / 32768, 32767.0f / 32768}));
+    }
+
+    // Found live 2026-10-16: a new stream while Qt's PulseAudio backend is
+    // still reconnecting aborts the process (libpulse asserts). An output
+    // found dead by a cue, as the server goes away, is reopened only after an
+    // output change or the settle time, never at once; what was queued on it
+    // meanwhile plays then, a cue queued twice once.
+    void anOutputFoundDeadByACueWaitsForTheServerToComeBack()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 60000);
+        rig.engine->preload();
+        rig.engine->play(QStringLiteral("a"), 0.5f, QString());
+        rig.engine->play(QStringLiteral("a"), 0.5f, QString());
+        QTest::qWait(300);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 1);
+        rig.engine->reloadUnusable(); // Qt listed the outputs again
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 1000);
+        QCOMPARE(rig.engine->voicesForTest(), 1);
+        QCOMPARE(rig.current()->pull(2),
+                 (QList<float>{k16384 * 0.5f, -k16384 * 0.5f, k16384 * 0.25f,
+                               -k16384 * 0.25f}));
+
+        // No output change at all (Qt's PipeWire backend reports none): the
+        // settle time.
+        Rig quiet;
+        quiet.engine->setStallMsForTest(kTestStallMs, 60000, 500);
+        quiet.engine->preload();
+        quiet.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QTest::qWait(250);
+        QCOMPARE(quiet.engine->outputsReopenedForTest(), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(quiet.engine->outputsReopenedForTest(), 1, 2000);
+        QCOMPARE(quiet.current()->pull(1), (QList<float>{32767.0f / 32768, 32767.0f / 32768}));
+    }
+
+    // Found in review: an output that took its whole silence between two
+    // checks was never seen taking it, so it stayed "found by the output
+    // change" (and a later stall, as the server goes away, was reopened at
+    // once, into Qt's reconnect) and a reopened one stayed "unproven" (and
+    // its next stall was given up instead of reopened).
+    void whatAnOutputTookBetweenTwoChecksCounts()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 60000);
+        rig.engine->preload();
+        rig.engine->reloadUnusable();
+        QCOMPARE(rig.current()->pull(CueEngine::kProbeMs * 48).size(),
+                 CueEngine::kProbeMs * 48 * 2); // all of it, at once
+        QTest::qWait(3 * kTestStallMs);
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QTest::qWait(3 * kTestStallMs);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0); // waits for the settle
+
+        Rig again;
+        again.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        again.engine->preload();
+        again.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QTRY_COMPARE_WITH_TIMEOUT(again.engine->outputsReopenedForTest(), 1, 2000);
+        // The reopened output works: it takes the cue and its silence at once.
+        QVERIFY(again.current());
+        again.current()->pull(CueEngine::kProbeMs * 48 + 1);
+        QTest::qWait(3 * kTestStallMs);
+        // The server goes away again.
+        again.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QTRY_COMPARE_WITH_TIMEOUT(again.engine->outputsReopenedForTest(), 2, 2000);
+        QVERIFY(!again.engine->failedForTest(QByteArrayLiteral("default")));
+    }
+
+    // Review 2026-10-16 (H1): neither the settle time nor an output change
+    // proves Qt has reconnected to PulseAudio, and a stream opened before it
+    // has aborts the process. Where the gate applies a dead output is
+    // reopened only once the server's socket has answered without a break
+    // for the live window, counted again from any break.
+    void aPulseOutputIsReopenedOnlyOnceTheServerAnswersLongEnough()
+    {
+        Rig rig(true);
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->setServerLiveMsForTest(600);
+        rig.engine->setGatePollMsForTest(30, 60);
+        rig.engine->preload();
+        rig.reachable = false;
+        rig.engine->play(QStringLiteral("a"), 0.5f, QString());
+        QTest::qWait(1000);
+        QVERIFY(rig.reachableAsked > 0);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 1);
+        rig.reachable = true;
+        QTest::qWait(300);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0); // not long enough
+        rig.reachable = false; // a break
+        QTest::qWait(150);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        rig.reachable = true;
+        QElapsedTimer sinceBack;
+        sinceBack.start();
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 3000);
+        QVERIFY2(sinceBack.elapsed() >= 550, "reopened before the window after the break");
+        QVERIFY(rig.current());
+        QCOMPARE(rig.current()->pull(2),
+                 (QList<float>{k16384 * 0.5f, -k16384 * 0.5f, k16384 * 0.25f,
+                               -k16384 * 0.25f}));
+    }
+
+    // A server that never comes back, or comes back where this process cannot
+    // reach it (a Flatpak's bind-mounted socket inode): never reopened, by a
+    // cue or by an output change. Silent, and nothing opened.
+    void aPulseServerThatNeverAnswersIsNeverReopened()
+    {
+        Rig rig(true);
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->setServerLiveMsForTest(300);
+        rig.engine->setGatePollMsForTest(30, 60);
+        rig.engine->preload();
+        rig.reachable = false;
+        rig.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTest::qWait(600);
+        rig.engine->reloadUnusable(); // even "found by the output change"
+        QTest::qWait(1200);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 1);
+        QCOMPARE(rig.engine->voicesForTest(), 1); // still waiting
+        QVERIFY(!rig.engine->failedForTest(QByteArrayLiteral("default")));
+    }
+
+    // H1 (b): the silence of an output change found it dead, but the change
+    // was reported while the server was still there (a graceful restart
+    // removes devices first): it waits for the server like any other.
+    void aPulseOutputFoundByAnOutputChangeStillWaitsForTheServer()
+    {
+        Rig rig(true);
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 60000);
+        rig.engine->setServerLiveMsForTest(400);
+        rig.engine->setGatePollMsForTest(30, 60);
+        rig.engine->preload();
+        rig.reachable = false;
+        rig.engine->reloadUnusable();
+        QTest::qWait(700);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        rig.reachable = true;
+        QElapsedTimer sinceBack;
+        sinceBack.start();
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 3000);
+        QVERIFY(sinceBack.elapsed() >= 350);
+    }
+
+    // Follow-up to the review: a gate that keeps saying no is asked less and
+    // less often (doubling to a ceiling), and every tick again once it says
+    // yes, since the live window needs dense samples.
+    void theGateBacksOffWhileItSaysNo()
+    {
+        Rig rig(true);
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0); // 30 ms ticks
+        rig.engine->setServerLiveMsForTest(1500);
+        rig.engine->setGatePollMsForTest(50, 400);
+        rig.engine->preload();
+        rig.reachable = false;
+        rig.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTest::qWait(400); // found dead
+        const int before = rig.reachableAsked;
+        QVERIFY(before > 0);
+        QTest::qWait(2000);
+        const int whileNo = rig.reachableAsked - before;
+        // Every tick would be ~66; 50, 100, 200, 400, 400, ... is ~6.
+        QVERIFY2(whileNo >= 3 && whileNo <= 10, qPrintable(QString::number(whileNo)));
+        // A yes too short for the window: from it, asked every tick again,
+        // and a no after it starts the back-off from the bottom.
+        rig.reachable = true;
+        QTest::qWait(700); // the next ask is at most 400 ms away
+        rig.reachable = false;
+        const int atNo = rig.reachableAsked;
+        QTest::qWait(300);
+        QVERIFY2(rig.reachableAsked - atNo >= 2, // a tick, then +50, +100 (not +400)
+                 qPrintable(QString::number(rig.reachableAsked - atNo)));
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        const int beforeYes = rig.reachableAsked;
+        rig.reachable = true;
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 4000);
+        // From the first yes to the reopen it was asked every tick.
+        QVERIFY2(rig.reachableAsked - beforeYes >= 12,
+                 qPrintable(QString::number(rig.reachableAsked - beforeYes)));
+    }
+
+    // The retry of a given-up output waits for the server too, and a retry
+    // timer from before an output change does nothing (L3).
+    void theRetryOfAGivenUpOutputWaitsForTheServerAndIsNotStale()
+    {
+        Rig rig(true);
+        rig.engine->setStallMsForTest(kTestStallMs, 300, 0);
+        rig.engine->setServerLiveMsForTest(200);
+        rig.engine->setGatePollMsForTest(30, 60);
+        rig.engine->preload();
+        rig.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTRY_VERIFY_WITH_TIMEOUT(rig.engine->failedForTest(QByteArrayLiteral("default")), 4000);
+        rig.reachable = false;
+        QTest::qWait(800); // the retry is due, the server is not there
+        QVERIFY(rig.engine->failedForTest(QByteArrayLiteral("default")));
+        QCOMPARE(rig.readyCount(), 0);
+        rig.reachable = true;
+        QTRY_VERIFY_WITH_TIMEOUT(!rig.engine->failedForTest(QByteArrayLiteral("default")), 2000);
+        QCOMPARE(rig.readyCount(), 3);
+
+        Rig stale;
+        stale.engine->setStallMsForTest(kTestStallMs, 2000, 0);
+        stale.engine->preload();
+        stale.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTRY_VERIFY_WITH_TIMEOUT(stale.engine->failedForTest(QByteArrayLiteral("default")), 4000);
+        QElapsedTimer sinceFirst;
+        sinceFirst.start();
+        stale.engine->reloadUnusable(); // clears it; its timer is now stale
+        QVERIFY(!stale.engine->failedForTest(QByteArrayLiteral("default")));
+        stale.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTRY_VERIFY_WITH_TIMEOUT(stale.engine->failedForTest(QByteArrayLiteral("default")), 4000);
+        while (sinceFirst.elapsed() < 2200)
+            QTest::qWait(20);
+        QVERIFY2(stale.engine->failedForTest(QByteArrayLiteral("default")),
+                 "the first retry timer cleared the second failure");
+    }
+
+    // L2: the ringer stopped while its dead output waits: nothing is left to
+    // play, so nothing is reopened for it and the check stops; an output
+    // change later finds the output dead and reopens it, without the loop.
+    void theRingerStoppedWhileItsOutputWaits()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 60000);
+        rig.engine->preload();
+        rig.engine->loop(QStringLiteral("b"), 1.0f, QString());
+        QTest::qWait(500);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        rig.engine->loop(QString(), 0.0f, QString());
+        QCOMPARE(rig.engine->voicesForTest(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(!rig.engine->stallTimerActiveForTest(), 1000);
+        QTest::qWait(300);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        rig.engine->reloadUnusable();
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 2000);
+        QCOMPARE(rig.engine->voicesForTest(), 0);
+    }
+
+    // L2: the stall check runs only while something waits to be taken: it
+    // stops once everything drained, and at stopAll().
+    void theStallCheckStopsWhenNothingWaits()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->preload();
+        QVERIFY(!rig.engine->stallTimerActiveForTest());
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QVERIFY(rig.engine->stallTimerActiveForTest());
+        rig.current()->pull(8);
+        QTRY_VERIFY_WITH_TIMEOUT(!rig.engine->stallTimerActiveForTest(), 1000);
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QVERIFY(rig.engine->stallTimerActiveForTest());
+        rig.engine->stopAll();
+        QVERIFY(!rig.engine->stallTimerActiveForTest());
+    }
+
+    // M1: an output the change itself opened has nothing to prove and is
+    // offered no silence; and one slow to start (Bluetooth: 0.5-2 s) is not
+    // condemned by the default bound.
+    void aNewOrSlowOutputIsNotCondemned()
+    {
+        Rig rig;
+        rig.engine->preload();
+        rig.outputs.insert(QByteArrayLiteral("headset"));
+        rig.defaultOutput = QByteArrayLiteral("headset");
+        rig.engine->reloadUnusable();
+        QCOMPARE(rig.engine->outputIdsForTest(), QList<QByteArray>{QByteArrayLiteral("headset")});
+        QCOMPARE(rig.current()->pull(1), QList<float>{}); // nothing offered
+
+        rig.engine->reloadUnusable(); // now it was open before: offered
+        QTest::qWait(1500); // starting up, takes nothing yet
+        QCOMPARE(rig.current()->pull(CueEngine::kProbeMs * 48).size(),
+                 CueEngine::kProbeMs * 48 * 2);
+        QTest::qWait(1500);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+    }
+
+    // L5: an output change withdraws "unproven": a reopened output that then
+    // stalls after the change is reopened again, not given up.
+    void anOutputChangeWithdrawsUnproven()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(kTestStallMs, 60000, 0);
+        rig.engine->preload();
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 1, 2000);
+        rig.engine->reloadUnusable();
+        QTRY_COMPARE_WITH_TIMEOUT(rig.engine->outputsReopenedForTest(), 2, 2000);
+        QVERIFY(!rig.engine->failedForTest(QByteArrayLiteral("default")));
+    }
+
+    // A healthy output is never reopened: not while it takes a loop, not
+    // after it took the silence an output change offers it, and not when
+    // the GUI thread was held up (a late check judges nothing).
+    void aHealthyOutputIsNeverReopened()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(300, 60000, 0);
+        rig.engine->preload();
+        QPointer<FakeOutput> out = rig.current();
+        rig.engine->reloadUnusable();
+        QCOMPARE(out->pull(CueEngine::kProbeMs * 48).size(), CueEngine::kProbeMs * 48 * 2);
+        QCOMPARE(out->pull(1), QList<float>{}); // the silence is all taken
+        rig.engine->loop(QStringLiteral("b"), 1.0f, QString());
+        // What the real sink would do, as long as this one is still open.
+        const auto take = [&out] {
+            if (out)
+                out->pull(1);
+        };
+        for (int i = 0; i < 40; ++i) {
+            take();
+            QTest::qWait(25);
+        }
+        // Held up past the check (nothing taken since it last looked), then
+        // taking again as soon as it can.
+        QTest::qWait(150);
+        QThread::msleep(1200);
+        QCoreApplication::processEvents();
+        take();
+        QTest::qWait(100);
+        take();
+        QTest::qWait(100);
+        take();
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 0);
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 1);
+        QCOMPARE(rig.current(), out.data());
+    }
+
+    // An output that takes nothing even after it was reopened (the server is
+    // still gone) is given up like a failed one, opens no stream per cue
+    // meanwhile, and is tried again after the retry or an output change.
+    void anOutputThatStaysDeadIsGivenUpAndRetried()
+    {
+        Rig rig;
+        rig.engine->setStallMsForTest(60, 400, 0);
+        rig.engine->preload();
+        rig.engine->play(QStringLiteral("a"), 1.0f, QString());
+        QTRY_VERIFY_WITH_TIMEOUT(rig.engine->failedForTest(QByteArrayLiteral("default")), 3000);
+        QCOMPARE(rig.engine->outputsReopenedForTest(), 1);
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 2);
+        QCOMPARE(rig.engine->outputForTest(), nullptr);
+        QCOMPARE(rig.readyCount(), 0);
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 2);
+        QTRY_COMPARE_WITH_TIMEOUT(rig.readyCount(), 3, 3000);
+        QVERIFY(!rig.engine->failedForTest(QByteArrayLiteral("default")));
+        rig.engine->play(QStringLiteral("c"), 1.0f, QString());
+        QCOMPARE(rig.engine->outputsOpenedForTest(), 3);
+        QCOMPARE(rig.current()->pull(1), (QList<float>{32767.0f / 32768, 32767.0f / 32768}));
     }
 };
 

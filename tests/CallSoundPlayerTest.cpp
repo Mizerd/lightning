@@ -4,13 +4,23 @@
 // created here, so no audio device is needed.
 #include "calls/CallSoundPlayer.h"
 #include "calls/CallSoundRebuild.h"
+#include "calls/PulseServerProbe.h"
 
 #include <QElapsedTimer>
 #include <QFile>
 #include <QRegularExpression>
 #include <QLoggingCategory>
+#include <QScopeGuard>
 #include <QSemaphore>
+#include <QTemporaryDir>
+#include <QThread>
 #include <QtTest/QtTest>
+
+#ifdef Q_OS_LINUX
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 #include <map>
 #include <memory>
@@ -18,6 +28,27 @@
 Q_LOGGING_CATEGORY(lcCallSound, "lightning.calls.sound")
 
 namespace {
+#ifdef Q_OS_LINUX
+/// A listening unix socket at `path`, or -1.
+int listenAt(const QByteArray &path)
+{
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    if (path.size() >= qsizetype(sizeof address.sun_path))
+        return -1;
+    memcpy(address.sun_path, path.constData(), size_t(path.size()));
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+    if (::bind(fd, reinterpret_cast<const sockaddr *>(&address), sizeof address) != 0
+        || ::listen(fd, 4) != 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+#endif
+
 // A model of Qt 6.10+'s QSoundEffect engine pool
 // (QSoundEffectPrivateWithPlayer::getEngineFor): one engine per output ID,
 // held by weak reference, so a live engine is handed to every effect that
@@ -382,6 +413,184 @@ private slots:
             QStringLiteral(R"(\bQSoundEffect\s*(\*|::|\(|\{)|new\s+QSoundEffect\b)"));
         QVERIFY2(!usesQSoundEffect.match(code.mid(begin, end - begin)).hasMatch(),
                  "the mixed cues use QSoundEffect");
+    }
+
+    // Review 2026-10-16 (H1): the cue engine reopens a dead output on Qt's
+    // PulseAudio backend only once the server's socket answers. Found where
+    // libpulse finds a local server: every unix entry of $PULSE_SERVER (and
+    // nothing else when it is set), else the runtime paths; tcp is never
+    // "reachable", so it never reopens (silent, safe).
+    void thePulseServerSocketIsFoundAsLibpulseFindsIt()
+    {
+        using lightning::calls::pulseServerSockets;
+        QCOMPARE(pulseServerSockets("unix:/run/flatpak/pulse/native", "/x", "/y"),
+                 QList<QByteArray>{"/run/flatpak/pulse/native"});
+        QCOMPARE(pulseServerSockets("{abc}unix:/a/native tcp:host:4713 /b/native", {}, "/y"),
+                 (QList<QByteArray>{"/a/native", "/b/native"}));
+        QCOMPARE(pulseServerSockets("tcp:host:4713", "/x", "/y"), QList<QByteArray>{});
+        QCOMPARE(pulseServerSockets({}, "/rt/pulse", "/run/user/1"),
+                 QList<QByteArray>{"/rt/pulse/native"});
+        QCOMPARE(pulseServerSockets("  ", {}, "/run/user/1"),
+                 QList<QByteArray>{"/run/user/1/pulse/native"});
+        QCOMPARE(pulseServerSockets({}, {}, {}), QList<QByteArray>{});
+    }
+
+    // Listening means a listener on THAT inode: a hard link (what a Flatpak's
+    // bind mount of the socket file amounts to) stops answering when the
+    // server makes a new socket at the path, and the path answers again.
+    void aSocketAnswersOnlyWhileSomethingListensOnIt()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("the PulseAudio gate is Linux only");
+#else
+        using lightning::calls::unixSocketListening;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QByteArray path = QFile::encodeName(dir.filePath(QStringLiteral("native")));
+        const QByteArray bound = QFile::encodeName(dir.filePath(QStringLiteral("sandbox")));
+        QVERIFY(!unixSocketListening(path)); // no file
+        int server = listenAt(path);
+        QVERIFY(server >= 0);
+        QVERIFY(unixSocketListening(path));
+        QCOMPARE(::link(path.constData(), bound.constData()), 0);
+        QVERIFY(unixSocketListening(bound));
+        ::close(server); // the server goes away; its file stays
+        QVERIFY(!unixSocketListening(path));
+        QVERIFY(!unixSocketListening(bound));
+        QCOMPARE(::unlink(path.constData()), 0);
+        server = listenAt(path); // it comes back on a new socket
+        QVERIFY(server >= 0);
+        QVERIFY(unixSocketListening(path));
+        QVERIFY2(!unixSocketListening(bound), "the old inode answered");
+        ::close(server);
+#endif
+    }
+
+    // A socket that answers is not Qt connected (Qt 6.11.2 stops retrying
+    // after a connect that fails outright): Qt's PulseAudio thread must be
+    // running too, and it is found by its name while it runs only.
+    void aThreadIsFoundByItsNameWhileItRuns()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("the PulseAudio gate is Linux only");
+#else
+        using lightning::calls::threadNamedRunning;
+        QVERIFY(!threadNamedRunning("lt-gate-probe"));
+        QSemaphore release;
+        QScopedPointer<QThread> thread(QThread::create([&release] { release.acquire(); }));
+        thread->setObjectName(QStringLiteral("lt-gate-probe"));
+        thread->start();
+        // Never destroyed running, even when a check below fails.
+        const auto stopThread = qScopeGuard([&] {
+            release.release();
+            thread->wait(5000);
+        });
+        QTRY_VERIFY(threadNamedRunning("lt-gate-probe"));
+        release.release();
+        QVERIFY(thread->wait(5000));
+        QTRY_VERIFY(!threadNamedRunning("lt-gate-probe"));
+
+        // Qt's own: its PulseAudio mainloop thread, by the name Qt 6.11 gives it.
+        using lightning::calls::qtPulseThreadRunning;
+        QCOMPARE(qtPulseThreadRunning(), threadNamedRunning("QPulseAudioEngi"));
+        QSemaphore releaseQt;
+        QScopedPointer<QThread> qtLike(QThread::create([&releaseQt] { releaseQt.acquire(); }));
+        qtLike->setObjectName(QStringLiteral("QPulseAudioEngi"));
+        qtLike->start();
+        const auto stopQtLike = qScopeGuard([&] {
+            releaseQt.release();
+            qtLike->wait(5000);
+        });
+        QTRY_VERIFY(qtPulseThreadRunning());
+        releaseQt.release();
+        QVERIFY(qtLike->wait(5000));
+#endif
+    }
+
+    // The app's gate is both halves (a listening socket alone passed live
+    // while Qt had given up, and the reopen aborted), and it is set unless
+    // Qt names a backend other than PulseAudio.
+    void theMixedCuesGateOnTheSocketAndOnQtsConnection()
+    {
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int begin = code.indexOf(QStringLiteral("class MixerCues"));
+        QVERIFY(begin >= 0);
+        const QString cues = code.mid(begin);
+        const int gate = cues.indexOf(QStringLiteral("if (qtAudioBackendMayBePulse()) {"));
+        const int hook =
+            cues.indexOf(QStringLiteral("h.serverReachable = lightning::calls::PulseGate("), gate);
+        QVERIFY2(gate >= 0 && hook > gate, "the gate is not set behind the backend check");
+        const QString body = cues.mid(hook, 300);
+        const int qt = body.indexOf(QStringLiteral("lightning::calls::qtPulseThreadRunning()"));
+        const int socket =
+            body.indexOf(QStringLiteral("lightning::calls::pulseServerReachable()"));
+        QVERIFY2(qt > 0 && socket > qt,
+                 "the gate does not ask Qt's connection first and the socket second");
+        QVERIFY2(cues.contains(QStringLiteral(
+                     "const bool pulse = name == QLatin1String(\"PulseAudio\");")),
+                 "the backend check is not keyed on Qt's own name for PulseAudio");
+    }
+
+    // Follow-up to the review: Qt's connection is asked first, so a backend
+    // that gave up never costs a connection to the server (nor restarts a
+    // socket-activated one); and after 30 s of asking without it, one line,
+    // once.
+    void theGateAsksQtFirstAndSaysOnceWhenItIsGone()
+    {
+        bool qt = false;
+        bool socket = true;
+        int socketAsked = 0;
+        int said = 0;
+        qint64 now = 0;
+        lightning::calls::PulseGate gate([&] { return qt; },
+                                         [&] { ++socketAsked; return socket; },
+                                         [&] { return now; }, [&] { ++said; }, 30000);
+        for (now = 0; now < 29000; now += 1000)
+            QVERIFY(!gate());
+        QCOMPARE(socketAsked, 0);
+        QCOMPARE(said, 0);
+        now = 30000;
+        QVERIFY(!gate());
+        QCOMPARE(said, 1);
+        now = 90000;
+        QVERIFY(!gate());
+        QCOMPARE(said, 1); // once
+        qt = true;
+        QVERIFY(gate());
+        QCOMPARE(socketAsked, 1);
+        socket = false;
+        QVERIFY(!gate());
+        // Absence is counted again from scratch after Qt came back.
+        lightning::calls::PulseGate fresh([&] { return qt; }, [] { return true; },
+                                          [&] { return now; }, [&] { ++said; }, 30000);
+        qt = false;
+        now = 0;
+        QVERIFY(!fresh());
+        now = 20000;
+        qt = true;
+        QVERIFY(fresh());
+        qt = false;
+        now = 40000;
+        QVERIFY(!fresh());
+        now = 60000;
+        QVERIFY(!fresh());
+        QCOMPARE(said, 1); // 20 s each side of the gap: not 30 s without a break
+        // The app says it once per process, without ids or paths.
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int hook = code.indexOf(QStringLiteral("lightning::calls::PulseGate("));
+        QVERIFY(hook > 0);
+        const QString sayGone = code.mid(hook, 900);
+        QVERIFY(sayGone.contains(
+            QStringLiteral("\"call sounds: Qt's PulseAudio connection did not come \"")));
+        QVERIFY(sayGone.contains(
+            QStringLiteral("\"back; call sounds stay off until Lightning restarts\"")));
+        QVERIFY2(sayGone.contains(QStringLiteral("static bool said = false;"))
+                     && sayGone.contains(QStringLiteral("if (!std::exchange(said, true)) {")),
+                 "the line is not said once per process");
     }
 
     // Rokas 2026-10-07: the mixed cues keep the stream role QSoundEffect's
