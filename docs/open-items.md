@@ -20,6 +20,51 @@ Rokas, not an implementation round picking one.
 notification semantics, `m.fully_read` handling, MSC4306 auto-subscribe after a
 thread send, and the Activity Center changes.
 
+## 2026-10-16 — Continuwuity never tells sliding sync we left a room; Lightning now asks
+
+**Measured** against Continuwuity 26.9.1 (scratch/localhs), HTTP only, with the
+list request matrix-sdk-ui's `RoomListService` sends: after a `/leave` from
+another device, a kick and a ban alike, the next simplified-MSC3575 response
+drops `lists.all_rooms.count` by one and names no room at all. A room
+subscription for that room returns nothing, a fresh connection never mentions
+it, `GET .../state/m.room.member/{me}` is 404 and `/joined_members` 403. Only a
+v3 `/sync` with `include_leave` lists it, under `rooms.leave`, with our own
+`leave` (sender: us, or the kicker) or `ban`. matrix-sdk-base 0.18 leaves
+`Joined` only when a response carries the room, so the room stayed in
+Conversations with an enabled composer, through restarts (break-it rerun §4 F3,
+B034). Measured end to end: a real `RoomListService` held all three rooms as
+`Joined` 90 s later.
+
+**Fixed client-side** in `rust/src/membership_lost.rs`: on the list count's
+first load, any fall, or a store listing more rooms than the server counts,
+`/joined_rooms` names the candidates and one filtered v3 `/sync`
+(`since=0`, `set_presence=offline`) must confirm each under `rooms.leave`
+before it is marked left or banned locally. Fails closed. The open room closes
+at once and the status strip says why (a kick or ban is said for any room).
+
+**A v3 `/sync` WITHOUT `since` DELETES THE DEVICE'S TO-DEVICE INBOX on
+Continuwuity 26.9.1 — measured, found in §18 review.** The first since-less
+call returns the pending to-device messages, the next returns none, and the
+sliding sync `to_device` extension never delivers them: room keys, MatrixRTC
+`encryption_keys`, verification and key requests, silently gone, nothing
+logged. The confirmation's first version sent exactly that request. With
+`since=0` the same request still lists left, kicked and banned rooms under
+`rooms.leave` with the right membership, and two calls in a row each returned
+the three pending messages, which sliding sync then delivered. Gated twice: a
+unit test asserts `since=0` on the wire, and the live test leaves two to-device
+messages pending through both passes and requires the SDK to receive them
+(mutated to no `since`, it received neither). Any future v3 `/sync` in this
+client must carry a `since`.
+
+**NOT TESTED:** Synapse (expected to deliver the leave itself, so a pass is one
+`/joined_rooms`; `0` is not a Synapse stream token, so a confirmation there is
+expected to fail closed with 400 — read from Synapse's token parser, not
+measured), other Conduit-family servers and Dendrite (`since=0` behaviour
+unmeasured), and the GUI. Upstream report to Continuwuity not filed. Accepted
+follow-up: `room_membership_lost` (like `stale_invites_retired`) carries no
+account or lifecycle stamp, so an event drained after an account switch could
+close a room of the same id in the new account.
+
 ## 2026-10-16 — OPEN: the break-it round's posting and moderation gates need `app.roomInfo` to be on the open room
 
 **What it is.** Three gates from the break-it round read RoomInfoController's

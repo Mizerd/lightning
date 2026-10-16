@@ -93,6 +93,7 @@ mod imagesend;
 mod linkmedia;
 mod indexall;
 mod invites;
+mod membership_lost;
 mod keyexport;
 mod localsearch;
 mod location;
@@ -1776,6 +1777,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let events = Arc::clone(&bridge.events);
         let sync_mode = Arc::clone(&bridge.sync_mode);
         let room_list_slot = Arc::clone(&bridge.room_list_service);
+        let membership_list_slot = Arc::clone(&room_list_slot);
         let entries_slot = Arc::clone(&bridge.room_list_entries);
         let active_subscription = Arc::clone(&bridge.active_room_subscription);
         let sync_timelines = Arc::clone(&bridge.timelines);
@@ -1805,6 +1807,11 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let stale_invites = invites::run_stale_invite_reconciler(
                     sync_client.clone(), Arc::clone(&events),
                 );
+                // Nor, on some servers (Continuwuity), a room left, kicked or
+                // banned from elsewhere: the list just stops naming it.
+                let lost_rooms = membership_lost::run_membership_reconciler(
+                    sync_client.clone(), Arc::clone(&events), membership_list_slot,
+                );
                 tokio::select! {
                     _ = switchtrace::sync_scope(switch_trace_started, run_authoritative_sync(
                         sync_client, events, sync_search_index, sync_mode, room_list_slot,
@@ -1812,6 +1819,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                         sync_media_capable, sync_verification_live, sync_notify, cancel_rx,
                     )) => {}
                     _ = stale_invites => {}
+                    _ = lost_rooms => {}
                 }
             });
         });

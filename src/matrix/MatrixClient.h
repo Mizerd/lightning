@@ -1922,6 +1922,13 @@ Q_SIGNALS:
     // refreshes of every loaded row; this can fire per event in busy rooms and
     // only reaches roster-refetch consumers.
     void roomMemberEventSeen(const QString &roomId);
+    // The server confirmed we are no longer in a room the store held as
+    // joined: `loss` is "left" (our own leave from another session),
+    // "kicked", "banned" or "gone" (out, how unknown). Raised once per room,
+    // alongside the room leaving the list; `roomName` is the name it had,
+    // possibly empty. rust/src/membership_lost.rs.
+    void roomMembershipLost(const QString &roomId, const QString &loss,
+                            const QString &roomName);
     // A direct chat's peer (an m.direct target) has a new member event in
     // that room: the avatar it carries now, empty when it has none. From sync
     // room state, so a DM row can follow a changed face without asking the

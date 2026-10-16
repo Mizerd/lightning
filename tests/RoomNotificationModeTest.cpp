@@ -1064,6 +1064,72 @@ private Q_SLOTS:
 #endif
     }
 
+    // Break-it rerun section 4 F3 / B034: a room left from another session,
+    // or one we were kicked or banned from, is never named again by some
+    // servers' sliding sync; rust/src/membership_lost.rs asks the server and
+    // reports `room_membership_lost`. The open room closes at once (no
+    // grace: the server said so) and the strip says why. A kick or ban of a
+    // room that was not open is still said; our own leave elsewhere is not.
+    void aRoomLostElsewhereClosesAtOnceAndSaysWhy()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The membership reconciler runs on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString open = QStringLiteral("!open:example.org");
+        const QString other = QStringLiteral("!other:example.org");
+        const QString quiet = QStringLiteral("!quiet:example.org");
+        QJsonArray rooms;
+        for (const QString &id : {open, other, quiet}) {
+            rooms.append(QJsonObject{{QStringLiteral("id"), id},
+                                     {QStringLiteral("name"), id},
+                                     {QStringLiteral("membership"),
+                                      QStringLiteral("joined")}});
+        }
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("rooms")},
+            {QStringLiteral("rooms"), rooms}});
+        const auto lost = [rust](const QString &id, const char *loss,
+                                 const QString &name) {
+            rust->handleRustEventForTest(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("room_membership_lost")},
+                {QStringLiteral("room_id"), id},
+                {QStringLiteral("loss"), QString::fromLatin1(loss)},
+                {QStringLiteral("name"), name}});
+        };
+        QSignalSpy reported(&app, &AppController::errorReported);
+
+        app.openRoom(open);
+        QCOMPARE(app.currentRoomId(), open);
+        lost(open, "kicked", QStringLiteral("Ops"));
+        // At once: no event-loop turn, no grace timer.
+        QCOMPARE(app.currentRoomId(), QString());
+        QVERIFY(!reported.isEmpty());
+        QCOMPARE(reported.last().at(0).toString(),
+                 QStringLiteral("You were removed from Ops."));
+
+        // Not open: a ban is said, with the registry's name when the event
+        // carries none; our own leave elsewhere is not.
+        reported.clear();
+        lost(other, "banned", QString());
+        QCOMPARE(reported.size(), 1);
+        QCOMPARE(reported.last().at(0).toString(),
+                 QStringLiteral("You were banned from %1.").arg(other));
+        reported.clear();
+        lost(quiet, "left", QStringLiteral("Quiet"));
+        QVERIFY(reported.isEmpty());
+
+        // Open and left from another session: closed, and said.
+        app.openRoom(quiet);
+        lost(quiet, "left", QStringLiteral("Quiet"));
+        QCOMPARE(app.currentRoomId(), QString());
+        QCOMPARE(reported.last().at(0).toString(),
+                 QStringLiteral("You left Quiet from another session."));
+#endif
+    }
+
     // B030: matrix-sdk clears every room's event cache on an ignore-list
     // change, which emptied the open timelines for good. The open room and
     // thread are reopened, and only if still the ones open.

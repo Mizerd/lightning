@@ -8,6 +8,7 @@
 
 #include "app/RichComposerBridge.h"
 #include "app/RendererNotice.h"
+#include "app/MembershipLostNotice.h"
 #include "update/InstallType.h"
 #include <QSettings>
 #include <QCoreApplication>
@@ -2674,6 +2675,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
+    // The server confirmed we are out of a room (left elsewhere, kicked,
+    // banned; rust/src/membership_lost.rs). The open room closes now, with no
+    // invite grace: this is the server's word, not a re-sort. The notice comes
+    // after the close, which clears the strip.
+    connect(m_client.get(), &MatrixClient::roomMembershipLost, this,
+            [this](const QString &roomId, const QString &loss,
+                   const QString &roomName) {
+                const bool wasOpen = !roomId.isEmpty() && roomId == m_currentRoomId;
+                if (wasOpen)
+                    closeCurrentRoomNoLongerIn(roomId);
+                const QString notice =
+                    lightning::rooms::membershipLostNotice(loss, roomName, wasOpen);
+                if (!notice.isEmpty())
+                    Q_EMIT errorReported(notice);
+            });
     auto refreshConnectionStatus = [this]() {
         const MatrixClient::ConnectionState state = m_client->connectionState();
         switch (state) {

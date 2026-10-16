@@ -6664,6 +6664,27 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    // rust/src/membership_lost.rs: a joined room the server confirmed we left
+    // elsewhere, were kicked or banned from. The store has already marked it,
+    // so the list drops it on its own; this says why. The name is read here
+    // first because the removal may be applied before this event.
+    if (type == QLatin1String("room_membership_lost")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        if (roomId.isEmpty())
+            return;
+        const QString loss = event.value(QStringLiteral("loss")).toString();
+        QString name = event.value(QStringLiteral("name")).toString();
+        if (name.isEmpty()) {
+            const auto listed = m_rooms.constFind(roomId);
+            if (listed != m_rooms.cend())
+                name = listed->name;
+        }
+        qCInfo(lcRust) << "room membership lost room="
+                       << matrix::e2ee::redactId(roomId) << "loss=" << loss;
+        Q_EMIT roomMembershipLost(roomId, loss, name);
+        return;
+    }
+
     if (type == QLatin1String("read_marker_advanced")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         // The receipt this room has outstanding, if any. The bridge names the
