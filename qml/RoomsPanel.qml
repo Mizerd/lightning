@@ -620,64 +620,34 @@ Rectangle {
             height: 0
         }
 
-        // Leave confirmation; Cancel is the default. Same shape as
-        // RoomInfoPanel's.
-        Dialog {
+        // Leave confirmation, shared with RoomInfoPanel (one wording, one
+        // chrome). The target may not be the open room, so the member count
+        // is that room's own.
+        LeaveRoomConfirmDialog {
             id: leaveRoomConfirm
             objectName: "leaveRoomConfirmDialog"
-            parent: Overlay.overlay
-            anchors.centerIn: parent
-            width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
-            modal: true
-            title: qsTr("Leave room?")
-            standardButtons: Dialog.NoButton
-            closePolicy: Popup.CloseOnEscape
+            onConfirmed: (roomId) => app.roomInfo.leaveRoom(roomId)
 
-            property string pendingRoomId: ""
-            property string pendingRoomName: ""
-
-            function openFor(roomId, name) {
-                pendingRoomId = roomId
-                pendingRoomName = name
-                open()
-            }
-
-            background: Rectangle {
-                color: AppTheme.surface
-                border.color: AppTheme.border
-                radius: AppTheme.radiusLg
-            }
-
-            contentItem: ColumnLayout {
-                spacing: AppTheme.spacing12
-                Label {
-                    // Untrusted text: never markup.
-                    textFormat: Text.PlainText
-                    Layout.fillWidth: true
-                    text: qsTr("You will stop receiving messages from \"%1\". "
-                               + "Server history is not deleted, and you can "
-                               + "be invited again later.")
-                               .arg(leaveRoomConfirm.pendingRoomName)
-                    wrapMode: Text.WordWrap
-                    color: AppTheme.textPrimary
+            function openForRoom(roomId, name) {
+                var members = -1
+                var rule = ""
+                var invited = -1
+                if (app.roomInfo && app.roomInfo.roomId === roomId) {
+                    members = app.roomInfo.joinedCount
+                    rule = app.roomInfo.joinRule
+                    invited = app.roomInfo.invitedCount
+                } else {
+                    var row = app.roomList.findRoom(roomId)
+                    // RoomInfo.members holds only the member events seen so
+                    // far, so the list's own count is never a head count;
+                    // only an authoritative joined count may say "only
+                    // member" (findRoom does not carry one yet).
+                    if (row && row.joinedMemberCount !== undefined)
+                        members = row.joinedMemberCount
+                    if (row && row.joinRule !== undefined)
+                        rule = row.joinRule
                 }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Item { Layout.fillWidth: true }
-                    AppButton {
-                        text: qsTr("Cancel")
-                        focus: true
-                        onClicked: leaveRoomConfirm.close()
-                    }
-                    AppButton {
-                        kind: "danger"
-                        text: qsTr("Leave room")
-                        onClicked: {
-                            leaveRoomConfirm.close()
-                            app.roomInfo.leaveRoom(leaveRoomConfirm.pendingRoomId)
-                        }
-                    }
-                }
+                openFor(roomId, name, members, rule, invited)
             }
         }
 
@@ -784,7 +754,7 @@ Rectangle {
                         }
                     }
                     onLeaveRoomRequested: (roomId, roomName) =>
-                        leaveRoomConfirm.openFor(roomId, roomName)
+                        leaveRoomConfirm.openForRoom(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
                         roomChatBackgroundDialog.openForRoom(roomId, roomName)
                     onInviteRequested: (roomId) =>
@@ -823,7 +793,7 @@ Rectangle {
                         }
                     }
                     onLeaveRoomRequested: (roomId, roomName) =>
-                        leaveRoomConfirm.openFor(roomId, roomName)
+                        leaveRoomConfirm.openForRoom(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
                         roomChatBackgroundDialog.openForRoom(roomId, roomName)
                     onInviteRequested: (roomId) =>

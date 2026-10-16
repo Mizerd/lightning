@@ -344,6 +344,38 @@ private Q_SLOTS:
         QCOMPARE(client.fetchCalls, after);
     }
 
+    // B024/B130: canPin is a power-level answer. A member-event poke (own
+    // membership arriving late, or a power-level grant) must re-read it.
+    void memberPokeReReadsCanPinForTheCurrentRoomOnly()
+    {
+        FakeClient client;
+        PinnedMessagesController ctl;
+        ctl.setClient(&client);
+        ctl.setRoomId(kRoom);
+        // First snapshot raced the own member row: canPin=false.
+        Q_EMIT client.pinnedReceived(client.lastFetchOp, kRoom,
+                                     snapshot(false, {}, {}));
+        QVERIFY(!ctl.canPin());
+        const int before = client.fetchCalls;
+
+        // A burst coalesces into one re-read, with no /state fallback.
+        Q_EMIT client.roomMemberEventSeen(kRoom);
+        Q_EMIT client.roomMemberEventSeen(kRoom);
+        Q_EMIT client.roomMemberEventSeen(kRoom);
+        QTRY_COMPARE_WITH_TIMEOUT(client.fetchCalls, before + 1, 3000);
+        QVERIFY(!client.fetchAllowRemote.last());
+        Q_EMIT client.pinnedReceived(client.lastFetchOp, kRoom,
+                                     snapshot(true, {}, {}));
+        QVERIFY(ctl.canPin());
+        QVERIFY(ctl.canTogglePin(kEventA, true));
+
+        // Another room's poke is not this room's business.
+        const int after = client.fetchCalls;
+        Q_EMIT client.roomMemberEventSeen(kOther);
+        QTest::qWait(700);
+        QCOMPARE(client.fetchCalls, after);
+    }
+
     void roomSwitchDropsTheListAndRejectsTheOldRoomsAnswer()
     {
         FakeClient client;

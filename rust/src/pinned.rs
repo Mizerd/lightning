@@ -23,7 +23,7 @@ use matrix_sdk::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, StateEventType,
             SyncMessageLikeEvent,
         },
-        EventId, OwnedEventId,
+        EventId, OwnedEventId, OwnedRoomId, RoomId,
     },
 };
 use serde_json::json;
@@ -94,8 +94,34 @@ fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(_)) => {
             ("encrypted", String::new())
         }
+        // A poll pins as its question, never as the generic "Message".
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::UnstablePollStart(
+            SyncMessageLikeEvent::Original(poll),
+        )) => (
+            "poll",
+            crate::unstable_poll_start(&poll.content)
+                .map(|p| one_line(&p.question))
+                .unwrap_or_default(),
+        ),
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::PollStart(
+            SyncMessageLikeEvent::Original(poll),
+        )) => (
+            "poll",
+            crate::stable_poll_start(&poll.content)
+                .map(|p| one_line(&p.question))
+                .unwrap_or_default(),
+        ),
         _ => ("other", String::new()),
     }
+}
+
+/// Whether an event's own `room_id` (present on a fetched event, absent from
+/// the typed sync form) names a different room than the one being resolved.
+/// A spec server answers 404 for that; a buggy one must not make this room's
+/// Pinned panel show another room's text. A missing `room_id` is not a
+/// mismatch: the room-scoped endpoint already vouched for it.
+fn from_another_room(event_room: Option<&RoomId>, room: &RoomId) -> bool {
+    event_room.is_some_and(|r| r != room)
 }
 
 /// Read the room's pinned list and resolve it into displayable rows.
@@ -166,13 +192,15 @@ pub(crate) fn fetch_pinned(
 
         // Permission from the SDK's check against the real required level, never
         // a role label.
+        // The own member row may not be stored yet on a first open; the room's
+        // power-levels state answers the same question without it.
         let can_pin = match own_id.as_deref() {
-            Some(own) => room
-                .get_member_no_sync(own)
-                .await
-                .ok()
-                .flatten()
-                .is_some_and(|m| m.can_send_state(StateEventType::RoomPinnedEvents)),
+            Some(own) => match room.get_member_no_sync(own).await.ok().flatten() {
+                Some(m) => m.can_send_state(StateEventType::RoomPinnedEvents),
+                None => room.power_levels().await.ok().is_some_and(|levels| {
+                    levels.user_can_send_state(own, StateEventType::RoomPinnedEvents)
+                }),
+            },
             None => false,
         };
 
@@ -197,7 +225,18 @@ pub(crate) fn fetch_pinned(
                 return;
             }
             let loaded = room.load_or_fetch_event(&event_id, Some(config)).await;
-            let parsed = loaded.ok().and_then(|ev| ev.raw().deserialize().ok());
+            let foreign = loaded.as_ref().ok().is_some_and(|ev| {
+                let event_room = ev
+                    .raw()
+                    .get_field::<OwnedRoomId>("room_id")
+                    .ok()
+                    .flatten();
+                from_another_room(event_room.as_deref(), room.room_id())
+            });
+            let parsed = loaded
+                .ok()
+                .filter(|_| !foreign)
+                .and_then(|ev| ev.raw().deserialize().ok());
             let Some(parsed) = parsed else {
                 // Missing, deleted or unreachable: an unavailable row that navigates
                 // nowhere.
@@ -345,6 +384,62 @@ mod tests {
             ("image", String::new())
         );
         assert_eq!(event("side by side", "m.file"), ("file", "side by side".to_owned()));
+    }
+
+    #[test]
+    fn describe_maps_polls_to_their_question() {
+        let stable = serde_json::json!({
+            "type": "m.poll.start",
+            "event_id": "$p1:example.org",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 1000,
+            "content": {
+                "m.text": [{ "body": "Lunch?\n1. Pizza\n2. Soup" }],
+                "m.poll": {
+                    "kind": "m.disclosed",
+                    "max_selections": 1,
+                    "question": { "m.text": [{ "body": "Lunch?" }] },
+                    "answers": [
+                        { "m.id": "a", "m.text": [{ "body": "Pizza" }] },
+                        { "m.id": "b", "m.text": [{ "body": "Soup" }] },
+                    ],
+                },
+            },
+        });
+        let parsed: AnySyncTimelineEvent =
+            serde_json::from_value(stable).expect("deserialize fixture");
+        assert_eq!(describe(&parsed), ("poll", "Lunch?".to_owned()));
+
+        let unstable = serde_json::json!({
+            "type": "org.matrix.msc3381.poll.start",
+            "event_id": "$p2:example.org",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 1000,
+            "content": {
+                "org.matrix.msc1767.text": "Tea or coffee?",
+                "org.matrix.msc3381.poll.start": {
+                    "kind": "org.matrix.msc3381.poll.disclosed",
+                    "max_selections": 1,
+                    "question": { "org.matrix.msc1767.text": "Tea or coffee?" },
+                    "answers": [
+                        { "id": "a", "org.matrix.msc1767.text": "Tea" },
+                        { "id": "b", "org.matrix.msc1767.text": "Coffee" },
+                    ],
+                },
+            },
+        });
+        let parsed: AnySyncTimelineEvent =
+            serde_json::from_value(unstable).expect("deserialize fixture");
+        assert_eq!(describe(&parsed), ("poll", "Tea or coffee?".to_owned()));
+    }
+
+    #[test]
+    fn an_event_from_another_room_is_foreign_and_an_absent_room_is_not() {
+        let here = RoomId::parse("!here:example.org").unwrap();
+        let there = RoomId::parse("!there:example.org").unwrap();
+        assert!(from_another_room(Some(&there), &here));
+        assert!(!from_another_room(Some(&here), &here));
+        assert!(!from_another_room(None, &here));
     }
 
     #[test]

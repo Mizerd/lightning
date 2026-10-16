@@ -623,9 +623,13 @@ Rectangle {
                     }
 
                     Label {
-                        text: qsTr("%1 members (%2 invited)")
-                              .arg(app.roomInfo.joinedCount)
-                              .arg(app.roomInfo.invitedCount)
+                        // Plural-aware so one member reads "1 member".
+                        text: app.roomInfo.invitedCount > 0
+                              ? qsTr("%n member(s) (%1 invited)", "",
+                                     app.roomInfo.joinedCount)
+                                  .arg(app.roomInfo.invitedCount)
+                              : qsTr("%n member(s)", "",
+                                     app.roomInfo.joinedCount)
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.textBody
                     }
@@ -1474,7 +1478,12 @@ Rectangle {
                         kind: "danger"
                         text: qsTr("Leave room")
                         enabled: !app.roomInfo.leavePending
-                        onClicked: leaveConfirm.open()
+                        onClicked: leaveConfirm.openFor(
+                                       app.roomInfo.roomId,
+                                       root.roomData.name || "",
+                                       app.roomInfo.joinedCount,
+                                       app.roomInfo.joinRule,
+                                       app.roomInfo.invitedCount)
                     }
                     // Matrix has no delete for a room's own admins: closing
                     // is offered, and says it is not a delete.
@@ -1718,6 +1727,10 @@ Rectangle {
                                         return p.length > 0
                                             ? qsTr("File · %1").arg(p)
                                             : qsTr("File")
+                                    if (k === "poll")
+                                        return p.length > 0
+                                            ? qsTr("Poll · %1").arg(p)
+                                            : qsTr("Poll")
                                     if (k === "sticker")
                                         return p.length > 0
                                             ? qsTr("Sticker · %1").arg(p)
@@ -2183,8 +2196,8 @@ Rectangle {
         }
     }
 
-    // Leave confirmation; Cancel is the default. Widget removal confirmation
-    // below.
+    // Widget removal confirmation. (The leave confirmation is the shared
+    // LeaveRoomConfirmDialog below.)
     Dialog {
         id: removeWidgetConfirm
         objectName: "roomInfoRemoveWidgetConfirmDialog"
@@ -2238,54 +2251,10 @@ Rectangle {
             }
         }
     }
-    Dialog {
+    LeaveRoomConfirmDialog {
         id: leaveConfirm
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        // An explicit bounded width keeps the Dialog's sizing independent of
-        // the wrapping content.
-        width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
-        modal: true
-        title: qsTr("Leave room?")
-        standardButtons: Dialog.NoButton
-        closePolicy: Popup.CloseOnEscape
-
-        background: Rectangle {
-            color: AppTheme.surface
-            border.color: AppTheme.border
-            radius: AppTheme.radiusLg
-        }
-
-        contentItem: ColumnLayout {
-            spacing: AppTheme.spacing12
-            Label {
-                Layout.fillWidth: true
-                text: qsTr("You will stop receiving messages from this room. "
-                           + "Server history is not deleted, and you can be "
-                           + "invited again later.")
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
-                wrapMode: Text.WordWrap
-                color: AppTheme.textPrimary
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    text: qsTr("Cancel")
-                    focus: true
-                    onClicked: leaveConfirm.close()
-                }
-                AppButton {
-                    kind: "danger"
-                    text: qsTr("Leave room")
-                    onClicked: {
-                        leaveConfirm.close()
-                        app.roomInfo.leaveRoom()
-                    }
-                }
-            }
-        }
+        objectName: "roomInfoLeaveConfirmDialog"
+        onConfirmed: app.roomInfo.leaveRoom()
     }
 
     PolicyListDialog {

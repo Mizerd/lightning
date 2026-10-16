@@ -36,6 +36,14 @@ QString messageForCategory(const QString &category)
 PinnedMessagesController::PinnedMessagesController(QObject *parent)
     : QObject(parent)
 {
+    // canPin is a power-level answer, so it goes stale when membership or
+    // power levels move; a burst (a large room syncing) costs one re-read.
+    m_memberRefetch.setSingleShot(true);
+    m_memberRefetch.setInterval(400);
+    connect(&m_memberRefetch, &QTimer::timeout, this, [this] {
+        if (!m_roomId.isEmpty())
+            fetch(/*allowRemote=*/false);
+    });
 }
 
 void PinnedMessagesController::setClient(MatrixClient *client)
@@ -47,6 +55,7 @@ void PinnedMessagesController::setClient(MatrixClient *client)
     m_client = client;
     clearSnapshot();
     m_remoteProbed.clear();
+    m_memberRefetch.stop();
     if (!m_client) {
         Q_EMIT supportedChanged();
         return;
@@ -105,6 +114,16 @@ void PinnedMessagesController::setClient(MatrixClient *client)
             fetch(/*allowRemote=*/false);
     });
 
+    // Own membership arriving late or a power-level change (both reach us as
+    // a member-event poke) moves canPin without touching the pin list, so
+    // nothing else would ever re-read it. No network beyond the cache-first
+    // resolve: allowRemote stays false.
+    connect(m_client, &MatrixClient::roomMemberEventSeen, this,
+            [this](const QString &roomId) {
+        if (roomId == m_roomId && !m_roomId.isEmpty())
+            m_memberRefetch.start();
+    });
+
     // One account's pins must never be shown under another's.
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
         clearSnapshot();
@@ -142,6 +161,7 @@ void PinnedMessagesController::setRoomId(const QString &roomId)
 
 void PinnedMessagesController::clearSnapshot()
 {
+    m_memberRefetch.stop();
     m_fetchOp = 0;
     m_refreshOwed = false;
     m_writeOp = 0;

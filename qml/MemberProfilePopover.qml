@@ -135,6 +135,12 @@ Popup {
             roleOptions = []
             return
         }
+        // A banned or departed user is offered Unban / Invite, not a promotion.
+        if (membership === "banned" || membership === "left") {
+            roleLabel = ""
+            roleOptions = []
+            return
+        }
         var current = app.roomInfo.powerLevelFor(userId)
         roleLabel = app.roomInfo.roleLabelForLevel(current)
         // Conventional presets plus the room's own users_default; duplicates

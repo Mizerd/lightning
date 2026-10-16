@@ -908,6 +908,37 @@ private slots:
             QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
     }
 
+    // B106: a banned or departed user is offered Unban / Invite, never a
+    // promotion. The guard must sit BEFORE the options are built, and the
+    // behaviour is asserted on the real component.
+    void aBannedMemberIsOfferedNoRoleButtons()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        popover->setProperty("roleOptions",
+                             QVariantList{ QVariantMap{ { "level", 50 } } });
+        popover->setProperty("membership", QStringLiteral("banned"));
+        QVERIFY(QMetaObject::invokeMethod(popover, "_refreshRole",
+                                          Q_ARG(QVariant, true)));
+        QCOMPARE(popover->property("roleOptions").toList().size(), 0);
+        popover->setProperty("membership", QStringLiteral("left"));
+        popover->setProperty("roleOptions",
+                             QVariantList{ QVariantMap{ { "level", 50 } } });
+        QVERIFY(QMetaObject::invokeMethod(popover, "_refreshRole",
+                                          Q_ARG(QVariant, true)));
+        QCOMPARE(popover->property("roleOptions").toList().size(), 0);
+        popover->setProperty("membership", QString());
+
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        const int fn = src.indexOf(QStringLiteral("function _refreshRole("));
+        QVERIFY(fn > 0);
+        const int guard = src.indexOf(QStringLiteral("membership === \"banned\""), fn);
+        const int build = src.indexOf(QStringLiteral("powerLevelFor(userId)"), fn);
+        QVERIFY(guard > 0 && build > 0 && guard < build);
+    }
+
     // Escape closes the card, however it was opened. A popup handles
     // CloseOnEscape only while it holds active focus, and nothing on the card
     // takes focus by itself (live, 2026-09-30: Escape left it open).

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
@@ -109,4 +110,6 @@ private:
     // Rooms already probed this session; the /state fallback runs once per
     // room.
     QSet<QString> m_remoteProbed;
+    // Membership and power-level pokes arrive in bursts; one re-read per burst.
+    QTimer m_memberRefetch;
 };
