@@ -1349,6 +1349,12 @@ private:
     // the right account even when m_userId is still empty and the settings
     // point somewhere else.
     matrix::app_data::AccountIdentity m_openingIdentity;
+    // The password sign-in in flight sent a bare username, so its store was
+    // chosen before the server named the account; login_ok checks the answer
+    // against the records before saving it. Set by login() just before
+    // mx_rust_login (its earlier returns send nothing); cleared by the
+    // login_ok and login_failed that end the attempt.
+    bool m_loginSentBareUsername = false;
     QString m_sessionFilePath;
     QString m_homeserver;
     QString m_userId;

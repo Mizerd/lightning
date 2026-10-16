@@ -89,6 +89,12 @@ private Q_SLOTS:
     void sameLocalpartOnDifferentHomeserversStaysIsolated();
     void equivalentHomeserverUrlsShareOneSlot();
 
+    // A bare username against an address that is not the server name.
+    void aBareUsernameIsSentAsTypedNeverCompletedWithTheAddress();
+    void aBareUsernameFindsItsAccountFromTheRecordOnThatAddressOnly();
+    void aSignInAnswerNeverTakesAnotherAccountsStore();
+    void aCaseFoldedBareUsernameNeverResumesTheSavedDevice();
+
     // Store adoption by recording.
     void adoptionRecordsTheStoreAndIsIdempotent();
     void recordingSurvivesRestartAndIsReversible();
@@ -261,6 +267,142 @@ void SessionStoreIdentityTest::typedCaseVariantAdoptsTheSavedCanonicalAccount()
     QVERIFY(typed.rustStorePath != adopted.rustStorePath);
     QCOMPARE(adopted.rustStorePath,
              identityFor(m_settings->userId()).rustStorePath);
+}
+
+void SessionStoreIdentityTest::aBareUsernameIsSentAsTypedNeverCompletedWithTheAddress()
+{
+    // Break-it rerun 2026-10-16: the server at http://127.0.0.1:18008 is named
+    // localhs.test. The identity resolved from "bk010" carries the address's
+    // host, and that id was what reached the server: 404 M_NOT_FOUND.
+    const QString address = QStringLiteral("http://127.0.0.1:18008");
+    const auto typed = identityFor(QStringLiteral("bk010"), address);
+    QCOMPARE(typed.userId, QStringLiteral("@bk010:127.0.0.1:18008"));
+    QCOMPARE(matrix::rust_session::passwordLoginIdentifier(QStringLiteral("bk010"), typed),
+             QStringLiteral("bk010"));
+    QCOMPARE(matrix::rust_session::passwordLoginIdentifier(QStringLiteral("  bk010 "), typed),
+             QStringLiteral("bk010"));
+
+    // A full Matrix ID names its own server and goes as resolved.
+    const auto full = identityFor(QStringLiteral("@bk010:LocalHS.test"), address);
+    QCOMPARE(matrix::rust_session::passwordLoginIdentifier(
+                 QStringLiteral("@bk010:LocalHS.test"), full),
+             QStringLiteral("@bk010:localhs.test"));
+}
+
+void SessionStoreIdentityTest::aBareUsernameFindsItsAccountFromTheRecordOnThatAddressOnly()
+{
+    using matrix::rust_session::savedAccountForBareUsername;
+    const QString address = QStringLiteral("http://127.0.0.1:18008");
+    // Saved through the real records, so the homeserver spelling compared is
+    // the one login() resolves (a trailing slash normalises away).
+    m_settings->saveSession(address + QLatin1Char('/'), QStringLiteral("@bk010:localhs.test"),
+                            QStringLiteral("D1"), QStringLiteral("t1"));
+    m_settings->saveSession(QLatin1String(kServer), QStringLiteral("@bk010:matrix.example"),
+                            QStringLiteral("D2"), QStringLiteral("t2"));
+    QList<matrix::app_data::AccountIdentity> saved;
+    for (const QString &userId : m_settings->savedAccountUserIds()) {
+        matrix::app_data::AccountIdentity record;
+        QVERIFY(m_settings->resolveSavedIdentity(userId, &record));
+        saved.append(record);
+    }
+    QCOMPARE(saved.size(), 2);
+    const QString onAddress = identityFor(QStringLiteral("bk010"), address).homeserver;
+
+    bool ambiguous = true;
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"), onAddress, saved, &ambiguous),
+             QStringLiteral("@bk010:localhs.test"));
+    QVERIFY(!ambiguous);
+    // Only records on that address: the same localpart elsewhere is another
+    // person.
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"),
+                                         QStringLiteral("https://elsewhere.example"), saved),
+             QString());
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk011"), onAddress, saved), QString());
+    // A full id is never looked up this way; it names its own server.
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("@bk010:localhs.test"), onAddress,
+                                         saved),
+             QString());
+    // Case folding finds one, as canonicalUserIdForTypedIdentity does for a
+    // full id; an exact localpart beats a folded one.
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("BK010"), onAddress, saved),
+             QStringLiteral("@bk010:localhs.test"));
+    matrix::app_data::AccountIdentity upper = identityFor(
+        QStringLiteral("@BK010:localhs.test"), address);
+    QList<matrix::app_data::AccountIdentity> both = saved;
+    both.append(upper);
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("BK010"), onAddress, both, &ambiguous),
+             QStringLiteral("@BK010:localhs.test"));
+    QVERIFY(!ambiguous);
+    // Two folded candidates and no exact one: refuse, never guess a store.
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("Bk010"), onAddress, both, &ambiguous),
+             QString());
+    QVERIFY(ambiguous);
+    // One username on two server names behind one address: refuse.
+    QList<matrix::app_data::AccountIdentity> twins = saved;
+    twins.append(identityFor(QStringLiteral("@bk010:other.test"), address));
+    QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"), onAddress, twins, &ambiguous),
+             QString());
+    QVERIFY(ambiguous);
+}
+
+void SessionStoreIdentityTest::aSignInAnswerNeverTakesAnotherAccountsStore()
+{
+    using matrix::rust_session::signInAnswerCollidesWithSavedStore;
+    const QString answer = QStringLiteral("@bk010:localhs.test");
+    const QString root = matrix::app_data::primaryRoot();
+    const QString provisional =
+        root + QStringLiteral("/bk010_127.0.0.1_18008/matrix-rust-sdk-store");
+    const QString recorded = root + QStringLiteral("/bk010_localhs.test/matrix-rust-sdk-store");
+
+    // A first sign-in: nobody owns the store and nothing is saved for the
+    // answer, so the answer is saved over it (the reported case).
+    QVERIFY(!signInAnswerCollidesWithSavedStore(answer, provisional, QString(), false,
+                                                QString()));
+    // The account's own recorded store, however the path is spelled.
+    QVERIFY(!signInAnswerCollidesWithSavedStore(
+        answer, recorded, answer, true,
+        root + QStringLiteral("/bk010_localhs.test/./matrix-rust-sdk-store/")));
+    // The answer is saved with its store elsewhere: saving would orphan it.
+    QVERIFY(signInAnswerCollidesWithSavedStore(answer, provisional, QString(), true, recorded));
+    // The opened store is recorded for someone else, even a case variant.
+    QVERIFY(signInAnswerCollidesWithSavedStore(answer, recorded,
+                                               QStringLiteral("@BK010:localhs.test"), false,
+                                               QString()));
+    // No store opened (the smoke harness's override): nothing to protect.
+    QVERIFY(!signInAnswerCollidesWithSavedStore(answer, QString(), QString(), true, recorded));
+}
+
+void SessionStoreIdentityTest::aCaseFoldedBareUsernameNeverResumesTheSavedDevice()
+{
+    // §18 review: "BK010" located @bk010:localhs.test, and the record's own id
+    // then reached the exact-id resume checks as the typed one. The checks
+    // must see the casing that was typed.
+    using namespace matrix::rust_session;
+    const QString saved = QStringLiteral("@bk010:localhs.test");
+    const QString hs = QStringLiteral("http://127.0.0.1:18008");
+    const QString device = QStringLiteral("OLDDEVICE");
+    QCOMPARE(typedUserIdOnSavedServer(QStringLiteral("bk010"), saved), saved);
+    QCOMPARE(typedUserIdOnSavedServer(QStringLiteral(" BK010 "), saved),
+             QStringLiteral("@BK010:localhs.test"));
+    // Only a bare username against a well-formed saved id; anything else is
+    // empty, which no resume check accepts.
+    QVERIFY(typedUserIdOnSavedServer(saved, saved).isEmpty());
+    QVERIFY(typedUserIdOnSavedServer(QStringLiteral("bk010:x"), saved).isEmpty());
+    QVERIFY(typedUserIdOnSavedServer(QString(), saved).isEmpty());
+    QVERIFY(typedUserIdOnSavedServer(QStringLiteral("bk010"), QStringLiteral("bk010"))
+                .isEmpty());
+
+    // Exactly the saved localpart: both resumes stay possible (the control).
+    const QString exact = typedUserIdOnSavedServer(QStringLiteral("bk010"), saved);
+    QVERIFY(softLoggedOutDeviceMayResume(exact, hs, saved, hs, device, saved, hs, device));
+    QVERIFY(lostSignInDeviceMayResume(exact, hs, saved, hs, device, false));
+    // Folded: neither, as for a typed @BK010:localhs.test.
+    const QString folded = typedUserIdOnSavedServer(QStringLiteral("BK010"), saved);
+    QVERIFY(!softLoggedOutDeviceMayResume(folded, hs, saved, hs, device, saved, hs, device));
+    QVERIFY(!lostSignInDeviceMayResume(folded, hs, saved, hs, device, false));
+    QVERIFY(!lostSignInDeviceMayResume(
+        typedUserIdOnSavedServer(QStringLiteral("bk010"), QStringLiteral("bad")), hs,
+        saved, hs, device, false));
 }
 
 void SessionStoreIdentityTest::exactMatchWinsOverCaseInsensitiveSibling()

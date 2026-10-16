@@ -1,6 +1,9 @@
 #include "matrix/RustSessionPolicy.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QStringList>
 
 namespace matrix::rust_session {
 
@@ -133,6 +136,82 @@ StoreBlockReason restoreBlockReason(
     if (!storeExists)
         return StoreBlockReason::MissingStoreForSavedSession;
     return StoreBlockReason::None;
+}
+
+QString passwordLoginIdentifier(const QString &typedUser,
+                                const app_data::AccountIdentity &typed)
+{
+    const QString input = typedUser.trimmed();
+    if (!input.isEmpty() && !input.startsWith(QLatin1Char('@')))
+        return input;
+    return typed.userId;
+}
+
+QString savedAccountForBareUsername(const QString &typedUser,
+                                    const QString &homeserver,
+                                    const QList<app_data::AccountIdentity> &saved,
+                                    bool *ambiguous)
+{
+    if (ambiguous)
+        *ambiguous = false;
+    const QString localpart = typedUser.trimmed();
+    if (localpart.isEmpty() || localpart.startsWith(QLatin1Char('@'))
+        || localpart.contains(QLatin1Char(':')) || homeserver.isEmpty()) {
+        return {};
+    }
+    QStringList exact;
+    QStringList folded;
+    for (const app_data::AccountIdentity &account : saved) {
+        if (account.homeserver != homeserver)
+            continue;
+        const QString id = account.userId;
+        const qsizetype colon = id.indexOf(QLatin1Char(':'));
+        if (!id.startsWith(QLatin1Char('@')) || colon <= 1)
+            continue;
+        const QString savedLocalpart = id.mid(1, colon - 1);
+        if (savedLocalpart == localpart)
+            exact.append(id);
+        else if (savedLocalpart.compare(localpart, Qt::CaseInsensitive) == 0)
+            folded.append(id);
+    }
+    const QStringList &candidates = exact.isEmpty() ? folded : exact;
+    if (candidates.size() > 1) {
+        if (ambiguous)
+            *ambiguous = true;
+        return {};
+    }
+    return candidates.isEmpty() ? QString() : candidates.first();
+}
+
+QString typedUserIdOnSavedServer(const QString &typedUser, const QString &savedUserId)
+{
+    const QString localpart = typedUser.trimmed();
+    const qsizetype colon = savedUserId.indexOf(QLatin1Char(':'));
+    if (localpart.isEmpty() || localpart.startsWith(QLatin1Char('@'))
+        || localpart.contains(QLatin1Char(':')) || !savedUserId.startsWith(QLatin1Char('@'))
+        || colon <= 1) {
+        return {};
+    }
+    return QLatin1Char('@') + localpart + savedUserId.mid(colon);
+}
+
+bool signInAnswerCollidesWithSavedStore(const QString &answerUserId,
+                                        const QString &openedStorePath,
+                                        const QString &openedStoreOwner,
+                                        bool answerHasRecord,
+                                        const QString &recordStorePath)
+{
+    if (openedStorePath.isEmpty())
+        return false;
+    // User ids exactly: @alice and @Alice can be two people.
+    if (!openedStoreOwner.isEmpty() && openedStoreOwner != answerUserId)
+        return true;
+    if (!answerHasRecord || recordStorePath.isEmpty())
+        return false;
+    const auto clean = [](const QString &path) {
+        return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    };
+    return clean(openedStorePath) != clean(recordStorePath);
 }
 
 QString diagnosticName(StoreBlockReason reason)

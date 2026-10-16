@@ -1062,6 +1062,59 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
+    // A bare username is sent as typed and the server names the account
+    // (passwordLoginIdentifier), so the id resolved above, completed with the
+    // address's host, is only a stand-in until login_ok. When it is not saved
+    // but a saved account on this same address has this username, that record
+    // says where the account's store is: open it, never one built from the
+    // address.
+    const bool bareUsername = !user.trimmed().startsWith(QLatin1Char('@'));
+    // The id resolved above names no saved account: it is only the stand-in.
+    const bool standInIdentity = m_settings && bareUsername
+        && m_settings->canonicalUserIdForTypedIdentity(identity.userId).isEmpty();
+    bool bareUsernameLocatedRecord = false;
+    if (standInIdentity) {
+        QList<matrix::app_data::AccountIdentity> saved;
+        for (const QString &savedUserId : m_settings->savedAccountUserIds()) {
+            matrix::app_data::AccountIdentity record;
+            if (m_settings->resolveSavedIdentity(savedUserId, &record))
+                saved.append(record);
+        }
+        bool ambiguous = false;
+        const QString named = matrix::rust_session::savedAccountForBareUsername(
+            user, identity.homeserver, saved, &ambiguous);
+        if (ambiguous) {
+            qCWarning(lcRust) << "login refused: several saved accounts on this "
+                                 "address share the typed username";
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(
+                matrix::rust_session::StoreBlockReason::AmbiguousStoreCandidates));
+            return;
+        }
+        matrix::app_data::AccountIdentity record;
+        if (!named.isEmpty() && m_settings->resolveSavedIdentity(named, &record)) {
+            qCInfo(lcRust) << "bare username located a saved account"
+                           << "typed_slug=" << identity.slug
+                           << "account=" << record.slug
+                           << "store_slug=" << record.effectiveStoreSlug();
+            identity = record;
+            bareUsernameLocatedRecord = true;
+        }
+    }
+    // What the device-resume checks below compare with the record: the id as
+    // TYPED. The record lookup only locates the store; a case-folded match
+    // ("BK010" for @bk010) must not then pass the exact-id checks as the
+    // record's own id and carry its device into the sign-in, since @bk010
+    // and @BK010 can be different people. Typing the full id in that casing
+    // never resumes either. Empty (no resume) if the record's id is malformed.
+    const QString typedUserId = bareUsernameLocatedRecord
+        ? matrix::rust_session::typedUserIdOnSavedServer(user, identity.userId)
+        : identity.userId;
+    if (bareUsernameLocatedRecord && typedUserId != identity.userId) {
+        qCInfo(lcRust) << "bare username matched a saved account only by case;"
+                          " it locates the store and never resumes its device"
+                       << "account=" << identity.slug;
+    }
+
     // Localparts are case-sensitive, so the typed casing is kept, but the saved
     // record uses the server's canonical id. Find the account whose store this
     // login should open: the canonical id when the typed casing maps onto one,
@@ -1164,6 +1217,24 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     const bool targetTokenReadable = targetHasRecord
         && !m_settings->accessTokenFor(recordUserId).isEmpty();
     const bool targetHasSavedSession = targetHasRecord && targetTokenReadable;
+    // A block is reported under the account the store belongs to when the
+    // identity is only a bare username's stand-in that no record located but
+    // whose store is recorded for a saved account at that account's own path:
+    // a card or a reset for the stand-in matches no record, so a reset would
+    // move the account's store aside and keep its record. Anything else is
+    // reported as before.
+    matrix::app_data::AccountIdentity blockIdentity = identity;
+    if (standInIdentity && !bareUsernameLocatedRecord && !storeOwner.isEmpty()
+        && storeOwner != identity.userId) {
+        matrix::app_data::AccountIdentity owner;
+        const auto clean = [](const QString &path) {
+            return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+        };
+        if (m_settings->resolveSavedIdentity(storeOwner, &owner)
+            && clean(owner.rustStorePath) == clean(identity.rustStorePath)) {
+            blockIdentity = owner;
+        }
+    }
 
     // An orphaned store (exists, but no record could ever restore it) usually
     // comes from an earlier failed login, since the directory is created before
@@ -1223,7 +1294,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             m_settings && m_settings->secretMissesAreInconclusive())) {
         failWithBlockReason(
             matrix::rust_session::StoreBlockReason::SecretBackendUnavailable,
-            identity);
+            blockIdentity);
         return;
     }
 
@@ -1238,7 +1309,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     const bool resumeSoftLoggedOut = storeExists && targetHasSavedSession
         && recordResolved
         && matrix::rust_session::softLoggedOutDeviceMayResume(
-            identity.userId, identity.homeserver, recordUserId,
+            typedUserId, identity.homeserver, recordUserId,
             recordIdentity.homeserver, targetSavedDeviceId, m_softLogoutUserId,
             m_softLogoutHomeserver, m_softLogoutDeviceId);
     auto block = matrix::rust_session::passwordLoginBlockReason(
@@ -1269,12 +1340,13 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             || m_settings->keyringItemsDeclinedForOtherInstall(recordUserId))) {
         resumeLostSignIn = recordResolved
             && matrix::rust_session::lostSignInDeviceMayResume(
-                identity.userId, identity.homeserver, recordUserId,
+                typedUserId, identity.homeserver, recordUserId,
                 recordIdentity.homeserver, targetSavedDeviceId,
                 m_settings->authTypeFor(recordUserId) != QLatin1String("password"));
         if (!resumeLostSignIn) {
             failWithBlockReason(
-                matrix::rust_session::StoreBlockReason::KeyringLostSession, identity);
+                matrix::rust_session::StoreBlockReason::KeyringLostSession,
+                blockIdentity);
             return;
         }
         block = matrix::rust_session::StoreBlockReason::None;
@@ -1291,7 +1363,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
     if (block != matrix::rust_session::StoreBlockReason::None) {
-        failWithBlockReason(block, identity);
+        failWithBlockReason(block, blockIdentity);
         return;
     }
 
@@ -1328,7 +1400,10 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     setState(Connecting);
 
     const QByteArray hsBytes = identity.homeserver.toUtf8();
-    const QByteArray userBytes = identity.userId.toUtf8();
+    // A bare username as typed; the server's answer names the account.
+    const QByteArray userBytes =
+        matrix::rust_session::passwordLoginIdentifier(user, identity).toUtf8();
+    m_loginSentBareUsername = bareUsername;
     // Convert once, then scrub the transit buffer, as the recovery-key and
     // passphrase paths do. The QString belongs to the caller, which clears it.
     QByteArray passwordBytes = password.toUtf8();
@@ -6009,6 +6084,75 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             if (trace.isObject())
                 lightning::switchtrace::noteRustRestore(trace.toObject(), receivedWallMs);
         }
+        // A password sign-in (the only login_ok carrying a token) is saved
+        // below. One that sent a bare username chose its store before the
+        // server named the account, so this is the first point at which the
+        // store can be checked against the answer. An answer the records give
+        // another store, or a store the records give another account, saves
+        // nothing: a record pointed at this store would orphan the store
+        // holding that account's keys. What this attempt created goes, as
+        // after a failed sign-in; nothing else is touched. A full Matrix ID
+        // found its record before the store was chosen, as it always has.
+        const QString answerUserId =
+            event.value(QStringLiteral("user_id")).toString().trimmed();
+        // Read once: it belongs to the attempt this event ends.
+        const bool sentBareUsername = std::exchange(m_loginSentBareUsername, false);
+        if (sentBareUsername && m_settings && m_storePathOverride.isEmpty()
+            && !m_storePath.isEmpty() && !answerUserId.isEmpty()
+            && !event.value(QStringLiteral("access_token")).toString().isEmpty()) {
+            const QString openedSlug = QFileInfo(
+                QFileInfo(m_storePath).absoluteFilePath()).dir().dirName();
+            const QString openedOwner =
+                m_settings->accountOwningStoreSlug(openedSlug);
+            matrix::app_data::AccountIdentity answerRecord;
+            const bool answerHasRecord =
+                m_settings->resolveSavedIdentity(answerUserId, &answerRecord);
+            if (matrix::rust_session::signInAnswerCollidesWithSavedStore(
+                    answerUserId, m_storePath, openedOwner, answerHasRecord,
+                    answerRecord.rustStorePath)) {
+                const bool answerIsSaved = answerHasRecord
+                    && (openedOwner.isEmpty() || openedOwner == answerUserId);
+                qCWarning(lcRust)
+                    << "sign-in not kept: the server's answer and the store this "
+                       "attempt opened belong to different saved accounts"
+                    << "account=" << matrix::app_data::safeUserSlug(answerUserId)
+                    << "store=" << openedSlug
+                    << "answer_saved=" << answerHasRecord
+                    << "store_owned=" << !openedOwner.isEmpty();
+                const bool fresh = m_freshLoginIdentity.isValid()
+                    && QFileInfo(m_freshLoginIdentity.rustStorePath).absoluteFilePath()
+                           == QFileInfo(m_storePath).absoluteFilePath();
+                const auto freshStore = fresh ? m_freshLoginIdentity
+                                              : matrix::app_data::AccountIdentity{};
+                m_freshLoginIdentity = {};
+                m_freshBrowserRecord = {};
+                m_resumeDeviceId.clear();
+                m_loggedIn = false;
+                m_userId.clear();
+                m_deviceId.clear();
+                setState(Error);
+                // Releases the handle first; without a fresh store only that.
+                if (freshStore.isValid())
+                    rollBackFailedAttempt(freshStore, {});
+                else
+                    releaseRustHandle();
+                Q_EMIT loginFailed(answerIsSaved
+                    ? tr("%1 is already on this device, so this sign-in was not "
+                         "kept and the saved account was not changed. Switch to "
+                         "it from the account menu, or sign in with the full "
+                         "Matrix ID %1. The server now lists an unused session "
+                         "from this attempt; you can sign it out under "
+                         "Sessions.").arg(answerUserId)
+                    : tr("The server signed you in as %1, but this device keeps "
+                         "another account's data where this sign-in was going, "
+                         "so it was not kept and no saved account was changed. "
+                         "Sign in with the full Matrix ID %1. The server now "
+                         "lists an unused session from this attempt; you can "
+                         "sign it out under Sessions after signing in with "
+                         "%1.").arg(answerUserId));
+                return;
+            }
+        }
         m_freshLoginIdentity = {};
         m_freshBrowserRecord = {};
         // SENSITIVE: this event carries `access_token`. Never log `event` or
@@ -6065,10 +6209,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_settings->setSyncToken({});
         }
         // The homeserver decides the canonical user id, so a first login may
-        // have created the store under the typed casing (or the delegated URL
-        // host) while the record uses the server's answer. Record where the
-        // store really is before anything derives a path from the record.
-        // Nothing is moved.
+        // have created the store under the typed casing (or the address's
+        // host, for a bare username) while the record uses the server's
+        // answer. Record where the store really is before anything derives a
+        // path from the record. Nothing is moved.
         if (m_loggedIn && !accessToken.isEmpty() && identity.isValid()
             && identity.userId == m_userId) {
             recordStoreLocation(identity);
@@ -6093,6 +6237,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             if (trace.isObject())
                 lightning::switchtrace::noteRustRestore(trace.toObject(), receivedWallMs);
         }
+        m_loginSentBareUsername = false;
         m_loggedIn = false;
         // The soft-logout proof stays: a mistyped password may try again.
         const bool resumeAttempt = !m_resumeDeviceId.isEmpty();

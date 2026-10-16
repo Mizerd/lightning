@@ -35,8 +35,9 @@ inline QString passwordText(const QString &reason, const QString &message)
         return QCoreApplication::translate("RustSdkMatrixClient",
                                            "Wrong username or password.");
     // Synapse answers an unknown user with M_FORBIDDEN; Conduit and its forks
-    // say M_NOT_FOUND. A bare username is completed with the server name the
-    // address resolves to, which is not always the account's own.
+    // say M_NOT_FOUND. A bare username is sent as typed and the server
+    // resolves it (rust_session::passwordLoginIdentifier), so this is the
+    // server's own answer about that name.
     if (reason.endsWith(QLatin1String("_M_NOT_FOUND")))
         return QCoreApplication::translate(
             "RustSdkMatrixClient",

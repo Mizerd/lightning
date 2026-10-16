@@ -2,6 +2,7 @@
 
 #include "storage/AppDataPaths.h"
 
+#include <QList>
 #include <QString>
 
 namespace matrix::rust_session {
@@ -134,6 +135,53 @@ StoreBlockReason restoreBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
     const QString &savedDeviceId);
+
+// The `m.id.user` identifier a password sign-in sends. A bare username goes
+// as typed and the server resolves it, as the spec has it: the server field
+// names where the client API lives, and its host is not the account's server
+// name whenever the two differ (an IP, a port, a separate client host).
+// Completing the username with that host asked the server for an account
+// that does not exist. A full Matrix ID goes as the resolved identity spells
+// it.
+QString passwordLoginIdentifier(const QString &typedUser,
+                                const app_data::AccountIdentity &typed);
+
+// The saved account a bare username typed against `homeserver` names, found
+// from the records (which say where each store is) rather than from an id
+// built out of the address. A record on another homeserver address is never
+// a candidate. An exact localpart wins; otherwise one case-insensitive match
+// (Qt::CaseInsensitive), as SettingsManager::canonicalUserIdForTypedIdentity
+// does for a typed full id. Several candidates set `ambiguous` and answer
+// nothing: never guess which store. Empty for a full Matrix ID, which names
+// its own server. A match only LOCATES the store: whether the sign-in may
+// continue as the record's device is asked with typedUserIdOnSavedServer().
+QString savedAccountForBareUsername(const QString &typedUser,
+                                    const QString &homeserver,
+                                    const QList<app_data::AccountIdentity> &saved,
+                                    bool *ambiguous = nullptr);
+
+// The user id a bare username names on a saved account's server, in the
+// casing the user TYPED: "BK010" against "@bk010:localhs.test" is
+// "@BK010:localhs.test". This is what the device-resume checks
+// (softLoggedOutDeviceMayResume, lostSignInDeviceMayResume) compare with the
+// record, exactly as they compare a typed full id, so a case-folded match
+// locates a store but never continues as its device: @bk010 and @BK010 can be
+// different people. Empty for anything but a bare username and a full id.
+QString typedUserIdOnSavedServer(const QString &typedUser, const QString &savedUserId);
+
+// Whether a sign-in's server answer (`answerUserId`, the canonical id) may be
+// saved over the store this attempt opened. It may not when
+//  * the answer is an account already saved here whose recorded store is
+//    somewhere else: saving would point that account at the new store and
+//    orphan the one holding its keys; or
+//  * the opened store is recorded for a different saved account
+//    (`openedStoreOwner`): saving would give two accounts one store.
+// Paths are compared absolute and cleaned. False without an opened store.
+bool signInAnswerCollidesWithSavedStore(const QString &answerUserId,
+                                        const QString &openedStorePath,
+                                        const QString &openedStoreOwner,
+                                        bool answerHasRecord,
+                                        const QString &recordStorePath);
 
 QString diagnosticName(StoreBlockReason reason);
 
