@@ -578,7 +578,9 @@ private Q_SLOTS:
 
     // Break-it B025: moderators could not remove another member's message.
     // Delete and its separator pass the SDK's grant to the model, and the
-    // grant is READ from the room-info controller, never computed in QML.
+    // grant is READ from the open room's own facts (falling back to the
+    // room-info controller while they have not answered), never computed in
+    // QML.
     void deleteTakesTheModeratorGrantFromTheSdk()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -605,12 +607,24 @@ private Q_SLOTS:
         const int grant = delegate.indexOf(
             QStringLiteral("readonly property bool canRedactOthers:"));
         QVERIFY2(grant >= 0, "root.canRedactOthers is gone");
-        const QString def = delegate.mid(grant, 200);
+        // The whole binding, up to the next property.
+        const int next = delegate.indexOf(
+            QStringLiteral("readonly property"), grant + 1);
+        QVERIFY2(next > grant, "the canRedactOthers binding has no end");
+        const QString def = delegate.mid(grant, next - grant);
+        // Both SDK answers it reads, the open room's own facts first and the
+        // room-info controller's, each strictly true...
+        QVERIFY2(def.contains(QStringLiteral(
+                     "app.openRoomPermissions.canRedactOthers === true")),
+                 "the open room's answer is not read, strictly true");
         QVERIFY2(def.contains(QStringLiteral(
                      "app.roomInfo.canRedactOthers === true")),
                  "canRedactOthers is not the SDK's answer, strictly true");
-        // ...and only for the open room (review R4 of the poll package).
-        QVERIFY2(delegate.mid(grant, 260).contains(QStringLiteral(
+        // ...and each only for the open room (review R4 of the poll package).
+        QVERIFY2(def.contains(QStringLiteral(
+                     "app.openRoomPermissions.roomId === app.currentRoomId")),
+                 "another room's open-room facts could offer Delete here");
+        QVERIFY2(def.contains(QStringLiteral(
                      "app.roomInfo.roomId === app.currentRoomId")),
                  "another room's grant could offer Delete in the open room");
         QVERIFY2(!def.contains(QStringLiteral("powerLevel")),

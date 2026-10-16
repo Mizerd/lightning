@@ -513,6 +513,7 @@ public:
     quint64 createRoom(const QVariantMap &options) override;
     quint64 inviteUsers(const QString &roomId, const QStringList &userIds) override;
     quint64 requestRoomMembers(const QString &roomId) override;
+    quint64 requestRoomOwnPermissions(const QString &roomId) override;
     quint64 setRoomName(const QString &roomId, const QString &name) override;
     quint64 setRoomTopic(const QString &roomId, const QString &topic) override;
     quint64 setRoomAvatar(const QString &roomId, const QString &localPath) override;

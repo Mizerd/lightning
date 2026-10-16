@@ -572,6 +572,41 @@ quint64 MockMatrixClient::requestRoomMembers(const QString &roomId)
     return op;
 }
 
+quint64 MockMatrixClient::requestRoomOwnPermissions(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    ++m_ownPermissionRequests;
+    const QVariantMap facts = m_ownPermissionsForTest.value(roomId);
+    QTimer::singleShot(0, this, [this, op, roomId, facts] {
+        Q_EMIT roomOwnPermissionsReceived(op, roomId, facts);
+    });
+    return op;
+}
+
+void MockMatrixClient::setRoomSuccessorForTest(const QString &roomId,
+                                               const QString &successorRoomId)
+{
+    for (auto &room : m_rooms) {
+        if (room.id != roomId)
+            continue;
+        room.successorRoomId = successorRoomId;
+        Q_EMIT roomsChanged();
+        return;
+    }
+}
+
+void MockMatrixClient::setOwnPermissionsForTest(const QString &roomId,
+                                                const QVariantMap &facts)
+{
+    if (facts.isEmpty())
+        m_ownPermissionsForTest.remove(roomId);
+    else
+        m_ownPermissionsForTest.insert(roomId, facts);
+    Q_EMIT roomMemberEventSeen(roomId);
+}
+
 quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
                                                  const QString &rootEventId,
                                                  const QString &fileName,

@@ -1328,6 +1328,12 @@ char *mx_rust_invite_users(void *client,
 char *mx_rust_room_members(void *client,
                            const char *room_id,
                            unsigned long long op_id);
+/* The open room's own posting facts from local state (no request); answered
+ * as {"type":"room_own_permissions","op_id","room_id","own_membership",
+ * "own_can_send_message","own_can_redact_other"}, null meaning unknown. */
+char *mx_rust_room_own_permissions(void *client,
+                                   const char *room_id,
+                                   unsigned long long op_id);
 char *mx_rust_set_room_name(void *client,
                             const char *room_id,
                             const char *name,

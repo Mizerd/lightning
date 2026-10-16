@@ -8941,6 +8941,19 @@ quint64 RustSdkMatrixClient::requestRoomMembers(const QString &roomId)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::requestRoomOwnPermissions(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_room_own_permissions(m_rustHandle, room.constData(), opId));
+    // A room the store does not hold is refused here; unknown, not an error
+    // worth a warning (the open room can be one the list has not listed yet).
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::setRoomName(const QString &roomId, const QString &name)
 {
     if (!m_rustHandle || roomId.isEmpty() || name.trimmed().isEmpty())
@@ -12164,6 +12177,26 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             // said".
             event.value(QStringLiteral("retry_after_ms")).toVariant()
                 .toLongLong());
+        return true;
+    }
+
+    if (type == QLatin1String("room_own_permissions")) {
+        // The open room's own posting facts. Only a real answer crosses: null
+        // (our own member not in the store, or not joined) stays absent, which
+        // reads as unknown downstream, where false would read as refused.
+        QVariantMap facts;
+        facts.insert(QStringLiteral("ownMembership"),
+                     event.value(QStringLiteral("own_membership")).toString());
+        if (const QJsonValue v = event.value(QStringLiteral("own_can_send_message"));
+            v.isBool()) {
+            facts.insert(QStringLiteral("canSendMessages"), v.toBool());
+        }
+        if (const QJsonValue v = event.value(QStringLiteral("own_can_redact_other"));
+            v.isBool()) {
+            facts.insert(QStringLiteral("canRedactOthers"), v.toBool());
+        }
+        Q_EMIT roomOwnPermissionsReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(), facts);
         return true;
     }
 

@@ -418,6 +418,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             });
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
+    m_openRoomPermissions = std::make_unique<OpenRoomPermissions>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_eventContext = std::make_unique<ContextController>(this);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
@@ -1761,6 +1762,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             });
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
+    m_openRoomPermissions->setClient(m_client.get());
     m_backup->setClient(m_client.get());
     m_accountPrefs->setEmojiCatalog(m_emojiCatalog.get());
     m_accountPrefs->setClient(m_client.get());
@@ -4455,6 +4457,9 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // refreshes when it opens, so navigation costs no /state reads.
     m_stickers->setActiveRoomId(roomId);
     m_roomUpgrade->setRoomId(roomId);
+    // The posting block and moderator Delete read these, so they act in a
+    // room whose info panel was never opened.
+    m_openRoomPermissions->setRoomId(roomId);
     // Read the room's call session so the banner is right on arrival.
     if (!roomId.isEmpty()) {
         m_rtc->refresh(roomId);

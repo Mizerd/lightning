@@ -2605,6 +2605,89 @@ fn own_membership_str(state: RoomState) -> &'static str {
 // Member snapshot + permissions
 // ---------------------------------------------------------------------------
 
+/// Whether this account may post an ordinary message in `room`, and remove
+/// other people's events there: the SDK's checks against the room's real
+/// levels (`events_default`, a per-event `events` entry, `redact`, and our
+/// own level). An encrypted room's messages are m.room.encrypted on the wire,
+/// so both types must be allowed. `None` when our own member is not in the
+/// store yet: unknown, which the composer treats as allowed and moderator
+/// Delete as not granted. Shared by the member snapshot and the open-room
+/// query, so the two can never disagree about the same store.
+fn own_send_and_redact(
+    room: &matrix_sdk::Room,
+    own_member: Option<&matrix_sdk::room::RoomMember>,
+) -> (Option<bool>, Option<bool>) {
+    use matrix_sdk::ruma::events::MessageLikeEventType;
+    let can_send_message = own_member.map(|m| {
+        m.can_send_message(MessageLikeEventType::RoomMessage)
+            && (!room.encryption_state().is_encrypted()
+                || m.can_send_message(MessageLikeEventType::RoomEncrypted))
+    });
+    let can_redact_other = own_member.map(|m| m.can_redact_other());
+    (can_send_message, can_redact_other)
+}
+
+/// The open room's own posting facts, for the composer's posting block and
+/// moderator Delete, independent of which room the info panel inspects.
+///
+/// Local state only: the room's membership, our own member event and
+/// m.room.power_levels as the store holds them. No request is made, so it
+/// is cheap enough to ask on every room open and every member or
+/// power-level poke. A room we are not joined to answers its membership
+/// with both permissions null (the membership is the reason).
+pub(crate) fn room_own_permissions(
+    bridge: &RustClient,
+    room_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = RoomId::parse(&room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .ok_or_else(|| "unknown room".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    let own_id = client.user_id().map(|u| u.to_owned());
+    bridge.spawn_room_action(async move {
+        let mut payload = own_permissions_payload(&room, own_id.as_deref()).await;
+        if timelines.lifecycle_current(lifecycle) {
+            payload["type"] = json!("room_own_permissions");
+            payload["op_id"] = json!(op_id);
+            payload["lifecycle"] = json!(lifecycle);
+            payload["room_id"] = json!(room_id);
+            enqueue(&events, payload);
+        }
+    });
+    Ok(())
+}
+
+/// The facts `room_own_permissions` reports, from the store alone.
+async fn own_permissions_payload(
+    room: &matrix_sdk::Room,
+    own_id: Option<&matrix_sdk::ruma::UserId>,
+) -> serde_json::Value {
+    let own_membership = own_membership_str(room.state());
+    if room.state() != RoomState::Joined {
+        return json!({
+            "own_membership": own_membership,
+            "own_can_send_message": null,
+            "own_can_redact_other": null,
+        });
+    }
+    let own_member = match own_id {
+        Some(own) => room.get_member_no_sync(own).await.ok().flatten(),
+        None => None,
+    };
+    let (can_send_message, can_redact_other) =
+        own_send_and_redact(room, own_member.as_ref());
+    json!({
+        "own_membership": own_membership,
+        "own_can_send_message": can_send_message,
+        "own_can_redact_other": can_redact_other,
+    })
+}
+
 pub(crate) fn room_members(
     bridge: &RustClient,
     room_id: String,
@@ -2904,19 +2987,10 @@ async fn members_snapshot_json(
         let can_publish_rtc_membership: Option<bool> = own_member.as_ref().map(|m| {
             m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
         });
-        // Whether this account may post an ordinary message, and remove other
-        // people's events: the SDK's checks against the room's real levels
-        // (an encrypted room's messages are m.room.encrypted on the wire, so
-        // both types must be allowed). `None` (null) when our own member is
-        // not in the store yet: unknown, which the composer treats as allowed.
-        let can_send_message: Option<bool> = own_member.as_ref().map(|m| {
-            use matrix_sdk::ruma::events::MessageLikeEventType;
-            m.can_send_message(MessageLikeEventType::RoomMessage)
-                && (!room.encryption_state().is_encrypted()
-                    || m.can_send_message(MessageLikeEventType::RoomEncrypted))
-        });
-        let can_redact_other: Option<bool> =
-            own_member.as_ref().map(|m| m.can_redact_other());
+        // Posting and removing other people's events: one computation with
+        // the open-room query (`own_send_and_redact`).
+        let (can_send_message, can_redact_other) =
+            own_send_and_redact(&room, own_member.as_ref());
         let join_rule = join_rule_str(room.join_rule().as_ref());
         let canonical_alias = room
             .canonical_alias()
@@ -7956,6 +8030,192 @@ mod member_freshness_tests {
         assert_eq!(pending["ok"], json!(false), "{pending}");
         assert_eq!(pending["category"], json!("not_joined"), "{pending}");
         assert_eq!(pending["own_membership"], json!("invited"), "{pending}");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// The `room_own_permissions` answer for `op_id`.
+    fn own_permissions_answer(bridge: &crate::RustClient, op_id: u64) -> serde_json::Value {
+        let started = std::time::Instant::now();
+        loop {
+            let found = bridge.events.lock().unwrap().iter().find_map(|raw| {
+                let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+                (value["type"] == "room_own_permissions" && value["op_id"] == json!(op_id))
+                    .then_some(value)
+            });
+            if let Some(value) = found {
+                return value;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no answer");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// The open room's own posting facts come from the store alone, through
+    /// the same SDK checks as the member snapshot: `events_default`, a
+    /// per-event `m.room.message` entry in either direction, the encrypted
+    /// event type in an encrypted room, the `redact` level against our own
+    /// level at and one below the threshold (and from `users_default` alone),
+    /// `state_default` not gating messages, and a membership that is not
+    /// "joined". Every joined room's two answers are chosen so that a swapped
+    /// key, a dropped override or an ignored threshold fails.
+    #[test]
+    fn the_open_room_permissions_come_from_local_power_levels_and_membership() {
+        let gated = room_id!("!gated:example.org");
+        let lowered = room_id!("!lowered:example.org");
+        let raised = room_id!("!raised:example.org");
+        let encrypted = room_id!("!encrypted:example.org");
+        let below = room_id!("!below:example.org");
+        let at = room_id!("!at:example.org");
+        let by_default = room_id!("!bydefault:example.org");
+        let state_only = room_id!("!stateonly:example.org");
+        let left = room_id!("!left:example.org");
+        let invited = room_id!("!invited:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            let me = client.user_id().unwrap().to_string();
+            let create = json!({
+                "type": "m.room.create", "state_key": "", "sender": me,
+                "event_id": "$create", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "room_version": "11", "creator": me },
+            });
+            let levels = |content: serde_json::Value| {
+                json!({
+                    "type": "m.room.power_levels", "state_key": "", "sender": me,
+                    "event_id": "$pl", "origin_server_ts": 1_700_000_000_000u64,
+                    "content": content,
+                })
+            };
+            let joined = |content: serde_json::Value| {
+                vec![create.clone(), member(&me, "join", "Me", "$m0"), levels(content)]
+            };
+            // Messages at 50, redacting others at 0: may not post, may redact.
+            sync(&client, gated, "p1", joined(json!({
+                "events_default": 50, "redact": 0, "users_default": 0,
+                "events": { "m.room.redaction": 0 },
+            })), vec![]).await;
+            // A per-event entry LOWERS m.room.message below events_default:
+            // may post; redact stays at 50 above our 0.
+            sync(&client, lowered, "p2", joined(json!({
+                "events_default": 50, "redact": 50, "users_default": 0,
+                "events": { "m.room.message": 0 },
+            })), vec![]).await;
+            // A per-event entry RAISES m.room.message above events_default.
+            sync(&client, raised, "p3", joined(json!({
+                "events_default": 0, "redact": 50, "users_default": 0,
+                "events": { "m.room.message": 100 },
+            })), vec![]).await;
+            // Encrypted: m.room.message is lowered but m.room.encrypted, what
+            // actually goes on the wire, stays at events_default.
+            let mut state = joined(json!({
+                "events_default": 50, "redact": 50, "users_default": 0,
+                "events": { "m.room.message": 0 },
+            }));
+            state.push(json!({
+                "type": "m.room.encryption", "state_key": "", "sender": me,
+                "event_id": "$enc", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "algorithm": "m.megolm.v1.aes-sha2" },
+            }));
+            sync(&client, encrypted, "p4", state, vec![]).await;
+            // Our own level one below, then exactly at, both thresholds.
+            sync(&client, below, "p5", joined(json!({
+                "events_default": 50, "redact": 50, "users_default": 0,
+                "users": { me.clone(): 49 },
+            })), vec![]).await;
+            sync(&client, at, "p6", joined(json!({
+                "events_default": 50, "redact": 50, "users_default": 0,
+                "users": { me.clone(): 50 },
+            })), vec![]).await;
+            // No `users` entry at all: our level is `users_default`, which
+            // meets both thresholds.
+            sync(&client, by_default, "p6a", joined(json!({
+                "events_default": 50, "redact": 50, "users_default": 50,
+            })), vec![]).await;
+            // `state_default` governs state events only: at 100 it must not
+            // gate an ordinary message, which `events_default` (0) does.
+            sync(&client, state_only, "p6b", joined(json!({
+                "events_default": 0, "state_default": 100, "redact": 50,
+                "users_default": 0,
+            })), vec![]).await;
+            // A room we left: the membership answers, no permission does.
+            sync(&client, left, "p7", vec![
+                create.clone(),
+                member(&me, "leave", "Me", "$m1"),
+                levels(json!({ "events_default": 0, "redact": 0 })),
+            ], vec![]).await;
+            let mut response = v5::Response::new("p8".to_owned());
+            let mut entry = v5::response::Room::default();
+            entry.invite_state = Some(vec![raw(json!({
+                "type": "m.room.member", "state_key": me,
+                "sender": "@inviter:example.org",
+                "content": { "membership": "invite" },
+            }))]);
+            response.rooms.insert(invited.to_owned(), entry);
+            client
+                .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+                .await
+                .expect("sync processed");
+            (server, client)
+        });
+
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-own-permissions-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        let requests = || {
+            rt.block_on(async {
+                server.server().received_requests().await.unwrap_or_default().len()
+            })
+        };
+        let requests_before = requests();
+        let ask = |room: &RoomId, op: u64| {
+            room_own_permissions(&bridge, room.to_string(), op).expect("a known room");
+            own_permissions_answer(&bridge, op)
+        };
+        let facts = |answer: &serde_json::Value| {
+            (
+                answer["own_membership"].clone(),
+                answer["own_can_send_message"].clone(),
+                answer["own_can_redact_other"].clone(),
+            )
+        };
+        let joined = json!("joined");
+        let cases = [
+            (gated, 1, json!(false), json!(true)),
+            (lowered, 2, json!(true), json!(false)),
+            (raised, 3, json!(false), json!(false)),
+            (encrypted, 4, json!(false), json!(false)),
+            (below, 5, json!(false), json!(false)),
+            (at, 6, json!(true), json!(true)),
+            (by_default, 10, json!(true), json!(true)),
+            (state_only, 11, json!(true), json!(false)),
+        ];
+        for (room, op, send, redact) in cases {
+            let answer = ask(room, op);
+            assert_eq!(answer["room_id"], json!(room.as_str()), "{answer}");
+            assert_eq!(
+                facts(&answer),
+                (joined.clone(), send, redact),
+                "{room}: {answer}"
+            );
+        }
+        let gone = ask(left, 7);
+        assert_eq!(facts(&gone), (json!("left"), json!(null), json!(null)), "{gone}");
+        let pending = ask(invited, 8);
+        assert_eq!(
+            facts(&pending),
+            (json!("invited"), json!(null), json!(null)),
+            "{pending}"
+        );
+        // A room the store has never heard of answers nothing, synchronously.
+        assert!(room_own_permissions(&bridge, "!nowhere:example.org".to_owned(), 9).is_err());
+
+        // No request: the whole answer is the store.
+        assert_eq!(requests(), requests_before, "the open-room facts made a request");
         drop(bridge);
         drop(server);
         drop(rt);

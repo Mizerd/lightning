@@ -36,12 +36,18 @@ Item {
         && root.menuEventId !== ""
         && root.timelineModel.visibleTextForEvent(root.menuEventId).length > 0
     // The SDK's power-level answer for the open room: may we redact another
-    // member's message. Read, never computed here; true only when it says so,
-    // and only while app.roomInfo describes the open room (it can be showing
-    // another room's panel, whose grant must not offer Delete here).
+    // member's message. Read, never computed here; true only when it says so.
+    // The open room's own facts (app.openRoomPermissions, read on every open)
+    // decide once they have answered; until then app.roomInfo may, but only
+    // while it describes the open room (it can be showing another room's
+    // panel, whose grant must not offer Delete here).
     readonly property bool canRedactOthers:
-        !!app.roomInfo && app.roomInfo.roomId === app.currentRoomId
-        && app.roomInfo.canRedactOthers === true
+        !!app.openRoomPermissions
+        && app.openRoomPermissions.roomId === app.currentRoomId
+        && app.openRoomPermissions.redactKnown === true
+            ? app.openRoomPermissions.canRedactOthers === true
+            : (!!app.roomInfo && app.roomInfo.roomId === app.currentRoomId
+               && app.roomInfo.canRedactOthers === true)
     // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true

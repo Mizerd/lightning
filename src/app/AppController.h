@@ -82,6 +82,7 @@
 #include "models/TimelineModel.h"
 #include "app/PinnedMessagesController.h"
 #include "app/RoomUpgradeController.h"
+#include "app/OpenRoomPermissions.h"
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
 #include "spaces/RoomClosureController.h"
@@ -407,6 +408,10 @@ class AppController : public QObject
     // Room upgrade links for the active room. Never follows an upgrade by
     // itself.
     Q_PROPERTY(RoomUpgradeController* roomUpgrade READ roomUpgrade CONSTANT)
+    // The open room's own posting facts (may post, may redact others, our
+    // membership), from local state, whichever room the info panel shows.
+    Q_PROPERTY(OpenRoomPermissions* openRoomPermissions
+                   READ openRoomPermissions CONSTANT)
     // The single open thread panel.
     Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
     // The read-only view of a message and its surroundings, fetched with
@@ -738,6 +743,8 @@ public:
     { return m_notifications.get(); }
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
+    OpenRoomPermissions *openRoomPermissions() const
+    { return m_openRoomPermissions.get(); }
     ThreadController *thread() const { return m_thread.get(); }
     ContextController *eventContext() const { return m_eventContext.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
@@ -1669,6 +1676,7 @@ private:
     void noteRtcSessionForRing(const QString &roomId);
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
+    std::unique_ptr<OpenRoomPermissions> m_openRoomPermissions;
     std::unique_ptr<ThreadController> m_thread;
     std::unique_ptr<ContextController> m_eventContext;
     std::unique_ptr<ConversationController> m_conversations;

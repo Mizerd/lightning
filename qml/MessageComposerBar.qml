@@ -21,19 +21,28 @@ Item {
     // server would refuse the event (no permission, not joined). Replaces the
     // composer with the reason, as Element does, instead of letting a send
     // fail with only Retry and Cancel. `canSendMessages` and
-    // `sendBlockedReason` come from RoomInfoController; an absent property is
-    // undefined, which counts as allowed.
+    // `sendBlockedReason` come from the open room's own facts
+    // (OpenRoomPermissions, read on every open from local SDK state), and
+    // from RoomInfoController only while those have said nothing about
+    // posting; an absent property is undefined, which counts as allowed.
     readonly property bool roomReplaced: app.roomUpgrade.upgraded === true
-    // The room-info answer counts only while that controller is on the
-    // composer's room: the info panel can be showing another room.
+    // Each answer counts only while it describes the composer's room: the
+    // info panel can be showing another room, and the open-room facts are
+    // cleared and re-read on every switch.
+    readonly property bool openFactsAreOurs:
+        !!app.openRoomPermissions
+        && app.openRoomPermissions.roomId === app.currentRoomId
+        && app.openRoomPermissions.sendKnown === true
     readonly property bool roomInfoIsOurs:
         app.roomInfo.roomId === app.currentRoomId
+    readonly property var postFacts: openFactsAreOurs
+        ? app.openRoomPermissions : (roomInfoIsOurs ? app.roomInfo : null)
     readonly property bool postBlocked:
-        roomReplaced || (roomInfoIsOurs && app.roomInfo.canSendMessages === false)
+        roomReplaced || (!!postFacts && postFacts.canSendMessages === false)
     readonly property string postBlockedReason: {
         if (roomReplaced)
             return qsTr("This room has been replaced.")
-        var why = app.roomInfo.sendBlockedReason
+        var why = postFacts ? postFacts.sendBlockedReason : ""
         return (typeof why === "string" && why.length > 0)
                 ? why : qsTr("You do not have permission to post in this room.")
     }

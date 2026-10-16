@@ -143,6 +143,64 @@ private slots:
 #endif
     }
 
+    /// rooms.rs's open-room facts (`room_own_permissions`, the composer's
+    /// posting block and moderator Delete with no room panel open) cross as
+    /// the room_members answers do: null is unknown (no key), a bool crosses
+    /// under its own key, and the membership and op id always do.
+    void theOpenRoomFactsSurviveTheBridge()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &MatrixClient::roomOwnPermissionsReceived);
+        QJsonObject event;
+        event.insert(QStringLiteral("type"),
+                     QStringLiteral("room_own_permissions"));
+        event.insert(QStringLiteral("op_id"), 21);
+        event.insert(QStringLiteral("room_id"),
+                     QStringLiteral("!r:example.org"));
+        event.insert(QStringLiteral("own_membership"), QStringLiteral("joined"));
+        event.insert(QStringLiteral("own_can_send_message"),
+                     QJsonValue(QJsonValue::Null));
+        event.insert(QStringLiteral("own_can_redact_other"),
+                     QJsonValue(QJsonValue::Null));
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        QList<QVariant> args = spy.takeFirst();
+        QCOMPARE(args.at(0).toULongLong(), 21ULL);
+        QCOMPARE(args.at(1).toString(), QStringLiteral("!r:example.org"));
+        QVariantMap facts = args.at(2).toMap();
+        QVERIFY2(!facts.contains(QStringLiteral("canSendMessages")),
+                 "an unknown send permission crossed as an answer");
+        QVERIFY2(!facts.contains(QStringLiteral("canRedactOthers")),
+                 "an unknown redaction permission crossed as an answer");
+        QCOMPARE(facts.value(QStringLiteral("ownMembership")).toString(),
+                 QStringLiteral("joined"));
+
+        // Two DIFFERENT answers, so a swapped key fails.
+        event.insert(QStringLiteral("own_can_send_message"), false);
+        event.insert(QStringLiteral("own_can_redact_other"), true);
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        facts = spy.takeFirst().at(2).toMap();
+        QCOMPARE(facts.value(QStringLiteral("canSendMessages")), QVariant(false));
+        QCOMPARE(facts.value(QStringLiteral("canRedactOthers")), QVariant(true));
+
+        event.insert(QStringLiteral("own_membership"), QStringLiteral("left"));
+        event.insert(QStringLiteral("own_can_send_message"),
+                     QJsonValue(QJsonValue::Null));
+        event.insert(QStringLiteral("own_can_redact_other"),
+                     QJsonValue(QJsonValue::Null));
+        client.handleRustEventForTest(event);
+        facts = spy.takeFirst().at(2).toMap();
+        QCOMPARE(facts.value(QStringLiteral("ownMembership")).toString(),
+                 QStringLiteral("left"));
+        QVERIFY(!facts.contains(QStringLiteral("canSendMessages")));
+#endif
+    }
+
     /// A typist who left (kicked, banned) gets no typing stop from the server;
     /// a full roster without them drops them from the indicator, a partial or
     /// truncated one cannot prove they left (B026).

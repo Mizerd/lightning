@@ -65,28 +65,54 @@ follow-up: `room_membership_lost` (like `stale_invites_retired`) carries no
 account or lifecycle stamp, so an event drained after an account switch could
 close a room of the same id in the new account.
 
-## 2026-10-16 — OPEN: the break-it round's posting and moderation gates need `app.roomInfo` to be on the open room
+## 2026-10-16 — FIXED (openperm follow-up): the break-it round's posting and moderation gates no longer need `app.roomInfo` to be on the open room
 
-**What it is.** Three gates from the break-it round read RoomInfoController's
-SDK answers, and each acts ONLY while that controller is on the open room
+**What it was.** Three gates from the break-it round read RoomInfoController's
+SDK answers, and each acted ONLY while that controller was on the open room
 (`app.roomInfo.roomId === app.currentRoomId`):
 
 - B027/B123, the composer replaced by "You do not have permission to post in
-  this room." (`MessageComposerBar.qml`, `postBlocked`, via `roomInfoIsOurs`);
+  this room." (`MessageComposerBar.qml`, `postBlocked`);
 - moderator Delete of another member's message (`MessageDelegate.qml`,
   `canRedactOthers`).
 
-The scoping is correct: another room's answer must never block or grant here.
-But `app.roomInfo` does not follow `currentRoomId` on its own; it is pointed at
-a room by the info panel, the member popover and the Space settings dialog. So
-in a room whose info has not been opened this session, the composer is never
-replaced (the server still refuses the send) and moderator Delete is not
-offered (own messages still are). The gates fail OPEN for posting and CLOSED for
-moderation; neither is a breach, both are a UI that says less than it could.
+The scoping was correct, but `app.roomInfo` is pointed at a room only by the
+info panel, the member popover and the Space settings dialog, so in a room
+whose info had not been opened the gates never acted: posting failed OPEN (the
+server refused the send), moderator Delete failed CLOSED.
 
-**Planned follow-up (lead).** Compute `own_can_send_message`,
-`own_can_redact_other` and our own membership for the OPEN room from local SDK
-state, independent of which room the info panel shows. **Live: NOT TESTED.**
+**Fix.** The open room's own facts are read from LOCAL SDK state, independent
+of which room the info panel shows: `rooms::room_own_permissions` (Rust, no
+request: the room's membership, our own member event and m.room.power_levels
+from the store, through the same `own_send_and_redact` helper the member
+snapshot uses) answers `room_own_permissions`; `OpenRoomPermissions`
+(`app.openRoomPermissions`) asks on every `setCurrentRoomId` and on every
+member or power-level poke for the open room, drops an answer for another room
+or a superseded request, clears on every room switch, sign-out and account
+switch, and reads unknown as allowed-to-post and not-offered-to-moderate. The
+composer and `canRedactOthers` read it first and fall back to `app.roomInfo`
+(still scoped to the open room) only while it has said nothing. The tombstone
+half already followed the open room (`app.roomUpgrade`) and keeps offering
+"Continue in new room".
+
+**Tests.** Rust `the_open_room_permissions_come_from_local_power_levels_and_membership`
+(events_default, a per-event m.room.message entry lowering and raising it, the
+encrypted type, the redact level at and one below our own, left and invited,
+and no request made); `open-room-permissions` (new C++ suite);
+`ComposerQmlTest::thePostingBlockActsWithNoRoomPanelOpen`;
+`MessageRailCollisionTest::moderatorDeleteIsOfferedWithNoRoomPanelOpen`;
+`RtcBridgePayloadTest::theOpenRoomFactsSurviveTheBridge`. **Live: NOT TESTED.**
+
+**Accepted follow-ups (review, not fixed):**
+
+- The open-room facts are not re-read when the room turns encryption on. In
+  an encrypted room posting needs `m.room.encrypted` as well as
+  `m.room.message`, and `m.room.encryption` is neither a member nor a
+  power-level poke, so the answer stays the pre-encryption one until the next
+  open or poke. The server still enforces the send.
+- The composer's `commandPermissions` Binding (kick, ban, unban, invite,
+  topic and room-name hints in the completion rows) still reads `app.roomInfo`
+  only, so those hints appear only while the info panel is on the open room.
 
 ## 2026-10-16 — OPEN, pre-existing: a live append while parked at the oldest loaded row shifts the view by the appended height
 

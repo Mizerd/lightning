@@ -26,6 +26,7 @@
 #include <QQuickWindow>
 
 #include "app/AppController.h"
+#include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "models/AttachmentQueueModel.h"
@@ -1829,6 +1830,92 @@ private slots:
         QVERIFY(!blocked->isVisible());
         QVERIFY(item("composerInput") != nullptr);
         QVERIFY(item("composerInput")->isVisible());
+    }
+
+    // Break-it B027/B123 follow-up: the posting block read app.roomInfo only,
+    // which describes the open room only while its info panel inspects it, so
+    // in the default path the composer was never replaced and a send failed
+    // at the server. The open room's own facts (app.openRoomPermissions, read
+    // on every open from local state) now act with NO panel open: a refusal,
+    // a membership that is not "joined", and a tombstone each replace the
+    // composer with their reason, and another room's answer never does.
+    void thePostingBlockActsWithNoRoomPanelOpen()
+    {
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        auto *bar = item("composerBar");
+        auto *blocked = item("composerBlockedBar");
+        auto *reason = item("composerBlockedReason");
+        auto *cont = item("composerContinueButton");
+        QVERIFY(bar && blocked && reason && cont);
+        const QString room = QStringLiteral("!general:mock.local");
+        const QString other = QStringLiteral("!devs:mock.local");
+        const QString previousRoom = m_controller->currentRoomId();
+        // Nobody has opened a panel: the room-info controller is on no room.
+        m_controller->roomInfo()->setRoomId(QString());
+        const auto restore = qScopeGuard([&] {
+            mock->setOwnPermissionsForTest(room, {});
+            mock->setRoomSuccessorForTest(room, QString());
+            m_controller->setCurrentRoomId(previousRoom);
+            QTest::qWait(30);
+        });
+        m_controller->setCurrentRoomId(room);
+        QTest::qWait(30);
+        QVERIFY(!bar->property("postBlocked").toBool());
+
+        // The SDK says we may not post (a power-level change pokes the room).
+        QVariantMap muted;
+        muted.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
+        muted.insert(QStringLiteral("canSendMessages"), false);
+        mock->setOwnPermissionsForTest(room, muted);
+        QTRY_VERIFY2_WITH_TIMEOUT(blocked->isVisible(),
+                                  "a refused post did not replace the "
+                                  "composer while no room panel is open",
+                                  3000);
+        QVERIFY(m_controller->roomInfo()->roomId() != room);
+        QVERIFY(!item("composerInput")->isVisible());
+        QCOMPARE(reason->property("text").toString(),
+                 QStringLiteral("You do not have permission to post in this "
+                                "room."));
+        QVERIFY2(!cont->isVisible(), "a refusal offers a successor room");
+
+        // Removed from the room: the membership is the reason.
+        QVariantMap left;
+        left.insert(QStringLiteral("ownMembership"), QStringLiteral("left"));
+        mock->setOwnPermissionsForTest(room, left);
+        QTRY_COMPARE_WITH_TIMEOUT(reason->property("text").toString(),
+                                  QStringLiteral("You are not in this room."),
+                                  3000);
+        QVERIFY(blocked->isVisible());
+
+        // Another room's refusal is not shown here: switching clears it.
+        mock->setOwnPermissionsForTest(room, muted);
+        QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
+        m_controller->setCurrentRoomId(other);
+        QVERIFY2(!bar->property("postBlocked").toBool(),
+                 "the previous room's refusal blocked the next room's "
+                 "composer before its own answer landed");
+        QTest::qWait(30);
+        QVERIFY(!blocked->isVisible());
+        QVERIFY(item("composerInput")->isVisible());
+
+        // Allowed again: the composer comes back.
+        m_controller->setCurrentRoomId(room);
+        QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
+        QVariantMap allowed = muted;
+        allowed.insert(QStringLiteral("canSendMessages"), true);
+        mock->setOwnPermissionsForTest(room, allowed);
+        QTRY_VERIFY_WITH_TIMEOUT(!blocked->isVisible(), 3000);
+        QVERIFY(item("composerInput")->isVisible());
+
+        // A tombstone: the reason and the successor link, still with no
+        // panel open.
+        mock->setRoomSuccessorForTest(room, other);
+        QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
+        QCOMPARE(reason->property("text").toString(),
+                 QStringLiteral("This room has been replaced."));
+        QVERIFY2(cont->isVisible(),
+                 "a replaced room does not offer its successor");
     }
 
     // #42 "Drag and drop not working": real drag events on the PRODUCTION

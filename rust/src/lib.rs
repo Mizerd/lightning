@@ -8105,6 +8105,21 @@ pub unsafe extern "C" fn mx_rust_room_members(
     })
 }
 
+/// The open room's own posting facts (membership, may post, may redact
+/// others), from local state only; answered as `room_own_permissions`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_own_permissions(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        rooms::room_own_permissions(bridge, room_id, op_id).map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_name(
     ptr: *mut c_void,

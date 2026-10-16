@@ -15,6 +15,9 @@
 // page's secondary grey on the accent fill): every one meets 4.5:1 against
 // the bubble on all eleven presets.
 //
+// And moderator Delete (break-it B025) is granted from the open room's own
+// facts, with no room panel open.
+//
 // These are geometric assertions on the real delegate, not a source scan: a
 // scan cannot see an overlap.
 #include <QtTest/QtTest>
@@ -36,7 +39,10 @@
 #include <QTextTable>
 
 #include "app/AppController.h"
+#include "app/OpenRoomPermissions.h"
+#include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
+#include "matrix/MockMatrixClient.h"
 #include "models/MessageHtml.h"
 
 #include <algorithm>
@@ -622,6 +628,67 @@ private Q_SLOTS:
                  "the failed tile shows no error state");
         // The explanation is still there, as the tooltip.
         QVERIFY(QQmlProperty::read(tile, QStringLiteral("loadFailed")).toBool());
+    }
+
+    // Break-it B025 follow-up: moderator Delete on another member's message
+    // read the grant from app.roomInfo only, which is on the open room only
+    // while the info panel inspects it, so in the default path Delete was
+    // never offered. The open room's own facts (app.openRoomPermissions, read
+    // on every open) now decide with no panel open; another room's answer
+    // never grants here, and a refusal withdraws the grant.
+    void moderatorDeleteIsOfferedWithNoRoomPanelOpen()
+    {
+        AppController app(AppController::MockBackend);
+        auto *mock = app.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        auto *facts = app.openRoomPermissions();
+        QVERIFY(facts);
+        const QString room = QStringLiteral("!general:mock.local");
+        const QString other = QStringLiteral("!devs:mock.local");
+        QVERIFY(mock->roomInfo(other).id == other);
+        QVariantMap grant;
+        grant.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
+        grant.insert(QStringLiteral("canSendMessages"), true);
+        grant.insert(QStringLiteral("canRedactOthers"), true);
+        mock->setOwnPermissionsForTest(room, grant);
+        app.setCurrentRoomId(room);
+        QTRY_VERIFY_WITH_TIMEOUT(facts->canRedactOthers(), kSignalTimeoutMs);
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), false);
+        f.insert(QStringLiteral("sender"), QStringLiteral("@peer:mock.local"));
+        f.insert(QStringLiteral("eventId"), QStringLiteral("$peer-message"));
+        f.insert(QStringLiteral("body"), QStringLiteral("hello"));
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        // No panel: the room-info controller describes no room at all.
+        QVERIFY2(app.roomInfo()->roomId() != room,
+                 "the fixture opened the info panel; this case is about the "
+                 "path where nobody has");
+        QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("canRedactOthers"))
+                     .toBool(),
+                 "a moderator is not offered Delete on another member's "
+                 "message until the room's info panel has been opened");
+
+        // The SDK withdraws the grant (a demotion pokes the room).
+        QVariantMap demoted = grant;
+        demoted.insert(QStringLiteral("canRedactOthers"), false);
+        mock->setOwnPermissionsForTest(room, demoted);
+        QTRY_VERIFY_WITH_TIMEOUT(!facts->canRedactOthers(), kSignalTimeoutMs);
+        QVERIFY(!QQmlProperty::read(d.root, QStringLiteral("canRedactOthers"))
+                     .toBool());
+
+        // One room's grant never carries into another: the facts follow the
+        // switch and are cleared before the new room's answer lands.
+        mock->setOwnPermissionsForTest(room, grant);
+        QTRY_VERIFY_WITH_TIMEOUT(facts->canRedactOthers(), kSignalTimeoutMs);
+        app.setCurrentRoomId(other);
+        QCOMPARE(facts->roomId(), other);
+        QVERIFY2(!facts->canRedactOthers() && !facts->redactKnown(),
+                 "the previous room's grant survived the switch");
+        QCoreApplication::processEvents();
+        QVERIFY(!QQmlProperty::read(d.root, QStringLiteral("canRedactOthers"))
+                     .toBool());
     }
 
     // Break-it B027/B067 support: a failed echo said only "failed". It names

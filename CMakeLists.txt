@@ -520,6 +520,8 @@ set(APP_SOURCES
     src/app/PinnedMessagesController.cpp
     src/app/RoomUpgradeController.h
     src/app/RoomUpgradeController.cpp
+    src/app/OpenRoomPermissions.h
+    src/app/OpenRoomPermissions.cpp
     src/app/RoomDiscoveryController.h
     src/app/RoomDiscoveryController.cpp
     src/app/UiaController.h
@@ -3205,6 +3207,21 @@ if(BUILD_TESTING)
     target_include_directories(room-info-moderation-test PRIVATE src)
     target_link_libraries(room-info-moderation-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-info-moderation COMMAND room-info-moderation-test)
+
+    # The open room's own posting facts (break-it B025/B027/B123 follow-up):
+    # read on every open and on the open room's pokes, never shown for another
+    # room or from a superseded request, cleared on sign-out and account
+    # switch, unknown allowed for posting and not offered for moderation.
+    qt_add_executable(open-room-permissions-test
+        tests/OpenRoomPermissionsTest.cpp
+        src/app/OpenRoomPermissions.h
+        src/app/OpenRoomPermissions.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(open-room-permissions-test PRIVATE src)
+    target_link_libraries(open-room-permissions-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME open-room-permissions COMMAND open-room-permissions-test)
 
     # Room administration: power levels, join rule and canonical alias.
     # Matrix rules enforced before dispatch, custom levels preserved, no

@@ -911,6 +911,11 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(userIds); return 0; }
     virtual quint64 requestRoomMembers(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
+    // The open room's own posting facts from local state (no request): see
+    // roomOwnPermissionsReceived. 0 when the backend cannot answer, which
+    // leaves the facts unknown.
+    virtual quint64 requestRoomOwnPermissions(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
     virtual quint64 setRoomName(const QString &roomId, const QString &name)
     { Q_UNUSED(roomId); Q_UNUSED(name); return 0; }
     virtual quint64 setRoomTopic(const QString &roomId, const QString &topic)
@@ -2031,6 +2036,11 @@ Q_SIGNALS:
     // isOwn).
     void roomMembersReceived(quint64 opId, const QString &roomId,
                              const QVariantMap &snapshot);
+    // facts: ownMembership ("joined", "invited", "left", "knocked",
+    // "banned"; empty when unknown), and canSendMessages / canRedactOthers
+    // only when the SDK answered (an absent key is unknown).
+    void roomOwnPermissionsReceived(quint64 opId, const QString &roomId,
+                                    const QVariantMap &facts);
     // Thread participants for the facepile: user-id-deduplicated maps (userId,
     // displayName, avatarUrl), root sender first. `distinct` counts distinct
     // senders (not replies); `truncated` means more exist. A failed lookup has

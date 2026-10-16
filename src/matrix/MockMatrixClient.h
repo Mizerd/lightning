@@ -124,6 +124,17 @@ public:
     // Deterministic member snapshot for the mention suggestion model (built
     // from the seeded room members; emitted asynchronously by op id).
     quint64 requestRoomMembers(const QString &roomId) override;
+    // The open room's own posting facts: nothing (unknown) unless a test set
+    // them for that room with setOwnPermissionsForTest. Asynchronous like the
+    // real backend. Setting them also pokes the room, as a member or
+    // power-level change would.
+    quint64 requestRoomOwnPermissions(const QString &roomId) override;
+    void setOwnPermissionsForTest(const QString &roomId,
+                                  const QVariantMap &facts);
+    int ownPermissionRequestsForTest() const { return m_ownPermissionRequests; }
+    // A tombstone, as the room list would deliver it (empty clears it).
+    void setRoomSuccessorForTest(const QString &roomId,
+                                 const QString &successorRoomId);
     QString lastSentBodyForTest() const { return m_lastSentBody; }
     QStringList lastMentionIdsForTest() const { return m_lastMentionIds; }
     // Mock thread timelines so ThreadController and the thread UI are testable
@@ -414,6 +425,8 @@ private:
     void emitThreadList(const QString &roomId);
     // Thread attachment sending.
     quint64 m_opCounter = 0;
+    QHash<QString, QVariantMap> m_ownPermissionsForTest;
+    int m_ownPermissionRequests = 0;
     int m_threadAttachmentCalls = 0;
     QByteArray m_lastThreadAttachmentBytes;
     bool m_failNextThreadAttachment = false;
