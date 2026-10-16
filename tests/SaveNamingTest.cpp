@@ -84,6 +84,10 @@ private Q_SLOTS:
         // name is what they chose, and the type is no more trustworthy.
         QTest::newRow("sender extension kept") << "scan.png" << "image/jpeg"
                                                << "scan.png";
+        // An unrecognised suffix is the sender's own: no ".txt" on top, and
+        // the dialog then offers All files alone (B072).
+        QTest::newRow("unknown suffix kept") << "weird name.xyz" << "text/plain"
+                                             << "weird name.xyz";
         QTest::newRow("no name, image") << "" << "image/webp" << "image.webp";
         QTest::newRow("no name, video") << "" << "video/mp4" << "video.mp4";
         QTest::newRow("no name, unknown") << "" << "" << "file";
@@ -234,6 +238,9 @@ private Q_SLOTS:
         QCOMPARE(saveDialogFilters(QStringLiteral("report.pdf")),
                  (QStringList{QStringLiteral("PDF file (*.pdf)"),
                               QStringLiteral("All files (*)")}));
+        QCOMPARE(saveDialogFilters(suggestedFileName(
+                     QStringLiteral("weird name.xyz"),
+                     QStringLiteral("text/plain"))).size(), 1);
         QCOMPARE(saveDialogFilters(QStringLiteral("README")),
                  QStringList{QStringLiteral("All files (*)")});
     }

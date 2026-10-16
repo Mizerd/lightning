@@ -60,6 +60,8 @@ Dialog {
     property int selectionAnchor: -1
     property bool editingPath: false
     property bool creatingFolder: false
+    // An error about the new-folder row goes with the row.
+    onCreatingFolderChanged: if (!creatingFolder) failure = ""
     property string failure: ""
     // A name to select once the next listing arrives (a folder just left, a
     // folder just created).
@@ -918,7 +920,12 @@ Dialog {
                         // Column headers: click to sort, again to reverse.
                         RowLayout {
                             Layout.fillWidth: true
+                            // A nested layout fills both ways by default;
+                            // without this the header takes the list's height.
+                            Layout.fillHeight: false
                             Layout.preferredHeight: 30
+                            Layout.minimumHeight: 30
+                            Layout.maximumHeight: 30
                             Layout.leftMargin: AppTheme.spacing12
                             Layout.rightMargin: AppTheme.spacing12
                             spacing: AppTheme.spacing8
@@ -983,6 +990,7 @@ Dialog {
                             objectName: "fileChooserList"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            Layout.minimumHeight: 60
                             clip: true
                             model: browser
                             currentIndex: -1

@@ -357,7 +357,13 @@ QString suggestedFileName(const QString &rawName, const QString &mime)
         else
             leaf = QStringLiteral("file");
     }
-    if (!ext.isEmpty() && extensionOf(leaf).isEmpty()) {
+    // A suffix this table does not know ("scan.xyz") is still the sender's own
+    // extension: appending the type's to it gives "scan.xyz.txt" and a
+    // one-entry filter that hides the folder. Keep their name as it is.
+    const int dot = leaf.lastIndexOf(QLatin1Char('.'));
+    const bool senderSuffix =
+        dot > 0 && looksLikeExtension(leaf.mid(dot + 1).toLower());
+    if (!ext.isEmpty() && extensionOf(leaf).isEmpty() && !senderSuffix) {
         if (leaf.size() + ext.size() + 1 > kMaxLeafChars)
             leaf = leaf.left(kMaxLeafChars - ext.size() - 1).trimmed();
         leaf += QLatin1Char('.') + ext;

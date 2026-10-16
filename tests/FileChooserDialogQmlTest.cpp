@@ -474,6 +474,49 @@ private Q_SLOTS:
         QVERIFY(!m_dialog->property("creatingFolder").toBool());
     }
 
+    // B001/B003: the column header is 30px at the top of the list panel and
+    // the list takes the rest. A nested layout fills both ways by default, and
+    // the header once took the list's height. Geometric on purpose.
+    void theListFillsThePanelBelowAThirtyPixelHeader()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        touch(dir.path() + QStringLiteral("/a.txt"));
+        touch(dir.path() + QStringLiteral("/b.txt"));
+        request({{QStringLiteral("mode"), QStringLiteral("open")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QQuickItem *header =
+            qobject_cast<QQuickItem *>(child("fileChooserSort_name"));
+        QQuickItem *list = qobject_cast<QQuickItem *>(child("fileChooserList"));
+        QVERIFY(header && list);
+        QQuickItem *panel = list->parentItem();
+        QVERIFY(panel);
+        QTRY_VERIFY(list->height() > 0);
+        QCOMPARE(header->height(), 30.0);
+        QVERIFY2(list->height() >= panel->height() - 31 - 2,
+                 qPrintable(QStringLiteral("list %1 of panel %2")
+                                .arg(list->height()).arg(panel->height())));
+        QVERIFY(list->height() > 100);
+        QVERIFY(header->mapToItem(panel, QPointF(0, 0)).y() < 5);
+    }
+
+    // B134: the new-folder error goes when the row closes.
+    void theNewFolderErrorGoesWhenTheRowCloses()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        request({{QStringLiteral("mode"), QStringLiteral("save")},
+                 {QStringLiteral("currentName"), QStringLiteral("x.txt")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        m_dialog->setProperty("creatingFolder", true);
+        child("fileChooserNewFolderName")
+            ->setProperty("text", QStringLiteral("../up"));
+        QVERIFY(call("createFolder"));
+        QVERIFY(!m_dialog->property("failure").toString().isEmpty());
+        m_dialog->setProperty("creatingFolder", false);
+        QVERIFY(m_dialog->property("failure").toString().isEmpty());
+    }
+
     void escapeAndCancelAnswerCancelled()
     {
         QTemporaryDir dir;
