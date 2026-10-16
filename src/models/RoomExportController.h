@@ -13,6 +13,7 @@
 #include <memory>
 
 class MatrixClient;
+class FileLauncher;
 class QSaveFile;
 
 /// Runs one room export at a time: optionally walks the room's history
@@ -94,6 +95,10 @@ public:
     QString start(const Job &job);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void clearResult();
+    /// Reveals the file the last successful export wrote in the file manager.
+    /// The path stays in C++ (it names the user's folders); QML only asks.
+    /// False when there is nothing to reveal or the file is gone.
+    Q_INVOKABLE bool showInFolder();
 
     /// A walk row (as MatrixClient::roomExportPage carries it) as the event
     /// the writers take. Public for tests.
@@ -141,6 +146,9 @@ private:
     QString m_progressText;
     QString m_resultMessage;
     bool m_resultOk = false;
+    /// The file the last successful export wrote; cleared with the result.
+    QString m_resultPath;
+    FileLauncher *m_launcher = nullptr;
     /// Bumped on every start/cancel/reset, so a queued step of a finished
     /// export does nothing.
     quint64 m_generation = 0;

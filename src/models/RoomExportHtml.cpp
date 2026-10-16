@@ -352,7 +352,7 @@ bool HtmlWriter::writeHeader(int messageCount)
         h += QStringLiteral(" It reaches the start of the room's history this "
                             "account can read.");
     h += QStringLiteral("</p>\n");
-    h += QStringLiteral("<p>Messages in this file: %1</p>\n").arg(messageCount);
+    h += QStringLiteral("<p>Events in this file: %1</p>\n").arg(messageCount);
     if (m_options.undecryptableCount > 0)
         h += QStringLiteral("<p class=\"warn\">Messages that could not be "
                             "decrypted: %1</p>\n")

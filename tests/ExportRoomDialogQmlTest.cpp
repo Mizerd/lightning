@@ -349,6 +349,42 @@ private Q_SLOTS:
         QVERIFY(inputProblem().isEmpty());
     }
 
+    // B131/B135. A finished export used to close the dialog without a word,
+    // and the scope sentence called state events "messages". Fails on the
+    // old code: onFinished(ok) closed the dialog, and no success label or
+    // Show-in-folder button existed.
+    void aSuccessfulExportStaysOpenAndSaysSo()
+    {
+        openDialog();
+        QVERIFY(!visible("exportRoomSuccess"));
+        QVERIFY(!visible("exportRoomShowInFolder"));
+        const QString scope =
+            child("exportRoomScope")->property("text").toString();
+        QVERIFY2(scope.contains(QLatin1String("events")), qPrintable(scope));
+        QVERIFY2(!scope.contains(QLatin1String("messages")),
+                 qPrintable(scope));
+
+        Q_EMIT m_exporter.finished(
+            true, QStringLiteral("Exported 12 events to room.html."));
+        QVERIFY(m_dialog->property("visible").toBool());
+        QTRY_VERIFY(visible("exportRoomSuccess"));
+        QCOMPARE(child("exportRoomSuccess")->property("text").toString(),
+                 QStringLiteral("Exported 12 events to room.html."));
+        QVERIFY(visible("exportRoomShowInFolder"));
+        QVERIFY(!visible("exportRoomFailure"));
+
+        // A failure replaces it, and a reopen starts clean.
+        Q_EMIT m_exporter.finished(false, QStringLiteral("Could not write."));
+        QTRY_VERIFY(!visible("exportRoomSuccess"));
+        QVERIFY(visible("exportRoomFailure"));
+        Q_EMIT m_exporter.finished(true, QStringLiteral("Exported 1 event to a."));
+        QTRY_VERIFY(visible("exportRoomSuccess"));
+        QMetaObject::invokeMethod(m_dialog, "close");
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+        openDialog();
+        QVERIFY(!visible("exportRoomSuccess"));
+    }
+
     void theEncryptedOptInIsOffOnEveryOpen()
     {
         m_rooms.encrypted = true;

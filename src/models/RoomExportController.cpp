@@ -1,8 +1,10 @@
 #include "models/RoomExportController.h"
 
+#include "app/FileLauncher.h"
 #include "matrix/MatrixClient.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QHash>
 #include <QLoggingCategory>
 #include <QSaveFile>
@@ -187,6 +189,7 @@ QString RoomExportController::start(const Job &job)
     reset();
     m_job = job;
     m_resultMessage.clear();
+    m_resultPath.clear();
     m_resultOk = false;
     m_busy = true;
 
@@ -551,10 +554,16 @@ void RoomExportController::succeed()
                          << "attachments_embedded=" << m_attachmentsEmbedded
                          << "of" << m_attachmentsTotal;
     const int written = m_written;
+    const QString path = m_job.filePath;
     reset();
     m_resultOk = true;
-    m_resultMessage = written == 1 ? tr("Exported 1 message.")
-                                   : tr("Exported %1 messages.").arg(written);
+    m_resultPath = path;
+    // "events", not "messages": the file also carries the room's state
+    // events (joins, topic changes), and the dialog counts them the same way.
+    const QString name = QFileInfo(path).fileName();
+    m_resultMessage = written == 1
+        ? tr("Exported 1 event to %1.").arg(name)
+        : tr("Exported %1 events to %2.").arg(written).arg(name);
     Q_EMIT stateChanged();
     Q_EMIT finished(true, m_resultMessage);
 }
@@ -586,8 +595,18 @@ void RoomExportController::clearResult()
     if (m_resultMessage.isEmpty() && !m_resultOk)
         return;
     m_resultMessage.clear();
+    m_resultPath.clear();
     m_resultOk = false;
     Q_EMIT stateChanged();
+}
+
+bool RoomExportController::showInFolder()
+{
+    if (!m_resultOk || m_resultPath.isEmpty())
+        return false;
+    if (!m_launcher)
+        m_launcher = new FileLauncher(this);
+    return m_launcher->showInFolder(m_resultPath);
 }
 
 void RoomExportController::reset()

@@ -134,7 +134,7 @@ private Q_SLOTS:
                  "a failed send reached the file");
         // And the count in the header is the same rule the rows use, so the
         // file cannot claim a number it did not write.
-        QVERIFY(text.contains(QStringLiteral("Messages in this file: 1")));
+        QVERIFY(text.contains(QStringLiteral("Events in this file: 1")));
     }
 
     // ── The encrypted-room exception, from both sides ────────────────────

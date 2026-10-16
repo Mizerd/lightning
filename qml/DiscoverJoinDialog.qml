@@ -43,6 +43,12 @@ Dialog {
         && resolved.ok === true
     readonly property bool resolvedPreview:
         resolvedOk && resolved.previewOk === true
+    // The server answered the preview with M_NOT_FOUND: the room does not
+    // exist (or is not reachable by this address), which is not the same as a
+    // room that merely forbids previews.
+    readonly property bool resolvedNotFound:
+        resolvedOk && !resolvedPreview
+        && resolved.previewCategory === "not_found"
     readonly property string resolvedMembership:
         resolvedPreview ? (resolved.membership || "") : ""
     readonly property string resolvedJoinRule:
@@ -638,11 +644,24 @@ Dialog {
                     }
                     Label {
                         Layout.fillWidth: true
+                        objectName: "resolvedNoPreviewLabel"
                         visible: root.resolvedOk && !root.resolvedPreview
+                                 && !root.resolvedNotFound
                         text: qsTr("No preview is available for this room — "
                                    + "the server does not allow previewing "
                                    + "it. You can still try to join.")
                         color: AppTheme.stormTextMuted
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        wrapMode: Text.Wrap
+                    }
+                    Label {
+                        objectName: "resolvedNotFoundLabel"
+                        Layout.fillWidth: true
+                        visible: root.resolvedNotFound
+                        text: qsTr("No room with that address could be found.")
+                        color: AppTheme.danger
                         font.pixelSize: AppTheme.textBody
                         lineHeight: AppTheme.lineHeightBody
                         lineHeightMode: Text.ProportionalHeight
@@ -688,7 +707,8 @@ Dialog {
                         }
                         AppButton {
                             objectName: "resolvedJoinButton"
-                            visible: root.resolvedMembership !== "joined"
+                            visible: !root.resolvedNotFound
+                                     && root.resolvedMembership !== "joined"
                                      && root.resolvedMembership !== "knocked"
                                      && root.resolvedMembership !== "banned"
                             storm: true

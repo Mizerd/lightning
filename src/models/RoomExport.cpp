@@ -155,7 +155,7 @@ QString renderPlainText(const QList<TimelineEvent> &events,
                               QDateTime::currentDateTimeUtc().toString(
                                   Qt::ISODate)));
     }
-    lines.append(QStringLiteral("Messages in this file: %1")
+    lines.append(QStringLiteral("Events in this file: %1")
                      .arg(exportableCount(events)));
     // State the two limits at the top, before the reader draws conclusions.
     if (options.rangeDescription.isEmpty()) {

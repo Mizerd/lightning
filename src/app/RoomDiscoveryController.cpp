@@ -187,6 +187,15 @@ void RoomDiscoveryController::onJoinFinished(quint64 opId, bool ok,
         const QString target = m_joinTarget;
         m_joinTarget.clear();
         const QString message = describeJoinCategory(category);
+        // A join that says the room does not exist makes the resolved card
+        // (and its Join button) a lie: drop it so only the error remains.
+        if (category == QLatin1String("not_found")
+            && m_resolveState == QLatin1String("resolved")) {
+            m_resolveOp = 0;
+            m_resolveState = QStringLiteral("idle");
+            m_resolved.clear();
+            Q_EMIT resolveChanged();
+        }
         setError(message);
         // Emitted before busyChanged, so a consumer that releases ownership on
         // the busy edge still knows which join failed.

@@ -42,6 +42,9 @@ Dialog {
     property bool encrypted: false
     property string roomName: ""
     property string failure: ""
+    // "Exported N events to <file>." after a successful export; the dialog
+    // stays open to say so, rather than closing without a word.
+    property string success: ""
 
     readonly property var exporter: app ? app.roomExport : null
     readonly property bool busy: !!exporter && exporter.busy
@@ -66,6 +69,7 @@ Dialog {
         // Re-armed on every open; never inherited from a previous export.
         includeEncryptedText = false
         failure = ""
+        success = ""
         countField.text = "100"
         fromField.text = ""
         toField.text = ""
@@ -121,8 +125,9 @@ Dialog {
         function onFinished(ok, message) {
             if (ok) {
                 root.failure = ""
-                root.close()
+                root.success = message
             } else {
+                root.success = ""
                 root.failure = message
             }
         }
@@ -144,6 +149,7 @@ Dialog {
             // Cleared first: an export that fails at once reports through
             // onFinished during this very call, and must not be overwritten.
             root.failure = ""
+            root.success = ""
             var problem = app.startRoomExport(
                 selectedFile, root.format, root.rangeMode,
                 parseInt(countField.text, 10) || 0,
@@ -271,20 +277,20 @@ Dialog {
                            .arg(root.roomName)
                 if (!root.isHtml)
                     return root.messageCount === 1
-                           ? qsTr("Exports the 1 message Lightning has loaded "
+                           ? qsTr("Exports the 1 event Lightning has loaded "
                                   + "for %1. Scroll further back first to "
                                   + "include more. Attachments are not "
                                   + "included.").arg(root.roomName)
-                           : qsTr("Exports the %1 messages Lightning has "
+                           : qsTr("Exports the %1 events Lightning has "
                                   + "loaded for %2. Scroll further back first "
                                   + "to include more. Attachments are not "
                                   + "included.")
                                  .arg(root.messageCount).arg(root.roomName)
                 return root.messageCount === 1
-                       ? qsTr("Exports the 1 message Lightning has loaded for "
+                       ? qsTr("Exports the 1 event Lightning has loaded for "
                               + "%1. Scroll further back first to include "
                               + "more.").arg(root.roomName)
-                       : qsTr("Exports the %1 messages Lightning has loaded "
+                       : qsTr("Exports the %1 events Lightning has loaded "
                               + "for %2. Scroll further back first to include "
                               + "more.").arg(root.messageCount)
                                         .arg(root.roomName)
@@ -462,14 +468,34 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
+        Label {
+            objectName: "exportRoomSuccess"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            visible: root.success.length > 0
+            text: root.success
+            textFormat: Text.PlainText
+            color: AppTheme.stormText
+            font.pixelSize: AppTheme.textMeta
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             AppButton {
+                objectName: "exportRoomShowInFolder"
+                visible: root.success.length > 0
+                text: qsTr("Show in folder")
+                kind: "ghost"
+                onClicked: root.exporter.showInFolder()
+            }
+            AppButton {
                 objectName: "exportRoomCancel"
                 // While an export runs this stops it; the partly written file
                 // is discarded.
-                text: root.busy ? qsTr("Cancel export") : qsTr("Cancel")
+                text: root.busy ? qsTr("Cancel export")
+                                : (root.success.length > 0 ? qsTr("Close")
+                                                           : qsTr("Cancel"))
                 kind: "ghost"
                 onClicked: {
                     if (root.busy)

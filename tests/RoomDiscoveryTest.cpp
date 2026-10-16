@@ -207,6 +207,40 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
     }
 
+    void joinNotFoundClearsTheStaleResolvedCard()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        RoomDiscoveryController controller;
+        controller.setClient(&client);
+        QVariantMap resolved;
+        resolved.insert(QStringLiteral("ok"), true);
+        resolved.insert(QStringLiteral("target"),
+                        QStringLiteral("#nonexist:mock.local"));
+        resolved.insert(QStringLiteral("previewOk"), false);
+        resolved.insert(QStringLiteral("previewCategory"),
+                        QStringLiteral("not_found"));
+        client.mockResolveResult = resolved;
+        controller.resolve(QStringLiteral("#nonexist:mock.local"));
+        QTRY_COMPARE(controller.resolveState(), QStringLiteral("resolved"));
+
+        client.mockJoinFailCategory = QStringLiteral("not_found");
+        controller.join(QStringLiteral("#nonexist:mock.local"), {}, false);
+        QTRY_VERIFY(!controller.errorMessage().isEmpty());
+        QCOMPARE(controller.resolveState(), QStringLiteral("idle"));
+        QVERIFY(controller.resolved().isEmpty());
+
+        // Any other failure keeps the card: the room is still joinable later.
+        controller.resolve(QStringLiteral("#nonexist:mock.local"));
+        QTRY_COMPARE(controller.resolveState(), QStringLiteral("resolved"));
+        client.mockJoinFailCategory = QStringLiteral("forbidden");
+        controller.join(QStringLiteral("#nonexist:mock.local"), {}, false);
+        QTRY_COMPARE(controller.errorMessage(),
+                     RoomDiscoveryController::describeJoinCategory(
+                         QStringLiteral("forbidden")));
+        QCOMPARE(controller.resolveState(), QStringLiteral("resolved"));
+    }
+
     void describeJoinCategoryDistinguishesConditions()
     {
         using C = RoomDiscoveryController;

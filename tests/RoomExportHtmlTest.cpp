@@ -260,7 +260,7 @@ private Q_SLOTS:
         QVERIFY2(!page.contains(QStringLiteral("<script"), Qt::CaseInsensitive),
                  "the export page contains a script element");
         QVERIFY(page.contains(QStringLiteral("Exported from Lightning")));
-        QVERIFY(page.contains(QStringLiteral("Messages in this file: 1")));
+        QVERIFY(page.contains(QStringLiteral("Events in this file: 1")));
     }
 
     void aPlainBodyIsEscaped()
@@ -597,7 +597,7 @@ private Q_SLOTS:
         QVERIFY(first > 0 && third > first);
         QVERIFY(page.contains(QString::fromLatin1(pngBytes().toBase64())));
         QVERIFY(page.contains(QStringLiteral("not included: over the size limit")));
-        QVERIFY(page.contains(QStringLiteral("Messages in this file: 4")));
+        QVERIFY(page.contains(QStringLiteral("Events in this file: 4")));
         QVERIFY(page.contains(QStringLiteral("the latest 10 messages")));
         QVERIFY(page.contains(QStringLiteral("reaches the start")));
     }
