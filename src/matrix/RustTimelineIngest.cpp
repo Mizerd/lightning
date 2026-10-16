@@ -3,6 +3,7 @@
 #include <QSet>
 
 #include "matrix/EventPreview.h"
+#include "matrix/PresentableName.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -57,7 +58,10 @@ QString boundedProfileName(const QString &name)
 // names.
 QString boundedFilename(const QString &name)
 {
-    return boundedCodePoints(name, 255);
+    // Format characters (bidi overrides) are dropped so a chip, card or saved
+    // name cannot show a spoofed extension; the body is left alone.
+    return boundedCodePoints(
+        matrix::presentable_name::withoutFormatCharacters(name), 255);
 }
 
 QString boundedMimetype(const QString &mime)

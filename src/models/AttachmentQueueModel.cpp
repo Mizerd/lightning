@@ -3,6 +3,7 @@
 #include "media/StagedImageStore.h"
 
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
 #include "media/SvgRasterJob.h"
 #include "media/VideoPosterExtractor.h"
 
@@ -411,7 +412,10 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
 
     Entry entry;
     entry.localPath = path;
-    entry.fileName = info.fileName();
+    // The chip shows this name and the send reuses it: format characters
+    // (bidi overrides) would let "r<RLO>txt.exe" read as a .txt.
+    entry.fileName =
+        matrix::presentable_name::withoutFormatCharacters(info.fileName());
     entry.sizeBytes = info.size();
 
     // MIME from content first, extension only as tie-breaker or to narrow a
@@ -537,20 +541,22 @@ void AttachmentQueueModel::finishSvgConversion(
     if (!entry.posterPending)
         return;
     entry.posterPending = false;
-    const auto fail = [&](const QString &message) {
+    const auto fail = [&](const QString &message, bool retryable = true) {
         entry.state = QStringLiteral("failed");
         entry.error = message;
+        entry.retryable = retryable;
         updateEntry(row);
         Q_EMIT entryPrepared(row);
     };
     if (!result.refusal.isEmpty()) {
         qCInfo(lcAttach) << "svg conversion refused reason="
                          << qPrintable(result.refusal);
-        fail(svg::userMessage(result.refusal));
+        fail(svg::userMessage(result.refusal),
+             svg::isRetryable(result.refusal));
         return;
     }
     if (exceedsUploadLimit(result.png.size())) {
-        fail(uploadLimitMessage());
+        fail(uploadLimitMessage(), false);
         return;
     }
     const QString dir = convertedDirectory();
@@ -584,6 +590,7 @@ void AttachmentQueueModel::finishSvgConversion(
     entry.isImage = true;
     entry.animated = false;
     entry.error.clear();
+    entry.retryable = true;
     updateEntry(row); // name, size, type and preview all changed
     Q_EMIT entryPrepared(row);
 }
@@ -703,6 +710,7 @@ void AttachmentQueueModel::retryAt(int row)
         // changed. It dispatches once it resolves, if the user already sent.
         entry.state = QStringLiteral("queued");
         entry.error.clear();
+        entry.retryable = true;
         entry.posterPending = true;
         entry.posterTag = QStringLiteral("send:%1").arg(m_nextPosterTag++);
         updateEntry(row);
@@ -711,6 +719,7 @@ void AttachmentQueueModel::retryAt(int row)
     }
     entry.state = QStringLiteral("queued");
     entry.error.clear();
+    entry.retryable = true;
     entry.opId = 0;
     // A retry waits for the user to send again rather than dispatching off a
     // stale request.
@@ -760,6 +769,7 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     }
     case StateRole:     return e.state;
     case ErrorRole:     return e.error;
+    case RetryableRole: return e.retryable;
     default:            return {};
     }
 }
@@ -776,5 +786,6 @@ QHash<int, QByteArray> AttachmentQueueModel::roleNames() const
         { PreviewSourceRole, "previewSource" },
         { StateRole,     "state" },
         { ErrorRole,     "error" },
+        { RetryableRole, "retryable" },
     };
 }

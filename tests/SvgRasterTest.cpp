@@ -520,6 +520,21 @@ private Q_SLOTS:
         QCOMPARE(got.size, QSize(1024, 512));
     }
 
+    // B071: a sizeless SVG is told so, not given the generic sentence, and
+    // only refusals about the moment may be retried.
+    void aSizelessSvgHasItsOwnSentenceAndContentRefusalsAreFinal()
+    {
+        const QString text = svg::userMessage(QStringLiteral("no_size"));
+        QVERIFY2(text.contains(QStringLiteral("no size")), qPrintable(text));
+        QVERIFY(text != svg::userMessage(QStringLiteral("never_heard_of_it")));
+        for (const char *code : { "no_size", "too_large", "external_image",
+                                  "text", "malformed", "compressed" })
+            QVERIFY(!svg::isRetryable(QLatin1String(code)));
+        for (const char *code : { "crashed", "helper_failed", "timeout",
+                                  "allocation" })
+            QVERIFY(svg::isRetryable(QLatin1String(code)));
+    }
+
     void aPlainlyBadFileNeverCostsAProcess()
     {
         // No helper configured: if one were started it would be the test

@@ -1830,6 +1830,68 @@ private Q_SLOTS:
         QVERIFY(!controller.navigating());
     }
 
+    // B022: a thread whose cache holds only the newest replies and no root
+    // pages backwards on its own: with the content fitting there is no scroll
+    // gesture to ask older replies from. Bounded.
+    void anOpenThreadMissingItsRootFillsHistoryAndStops()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setPaginationDelayForTest(5);
+        ThreadController controller;
+        controller.setClient(&client);
+
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral,
+                                                               rootId);
+        QList<TimelineEvent> replies = client.timeline(threadId);
+        QVERIFY(!replies.isEmpty());
+        QCOMPARE(replies.first().eventId, rootId);
+        replies.removeFirst();                  // the cache holds no root
+        auto *model = controller.model();
+
+        // Three pages exist: all of them load, with nobody scrolling.
+        client.resetTimelineForTest(threadId, replies, 3);
+        const int before = model->rowCount();
+        QTRY_VERIFY_WITH_TIMEOUT(!client.canPaginate(threadId)
+                                     && !client.paginating(threadId),
+                                 kSignalTimeoutMs);
+        QCOMPARE(model->rowCount(), before + 9);
+
+        // Far more pages than the bound: it stops at eight, not at the end.
+        client.resetTimelineForTest(threadId, replies, 40);
+        const int again = model->rowCount();
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= again + 24,
+                                 kSignalTimeoutMs);
+        QTest::qWait(150);
+        QCOMPARE(model->rowCount(), again + 24);
+        QVERIFY(client.canPaginate(threadId));
+    }
+
+    // A thread that already has its root asks for nothing.
+    void anOpenThreadWithItsRootIsNotFilled()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral,
+                                                               rootId);
+        client.resetTimelineForTest(threadId, client.timeline(threadId), 5);
+        const int rows = controller.model()->rowCount();
+        QTest::qWait(150);
+        QCOMPARE(controller.model()->rowCount(), rows);
+        QVERIFY(!client.paginating(threadId));
+        QVERIFY(client.canPaginate(threadId));
+    }
+
     // A thread or room change abandons an in-flight search silently: no
     // message about a thread the reader left, no landing in the new one.
     void aThreadOrRoomChangeAbandonsAnInFlightReplySearch()

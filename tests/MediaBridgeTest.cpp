@@ -2119,6 +2119,26 @@ private Q_SLOTS:
         QVERIFY(longName.endsWith(QStringLiteral(".png")));
     }
 
+    // B011: a bidi override must not survive into a suggested (and so saved)
+    // name, where "r<RLO>txt.exe" reads as "rexe.txt" in a file manager.
+    void bidiControlsAreStrippedFromSavedNames()
+    {
+        MediaBridge bridge;
+        QCOMPARE(bridge.suggestedSaveName(
+                     QStringLiteral("r\u202Etxt.exe\u202C.txt")),
+                 QStringLiteral("rtxt.exe.txt"));
+        QCOMPARE(bridge.suggestedSaveName(
+                     QStringLiteral("a\u2066b\u2069\u200E\u200F\u061Cc.png")),
+                 QStringLiteral("abc.png"));
+        // Zero-width space and BOM hide characters too; a ZWJ emoji stays.
+        QCOMPARE(bridge.suggestedSaveName(
+                     QStringLiteral("x\u200B\uFEFFy.png")),
+                 QStringLiteral("xy.png"));
+        QVERIFY(bridge.suggestedSaveName(
+                    QStringLiteral("\U0001F468\u200D\U0001F469.png"))
+                    .contains(QChar(0x200D)));
+    }
+
     // writeSaveFile resolves the parent directory first and attaches a
     // sanitised leaf to it, so a `../` in the leaf cannot escape.
     // A save is owned by the bridge: it is listed from the moment it starts,

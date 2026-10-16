@@ -57,6 +57,10 @@ public:
         // bytes, empty for anything that is not a still image. An SVG
         // previews as its rendered PNG, and as nothing until that exists.
         PreviewSourceRole,
+        // false for a refusal that trying again cannot change (an SVG with no
+        // size, the upload limit): the chip offers Remove only. Meaningful
+        // only while the state is "failed".
+        RetryableRole,
     };
 
     struct Entry {
@@ -80,6 +84,7 @@ public:
         QString stagedToken;
         QString state = QStringLiteral("queued");
         QString error;
+        bool retryable = true;
         quint64 opId = 0;    // set while dispatching
         // Videos are postered locally as soon as they are queued (see
         // startPosterJob); `posterPending` holds only this entry's dispatch

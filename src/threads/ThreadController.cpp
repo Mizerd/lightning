@@ -105,6 +105,10 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
         const bool wasPaginating = m_modelPaginating;
         m_modelPaginating = m_model.paginating();
+        // The fill follows the controller's own busy -> idle edge, never a
+        // retry timer: a page that has not landed must not be asked for twice.
+        if (m_fillActive && wasPaginating && !m_modelPaginating)
+            continueHistoryFill();
         if (m_navigationEventId.isEmpty() || m_modelPaginating)
             return;
         // Only a busy -> idle transition is an answer; other emissions must
@@ -220,8 +224,14 @@ void ThreadController::setClient(MatrixClient *client)
                 [this](const QString &timelineId) {
                     // Only the requested thread's reset promotes to Ready;
                     // composite-id identity is the staleness gate.
-                    if (m_state == Opening && timelineId == this->timelineId())
+                    if (timelineId != this->timelineId())
+                        return;
+                    if (m_state == Opening)
                         setState(Ready);
+                    // A reset replaces the loaded replies with whatever the
+                    // cache holds, so the fill starts over after each one.
+                    if (m_state == Ready)
+                        startHistoryFill();
                 });
         connect(m_client, &MatrixClient::threadTimelineFailed, this,
                 [this](const QString &roomId, const QString &rootEventId,
@@ -357,6 +367,7 @@ void ThreadController::openThread(const QString &roomId,
     m_draftDebounce.stop();
     saveDraftNow();
 
+    stopHistoryFill();
     m_roomId = roomId;
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
@@ -395,6 +406,7 @@ void ThreadController::close()
     // Closing keeps the draft; it restores when the thread is reopened.
     m_draftDebounce.stop();
     saveDraftNow();
+    stopHistoryFill();
     const bool wasActive = m_state != Closed;
     if (m_client && wasActive)
         m_client->closeThread();
@@ -1266,6 +1278,42 @@ void ThreadController::navigateToEvent(const QString &eventId)
     m_navigationBatches = 0;
     Q_EMIT navigationChanged();
     beginNavigationBatch();
+}
+
+void ThreadController::startHistoryFill()
+{
+    m_fillActive = true;
+    m_fillBatches = 0;
+    continueHistoryFill();
+}
+
+void ThreadController::stopHistoryFill()
+{
+    m_fillActive = false;
+    m_fillBatches = 0;
+}
+
+void ThreadController::continueHistoryFill()
+{
+    if (!m_fillActive)
+        return;
+    // A reply search paginates for itself; the fill must not spend its pages.
+    if (!m_client || m_state != Ready || !m_navigationEventId.isEmpty()
+        || m_model.rowForStableId(m_rootEventId) >= 0) {
+        stopHistoryFill();
+        return;
+    }
+    const QString id = timelineId();
+    if (m_client->paginating(id))
+        return;   // ride the batch in flight; its completion edge continues
+    if (m_fillBatches >= m_maxFillBatches || !m_client->canPaginate(id)) {
+        stopHistoryFill();
+        return;
+    }
+    ++m_fillBatches;
+    m_model.requestOlder();
+    // Re-read so the busy -> idle edge above can be recognised.
+    m_modelPaginating = m_client->paginating(id);
 }
 
 void ThreadController::beginNavigationBatch()

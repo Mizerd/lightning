@@ -846,6 +846,14 @@ Rectangle {
                     onWheel: (event) => {
                         var minY = replyList.wheelMinY()
                         var maxY = replyList.wheelMaxY()
+                        // Everything loaded already fits: there is nothing to
+                        // scroll and so no gesture end to ask for older
+                        // replies from, which would leave the thread short for
+                        // ever. Scrolling up is the request.
+                        if (maxY <= minY
+                                && (event.angleDelta.y > 0
+                                    || event.pixelDelta.y > 0))
+                            app.thread.model.requestOlder()
                         // A phased frame is a touchpad frame even with 0 whole
                         // pixels (Qt Wayland carries the remainder); treating
                         // those as notches made slow swipes glide far too far.
@@ -899,8 +907,13 @@ Rectangle {
                     var target = contentY + direction * height * 0.9
                     target = target < lo ? lo : (target > hi ? hi : target)
                     app.threadScroll.animateTo(target, contentY, lo, hi, height)
-                    if (direction < 0)
+                    if (direction < 0) {
                         followLatest = false
+                        // The loaded replies already fit, so no motion follows
+                        // and nothing else would ask for older ones.
+                        if (hi <= lo)
+                            app.thread.model.requestOlder()
+                    }
                 }
                 function runKeyAction(actionId) {
                     switch (actionId) {
@@ -1331,10 +1344,20 @@ Rectangle {
                                             AppTheme.scaled(AppTheme.textMeta)
                                         elide: Label.ElideRight
                                         Layout.maximumWidth: 120
+                                        // The chip is narrow and the reason
+                                        // long: the full sentence on hover.
+                                        HoverHandler { id: threadChipErrorHover }
+                                        ToolTip.text: text
+                                        ToolTip.visible: model.state === "failed"
+                                                         && threadChipErrorHover.hovered
+                                        ToolTip.delay: 300
                                     }
                                 }
                                 IconButton {
+                                    // `retryable` is false for a refusal that
+                                    // trying again cannot change (undefined-safe).
                                     visible: model.state === "failed"
+                                             && model.retryable !== false
                                     implicitWidth: 20; implicitHeight: 20
                                     radius: AppTheme.radiusSm
                                     iconName: "refresh"

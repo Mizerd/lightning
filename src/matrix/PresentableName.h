@@ -63,6 +63,30 @@ inline QString sanitized(const QString &displayName)
     return name;
 }
 
+// A sender-chosen FILE name with its format characters dropped and nothing
+// else touched (no flattening, no length cap: a file name keeps its spaces and
+// its suffix). The bidirectional controls (U+061C, U+200E/F, U+202A-202E,
+// U+2066-2069) would let "r<RLO>txt.exe" read as "rexe.txt" in a chip, a card
+// or a file manager, and every other Cf (zero-width space, word joiner,
+// invisible operators, BOM, tag characters) hides characters the same way.
+// ZWJ and ZWNJ are the exception: they carry emoji sequences and Persian or
+// Indic shaping and cannot reorder anything, so a "family" emoji in a name
+// survives. Variation selectors are kept for the same reason.
+inline QString withoutFormatCharacters(const QString &fileName)
+{
+    const QList<uint> points = fileName.toUcs4();
+    QString out;
+    out.reserve(fileName.size());
+    for (const uint point : points) {
+        if (point != 0x200C && point != 0x200D
+            && QChar::category(char32_t(point)) == QChar::Other_Format)
+            continue;
+        const char32_t unit = char32_t(point);
+        out.append(QString::fromUcs4(&unit, 1));
+    }
+    return out;
+}
+
 // The localpart of a user id, as the app shows an unnamed user.
 inline QString localpart(const QString &userId)
 {

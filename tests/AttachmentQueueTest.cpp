@@ -511,6 +511,24 @@ private Q_SLOTS:
                     ->data(idx, AttachmentQueueModel::IsImageRole).toBool());
     }
 
+    // B011: the chip's name carries no bidi override.
+    void chipNameLosesBidiControls()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        const QString path = writeFile(
+            dir, QStringLiteral("r\u202Etxt.exe\u202C.txt"), tinyPng());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(composer.attachments()
+                     ->data(composer.attachments()->index(0, 0),
+                            AttachmentQueueModel::FileNameRole).toString(),
+                 QStringLiteral("rtxt.exe.txt"));
+    }
+
     void duplicatePathIsRejected()
     {
         FakeClient client;
@@ -1328,6 +1346,9 @@ private Q_SLOTS:
                 .toString();
         QVERIFY2(error.contains(QStringLiteral("links to other files")),
                  qPrintable(error));
+        // B071: the same file would be refused again, so Retry is not offered.
+        QVERIFY(!model->data(model->index(0, 0),
+                             AttachmentQueueModel::RetryableRole).toBool());
         QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.imageThumbSends, 0);
         QCOMPARE(client.byteSends, 0);

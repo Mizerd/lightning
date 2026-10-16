@@ -469,11 +469,26 @@ inline Result rasterize(const QByteArray &bytes, Policy policy,
     return out;
 }
 
+/// Whether trying the same file again can turn out differently. A refusal that
+/// is a property of the file's content (too large, external references, no
+/// size, ...) is final: only removing the attachment helps. A crashed or
+/// failed helper, a timeout and an allocation failure are about the moment.
+inline bool isRetryable(const QString &reason)
+{
+    return reason == QLatin1String("crashed")
+        || reason == QLatin1String("helper_failed")
+        || reason == QLatin1String("timeout")
+        || reason == QLatin1String("allocation");
+}
+
 /// The sentence shown for a refusal code. Every code `screen`, `rasterize`
 /// and the helper job can produce maps to one; unknown codes get the general
 /// one, never the raw code.
 inline QString userMessage(const QString &reason)
 {
+    if (reason == QLatin1String("no_size"))
+        return QCoreApplication::translate("SvgRaster", "That SVG has no size. Add a width and height or a viewBox "
+                 "and try again.");
     if (reason == QLatin1String("too_large"))
         return QCoreApplication::translate("SvgRaster", "That SVG is too large to convert (the limit is 2 MB).");
     if (reason == QLatin1String("compressed"))

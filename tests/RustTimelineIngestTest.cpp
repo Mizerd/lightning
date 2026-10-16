@@ -94,6 +94,7 @@ private Q_SLOTS:
     // MSC4274 galleries and the reply target's kind.
     void parsesGalleryItemsBoundedAndClosed();
     void parsesReplyTargetKindAndCount();
+    void mediaFilenameLosesBidiControls();
     // MSC3381 polls.
     void parsesPollItem();
     void pollAbsentFieldsKeepDefaults();
@@ -447,6 +448,22 @@ void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
     // A real caption is left alone.
     named.insert(QStringLiteral("body"), QStringLiteral("look at this"));
     QCOMPARE(eventFromItemJson(named, kRoom).body, QStringLiteral("look at this"));
+}
+
+// B011: format characters never reach a displayed media name.
+void RustTimelineIngestTest::mediaFilenameLosesBidiControls()
+{
+    QJsonObject row = itemJson(QStringLiteral("uidB"), QStringLiteral("$b"),
+                               QStringLiteral("hello"));
+    row.insert(QStringLiteral("media_mxc"), QStringLiteral("mxc://example.org/a"));
+    row.insert(QStringLiteral("media_filename"),
+               QStringLiteral("r\u202Etxt.exe\u202C.txt"));
+    QCOMPARE(eventFromItemJson(row, kRoom).mediaFilename,
+             QStringLiteral("rtxt.exe.txt"));
+    // The body is a message, not a name: it is left alone unless it merely
+    // repeats the name.
+    row.insert(QStringLiteral("body"), QStringLiteral("a\u202Eb"));
+    QCOMPARE(eventFromItemJson(row, kRoom).body, QStringLiteral("a\u202Eb"));
 }
 
 void RustTimelineIngestTest::parsesReplyTargetKindAndCount()

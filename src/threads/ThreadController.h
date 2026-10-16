@@ -361,6 +361,13 @@ private:
     void resetFollowState();
     // Reply-navigation internals. All of them no-op when no navigation is
     // pending, so they are safe to call from the model signal handlers.
+    // The open-time history fill: a thread opens with whatever the event
+    // cache holds (often only the newest page), so with no scroll gesture the
+    // rest, and the root, never load. Pages backwards, bounded, until the root
+    // row is loaded or the start is reached.
+    void startHistoryFill();
+    void continueHistoryFill();
+    void stopHistoryFill();
     void beginNavigationBatch();
     void continueNavigation();
     void locateNavigationTarget(int row);
@@ -415,6 +422,9 @@ private:
     QString m_navigationRoomId;
     QString m_navigationRootEventId;
     int m_navigationBatches = 0;
+    bool m_fillActive = false;
+    int m_fillBatches = 0;
+    int m_maxFillBatches = 8;
     int m_maxNavigationBatches = 8;   // matches kMaxNavigationBatches
     QString m_navigationHighlightEventId;
     QString m_navigationMessage;

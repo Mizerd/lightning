@@ -10,6 +10,7 @@
 #include "app/GuiStallTracer.h"
 
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
 #include "media/PlayableFileWriter.h"
 #include "media/VideoPosterExtractor.h"
 
@@ -2168,6 +2169,9 @@ QString MediaBridge::sanitizedFileName(const QString &name)
         QStringLiteral("[\\\\/]")), Qt::SkipEmptyParts);
     if (!parts.isEmpty())
         out = parts.last();
+    // Format characters first (bidi overrides turn "r<RLO>txt.exe" into a name
+    // that reads as .txt), before the length cap can cut around them.
+    out = matrix::presentable_name::withoutFormatCharacters(out);
     // Control characters, including NUL.
     for (QChar &c : out) {
         if (c.unicode() < 0x20 || c.unicode() == 0x7f)
