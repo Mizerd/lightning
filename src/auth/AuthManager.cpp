@@ -13,7 +13,15 @@
 #include <utility>
 
 namespace {
+Q_LOGGING_CATEGORY(lcAuth, "lightning.auth")
 Q_LOGGING_CATEGORY(lcAuthLogout, "lightning.auth.logout")
+
+// How long a new password sign-in waits for a cancelled one to answer. The
+// request itself gave up in under two minutes in the 2026-10-15 break-it run
+// (/login held for 130 s: "reason= timeout"); past the bound the new attempt
+// goes ahead and replaces the old handle, rather than locking sign-in for
+// the session.
+constexpr qint64 kAbandonedLoginBoundMs = 150 * 1000;
 } // namespace
 
 AuthManager::AuthManager(MatrixClient *client, QObject *parent)
@@ -27,25 +35,44 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         // restore (launch, account switch, add-account rollback) reaches the
         // client directly and arrives here with m_loggingIn false.
         m_lastSignInInteractive = m_loggingIn;
+        // The restore AppController starts after a failed add-account sign-in
+        // (back to the account the user came from) keeps that failure on the
+        // form the user is still looking at; it cleared it within a beat, and
+        // the reason was left only in the status strip.
+        const bool keepError =
+            std::exchange(m_errorSurvivesRestore, false) && !m_loggingIn;
+        // Whatever this session is, a cancelled sign-in is not running any
+        // more: it either just answered or was replaced by this one.
+        m_abandonedLogin.invalidate();
+        m_browserLaunchFailed = false;
         ++m_sessionGeneration;
         setLoggingIn(false);
         setBrowserLoginInProgress(false);
         // Signed in: a probe asked for during the attempt is moot.
         m_discoveryDeferred = false;
         m_deferredDiscovery.clear();
-        setLastError({});
+        if (!keepError)
+            setLastError({});
         setLoginStage(QStringLiteral("starting_sync"));
         Q_EMIT isLoggedInChanged();
         Q_EMIT loginSucceeded();
     });
 
     connect(m_client, &MatrixClient::loginFailed, this, [this](const QString &reason) {
+        // A sign-in made here: an add-account restore may follow (above).
+        m_errorSurvivesRestore = m_loggingIn;
+        m_abandonedLogin.invalidate();
+        // An attempt ended because its page could not be opened says that,
+        // not the backend's "cancelled".
+        const QString shown =
+            std::exchange(m_browserLaunchFailed, false) ? browserLaunchFailureText()
+                                                        : reason;
         setLoggingIn(false);
         // Any terminal outcome ends the browser wait.
         setBrowserLoginInProgress(false);
-        setLastError(reason);
+        setLastError(shown);
         setLoginStage(QStringLiteral("idle"));
-        Q_EMIT loginFailed(reason);
+        Q_EMIT loginFailed(shown);
         runDeferredDiscovery();
     });
 
@@ -65,6 +92,8 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         if (std::exchange(m_dropNextDiscovery, false))
             return;
         m_discoveredHomeserver = homeserver;
+        // A fresh answer: its sign-in page has not been refused yet.
+        m_browserLoginUnavailable = false;
         m_serverPassword = password;
         m_serverOauth = oauth && m_client->supportsOAuthLogin();
         // Gated on backend capability, as OAuth is.
@@ -122,23 +151,45 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         Q_EMIT discoveryChanged();
     });
 
+    // The backend reports the page's URL right after a refused launch too, so
+    // only an attempt still running, whose page did open, waits for the
+    // browser. The URL is deliberately not stored or surfaced.
     connect(m_client, &MatrixClient::ssoBrowserUrlReady, this, [this](const QString &) {
-        setLoginStage(QStringLiteral("waiting_for_browser"));
+        if (m_browserLoginInProgress && !m_browserLaunchFailed)
+            setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
-    // The flow stays alive (Cancel and the timeout still apply), but the
-    // failure is shown instead of waiting silently for the timeout.
+    // No page opened (a non-https page is never handed on, or no browser
+    // started), so nothing can finish this attempt: it used to stay alive
+    // until the timeout, with the error beside "Waiting for your browser...".
+    // It is ended, and the screen offers the server's password form instead
+    // when it has one.
     connect(m_client, &MatrixClient::browserLaunchFailed, this, [this] {
-        setLastError(tr("Couldn't open your web browser. "
-                        "Cancel and try again, or sign in another way."));
+        if (!m_browserLoginInProgress || m_browserLaunchFailed)
+            return;
+        m_browserLaunchFailed = true;
+        m_browserLoginUnavailable = true;
+        Q_EMIT discoveryChanged();
+        // On the next turn: this arrives from inside the backend's event
+        // drain, and a cancel releases the handle that drain is polling.
+        QMetaObject::invokeMethod(this, [this] {
+            if (!m_client || !m_browserLaunchFailed || !m_browserLoginInProgress)
+                return;
+            // The backend answers with loginFailed (shown as the launch
+            // failure above); each cancel is a no-op for the other flow.
+            m_client->cancelOAuthLogin();
+            m_client->cancelSsoLogin();
+        }, Qt::QueuedConnection);
     });
 
     connect(m_client, &MatrixClient::oauthBrowserUrlReady, this, [this](const QString &) {
-        // The URL is deliberately not stored or surfaced.
-        setLoginStage(QStringLiteral("waiting_for_browser"));
+        if (m_browserLoginInProgress && !m_browserLaunchFailed)
+            setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
+        m_abandonedLogin.invalidate();
+        m_errorSurvivesRestore = false;
         ++m_sessionGeneration;
         setLoggingIn(false);
         setLastError({});
@@ -291,7 +342,7 @@ void AuthManager::login(const QString &homeserver,
                         const QString &user,
                         const QString &password)
 {
-    if (m_loggingIn)
+    if (m_loggingIn || refuseWhileAbandonedLoginRuns())
         return;
     // Empty goes on as is, for the backend's own "enter your homeserver".
     const QString hs = normalizedServerAddress(homeserver);
@@ -299,6 +350,7 @@ void AuthManager::login(const QString &homeserver,
         refuseServerAddress();
         return;
     }
+    m_errorSurvivesRestore = false;
     setLoggingIn(true);
     setLastError({});
     setLoginStage(QStringLiteral("connecting"));
@@ -354,6 +406,7 @@ void AuthManager::restoreSession()
 
 void AuthManager::clearLastError()
 {
+    m_errorSurvivesRestore = false;
     setLastError({});
 }
 
@@ -367,7 +420,7 @@ bool AuthManager::supportsOidcLogin() const
     return m_client && m_client->supportsOAuthLogin();
 }
 
-void AuthManager::discoverAuthMethods(const QString &homeserver)
+void AuthManager::discoverAuthMethods(const QString &homeserver, bool force)
 {
     if (!m_client)
         return;
@@ -383,10 +436,13 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
     }
     const QString hs = normalizedServerAddress(typed);
     // The same server, answered or being asked: nothing changes, so the
-    // sign-in choices do not blink when the field loses focus.
+    // sign-in choices do not blink when the field loses focus. An explicit
+    // commit asks an answered server again: its answer can change (a fixed
+    // delegation, a sign-in method added), and re-typing the same address was
+    // the only way to ask, which did nothing.
     if (!hs.isEmpty() && hs == m_discoveredHomeserver
-        && (m_discoveryState == QLatin1String("done")
-            || m_discoveryState == QLatin1String("probing")))
+        && (m_discoveryState == QLatin1String("probing")
+            || (m_discoveryState == QLatin1String("done") && !force)))
         return;
     // Asking nothing leaves a probe in flight answering for a server no
     // longer on screen; a new probe replaces it in the backend.
@@ -406,6 +462,7 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
     m_serverInsecure = false;
     m_serverCanCreate = false;
     m_accountManagementUrl.clear();
+    m_browserLoginUnavailable = false;
     // Text that is not an address is never sent to be probed.
     m_discoveryState = typed.isEmpty() ? QStringLiteral("idle")
                        : hs.isEmpty()  ? QStringLiteral("failed")
@@ -426,7 +483,8 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
 
 void AuthManager::beginBrowserLogin(const QString &homeserver)
 {
-    if (!m_client || m_loggingIn || m_browserLoginInProgress)
+    if (!m_client || m_loggingIn || m_browserLoginInProgress
+        || refuseWhileAbandonedLoginRuns())
         return;
     if (!m_client->supportsOAuthLogin()) {
         setLastError(tr("This build cannot perform browser sign-in."));
@@ -440,6 +498,8 @@ void AuthManager::beginBrowserLogin(const QString &homeserver)
     }
     if (!refuseBeforeTheBrowser(hs))
         return;
+    m_browserLaunchFailed = false;
+    m_errorSurvivesRestore = false;
     setLoggingIn(true);
     setBrowserLoginInProgress(true);
     setLastError({});
@@ -449,7 +509,8 @@ void AuthManager::beginBrowserLogin(const QString &homeserver)
 
 void AuthManager::beginBrowserSignUp(const QString &homeserver)
 {
-    if (!m_client || m_loggingIn || m_browserLoginInProgress)
+    if (!m_client || m_loggingIn || m_browserLoginInProgress
+        || refuseWhileAbandonedLoginRuns())
         return;
     const QString hs = normalizedServerAddress(homeserver);
     // Only for the server discovery said can do it; the button is shown for
@@ -461,6 +522,8 @@ void AuthManager::beginBrowserSignUp(const QString &homeserver)
     }
     if (!refuseBeforeTheBrowser(hs))
         return;
+    m_browserLaunchFailed = false;
+    m_errorSurvivesRestore = false;
     setLoggingIn(true);
     setBrowserLoginInProgress(true);
     setLastError({});
@@ -509,9 +572,72 @@ void AuthManager::cancelBrowserLogin()
     m_client->cancelSsoLogin();
 }
 
+bool AuthManager::refuseWhileAbandonedLoginRuns()
+{
+    // A cancelled password sign-in's request still runs on the backend's
+    // handle, and its answer reaches the same handlers as any sign-in's. A new
+    // password sign-in would open the store it holds; a browser one runs on
+    // another handle, so nothing replaces the first and its answer would land
+    // in the middle of the second (ending its wait, or signing in as the
+    // password account while the loopback page stays open). So every start
+    // waits for that answer, bounded. Nothing is attempted, so nothing is
+    // reported as a failure for AppController to roll back.
+    if (!m_abandonedLogin.isValid())
+        return false;
+    if (!m_abandonedLogin.hasExpired(kAbandonedLoginBoundMs)) {
+        setLastError(tr("The server has not answered the cancelled sign-in "
+                        "yet. Try again in a moment."));
+        return true;
+    }
+    qCWarning(lcAuth) << "a cancelled password sign-in never answered; "
+                         "starting the next one anyway";
+    m_abandonedLogin.invalidate();
+    return false;
+}
+
+void AuthManager::cancelLogin()
+{
+    if (!m_client || !m_loggingIn)
+        return;
+    if (m_browserLoginInProgress) {
+        cancelBrowserLogin();
+        return;
+    }
+    // A password sign-in: the backend has no abort for it, so its request
+    // runs on. The screen is given back now. Its own answer, if it comes,
+    // arrives as any other: a failure shows its reason, a success signs in.
+    // Anything that replaces the backend's handle first (the add-account
+    // restore below, or a start past the bound) makes that answer
+    // unobservable. Nothing was cancelled on the server, so the line says
+    // what did happen and what still may.
+    qCInfo(lcAuth) << "password sign-in cancelled; its request is abandoned";
+    m_abandonedLogin.start();
+    const QString reason = tr("Stopped waiting for the server. If it still "
+                              "completes this sign-in, the account may open "
+                              "on its own.");
+    // Reported as a failure, as the backend reports a browser cancel:
+    // AppController then restores the account an add-account attempt came
+    // from, and that restore keeps this line on the form.
+    m_errorSurvivesRestore = true;
+    setLoggingIn(false);
+    setLastError(reason);
+    setLoginStage(QStringLiteral("idle"));
+    Q_EMIT loginFailed(reason);
+}
+
+QString AuthManager::browserLaunchFailureText() const
+{
+    return m_serverPassword
+        ? tr("Lightning couldn't open this server's sign-in page in your "
+             "browser. Sign in with your password instead.")
+        : tr("Lightning couldn't open this server's sign-in page in your "
+             "browser.");
+}
+
 void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
 {
-    if (!m_client || m_loggingIn)
+    if (!m_client || m_loggingIn || m_browserLoginInProgress
+        || refuseWhileAbandonedLoginRuns())
         return;
     if (!m_client->supportsSsoLogin()) {
         setLastError(tr("This build cannot perform single sign-on."));
@@ -527,6 +653,8 @@ void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
         return;
     // Shares browserLoginInProgress with OAuth; cancelBrowserLogin() cancels
     // either.
+    m_browserLaunchFailed = false;
+    m_errorSurvivesRestore = false;
     setLoggingIn(true);
     setBrowserLoginInProgress(true);
     setLastError({});

@@ -251,6 +251,47 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!client.m_revokeHandle, 10000);
     }
 
+    // The browser could not be handed the server's sign-in page (plain http:
+    // only https pages are ever handed on), and the attempt waited for its
+    // fifteen-minute timeout under "Waiting for your browser..." beside the
+    // error, because the backend reports the page right after refusing it.
+    // Against the real backend: the attempt ends, nothing waits for the
+    // browser, and one reason is shown. No browser is started: the refusal
+    // comes before any launch.
+    void aRefusedSignInPageEndsTheAttemptInsteadOfWaiting()
+    {
+        DiscoveryHomeserver homeserver;
+        homeserver.offerSso = true;
+        const quint16 port = homeserver.listen();
+        QVERIFY(port != 0);
+        const QString hs = QStringLiteral("http://127.0.0.1:%1").arg(port);
+
+        InMemorySecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        RustSdkMatrixClient client(&settings);
+        AuthManager auth(&client);
+        QSignalSpy refused(&client, &MatrixClient::browserLaunchFailed);
+        QSignalSpy failed(&auth, &AuthManager::loginFailed);
+        QStringList stages;
+        connect(&auth, &AuthManager::loginStageChanged, this,
+                [&] { stages.append(auth.loginStage()); });
+
+        auth.beginSsoLogin(hs, QString());
+        QVERIFY(auth.browserLoginInProgress());
+        QTRY_VERIFY_WITH_TIMEOUT(!refused.isEmpty(), 30000);
+        QTRY_VERIFY2_WITH_TIMEOUT(!auth.browserLoginInProgress(),
+                                  "the refused attempt was left waiting", 5000);
+        QVERIFY(!auth.isLoggingIn());
+        QVERIFY2(!stages.contains(QStringLiteral("waiting_for_browser")),
+                 qPrintable(stages.join(QLatin1Char(','))));
+        QCOMPARE(auth.loginStage(), QStringLiteral("idle"));
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(auth.lastError().contains(QStringLiteral("sign-in page")),
+                 qPrintable(auth.lastError()));
+        QVERIFY(auth.browserLoginUnavailable());
+    }
+
     // Leaving the sign-in screen while a browser sign-in waits cancels it:
     // its listener and the server's page stayed live for up to fifteen
     // minutes, and finishing it later replaced the session the user had gone

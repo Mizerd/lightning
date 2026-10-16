@@ -44,9 +44,12 @@ Item {
         (app.auth.discoveredHomeserver || "").replace(/^https:\/\//, "")
 
     // How this server lets people in, which decides what is shown:
-    //   "oauth"    its own sign-in page, the only choice shown. Element does
-    //              the same: its Login.ts getFlows() keeps only the OAuth
-    //              flow when the server publishes one (matrix.org, any MAS).
+    //   "oauth"    its own sign-in page, the main way in (matrix.org, any
+    //              MAS), as Element shows it. A server that also takes a
+    //              password keeps it one click away ("Sign in with
+    //              password"), and its form takes over when the browser could
+    //              not be handed the page (a plain-http development server;
+    //              only https pages are ever handed on).
     //   "password" a password form, with any single sign-on beside it, as
     //              Element shows both.
     //   "sso"      identity providers only (e.g. matrix.debian.social).
@@ -54,7 +57,9 @@ Item {
     readonly property string signInMode: {
         if (app.auth.discoveryState !== "done")
             return ""
-        if (app.auth.serverOffersBrowserLogin)
+        if (app.auth.serverOffersBrowserLogin
+                && !(app.auth.serverOffersPassword
+                     && (root.passwordChosen || app.auth.browserLoginUnavailable)))
             return "oauth"
         if (app.auth.serverOffersPassword)
             return "password"
@@ -62,6 +67,13 @@ Item {
             return "sso"
         return ""
     }
+    // The server for which "Sign in with password" was chosen over its own
+    // sign-in page. Keyed on the server, so another server starts on its own
+    // page again.
+    property string passwordChosenFor: ""
+    readonly property bool passwordChosen: root.passwordChosenFor !== ""
+                                           && root.passwordChosenFor
+                                              === app.auth.discoveredHomeserver
     // Single sign-on beside a password form, or on its own.
     readonly property bool showsSso: (signInMode === "password" || signInMode === "sso")
                                      && app.auth.serverOffersSso
@@ -72,14 +84,37 @@ Item {
     // are one control tall, so nothing below moves when they swap.
     property bool editingServer: false
     property string serverTextBeforeEdit: ""
+    // A server answer has arrived since the address was last edited (or
+    // Change was pressed). Enter asks the server again only when none has:
+    // after the debounce has answered the text, a second probe would only
+    // make every way in disappear and come back.
+    property bool serverAnsweredSinceEdit: false
+    // The discovery state last seen by the Connections below; a plain value,
+    // written only there and on completion.
+    property string lastDiscoveryState: ""
     readonly property bool serverFieldShown: app.auth.discoveryState !== "done"
                                              || homeserverField.activeFocus
                                              || editingServer
     // Set by Enter in the field: move on to the way in once it is known.
     property bool advanceWhenServerAnswers: false
 
+    function choosePassword(chosen) {
+        root.passwordChosenFor = chosen ? app.auth.discoveredHomeserver : ""
+        app.auth.clearLastError()
+        Qt.callLater(root.focusWayIn)
+    }
+
+    // Escape cancels a sign-in in flight, as the Cancel buttons do. Only while
+    // one is: otherwise Escape belongs to whatever has focus.
+    Shortcut {
+        sequence: StandardKey.Cancel
+        enabled: root.visible && app.auth.isLoggingIn
+        onActivated: app.auth.cancelLogin()
+    }
+
     function editServer() {
         serverTextBeforeEdit = homeserverField.text
+        serverAnsweredSinceEdit = false
         editingServer = true
         homeserverField.forceActiveFocus()
         homeserverField.selectAll()
@@ -131,6 +166,12 @@ Item {
     Connections {
         target: app.auth
         function onDiscoveryChanged() {
+            // An answer is the end of a probe; other changes (providers, a
+            // refused sign-in page) are not one.
+            const state = app.auth.discoveryState
+            if (root.lastDiscoveryState === "probing" && state !== "probing")
+                root.serverAnsweredSinceEdit = true
+            root.lastDiscoveryState = state
             if (!root.advanceWhenServerAnswers)
                 return
             if (app.auth.discoveryState === "done") {
@@ -226,7 +267,11 @@ Item {
             app.auth.discoverAuthMethods(homeserverField.text)
         }
     }
-    Component.onCompleted: applyFailureIdentityToFields()
+    Component.onCompleted: {
+        if (lastDiscoveryState === "")
+            lastDiscoveryState = app.auth.discoveryState
+        applyFailureIdentityToFields()
+    }
     Connections {
         target: app
         function onLocalSessionFailureChanged() {
@@ -304,7 +349,17 @@ Item {
                              && !(app.keyringUnavailable === true && !app.loggedIn)
                     Accessible.name: qsTr("Back to the app")
                     text: qsTr("← Back")
-                    onClicked: app.showMain()
+                    // A failed add-account's error stays on this form through
+                    // the restore of the account it came from; leaving ends it.
+                    // After showMain(): it cancels a browser sign-in still
+                    // waiting, and that cancel's answer would otherwise be
+                    // kept through the restore it starts. Held first: leaving
+                    // can unload this screen, and its context with it.
+                    onClicked: {
+                        const auth = app.auth
+                        app.showMain()
+                        auth.clearLastError()
+                    }
                 }
 
                 // ── The way back to accounts already on this device ── For
@@ -337,8 +392,45 @@ Item {
                                   ? modelData.displayName + "  ·  " + modelData.userId
                                   : modelData.userId
                             Accessible.name: qsTr("Open %1").arg(modelData.userId)
-                            onClicked: app.switchToAccount(modelData.userId)
+                            onClicked: {
+                                app.auth.clearLastError()
+                                app.switchToAccount(modelData.userId)
+                            }
                         }
+                    }
+                }
+
+                // ── Saved settings could not be read ── The account list lives
+                // in them, so this screen may be showing for an account still
+                // on this computer. Said, never repaired from here. Read
+                // undefined-safe: an older SettingsManager has no such flag.
+                Rectangle {
+                    objectName: "settingsReadProblemNotice"
+                    visible: !!(app.settings && app.settings.settingsReadProblem)
+                    Layout.fillWidth: true
+                    radius: AppTheme.radiusMd
+                    color: AppTheme.surfaceAlt
+                    border.color: AppTheme.warning
+                    border.width: 1
+                    implicitHeight: settingsProblemText.implicitHeight + AppTheme.spacingM * 2
+                    Accessible.role: Accessible.AlertMessage
+                    Accessible.name: settingsProblemText.text
+
+                    Label {
+                        id: settingsProblemText
+                        x: AppTheme.spacingM
+                        y: AppTheme.spacingM
+                        width: parent.width - AppTheme.spacingM * 2
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        text: qsTr("Lightning couldn't read its saved settings, so "
+                                   + "accounts on this computer may not be listed. "
+                                   + "Their data has not been deleted.")
+                        color: AppTheme.text
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
                 }
 
@@ -508,7 +600,11 @@ Item {
                             }
                             placeholderText: "https://matrix.org"
                             Accessible.name: qsTr("Server")
-                            onTextEdited: discoverDebounce.restart()
+                            onTextEdited: {
+                                app.auth.clearLastError()
+                                root.serverAnsweredSinceEdit = false
+                                discoverDebounce.restart()
+                            }
                             Timer {
                                 id: discoverDebounce
                                 interval: 700
@@ -522,10 +618,16 @@ Item {
                                 // shown until it answers.
                                 app.auth.discoverAuthMethods(text)
                             }
-                            // Enter: ask now, then go on to the way in.
+                            // Enter: ask now, then go on to the way in. An
+                            // explicit commit of an answer older than the edit
+                            // (Change, then the same address) asks the server
+                            // again; one the debounce has already answered is
+                            // not asked twice, and neither is focus loss
+                            // above, so the choices do not blink.
                             onAccepted: {
                                 discoverDebounce.stop()
-                                app.auth.discoverAuthMethods(text)
+                                app.auth.discoverAuthMethods(
+                                    text, !root.serverAnsweredSinceEdit)
                                 if (app.auth.discoveryState === "done") {
                                     root.editingServer = false
                                     root.focusWayIn()
@@ -725,9 +827,22 @@ Item {
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
                 }
+                // The server also takes a password: one click away, never
+                // hidden behind its page (a server whose page cannot work
+                // here left no way in at all).
+                AppButton {
+                    objectName: "passwordInsteadButton"
+                    kind: "secondary"
+                    visible: browserLoginBtn.visible && app.auth.serverOffersPassword
+                    text: qsTr("Sign in with password")
+                    enabled: !app.auth.isLoggingIn
+                    Layout.fillWidth: true
+                    Accessible.name: text
+                    onClicked: root.choosePassword(true)
+                }
 
-                // ── Password ── Only where the server takes one and has no
-                // sign-in page of its own.
+                // ── Password ── Where the server takes one: the way in when it
+                // has no sign-in page of its own, or chosen over that page.
                 ColumnLayout {
                     id: passwordForm
                     objectName: "passwordForm"
@@ -753,6 +868,7 @@ Item {
                         //: server had to be typed twice.
                         placeholderText: qsTr("username")
                         Accessible.name: qsTr("Username")
+                        onTextEdited: app.auth.clearLastError()
                     }
 
                     Label {
@@ -775,6 +891,7 @@ Item {
                         rightPadding: passReveal.width + AppTheme.spacingXS * 2
                         // Enter submits from the password field.
                         onAccepted: root.submit()
+                        onTextEdited: app.auth.clearLastError()
                         IconButton {
                             id: passReveal
                             objectName: "passwordRevealToggle"
@@ -838,6 +955,33 @@ Item {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacingS
                         onClicked: root.submit()
+                    }
+                    // A slow server held this form until the request timed
+                    // out, with Change and Escape locked too. Escape does the
+                    // same (the Shortcut above).
+                    AppButton {
+                        objectName: "passwordLoginCancelButton"
+                        kind: "secondary"
+                        visible: app.auth.isLoggingIn
+                        text: qsTr("Cancel")
+                        Layout.fillWidth: true
+                        Accessible.name: qsTr("Cancel sign-in")
+                        onClicked: app.auth.cancelLogin()
+                    }
+                    // Back to the server's own page, when password was chosen
+                    // over it.
+                    AppButton {
+                        objectName: "browserInsteadButton"
+                        kind: "ghost"
+                        size: "sm"
+                        minWidth: 0
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.passwordChosen && app.auth.serverOffersBrowserLogin
+                                 && !app.auth.browserLoginUnavailable
+                                 && !app.auth.isLoggingIn
+                        text: qsTr("Sign in with your browser instead")
+                        Accessible.name: text
+                        onClicked: root.choosePassword(false)
                     }
                 }
 

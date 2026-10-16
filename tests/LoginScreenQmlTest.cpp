@@ -17,6 +17,7 @@
 #include <QtTest>
 
 #include <functional>
+#include <utility>
 
 namespace {
 
@@ -37,19 +38,34 @@ public:
     void beginOAuthLogin(const QString &homeserver) override
     {
         oauthStarts.append(homeserver);
+        oauthInFlight = true;
     }
     void beginOAuthSignUp(const QString &homeserver) override
     {
         signUps.append(homeserver);
+        oauthInFlight = true;
     }
     void beginSsoLogin(const QString &homeserver, const QString &idpId) override
     {
         ssoStarts.append(homeserver + QLatin1Char('|') + idpId);
+        ssoInFlight = true;
     }
-    void cancelOAuthLogin() override {}
+    // As RustSdkMatrixClient: a no-op unless that flow runs, else a resolved
+    // answer.
+    void cancelOAuthLogin() override
+    {
+        if (std::exchange(oauthInFlight, false))
+            Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+    }
     void cancelSsoLogin() override
     {
-        Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+        if (std::exchange(ssoInFlight, false))
+            Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+    }
+    // Recorded and never answered: a server that has not replied yet.
+    void login(const QString &, const QString &user, const QString &) override
+    {
+        logins.append(user);
     }
 
     void answer(const QString &homeserver, bool password, bool oauth, bool sso,
@@ -69,8 +85,20 @@ public:
     {
         Q_EMIT ssoProvidersReceived(homeserver, true, list);
     }
-    void launchFails() { Q_EMIT browserLaunchFailed(); }
+    // As the backend does with a page it will not hand on: says so, then
+    // reports the page anyway.
+    void launchFails()
+    {
+        Q_EMIT browserLaunchFailed();
+        if (oauthInFlight)
+            Q_EMIT oauthBrowserUrlReady(QStringLiteral("http://example.org/authorize"));
+        else if (ssoInFlight)
+            Q_EMIT ssoBrowserUrlReady(QStringLiteral("http://example.org/sso"));
+    }
 
+    bool oauthInFlight = false;
+    bool ssoInFlight = false;
+    QStringList logins;
     QStringList discoveries;
     QStringList providerRequests;
     QStringList oauthStarts;
@@ -82,10 +110,13 @@ class FakeSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString loginHomeserverPrefill MEMBER prefill NOTIFY prefillChanged)
+    Q_PROPERTY(bool settingsReadProblem MEMBER readProblem NOTIFY readProblemChanged)
 public:
     QString prefill = QStringLiteral("https://example.org");
+    bool readProblem = false;
 Q_SIGNALS:
     void prefillChanged();
+    void readProblemChanged();
 };
 
 // Only what LoginScreen.qml reads from `app`.
@@ -115,7 +146,14 @@ public:
     QString empty() const { return {}; }
 
     Q_INVOKABLE bool localResetHelpsFor(const QString &) const { return false; }
-    Q_INVOKABLE void showMain() {}
+    // As AppController: leaving cancels a browser sign-in still waiting,
+    // whose backend answers at once.
+    Q_INVOKABLE void showMain()
+    {
+        ++mainShown;
+        if (m_auth->browserLoginInProgress())
+            m_auth->cancelBrowserLogin();
+    }
     Q_INVOKABLE void switchToAccount(const QString &userId) { switched.append(userId); }
     Q_INVOKABLE void repairLocalSession() {}
     Q_INVOKABLE void removeAccount(const QString &userId) { removed.append(userId); }
@@ -138,6 +176,7 @@ public:
     QStringList removed;
     QStringList leftovers;
     int retries = 0;
+    int mainShown = 0;
 
 Q_SIGNALS:
     void localSessionFailureChanged();
@@ -306,7 +345,7 @@ private slots:
     }
 
     // A server with its own sign-in page (MAS, matrix.org): that page is the
-    // one way in, as Element shows it, with sign-up and the account page.
+    // main way in, as Element shows it, with sign-up and the account page.
     void aServerWithItsOwnPageShowsOnlyThatWayIn()
     {
         QVERIFY(shown(QStringLiteral("homeserverField")));
@@ -396,13 +435,15 @@ private slots:
         // The browser is in charge: the password form steps aside.
         QVERIFY(!shown(QStringLiteral("passwordForm")));
         QVERIFY(shown(QStringLiteral("browserLoginCancelButton")));
-        // A browser that would not start is said during the wait, although
-        // the form (and its error line) is hidden.
+        // A browser that would not start ends the attempt (nothing could
+        // finish it): the password form is back, with the reason under it.
         m_client->launchFails();
-        QCoreApplication::processEvents();
-        QVERIFY(shown(QStringLiteral("loginErrorLabelNoForm")));
-        QVERIFY(text(QStringLiteral("loginErrorLabelNoForm"))
-                    .contains(QStringLiteral("web browser")));
+        QTRY_VERIFY(!m_auth->browserLoginInProgress());
+        QVERIFY(!shown(QStringLiteral("browserLoginCancelButton")));
+        QVERIFY(shown(QStringLiteral("passwordForm")));
+        QVERIFY(shown(QStringLiteral("loginErrorLabel")));
+        QVERIFY(!shown(QStringLiteral("loginErrorLabelNoForm")));
+        QVERIFY(text(QStringLiteral("loginErrorLabel")).contains(QStringLiteral("browser")));
     }
 
     // Single sign-on only (matrix.debian.social): no password form, and the
@@ -750,6 +791,231 @@ private slots:
                  qPrintable(QStringLiteral(
                      "typed text runs to x=%1, under the toggle at x=%2")
                      .arg(textRight).arg(toggleRect.left())));
+    }
+
+    // Reported five times from one homeserver (B005, B007, B040, B046, B050):
+    // a server offering its own sign-in page AND a password showed only the
+    // browser button. The page stays the main way in, and the password is one
+    // click away; another server starts on its own page again.
+    void aServerWithItsOwnPageKeepsThePasswordOneClickAway()
+    {
+        m_client->answer(kServer, true, true, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        QVERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("passwordForm")));
+        QVERIFY(shown(QStringLiteral("passwordInsteadButton")));
+        QCOMPARE(find(QStringLiteral("passwordInsteadButton"))->property("kind").toString(),
+                 QStringLiteral("secondary"));
+
+        click(QStringLiteral("passwordInsteadButton"));
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+        QVERIFY(!shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(shown(QStringLiteral("browserInsteadButton")));
+        QTRY_VERIFY(find(QStringLiteral("userField"))->hasActiveFocus());
+
+        click(QStringLiteral("browserInsteadButton"));
+        QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("passwordForm")));
+
+        // Chosen for one server only.
+        click(QStringLiteral("passwordInsteadButton"));
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+        typeServer(QStringLiteral("other.example"));
+        m_client->answer(QStringLiteral("https://other.example"), true, true, false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("passwordForm")));
+
+        // A page with no password beside it offers none.
+        typeServer(QStringLiteral("third.example"));
+        m_client->answer(QStringLiteral("https://third.example"), false, true, false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("passwordInsteadButton")));
+    }
+
+    // The same reports' second half (B005, B007, B050, B062, B075, B085): the
+    // browser could not be handed the page (plain http), and the screen said
+    // "Couldn't open your web browser... sign in another way" beside
+    // "Waiting for your browser... the page that opened", until the timeout,
+    // with no other way shown. Now one state: the wait is gone, the password
+    // form is there, and one error under it says to use it.
+    void aRefusedSignInPageFallsBackToThePasswordForm()
+    {
+        m_client->answer(kServer, true, true, false, true,
+                         QStringLiteral("http://example.org/"));
+        QCoreApplication::processEvents();
+        click(QStringLiteral("browserLoginButton"));
+        QCOMPARE(m_client->oauthStarts, QStringList{ kServer });
+        QVERIFY(shown(QStringLiteral("browserLoginWaitingLabel")));
+
+        m_client->launchFails();
+        QTRY_VERIFY(!m_auth->browserLoginInProgress());
+        QVERIFY(!shown(QStringLiteral("browserLoginWaitingLabel")));
+        QVERIFY(!shown(QStringLiteral("browserLoginCancelButton")));
+        QVERIFY(shown(QStringLiteral("passwordForm")));
+        QVERIFY(!shown(QStringLiteral("browserLoginButton")));
+        // Not offered back: the browser cannot be handed this page.
+        QVERIFY(!shown(QStringLiteral("browserInsteadButton")));
+        // Exactly one error, and it names the way forward.
+        QVERIFY(shown(QStringLiteral("loginErrorLabel")));
+        QVERIFY(!shown(QStringLiteral("loginErrorLabelNoForm")));
+        QVERIFY2(text(QStringLiteral("loginErrorLabel")).contains(QStringLiteral("password")),
+                 qPrintable(text(QStringLiteral("loginErrorLabel"))));
+
+        // A server with no password: its button is back, with the reason and
+        // no claim of a wait.
+        typeServer(QStringLiteral("other.example"));
+        m_client->answer(QStringLiteral("https://other.example"), false, true, false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
+        click(QStringLiteral("browserLoginButton"));
+        m_client->launchFails();
+        QTRY_VERIFY(!m_auth->browserLoginInProgress());
+        QVERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("browserLoginWaitingLabel")));
+        QVERIFY(shown(QStringLiteral("loginErrorLabelNoForm")));
+        QVERIFY(!text(QStringLiteral("loginErrorLabelNoForm")).contains(QStringLiteral("another way")));
+    }
+
+    // A slow server held a password sign-in with no way out until the request
+    // timed out (B041): Escape and Cancel give the form back, Change included.
+    void aPasswordSignInCanBeCancelled()
+    {
+        m_client->answer(kServer, true, false, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        find(QStringLiteral("userField"))->setProperty("text", QStringLiteral("bob"));
+        find(QStringLiteral("passField"))->setProperty("text", QStringLiteral("pw"));
+        QVERIFY(!shown(QStringLiteral("passwordLoginCancelButton")));
+        click(QStringLiteral("loginSubmitButton"));
+        QCOMPARE(m_client->logins, QStringList{ QStringLiteral("bob") });
+        QVERIFY(m_auth->isLoggingIn());
+        QVERIFY(shown(QStringLiteral("passwordLoginCancelButton")));
+        QVERIFY(!find(QStringLiteral("serverChangeButton"))->isEnabled());
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!m_auth->isLoggingIn());
+        QVERIFY(!shown(QStringLiteral("passwordLoginCancelButton")));
+        QVERIFY(find(QStringLiteral("serverChangeButton"))->isEnabled());
+        QVERIFY(find(QStringLiteral("loginSubmitButton"))->isEnabled());
+        QVERIFY2(text(QStringLiteral("loginErrorLabel"))
+                     .startsWith(QStringLiteral("Stopped waiting for the server.")),
+                 qPrintable(text(QStringLiteral("loginErrorLabel"))));
+
+        // The abandoned request answers; the next attempt is cancelled by the
+        // button.
+        Q_EMIT m_client->loginFailed(QStringLiteral("Can't reach the server."));
+        click(QStringLiteral("loginSubmitButton"));
+        QCOMPARE(m_client->logins.size(), 2);
+        click(QStringLiteral("passwordLoginCancelButton"));
+        QVERIFY(!m_auth->isLoggingIn());
+    }
+
+    // An error stayed on the form until the next submit, after the field it
+    // was about had been corrected (B045).
+    void editingAFieldClearsTheError()
+    {
+        m_client->answer(kServer, true, false, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        const auto failOnce = [this] {
+            click(QStringLiteral("loginSubmitButton"));
+            Q_EMIT m_client->loginFailed(QStringLiteral("Enter your username."));
+            QCoreApplication::processEvents();
+            QVERIFY(shown(QStringLiteral("loginErrorLabel")));
+        };
+        for (const char *name : { "userField", "passField" }) {
+            failOnce();
+            if (QTest::currentTestFailed())
+                return;
+            QQuickItem *field = find(QLatin1String(name));
+            QVERIFY(field);
+            field->forceActiveFocus();
+            QTRY_VERIFY(field->hasActiveFocus());
+            QTest::keyClick(m_window, Qt::Key_X);
+            QVERIFY2(m_auth->lastError().isEmpty(), name);
+            QVERIFY2(!shown(QStringLiteral("loginErrorLabel")), name);
+        }
+    }
+
+    // Enter on the address already answered asks the server again; leaving
+    // the field does not (B048).
+    void enterAsksAnAnsweredServerAgain()
+    {
+        m_client->answer(kServer, true, false, false);
+        QCoreApplication::processEvents();
+        QCOMPARE(m_client->discoveries.size(), 1);
+        typeServer(kServer);
+        QCOMPARE(m_client->discoveries, QStringList({ kServer, kServer }));
+        m_client->answer(kServer, true, false, false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("serverSummary")));
+
+        click(QStringLiteral("serverChangeButton"));
+        QQuickItem *field = find(QStringLiteral("homeserverField"));
+        QMetaObject::invokeMethod(field, "editingFinished");
+        QCOMPARE(m_client->discoveries.size(), 2);
+    }
+
+    // The usual path: an address typed, the debounce asks, "Found", then
+    // Enter. That answer is newer than the edit, so Enter goes on to the way
+    // in without asking again; a second probe would make every way in
+    // disappear and come back.
+    void enterAfterTheDebounceAnsweredDoesNotAskAgain()
+    {
+        m_client->answer(kServer, true, false, false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("serverSummary")));
+        click(QStringLiteral("serverChangeButton"));
+        QQuickItem *field = find(QStringLiteral("homeserverField"));
+        QVERIFY(field);
+        QTRY_VERIFY(field->hasActiveFocus());
+        for (const char c : QByteArrayLiteral("other.example"))
+            QTest::keyClick(m_window, c);
+        QCOMPARE(field->property("text").toString(), QStringLiteral("other.example"));
+        QTRY_COMPARE(m_client->discoveries.size(), 2);
+        const QString other = m_client->discoveries.last();
+        m_client->answer(other, true, false, false);
+        QCoreApplication::processEvents();
+        QCOMPARE(m_auth->discoveryState(), QStringLiteral("done"));
+
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QCoreApplication::processEvents();
+        QCOMPARE(m_client->discoveries.size(), 2);
+        QCOMPARE(m_auth->discoveryState(), QStringLiteral("done"));
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+    }
+
+    // Back during a browser sign-in cancels it (AppController::showMain), and
+    // that cancel's answer was kept through the restore that follows: a
+    // login screen opened later showed "cancelled" for nothing.
+    void backDuringABrowserSignInLeavesNoError()
+    {
+        m_client->answer(kServer, true, true, false);
+        QCoreApplication::processEvents();
+        click(QStringLiteral("browserLoginButton"));
+        QVERIFY(m_auth->browserLoginInProgress());
+        // Shown only with a saved account, which this fixture has none of;
+        // its handler is what is under test.
+        click(QStringLiteral("backToAppButton"));
+        QCOMPARE(m_app->mainShown, 1);
+        QVERIFY(!m_auth->browserLoginInProgress());
+        QCOMPARE(m_auth->lastError(), QString());
+        // The restore of the account the user went back to.
+        Q_EMIT m_client->loginSucceeded(QStringLiteral("@alice:example.org"));
+        QCOMPARE(m_auth->lastError(), QString());
+    }
+
+    // Saved settings that could not be read are said, not shown as a fresh
+    // sign-in (B118's notice, read when SettingsManager offers it).
+    void unreadableSettingsAreSaid()
+    {
+        QVERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
+        m_app->settings.readProblem = true;
+        Q_EMIT m_app->settings.readProblemChanged();
+        QTRY_VERIFY(shown(QStringLiteral("settingsReadProblemNotice")));
     }
 
     void noQmlWarnings()

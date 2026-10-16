@@ -456,6 +456,14 @@ private slots:
             }
         }
         QVERIFY(foundFocusedCancel);
+        // It names the account it signs out: Bob, now active, never Alice.
+        // With several accounts "this session" alone did not say which.
+        auto *accountName = find(QStringLiteral("signOutAccountName"));
+        QVERIFY2(accountName, "the sign-out confirmation does not name the account");
+        QVERIFY(accountName->property("visible").toBool());
+        const QString named = accountName->property("text").toString();
+        QVERIFY2(named.contains(kBob), qPrintable(named));
+        QVERIFY2(!named.contains(kAlice), qPrintable(named));
         QMetaObject::invokeMethod(signOutDialog, "close");
         QVERIFY(m_controller->auth()->isLoggedIn());
 
@@ -1363,6 +1371,27 @@ Window {
 
         QMetaObject::invokeMethod(popup, "close");
         QTRY_VERIFY(!popup->property("visible").toBool());
+    }
+
+    // An add-account failure now stays on the sign-in form through the
+    // rollback restore, so "Add" must not open the next visit on that old
+    // error. Last in the scenario: it visits the sign-in screen and comes
+    // back.
+    void addAccountOpensWithoutAnEarlierVisitsError()
+    {
+        auto *auth = m_controller->auth();
+        // An error AuthManager says without asking the backend.
+        auth->login(QStringLiteral("matrix .org"), QStringLiteral("a"), QStringLiteral("b"));
+        QVERIFY(!auth->lastError().isEmpty());
+        openMenu();
+        auto *add = find(QStringLiteral("accountFooterAdd"));
+        QVERIFY(add);
+        QMetaObject::invokeMethod(add, "clicked");
+        QCOMPARE(m_controller->currentScreen(), AppController::LoginScreen);
+        QVERIFY2(auth->lastError().isEmpty(), qPrintable(auth->lastError()));
+        m_controller->showMain();
+        QCOMPARE(m_controller->currentScreen(), AppController::MainScreen);
+        QVERIFY(auth->isLoggedIn());
     }
 };
 

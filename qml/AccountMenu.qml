@@ -473,7 +473,14 @@ Popup {
                 text: qsTr("Add")
                 iconName: "person_add"
                 enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
-                onClicked: { root.close(); app.showLogin() }
+                // A sign-in error from an earlier visit (kept on the form
+                // through an add-account rollback) is not this visit's.
+                onClicked: {
+                    root.close()
+                    if (app.auth)
+                        app.auth.clearLastError()
+                    app.showLogin()
+                }
             }
             FooterAction {
                 objectName: "accountFooterSettings"
@@ -579,10 +586,23 @@ Popup {
         }
     }
 
-    // Sign-out confirmation; Cancel is the focused default.
+    // Sign-out confirmation: names the account it signs out, as the removal
+    // confirmation does; Cancel is the focused default.
     Dialog {
         id: signOutConfirm
         objectName: "signOutConfirmDialog"
+        // The account Sign out acts on: the active one, read live, so the
+        // dialog never names an account other than the one logout() ends.
+        readonly property string targetUserId:
+            app.accounts ? (app.accounts.activeUserId || "") : ""
+        readonly property string targetDisplayName: {
+            const list = app.accounts ? app.accounts.accounts : []
+            for (let i = 0; i < list.length; i++) {
+                if (list[i].userId === signOutConfirm.targetUserId)
+                    return list[i].displayName || ""
+            }
+            return ""
+        }
         parent: Overlay.overlay
         anchors.centerIn: parent
         // Bound to the overlay, not content implicitWidth, so wrapping content
@@ -644,6 +664,24 @@ Popup {
 
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
+            // Which account: with several signed in, "this session" alone did
+            // not say. The display name, then the Matrix ID that tells two
+            // accounts with one name apart.
+            Label {
+                objectName: "signOutAccountName"
+                visible: signOutConfirm.targetUserId.length > 0
+                Layout.fillWidth: true
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
+                text: signOutConfirm.targetDisplayName.length > 0
+                      && signOutConfirm.targetDisplayName !== signOutConfirm.targetUserId
+                      ? signOutConfirm.targetDisplayName + "  ·  " + signOutConfirm.targetUserId
+                      : signOutConfirm.targetUserId
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
+                font.weight: AppTheme.weightStrong
+            }
             Label {
                 Layout.fillWidth: true
                 text: qsTr("You will be signed out of this session. "

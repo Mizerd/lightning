@@ -17,6 +17,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <utility>
+
 namespace {
 
 // Records what each sign-in path hands the backend, and never signs in.
@@ -45,21 +47,38 @@ public:
     void beginOAuthLogin(const QString &homeserver) override
     {
         oauthStarts.append(homeserver);
+        oauthInFlight = true;
     }
     void beginOAuthSignUp(const QString &homeserver) override
     {
         signUps.append(homeserver);
+        oauthInFlight = true;
     }
     void beginSsoLogin(const QString &homeserver, const QString &idpId) override
     {
         ssoStarts.append(qMakePair(homeserver, idpId));
+        ssoInFlight = true;
     }
     void requestSsoProviders(const QString &homeserver) override
     {
         providerRequests.append(homeserver);
     }
-    void cancelOAuthLogin() override {}
-    void cancelSsoLogin() override {}
+    // As RustSdkMatrixClient: a no-op unless that flow is running, and then
+    // a resolved answer, never silence.
+    void cancelOAuthLogin() override
+    {
+        if (!std::exchange(oauthInFlight, false))
+            return;
+        ++oauthCancels;
+        Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+    }
+    void cancelSsoLogin() override
+    {
+        if (!std::exchange(ssoInFlight, false))
+            return;
+        ++ssoCancels;
+        Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+    }
 
     void announce(const QString &homeserver)
     {
@@ -80,8 +99,28 @@ public:
     {
         Q_EMIT authMethodsDiscovered(homeserver, password, oauth, sso);
     }
-    void endAttempt() { Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled.")); }
+    void endAttempt()
+    {
+        oauthInFlight = false;
+        ssoInFlight = false;
+        Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
+    }
+    // What the backend does with a sign-in page it will not hand on (not
+    // https), or a browser that would not start: it says so, then reports the
+    // page anyway.
+    void refuseThePage(const QString &url)
+    {
+        Q_EMIT browserLaunchFailed();
+        if (oauthInFlight)
+            Q_EMIT oauthBrowserUrlReady(url);
+        else
+            Q_EMIT ssoBrowserUrlReady(url);
+    }
 
+    bool oauthInFlight = false;
+    bool ssoInFlight = false;
+    int oauthCancels = 0;
+    int ssoCancels = 0;
     QList<Login> logins;
     QStringList discoveries;
     QStringList oauthStarts;
@@ -115,6 +154,11 @@ QVariantMap details(bool reachable, const QString &resolved = QString(),
 
 const QString kNotAnAddress =
     QStringLiteral("That is not a server address. Enter one like matrix.org.");
+// What a cancelled password sign-in says: the request is abandoned, not
+// cancelled on the server, which may still complete it.
+const QString kStoppedWaiting =
+    QStringLiteral("Stopped waiting for the server. If it still completes this "
+                   "sign-in, the account may open on its own.");
 
 } // namespace
 
@@ -631,6 +675,213 @@ private slots:
         // buttons, and Create account.
         QCOMPARE(qml.count(QStringLiteral(
                      "enabled: !app.auth.isLoggingIn && !discoverDebounce.running")), 4);
+    }
+
+    // Re-typing the address on screen and pressing Enter did nothing: the
+    // dedupe that keeps the choices from blinking on focus loss also swallowed
+    // an explicit commit, so a server whose answer had changed (a delegation
+    // fixed meanwhile) kept its old one for the session. Enter asks again;
+    // focus loss still does not, and a server being asked is not asked twice.
+    void anExplicitCommitAsksAnAnsweredServerAgain()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"));
+        client.announce(QStringLiteral("https://matrix.org"));
+        QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
+        QCOMPARE(client.discoveries.size(), 1);
+
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"));
+        QCOMPARE(client.discoveries.size(), 1);
+
+        auth.discoverAuthMethods(QStringLiteral("Matrix.org/"), true);
+        QCOMPARE(client.discoveries,
+                 QStringList({ QStringLiteral("https://matrix.org"),
+                               QStringLiteral("https://matrix.org") }));
+        QCOMPARE(auth.discoveryState(), QStringLiteral("probing"));
+        // The old answer is not shown against the new question.
+        QVERIFY(!auth.serverOffersBrowserLogin());
+
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"), true);
+        QCOMPARE(client.discoveries.size(), 2);
+    }
+
+    // A failed add-account sign-in is followed by AppController restoring the
+    // account the user came from, and that restore's loginSucceeded cleared
+    // the error: the form the user was still on went blank, and the reason
+    // was left only in the status strip. One restore keeps it; anything after
+    // that clears it as before.
+    void aFailedSignInHereSurvivesTheRestoreThatFollowsIt()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        const QString wrong = QStringLiteral("Wrong username or password.");
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
+        QVERIFY(auth.isLoggingIn());
+        Q_EMIT client.loginFailed(wrong);
+        QCOMPARE(auth.lastError(), wrong);
+
+        Q_EMIT client.loginSucceeded(QStringLiteral("@alice:example.org"));
+        QCOMPARE(auth.lastError(), wrong);
+        QVERIFY(!auth.lastSignInWasInteractive());
+
+        Q_EMIT client.loginSucceeded(QStringLiteral("@alice:example.org"));
+        QVERIFY(auth.lastError().isEmpty());
+
+        // A successful sign-in made here clears it at once.
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
+        Q_EMIT client.loginFailed(wrong);
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
+        Q_EMIT client.loginSucceeded(QStringLiteral("@bob:matrix.org"));
+        QVERIFY(auth.lastError().isEmpty());
+        QVERIFY(auth.lastSignInWasInteractive());
+    }
+
+    // Editing a field clears the error about what was in it.
+    void clearingTheErrorIsAskable()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.login(QStringLiteral("matrix .org"), QStringLiteral("a"), QStringLiteral("b"));
+        QCOMPARE(auth.lastError(), kNotAnAddress);
+        QVERIFY(QMetaObject::invokeMethod(&auth, "clearLastError"));
+        QVERIFY(auth.lastError().isEmpty());
+    }
+
+    // A password sign-in to a slow server held the form until the request
+    // timed out: no Cancel, Change locked, Escape inert. Cancel gives it back
+    // at once. The backend has no abort for that request, so a new one (which
+    // would open the same store under it) waits for any terminal answer,
+    // bounded; that answer arrives like any other.
+    void cancellingAPasswordSignInGivesTheFormBack()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        QSignalSpy failed(&auth, &AuthManager::loginFailed);
+        auth.cancelLogin(); // nothing in flight: nothing happens
+        QCOMPARE(failed.count(), 0);
+
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
+        QCOMPARE(client.logins.size(), 1);
+        QVERIFY(auth.isLoggingIn());
+        auth.cancelLogin();
+        QVERIFY(!auth.isLoggingIn());
+        QCOMPARE(auth.loginStage(), QStringLiteral("idle"));
+        // Nothing was cancelled on the server, and the line does not claim it.
+        QCOMPARE(auth.lastError(), kStoppedWaiting);
+        QCOMPARE(failed.count(), 1);
+
+        const auto refusedForTheWait = [&](const char *what) {
+            QVERIFY2(!auth.isLoggingIn(), what);
+            QVERIFY2(!auth.browserLoginInProgress(), what);
+            QVERIFY2(auth.lastError().contains(QStringLiteral("has not answered")),
+                     qPrintable(QLatin1String(what) + QLatin1String(": ")
+                                + auth.lastError()));
+            // Nothing was attempted, so there is nothing for AppController
+            // to roll back.
+            QCOMPARE(failed.count(), 1);
+        };
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
+        QCOMPARE(client.logins.size(), 1);
+        refusedForTheWait("password");
+        // A browser sign-in runs on another handle, so nothing would replace
+        // the abandoned request and its answer would land in the middle of
+        // it: the browser, single sign-on and sign-up starts wait too.
+        auth.beginBrowserLogin(QStringLiteral("matrix.org"));
+        QVERIFY(client.oauthStarts.isEmpty());
+        refusedForTheWait("browser");
+        auth.beginSsoLogin(QStringLiteral("matrix.org"), QString());
+        QVERIFY(client.ssoStarts.isEmpty());
+        refusedForTheWait("sso");
+        auth.beginBrowserSignUp(QStringLiteral("matrix.org"));
+        QVERIFY(client.signUps.isEmpty());
+        refusedForTheWait("sign-up");
+
+        // The abandoned request answers: shown as it is, and the wait ends.
+        Q_EMIT client.loginFailed(QStringLiteral("Can't reach the server."));
+        QCOMPARE(auth.lastError(), QStringLiteral("Can't reach the server."));
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
+        QCOMPARE(client.logins.size(), 2);
+        QVERIFY(auth.isLoggingIn());
+
+        // Add account: the restore AppController starts on the cancel replaces
+        // the abandoned request (a new handle), keeps "cancelled" on the form,
+        // and ends the wait.
+        auth.cancelLogin();
+        Q_EMIT client.loginSucceeded(QStringLiteral("@alice:example.org"));
+        QCOMPARE(auth.lastError(), kStoppedWaiting);
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw3"));
+        QCOMPARE(client.logins.size(), 3);
+        auth.cancelLogin();
+        Q_EMIT client.loginFailed(QStringLiteral("Can't reach the server."));
+        auth.beginSsoLogin(QStringLiteral("matrix.org"), QString());
+        QCOMPARE(client.ssoStarts.size(), 1);
+        QVERIFY(auth.browserLoginInProgress());
+    }
+
+    // Cancel (and Escape) during a browser sign-in cancels it in the backend.
+    void cancellingABrowserSignInCancelsItInTheBackend()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.beginSsoLogin(QStringLiteral("matrix.org"), QString());
+        QVERIFY(auth.browserLoginInProgress());
+        auth.cancelLogin();
+        QCOMPARE(client.ssoCancels, 1);
+        QVERIFY(!auth.browserLoginInProgress());
+        QVERIFY(!auth.isLoggingIn());
+    }
+
+    // A server offering a password AND a sign-in page the browser cannot be
+    // handed (a plain-http development server; only https pages are handed
+    // on) was a dead end: the attempt waited for its timeout under "Waiting
+    // for your browser...", beside an error advising "sign in another way"
+    // with no other way shown. The attempt ends, the error says what to do,
+    // and the server's page is marked unusable until it is asked again.
+    void aRefusedSignInPageEndsTheAttempt()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        QSignalSpy failed(&auth, &AuthManager::loginFailed);
+        const QString hs = QStringLiteral("http://127.0.0.1:18008");
+        auth.discoverAuthMethods(hs);
+        client.announce(hs);
+        QVERIFY(auth.serverOffersBrowserLogin());
+        QVERIFY(auth.serverOffersPassword());
+        QVERIFY(!auth.browserLoginUnavailable());
+
+        auth.beginBrowserLogin(hs);
+        QVERIFY(auth.browserLoginInProgress());
+        client.refuseThePage(hs + QStringLiteral("/authorize"));
+        // Nothing waits for a page that never opened.
+        QVERIFY(auth.loginStage() != QLatin1String("waiting_for_browser"));
+        QVERIFY(auth.browserLoginUnavailable());
+        // Ended on the next turn, outside the backend's event drain.
+        QTRY_VERIFY(!auth.browserLoginInProgress());
+        QCOMPARE(client.oauthCancels, 1);
+        QVERIFY(!auth.isLoggingIn());
+        QCOMPARE(auth.loginStage(), QStringLiteral("idle"));
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(auth.lastError().contains(QStringLiteral("password")),
+                 qPrintable(auth.lastError()));
+        QVERIFY(!auth.lastError().contains(QStringLiteral("cancelled")));
+
+        // A server with no password says only what happened.
+        const QString other = QStringLiteral("http://127.0.0.1:18009");
+        auth.discoverAuthMethods(other);
+        QVERIFY(!auth.browserLoginUnavailable());
+        client.methodsOnly(other, false, true, false);
+        auth.beginBrowserLogin(other);
+        client.refuseThePage(other + QStringLiteral("/authorize"));
+        QTRY_VERIFY(!auth.browserLoginInProgress());
+        QVERIFY2(auth.lastError().contains(QStringLiteral("couldn't open")),
+                 qPrintable(auth.lastError()));
+        QVERIFY(!auth.lastError().contains(QStringLiteral("password")));
+
+        // Asking the same server again forgets the refusal.
+        QVERIFY(auth.browserLoginUnavailable());
+        auth.discoverAuthMethods(other, true);
+        QVERIFY(!auth.browserLoginUnavailable());
     }
 
     // The one-time "index all messages now?" offer is made after a sign-in the

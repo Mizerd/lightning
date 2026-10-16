@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QVariantList>
@@ -73,6 +74,12 @@ class AuthManager : public QObject
     // True from the moment a browser sign-in starts until it resolves.
     Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
                    NOTIFY browserLoginInProgressChanged)
+    // The browser could not be handed this server's sign-in page (only an
+    // https page is handed on, or no browser started), so that attempt was
+    // ended. The screen then offers the server's password form, if it has
+    // one. Until the server is asked again.
+    Q_PROPERTY(bool browserLoginUnavailable READ browserLoginUnavailable
+                   NOTIFY discoveryChanged)
 
 public:
     explicit AuthManager(MatrixClient *client, QObject *parent = nullptr);
@@ -120,12 +127,16 @@ public:
         return m_serverOauth && !m_accountManagementUrl.isEmpty();
     }
     bool browserLoginInProgress() const { return m_browserLoginInProgress; }
+    bool browserLoginUnavailable() const { return m_browserLoginUnavailable; }
 
     // True for a plain-http URL whose host is not this machine.
     static bool isInsecureRemoteUrl(const QString &url);
 
     // Ask the homeserver what it offers. Answers through discoveryChanged.
-    Q_INVOKABLE void discoverAuthMethods(const QString &homeserver);
+    // The server already answered (or being asked) is not asked again, so the
+    // choices do not blink when the field loses focus; `force` asks an
+    // answered one again, for an explicit commit (Enter in the field).
+    Q_INVOKABLE void discoverAuthMethods(const QString &homeserver, bool force = false);
     // Start an OAuth browser sign-in against the entered homeserver.
     Q_INVOKABLE void beginBrowserLogin(const QString &homeserver);
     // The same flow, asking the server's page to create an account. Refused
@@ -136,6 +147,12 @@ public:
     Q_INVOKABLE bool openAccountPage();
     // User pressed Cancel, or closed the browser. Always resolves the UI.
     Q_INVOKABLE void cancelBrowserLogin();
+    // Cancel (or Escape) during any sign-in started here. A browser sign-in is
+    // cancelled in the backend. A password sign-in has no abort there: the
+    // screen is given back at once, and every new sign-in, password or
+    // browser, waits (bounded) for the abandoned request to answer; see
+    // m_abandonedLogin.
+    Q_INVOKABLE void cancelLogin();
 
     Q_INVOKABLE void login(const QString &homeserver,
                            const QString &user,
@@ -156,7 +173,9 @@ public:
     void setBeforeLogout(BeforeLogout hook) { m_beforeLogout = std::move(hook); }
     bool logoutPending() const { return m_logoutPending; }
     Q_INVOKABLE void restoreSession();
-    void clearLastError();
+    // Called by the sign-in form when a field is edited: an error about what
+    // was there no longer describes what is there.
+    Q_INVOKABLE void clearLastError();
 
     // Start a legacy Matrix SSO sign-in. `idpId` selects one advertised
     // identity provider; empty means the server's default single flow.
@@ -186,6 +205,11 @@ private:
     void setLoginStage(const QString &stage);
 
     void setBrowserLoginInProgress(bool v);
+    // What a browser attempt ended by a launch failure says.
+    QString browserLaunchFailureText() const;
+    // True (and says so on the form) while a cancelled password sign-in's
+    // request may still answer; every sign-in start asks it first.
+    bool refuseWhileAbandonedLoginRuns();
     // Runs a discovery asked for while a browser sign-in was in flight.
     void runDeferredDiscovery();
     // Refuses a sign-in whose server text is not an address, without asking
@@ -215,6 +239,20 @@ private:
     bool m_serverSso = false;
     QVariantList m_ssoProviders;
     bool m_browserLoginInProgress = false;
+    // The running browser attempt's page could not be opened; it is being
+    // ended, and its answer is shown as that, not as "cancelled".
+    bool m_browserLaunchFailed = false;
+    bool m_browserLoginUnavailable = false;
+    // A sign-in made here failed, and AppController restores the account the
+    // user came from (add account). That restore's success must not wipe the
+    // failure off the form the user is still looking at.
+    bool m_errorSurvivesRestore = false;
+    // Started when a password sign-in in flight was cancelled. Its request
+    // still runs in the backend: a new password sign-in would open the same
+    // store under it, and its answer would land in a browser sign-in started
+    // meanwhile. So every start waits for any terminal answer (the abandoned
+    // one, or a restore that replaced it), at most kAbandonedLoginBoundMs.
+    QElapsedTimer m_abandonedLogin;
     // A discovery asked for during a browser sign-in, run when it ends.
     bool m_discoveryDeferred = false;
     QString m_deferredDiscovery;
