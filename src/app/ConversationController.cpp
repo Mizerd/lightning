@@ -19,6 +19,10 @@ constexpr int kCreateOpTimeoutMs = 60000;
 // create for the same person. The server keeps working on it (the request has
 // no cancel and no timeout of its own), and each retry leaves one more room.
 constexpr int kAbandonedOpGuardMs = 10 * 60 * 1000;
+
+// Bounds the pre-create profile lookup. Longer than rooms.rs's own 10 s bound,
+// which answers "timeout"; this only covers a backend that never answers.
+constexpr int kTargetCheckTimeoutMs = 15000;
 } // namespace
 
 ConversationController::ConversationController(QObject *parent)
@@ -34,6 +38,18 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_roomWaitTimeout, &QTimer::timeout, this, [this]() {
         if (m_waitingForRoom)
             finishWaitForRoom();
+    });
+    m_targetCheckTimeout.setSingleShot(true);
+    m_targetCheckTimeout.setInterval(kTargetCheckTimeoutMs);
+    connect(&m_targetCheckTimeout, &QTimer::timeout, this, [this]() {
+        if (m_targetCheckOp == 0)
+            return;
+        // No answer is not "does not exist": do not block.
+        const QString userId = m_targetCheckUser;
+        m_targetCheckOp = 0;
+        m_targetCheckUser.clear();
+        createDirectChat(userId);
+        Q_EMIT busyChanged();
     });
     m_opTimeout.setSingleShot(true);
     m_opTimeout.setInterval(kCreateOpTimeoutMs);
@@ -66,6 +82,8 @@ void ConversationController::setClient(MatrixClient *client)
     m_client = client;
     // An account switch: the other account's abandoned creates mean nothing.
     clearAbandonedDm();
+    cancelTargetCheck();
+    setUnknownTarget(QString());
     m_userSearch->setClient(client);
     if (m_client) {
         connect(m_client, &MatrixClient::dmCreateFinished,
@@ -82,6 +100,8 @@ void ConversationController::setClient(MatrixClient *client)
                 this, &ConversationController::onRoomsChanged);
         connect(m_client, &MatrixClient::loggedOut,
                 this, &ConversationController::onLoggedOut);
+        connect(m_client, &MatrixClient::userProfileFinished,
+                this, &ConversationController::onUserProfileFinished);
     }
     Q_EMIT supportedChanged();
 }
@@ -112,8 +132,35 @@ QString ConversationController::describeCategory(const QString &category)
 void ConversationController::checkExistingDm(const QString &userId)
 {
     m_existingDms.clear();
-    if (m_client && !userId.isEmpty())
-        m_existingDms = m_client->existingDirectRooms(userId);
+    if (m_client && !userId.isEmpty()) {
+        const QVariantList found = m_client->existingDirectRooms(userId);
+        // The backend reports the explicit m.room.name, which a DM almost
+        // never has; the row then read "Existing conversation" with an "EC"
+        // avatar. Present each room the way the room list does: its computed
+        // name and its avatar. An empty field is left for the dialog to fill
+        // from the selected person.
+        const QList<RoomInfo> rooms = m_client->rooms();
+        for (const QVariant &value : found) {
+            QVariantMap entry = value.toMap();
+            const QString roomId = entry.value(QStringLiteral("roomId")).toString();
+            for (const RoomInfo &room : rooms) {
+                if (room.id != roomId)
+                    continue;
+                // RustRoomRegistry falls back to the id for a nameless room;
+                // an id is not a name.
+                if (entry.value(QStringLiteral("name")).toString().isEmpty()
+                    && room.name != room.id)
+                    entry.insert(QStringLiteral("name"), room.name);
+                if (entry.value(QStringLiteral("avatarUrl")).toString().isEmpty())
+                    entry.insert(QStringLiteral("avatarUrl"), room.avatarUrl);
+                // A group DM must not wear one member's face (identityColorKey).
+                entry.insert(QStringLiteral("oneToOne"),
+                             room.directUserIds.size() <= 1);
+                break;
+            }
+            m_existingDms.append(entry);
+        }
+    }
     Q_EMIT existingDmsChanged();
 }
 
@@ -121,19 +168,91 @@ void ConversationController::startDirectMessage(const QString &userId)
 {
     if (!m_client || busy() || userId.isEmpty())
         return;
+    if (refuseDmTarget(userId))
+        return;
+    clearError();
+    setUnknownTarget(QString());
+    // Element's check: a DM to an id the homeserver does not know makes a
+    // room nobody will ever join (and an encrypted one at that). Ask the
+    // target's server first; only a definite "not found" stops the create.
+    const quint64 checkOp = m_client->fetchUserProfile(userId);
+    if (checkOp == 0) {
+        // No profile lookup on this backend: nothing to ask, so do not block.
+        createDirectChat(userId);
+        Q_EMIT busyChanged();
+        return;
+    }
+    m_targetCheckOp = checkOp;
+    m_targetCheckUser = userId;
+    m_targetCheckTimeout.start();
+    Q_EMIT busyChanged();
+}
+
+bool ConversationController::refuseDmTarget(const QString &userId)
+{
     if (userId == m_client->currentUserId()) {
         setError(tr("You cannot start a direct message with yourself."));
-        return;
+        return true;
     }
     if (m_abandonedDms.key(userId, 0) != 0) {
         setError(tr("A conversation with this person is still being created "
                     "and their server has not answered yet. If an empty room "
                     "appears in your list, use that one; starting another "
                     "would only add more empty rooms."));
+        return true;
+    }
+    return false;
+}
+
+void ConversationController::startDirectMessageAnyway(const QString &userId)
+{
+    if (!m_client || busy() || userId.isEmpty())
+        return;
+    if (refuseDmTarget(userId))
+        return;
+    clearError();
+    setUnknownTarget(QString());
+    createDirectChat(userId);
+    Q_EMIT busyChanged();
+}
+
+void ConversationController::dismissUnknownTarget()
+{
+    setUnknownTarget(QString());
+}
+
+void ConversationController::onUserProfileFinished(quint64 opId, bool ok,
+                                                   const QString &userId,
+                                                   const QString &displayName,
+                                                   const QString &avatarUrl,
+                                                   const QString &category)
+{
+    Q_UNUSED(displayName);
+    Q_UNUSED(avatarUrl);
+    // Other lookups (search, avatars, mention pills) share this signal.
+    if (m_targetCheckOp == 0 || opId != m_targetCheckOp)
+        return;
+    const QString target = m_targetCheckUser;
+    m_targetCheckOp = 0;
+    m_targetCheckUser.clear();
+    m_targetCheckTimeout.stop();
+    if (!ok && category == QLatin1String("not_found")
+        && (userId.isEmpty() || userId == target)) {
+        // The server answered: there is no such user. Ask, do not create.
+        qCInfo(lcConv) << "dm target not found; asking before create";
+        setUnknownTarget(target);
+        Q_EMIT busyChanged();
         return;
     }
-    clearError();
-    const quint64 opId = m_client->createDirectChat(userId);
+    // Found, or the lookup failed for another reason (network, timeout, a
+    // server that refuses profile lookups): proceed as before.
+    createDirectChat(target);
+    Q_EMIT busyChanged();
+}
+
+void ConversationController::createDirectChat(const QString &userId)
+{
+    const quint64 opId = m_client ? m_client->createDirectChat(userId) : 0;
     if (opId == 0) {
         setError(tr("Starting direct messages is not supported on this backend."));
         return;
@@ -142,7 +261,21 @@ void ConversationController::startDirectMessage(const QString &userId)
     m_pendingOp = opId;
     m_pendingDmUser = userId;
     m_opTimeout.start();
-    Q_EMIT busyChanged();
+}
+
+void ConversationController::setUnknownTarget(const QString &userId)
+{
+    if (m_unknownTarget == userId)
+        return;
+    m_unknownTarget = userId;
+    Q_EMIT unknownTargetChanged();
+}
+
+void ConversationController::cancelTargetCheck()
+{
+    m_targetCheckOp = 0;
+    m_targetCheckUser.clear();
+    m_targetCheckTimeout.stop();
 }
 
 void ConversationController::createRoom(const QVariantMap &options)
@@ -215,6 +348,11 @@ void ConversationController::reset()
     // Closing the dialog does not cancel a server-side create, so keep
     // `m_pendingOp`: clearing it let users retry a hung create and leave a
     // stray room each time. `m_opTimeout` bounds the guard instead.
+    // The profile check, unlike the create, has done nothing server-side, so
+    // closing the dialog abandons it: its late answer must not create a room
+    // the user walked away from.
+    cancelTargetCheck();
+    setUnknownTarget(QString());
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_pendingIsSpace = false;
@@ -278,6 +416,11 @@ void ConversationController::clearAbandonedDm()
 void ConversationController::setOpTimeoutMsForTest(int ms)
 {
     m_opTimeout.setInterval(ms);
+}
+
+void ConversationController::setTargetCheckTimeoutMsForTest(int ms)
+{
+    m_targetCheckTimeout.setInterval(ms);
 }
 
 void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
@@ -389,6 +532,11 @@ void ConversationController::finishWaitForRoom()
         return;
     const QString roomId = m_awaitedRoomId;
     const bool isSpace = m_pendingIsSpace;
+    // The profile check, unlike the create, has done nothing server-side, so
+    // closing the dialog abandons it: its late answer must not create a room
+    // the user walked away from.
+    cancelTargetCheck();
+    setUnknownTarget(QString());
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_pendingIsSpace = false;

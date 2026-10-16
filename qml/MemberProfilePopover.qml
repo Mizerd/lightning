@@ -341,7 +341,10 @@ Popup {
             // "Message" means type now (GitHub #29).
             app.requestComposerFocus(existing[0].roomId)
         } else
-            app.conversations.startDirectMessage(userId)
+            // Skips the dialog's "may not exist" lookup: this card is about
+            // someone met in a room, and it closes at once, so a not-found
+            // prompt raised from here would have nowhere to show.
+            app.conversations.startDirectMessageAnyway(userId)
         close()
     }
 

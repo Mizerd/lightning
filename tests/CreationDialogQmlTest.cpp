@@ -3,8 +3,10 @@
 // UserSearchModel and focuses the new tab's first field; Create is disabled
 // until the name is non-blank and the one error banner shows the
 // controller's errorMessage; busy disables submit but not Cancel;
-// existing-DM reuse rows render before the secondary "start anyway" action;
-// Down/Down/Return in search selects the second result. A focused scene (as
+// existing-DM reuse rows render before the secondary "start anyway" action
+// and wear the person's name; a target the server does not know is asked
+// about before any room is made; Down/Down/Return in search selects the
+// second result. A focused scene (as
 // in ComposerQmlTest) with a FakeClient injected into app.conversations,
 // since the full-shell mock cannot script this state.
 
@@ -42,6 +44,9 @@ public:
     QString lastSearchQuery;
     QVariantMap lastRoomOptions;
     quint64 lastOpId = 0;
+    // The DM target check; off unless a case turns it on.
+    bool profileLookupSupported = false;
+    quint64 lastProfileOp = 0;
 
     // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
@@ -84,6 +89,13 @@ public:
     QVariantList existingDirectRooms(const QString &) const override
     {
         return dmRooms;
+    }
+    quint64 fetchUserProfile(const QString &) override
+    {
+        if (!profileLookupSupported)
+            return 0;
+        lastProfileOp = nextOp++;
+        return lastProfileOp;
     }
     quint64 createDirectChat(const QString &) override
     {
@@ -206,6 +218,27 @@ private:
         QMetaObject::invokeMethod(m_dialog, "close");
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
         QCoreApplication::processEvents();
+    }
+
+    // Picks `userId` (shown as `name`) from a scripted search, as a person
+    // would with the keyboard.
+    void selectUserFromSearch(const QString &userId, const QString &name)
+    {
+        auto *field = item("dmUserPickerSearchField");
+        QVERIFY(field);
+        QTRY_VERIFY(field->hasActiveFocus());
+        const int before = m_fake->searchCalls;
+        field->setProperty("text", userId.mid(1, 3));
+        QTRY_VERIFY(m_fake->searchCalls > before);
+        Q_EMIT m_fake->userSearchFinished(m_fake->lastOpId, true,
+                                          { searchRow(userId, name) }, false,
+                                          QString());
+        auto *results = item("dmUserPickerResults");
+        QVERIFY(results);
+        QTRY_COMPARE(results->property("count").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_dialog->property("selectedUserId").toString(), userId);
     }
 
     ConversationController *conversations() const
@@ -486,6 +519,90 @@ private slots:
                     < anyway->mapToScene(QPointF(0, 0)).y());
 
         m_fake->dmRooms.clear();
+        closeDialog();
+    }
+
+    // Break-it s04: a DM the backend reported without a name read "Existing
+    // conversation" with an "EC" avatar. It is a DM with the person on the
+    // card, so it wears their name.
+    void anUnnamedExistingDmIsLabelledWithThePerson()
+    {
+        QVariantMap dm;
+        dm.insert(QStringLiteral("roomId"), QStringLiteral("!dm:example.org"));
+        dm.insert(QStringLiteral("name"), QString());
+        m_fake->dmRooms = { dm };
+
+        openDialog("dm");
+        selectUserFromSearch(QStringLiteral("@bob:example.org"),
+                             QStringLiteral("Bob Builder"));
+        if (QTest::currentTestFailed())
+            return;
+        auto *label = item("existingDmName_0");
+        auto *avatar = item("existingDmAvatar_0");
+        QVERIFY(label && avatar);
+        QTRY_COMPARE(label->property("text").toString(),
+                     QStringLiteral("Bob Builder"));
+        QCOMPARE(avatar->property("name").toString(),
+                 QStringLiteral("Bob Builder"));
+
+        m_fake->dmRooms.clear();
+        closeDialog();
+    }
+
+    // Break-it s04: the homeserver says the target does not exist (404 on the
+    // profile). The dialog says so and creates nothing until asked to.
+    void anUnknownTargetIsAskedAboutBeforeAnyRoomIsMade()
+    {
+        m_fake->profileLookupSupported = true;
+        openDialog("dm");
+        const QString nobody = QStringLiteral("@nobodyhere999:example.org");
+        selectUserFromSearch(nobody, QString());
+        if (QTest::currentTestFailed())
+            return;
+
+        auto *start = item("dmStartButton");
+        auto *panel = item("dmUnknownTargetPanel");
+        QVERIFY(start && panel);
+        QTRY_VERIFY(start->isVisible());
+        QVERIFY(!panel->isVisible());
+        const int before = m_fake->createDmCalls;
+        QMetaObject::invokeMethod(start, "click");
+        QCOMPARE(m_fake->createDmCalls, before);
+
+        Q_EMIT m_fake->userProfileFinished(m_fake->lastProfileOp, false, nobody,
+                                           QString(), QString(),
+                                           QStringLiteral("not_found"));
+        QTRY_VERIFY(panel->isVisible());
+        QVERIFY(!start->isVisible());
+        QCOMPARE(m_fake->createDmCalls, before);
+        auto *text = item("dmUnknownTargetText");
+        QVERIFY(text);
+        QVERIFY(text->property("text").toString().contains(nobody));
+        QCOMPARE(text->property("textFormat").toInt(), int(Qt::PlainText));
+
+        // Cancel makes nothing and puts the ordinary action back.
+        auto *cancel = item("dmUnknownTargetCancel");
+        auto *anyway = item("dmUnknownTargetStartAnyway");
+        QVERIFY(cancel && anyway);
+        QMetaObject::invokeMethod(cancel, "click");
+        QTRY_VERIFY(!panel->isVisible());
+        QVERIFY(start->isVisible());
+        QCOMPARE(m_fake->createDmCalls, before);
+
+        // Start anyway creates exactly one.
+        QMetaObject::invokeMethod(start, "click");
+        Q_EMIT m_fake->userProfileFinished(m_fake->lastProfileOp, false, nobody,
+                                           QString(), QString(),
+                                           QStringLiteral("not_found"));
+        QTRY_VERIFY(panel->isVisible());
+        QMetaObject::invokeMethod(anyway, "click");
+        QCOMPARE(m_fake->createDmCalls, before + 1);
+
+        // Release the create guard for the cases after this one.
+        Q_EMIT m_fake->dmCreateFinished(m_fake->lastOpId, false, QString(),
+                                        QStringLiteral("forbidden"));
+        QTRY_VERIFY(!conversations()->busy());
+        m_fake->profileLookupSupported = false;
         closeDialog();
     }
 

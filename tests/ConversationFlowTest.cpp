@@ -28,6 +28,12 @@ public:
     int inviteCalls = 0;
     int avatarCalls = 0;
     bool avatarSupported = true;
+    // Off by default: the base returns 0 (no lookup), which the controller
+    // treats as "nothing to ask" and creates at once.
+    bool profileLookupSupported = false;
+    int profileCalls = 0;
+    QString lastProfileUser;
+    quint64 lastProfileOp = 0;
     QString lastSearchQuery;
     QString lastDmUser;
     QVariantMap lastRoomOptions;
@@ -78,6 +84,15 @@ public:
     QVariantList existingDirectRooms(const QString &) const override
     {
         return dmRooms;
+    }
+    quint64 fetchUserProfile(const QString &userId) override
+    {
+        if (!profileLookupSupported)
+            return 0;
+        ++profileCalls;
+        lastProfileUser = userId;
+        lastProfileOp = nextOp++;
+        return lastProfileOp;
     }
     quint64 createDirectChat(const QString &userId) override
     {
@@ -283,6 +298,169 @@ private Q_SLOTS:
         QCOMPARE(controller.existingDms().first().toMap()
                      .value(QStringLiteral("roomId")).toString(),
                  QStringLiteral("!dm:example.org"));
+    }
+
+    // Break-it s04: the duplicate-DM card read "Existing conversation" with an
+    // "EC" avatar. m.direct rooms rarely carry an explicit name, and the
+    // backend reports only that; the entry takes the room list's computed name
+    // and the room avatar instead, and says whether the room is 1:1.
+    void existingDmIsPresentedTheWayTheRoomListShowsIt()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+
+        const auto dmEntry = [](const QString &roomId) {
+            QVariantMap dm;
+            dm.insert(QStringLiteral("roomId"), roomId);
+            dm.insert(QStringLiteral("name"), QString());
+            return dm;
+        };
+        RoomInfo oneToOne = makeRoom(QStringLiteral("!dm:example.org"));
+        oneToOne.name = QStringLiteral("Alice");
+        oneToOne.avatarUrl = QStringLiteral("mxc://example.org/room");
+        oneToOne.isDirect = true;
+        oneToOne.directUserIds = { QStringLiteral("@alice:example.org") };
+        RoomInfo group = makeRoom(QStringLiteral("!group:example.org"));
+        group.name = QStringLiteral("Alice and Bob");
+        group.isDirect = true;
+        group.directUserIds = { QStringLiteral("@alice:example.org"),
+                                QStringLiteral("@bob:example.org") };
+        // A nameless room: RustRoomRegistry stores its id as the name.
+        RoomInfo nameless = makeRoom(QStringLiteral("!bare:example.org"));
+        client.mirror = { oneToOne, group, nameless };
+        client.dmRooms = { dmEntry(oneToOne.id), dmEntry(group.id),
+                           dmEntry(nameless.id) };
+
+        controller.checkExistingDm(QStringLiteral("@alice:example.org"));
+        const QVariantList found = controller.existingDms();
+        QCOMPARE(found.size(), 3);
+        const QVariantMap first = found.at(0).toMap();
+        QCOMPARE(first.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Alice"));
+        QCOMPARE(first.value(QStringLiteral("avatarUrl")).toString(),
+                 QStringLiteral("mxc://example.org/room"));
+        QCOMPARE(first.value(QStringLiteral("oneToOne")).toBool(), true);
+        const QVariantMap second = found.at(1).toMap();
+        QCOMPARE(second.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Alice and Bob"));
+        QCOMPARE(second.value(QStringLiteral("oneToOne")).toBool(), false);
+        // An id is not a name: left empty for the dialog's person fallback.
+        QVERIFY(found.at(2).toMap().value(QStringLiteral("name")).toString().isEmpty());
+    }
+
+    // Break-it s04: a DM to @nobodyhere999 was created, encrypted, with no
+    // warning, and a retry made a second dead room. As Element does, the
+    // target's profile is asked for first and a 404 stops the create.
+    void aDmToAUserTheServerDoesNotKnowAsksFirst()
+    {
+        FakeClient client;
+        client.profileLookupSupported = true;
+        ConversationController controller;
+        controller.setClient(&client);
+        const QString nobody = QStringLiteral("@nobodyhere999:example.org");
+
+        controller.startDirectMessage(nobody);
+        QCOMPARE(client.profileCalls, 1);
+        QCOMPARE(client.lastProfileUser, nobody);
+        QCOMPARE(client.createDmCalls, 0);
+        QVERIFY(controller.busy());
+
+        QSignalSpy asked(&controller, &ConversationController::unknownTargetChanged);
+        Q_EMIT client.userProfileFinished(client.lastProfileOp, false, nobody,
+                                          QString(), QString(),
+                                          QStringLiteral("not_found"));
+        QCOMPARE(client.createDmCalls, 0);
+        QCOMPARE(controller.unknownTarget(), nobody);
+        QCOMPARE(asked.count(), 1);
+        QVERIFY(!controller.busy());
+
+        // Cancel: nothing is created.
+        controller.dismissUnknownTarget();
+        QVERIFY(controller.unknownTarget().isEmpty());
+        QCOMPARE(client.createDmCalls, 0);
+
+        // Asked again, and this time the person goes ahead.
+        controller.startDirectMessage(nobody);
+        Q_EMIT client.userProfileFinished(client.lastProfileOp, false, nobody,
+                                          QString(), QString(),
+                                          QStringLiteral("not_found"));
+        QCOMPARE(controller.unknownTarget(), nobody);
+        controller.startDirectMessageAnyway(nobody);
+        QCOMPARE(client.createDmCalls, 1);
+        QCOMPARE(client.lastDmUser, nobody);
+        QVERIFY(controller.unknownTarget().isEmpty());
+        QVERIFY(controller.busy());
+    }
+
+    // Only a definite "not found" stops the create. A network error, a
+    // timeout or a server that refuses profile lookups (403) must not block,
+    // and a user who exists is created without asking.
+    void aProfileLookupThatIsNotANotFoundNeverBlocks()
+    {
+        const QStringList outcomes = { QStringLiteral("ok"),
+                                       QStringLiteral("network"),
+                                       QStringLiteral("timeout"),
+                                       QStringLiteral("forbidden"),
+                                       QStringLiteral("unrecognized") };
+        for (const QString &outcome : outcomes) {
+            FakeClient client;
+            client.profileLookupSupported = true;
+            ConversationController controller;
+            controller.setClient(&client);
+            const QString user = QStringLiteral("@alice:example.org");
+            controller.startDirectMessage(user);
+            const bool ok = outcome == QLatin1String("ok");
+            Q_EMIT client.userProfileFinished(client.lastProfileOp, ok, user,
+                                              ok ? QStringLiteral("Alice") : QString(),
+                                              QString(),
+                                              ok ? QString() : outcome);
+            QVERIFY2(client.createDmCalls == 1, qPrintable(outcome));
+            QVERIFY2(controller.unknownTarget().isEmpty(), qPrintable(outcome));
+            QVERIFY2(controller.busy(), qPrintable(outcome));
+        }
+    }
+
+    // The check has done nothing server-side, so closing the dialog abandons
+    // it: the late answer must not create a room the person walked away from.
+    // Other profile answers (search, avatars, pills) are not ours.
+    void aCheckAbandonedByClosingTheDialogCreatesNothing()
+    {
+        FakeClient client;
+        client.profileLookupSupported = true;
+        ConversationController controller;
+        controller.setClient(&client);
+        const QString user = QStringLiteral("@alice:example.org");
+
+        controller.startDirectMessage(user);
+        const quint64 checkOp = client.lastProfileOp;
+        Q_EMIT client.userProfileFinished(checkOp + 100, true, user,
+                                          QStringLiteral("Alice"), QString(),
+                                          QString());
+        QCOMPARE(client.createDmCalls, 0);
+        QVERIFY(controller.busy());
+
+        controller.reset();
+        QVERIFY(!controller.busy());
+        Q_EMIT client.userProfileFinished(checkOp, true, user,
+                                          QStringLiteral("Alice"), QString(),
+                                          QString());
+        QCOMPARE(client.createDmCalls, 0);
+    }
+
+    // No answer at all is not "does not exist": the bound proceeds.
+    void aCheckThatNeverAnswersStillCreates()
+    {
+        FakeClient client;
+        client.profileLookupSupported = true;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setTargetCheckTimeoutMsForTest(20);
+        controller.startDirectMessage(QStringLiteral("@alice:example.org"));
+        QCOMPARE(client.createDmCalls, 0);
+        QTRY_COMPARE(client.createDmCalls, 1);
+        QVERIFY(controller.unknownTarget().isEmpty());
+        QVERIFY(controller.busy());
     }
 
     void dmCreateOpensRoomWhenItAppears()

@@ -21,6 +21,10 @@ namespace matrix::preview {
 /// sends a FLAG, never this text, so a real body that reads the same cannot
 /// look like the placeholder.
 QString undecryptablePreview();
+/// The room list's words for a room whose newest event is our own join and
+/// which has no message yet (a DM just accepted, a room just created). Also a
+/// Rust FLAG, worded here in the UI language.
+QString ownJoinPreview();
 
 QString oneLineSummary(const TimelineEvent &event,
                        const QString &actorLabel = QString());

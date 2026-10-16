@@ -202,6 +202,28 @@ pub(crate) async fn look(room: &matrix_sdk::Room) -> Outcome {
     pick_preview(&messages.chunk).unwrap_or(Outcome::Nothing)
 }
 
+/// Whether the SDK's latest event is our own join. matrix-sdk picks it on
+/// purpose so a room just joined has a first value (its latest-event builder
+/// accepts only the OWN Joined / InvitationAccepted / KnockAccepted change of
+/// an `m.room.member`, never a profile change or someone else's join). It has
+/// no message to preview, so `room_payload` sends a flag and C++ words it in
+/// the UI language; before, a DM just accepted showed a blank line.
+pub(crate) fn is_own_join(
+    raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
+    own_user_id: &UserId,
+) -> bool {
+    raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.room.member")
+        && raw.get_field::<String>("state_key").ok().flatten().as_deref()
+            == Some(own_user_id.as_str())
+        && raw
+            .get_field::<serde_json::Value>("content")
+            .ok()
+            .flatten()
+            .and_then(|content| content.get("membership").and_then(|m| m.as_str()).map(str::to_owned))
+            .as_deref()
+            == Some("join")
+}
+
 /// What a look left for a room's row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Remembered {
@@ -407,6 +429,25 @@ mod tests {
 
     fn rooms(n: usize) -> Vec<OwnedRoomId> {
         (0..n).map(|i| OwnedRoomId::try_from(format!("!r{i}:x")).unwrap()).collect()
+    }
+
+    #[test]
+    fn only_our_own_join_is_an_own_join() {
+        use matrix_sdk::ruma::user_id;
+        let me = user_id!("@me:example.org");
+        let member = |state_key: &str, membership: &str| {
+            raw(json!({
+                "type": "m.room.member", "state_key": state_key,
+                "event_id": "$j:x", "room_id": "!a:example.org",
+                "sender": state_key, "origin_server_ts": 5,
+                "content": { "membership": membership }
+            }))
+        };
+        assert!(is_own_join(member("@me:example.org", "join").raw(), me));
+        assert!(!is_own_join(member("@other:example.org", "join").raw(), me));
+        assert!(!is_own_join(member("@me:example.org", "leave").raw(), me));
+        assert!(!is_own_join(member("@me:example.org", "invite").raw(), me));
+        assert!(!is_own_join(raw(message(5, "hi")).raw(), me));
     }
 
     #[test]

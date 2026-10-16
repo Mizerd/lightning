@@ -174,7 +174,12 @@ Item {
         QQuickItem *row = nullptr;
     };
 
-    bool buildClassicRow(ClassicRow &h, int unread, int highlight, int kind)
+    // `membership`, `direct` and `inviter` shape an invitation row; the
+    // defaults are the joined room every other case uses.
+    bool buildClassicRow(ClassicRow &h, int unread, int highlight, int kind,
+                         const QString &membership = QStringLiteral("joined"),
+                         bool direct = false,
+                         const QString &inviter = QString())
     {
         h.engine = std::make_unique<QQmlEngine>();
         connect(h.engine.get(), &QQmlEngine::warnings, this,
@@ -214,20 +219,22 @@ Item {
         objectName: "list"
         anchors.fill: parent
         model: ListModel {
-            ListElement { roomId: "!r:x"; name: "Room"; membership: "joined"
+            ListElement { roomId: "!r:x"; name: "Room"; membership: "%4"
                           hasUnread: true; markedUnread: false
                           unreadCount: %1; highlightCount: %2
-                          threadUnreadKind: %3; isDirect: false
+                          threadUnreadKind: %3; isDirect: %5
                           lastMessagePreview: "hello"; lastActivity: 0
                           avatarUrl: ""; encrypted: false; isSpace: false
-                          invitePending: false; inviter: ""; isFavourite: false
+                          invitePending: false; inviter: "%6"; isFavourite: false
                           identityColorKey: "!r:x"; network: ""; networkLabel: ""
                           category: "conversation"; memberCount: 3 }
         }
         delegate: RoomDelegate { width: 300 }
     }
 }
-)").arg(unread).arg(highlight).arg(kind);
+)").arg(unread).arg(highlight).arg(kind)
+         .arg(membership, direct ? QStringLiteral("true") : QStringLiteral("false"),
+              inviter);
         component.setData(source.toUtf8(),
                           QUrl(QStringLiteral("qrc:/classicrow.qml")));
         if (!component.errors().isEmpty()) {
@@ -935,6 +942,43 @@ private Q_SLOTS:
                  "thread glyph outside the Classic row");
         for (const QString &w : h.warnings)
             QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
+    }
+
+    // Break-it s03/s04: the invitation line shared its row with Accept and
+    // Reject, so at the room list's width it kept about 80 px and read
+    // "Room invitati…"; a DM invitation never said who sent it. It has the
+    // row's width now, names the inviter first, and the buttons sit below.
+    void anInvitationRowNamesItsInviterInFull()
+    {
+        for (const bool direct : { true, false }) {
+            ClassicRow h;
+            QVERIFY(buildClassicRow(h, 0, 0, 0, QStringLiteral("invited"), direct,
+                                    QStringLiteral("bk010")));
+            auto *label = h.row->findChild<QQuickItem *>(
+                QStringLiteral("roomInviteLabel"));
+            auto *buttons = h.row->findChild<QQuickItem *>(
+                QStringLiteral("roomInviteButtons"));
+            QVERIFY(label && buttons);
+            QTRY_VERIFY(label->isVisible() && buttons->isVisible());
+            QCOMPARE(label->property("text").toString(),
+                     direct ? QStringLiteral("bk010 invited you to chat")
+                            : QStringLiteral("bk010 invited you to a room"));
+            QVERIFY2(!label->property("truncated").toBool(),
+                     qPrintable(QStringLiteral("the invitation line is elided "
+                                               "at %1 px")
+                                    .arg(label->width())));
+            const qreal labelBottom =
+                label->mapToItem(h.row, QPointF(0, label->height())).y();
+            const qreal buttonsTop = buttons->mapToItem(h.row, QPointF(0, 0)).y();
+            QVERIFY2(buttonsTop >= labelBottom,
+                     "the buttons share the invitation line again");
+            const QRectF r = buttons->mapRectToItem(
+                h.row, QRectF(0, 0, buttons->width(), buttons->height()));
+            QVERIFY2(QRectF(0, 0, h.row->width(), h.row->height()).contains(r),
+                     "the invitation buttons are outside the row");
+            for (const QString &w : h.warnings)
+                QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
+        }
     }
 
     void aClassicRowWithAPlainCountKeepsItsPill()

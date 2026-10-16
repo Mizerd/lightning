@@ -545,6 +545,49 @@ private Q_SLOTS:
         QCOMPARE(map.value(roomId(1)).lastMessagePreview, QStringLiteral("hello"));
     }
 
+    // Break-it s04: a DM just accepted showed a blank preview line. The SDK's
+    // latest event there is our own join, which has no body; it crosses as a
+    // FLAG and fills a blank row with the room list's own words, never a
+    // preview the row already has.
+    void anOwnJoinFlagFillsOnlyABlankRow()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject joined = roomJson(roomId(0));
+        joined.insert(QStringLiteral("last_message_preview"), QString());
+        joined.insert(QStringLiteral("last_message_own_join"), true);
+        QJsonArray first;
+        first.append(joined);
+        applyIndexReset(registry, first);
+        QCOMPARE(map.value(roomId(0)).lastMessagePreview,
+                 matrix::preview::ownJoinPreview());
+        QVERIFY(!matrix::preview::ownJoinPreview().isEmpty());
+
+        // A row that already says something keeps it.
+        QJsonObject known = roomJson(roomId(1));
+        known.insert(QStringLiteral("last_message_preview"), QStringLiteral("hello"));
+        QJsonArray second;
+        second.append(known);
+        applyIndexReset(registry, second);
+        QJsonObject flagged = roomJson(roomId(1));
+        flagged.insert(QStringLiteral("last_message_preview"), QString());
+        flagged.insert(QStringLiteral("last_message_own_join"), true);
+        QJsonArray third;
+        third.append(flagged);
+        applySnapshot(registry, third);
+        QCOMPARE(map.value(roomId(1)).lastMessagePreview, QStringLiteral("hello"));
+
+        // No flag, no words.
+        QJsonObject plain = roomJson(roomId(2));
+        plain.insert(QStringLiteral("last_message_preview"), QString());
+        QJsonArray fourth;
+        fourth.append(plain);
+        applySnapshot(registry, fourth);
+        QVERIFY(map.value(roomId(2)).lastMessagePreview.isEmpty());
+    }
+
     // ── The background timeline mirror's bound ──────────────────────────
     void theBackgroundMirrorStopsAtItsCapAndKeepsTheNewest()
     {

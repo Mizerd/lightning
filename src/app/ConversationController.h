@@ -21,12 +21,17 @@ class ConversationController : public QObject
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
-    // Existing joined DMs found for the selected user (list of {roomId,name}).
+    // Existing joined DMs found for the selected user (see checkExistingDm).
     Q_PROPERTY(QVariantList existingDms READ existingDms NOTIFY existingDmsChanged)
     Q_PROPERTY(UserSearchModel* userSearch READ userSearch CONSTANT)
     // Per-user invite progress for the invite dialog:
     // list of {userId, state("pending"|"ok"|"failed"), category}.
     Q_PROPERTY(QVariantList inviteResults READ inviteResults NOTIFY inviteResultsChanged)
+    // The user a DM was about to be started with when their homeserver
+    // answered the profile lookup with 404 M_NOT_FOUND ("" otherwise). The
+    // dialog asks before creating: startDirectMessageAnyway() or
+    // dismissUnknownTarget().
+    Q_PROPERTY(QString unknownTarget READ unknownTarget NOTIFY unknownTargetChanged)
 
 public:
     explicit ConversationController(QObject *parent = nullptr);
@@ -34,17 +39,31 @@ public:
     void setClient(MatrixClient *client);
 
     bool supported() const;
-    bool busy() const { return m_pendingOp != 0 || m_waitingForRoom; }
+    bool busy() const
+    {
+        return m_pendingOp != 0 || m_targetCheckOp != 0 || m_waitingForRoom;
+    }
     QString errorMessage() const { return m_errorMessage; }
     QVariantList existingDms() const { return m_existingDms; }
     UserSearchModel *userSearch() const { return m_userSearch; }
     QVariantList inviteResults() const { return m_inviteResults; }
+    QString unknownTarget() const { return m_unknownTarget; }
 
-    // Looks up existing joined DMs with `userId`; updates `existingDms`.
+    // Looks up existing joined DMs with `userId`; updates `existingDms`. Each
+    // entry is {roomId, name, avatarUrl[, oneToOne]}: the room list's computed
+    // name and the room avatar, since m.direct rooms rarely carry an explicit
+    // name. `oneToOne` false marks a group DM, which must not take the
+    // selected person's avatar.
     Q_INVOKABLE void checkExistingDm(const QString &userId);
 
-    // Create a new encrypted DM, after the existing-DM check.
+    // Create a new encrypted DM, after the existing-DM check. The target's
+    // profile is looked up first (as Element does): a 404 M_NOT_FOUND stops
+    // here and sets `unknownTarget`; any other failure (network, timeout, a
+    // server that hides profiles) does not block.
     Q_INVOKABLE void startDirectMessage(const QString &userId);
+    // The user confirmed a target the server says does not exist.
+    Q_INVOKABLE void startDirectMessageAnyway(const QString &userId);
+    Q_INVOKABLE void dismissUnknownTarget();
 
     // options: name, topic, public, encrypted, alias, invites, spaceId and an
     // optional avatarPath (path or file:// URL). The avatar is applied after
@@ -56,8 +75,10 @@ public:
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void reset();
 
-    // Test seam: shortens the create-call bound (60 s).
+    // Test seams: shorten the create-call bound (60 s) and the profile-check
+    // bound (15 s).
     void setOpTimeoutMsForTest(int ms);
+    void setTargetCheckTimeoutMsForTest(int ms);
 
 Q_SIGNALS:
     void supportedChanged();
@@ -65,6 +86,7 @@ Q_SIGNALS:
     void errorMessageChanged();
     void existingDmsChanged();
     void inviteResultsChanged();
+    void unknownTargetChanged();
     // A created or reused conversation should be opened. Never for Spaces,
     // which use spaceReady.
     void conversationReady(const QString &roomId);
@@ -92,9 +114,19 @@ private Q_SLOTS:
                             const QString &category);
     void onRoomsChanged();
     void onLoggedOut();
+    void onUserProfileFinished(quint64 opId, bool ok, const QString &userId,
+                               const QString &displayName,
+                               const QString &avatarUrl,
+                               const QString &category);
 
 private:
     void setError(const QString &message);
+    void setUnknownTarget(const QString &userId);
+    // Abandons an in-flight profile check; it has no server-side effect.
+    void cancelTargetCheck();
+    // The self-DM and timed-out-create refusals, shared by both start paths.
+    bool refuseDmTarget(const QString &userId);
+    void createDirectChat(const QString &userId);
     void clearAbandonedDm();
     void beginWaitForRoom(const QString &roomId);
     void finishWaitForRoom();
@@ -106,6 +138,13 @@ private:
     QString m_errorMessage;
     QVariantList m_existingDms;
     QVariantList m_inviteResults;
+
+    // The pre-create profile lookup: its op id, who it is for, and a bound in
+    // case no answer ever comes (rooms.rs already bounds it at 10 s).
+    quint64 m_targetCheckOp = 0;
+    QString m_targetCheckUser;
+    QTimer m_targetCheckTimeout;
+    QString m_unknownTarget;
 
     // A created room is opened once it appears in the room list, bounded by
     // a timer.

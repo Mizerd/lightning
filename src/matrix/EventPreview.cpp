@@ -92,6 +92,11 @@ QString undecryptablePreview()
     return t(QT_TRANSLATE_NOOP("EventPreview", "Unable to decrypt"));
 }
 
+QString ownJoinPreview()
+{
+    return t(QT_TRANSLATE_NOOP("EventPreview", "You joined"));
+}
+
 QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
 {
     if (event.redacted)

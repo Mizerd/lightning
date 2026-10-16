@@ -907,6 +907,18 @@ pub(crate) fn fetch_url_preview(
 // Direct messages
 // ---------------------------------------------------------------------------
 
+/// The room-list payload's `is_direct`. A joined room answers from m.direct
+/// (`direct_targets`). An INVITED room has no m.direct entry yet (the SDK
+/// writes it on join), so it asks `Room::is_direct`, which reads the
+/// `is_direct` flag of our own stripped invite member event. Without this every
+/// DM invitation was labelled a room invitation.
+pub(crate) async fn payload_is_direct(room: &matrix_sdk::Room, has_direct_targets: bool) -> bool {
+    if has_direct_targets {
+        return true;
+    }
+    room.state() == RoomState::Invited && room.is_direct().await.unwrap_or(false)
+}
+
 /// Existing joined DM rooms with `user_id`, from the SDK's m.direct
 /// projection. Synchronous store lookup.
 pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String, String> {
@@ -6581,6 +6593,60 @@ mod tests {
         )
         .await;
         assert_eq!(quick, Ok(7));
+    }
+
+    // Break-it s04: a DM invitation read "Room invitation" because the payload's
+    // is_direct came from m.direct alone, which an invited room does not have.
+    // The invite's own `is_direct` flag must count; a plain room invite and a
+    // flag of false must not.
+    #[test]
+    fn an_invitation_marked_is_direct_is_a_direct_message() {
+        use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_base::RequestedRequiredStates;
+
+        let dm = room_id!("!dm-invite:example.org");
+        let plain = room_id!("!room-invite:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            let me = client.user_id().unwrap().to_string();
+            let mut response = v5::Response::new("pos-1".to_owned());
+            for (room, is_direct) in [(dm, Some(true)), (plain, None)] {
+                let mut content = json!({ "membership": "invite" });
+                if let Some(flag) = is_direct {
+                    content["is_direct"] = json!(flag);
+                }
+                let mut entry = v5::response::Room::default();
+                entry.invite_state = Some(vec![Raw::from_json_string(
+                    json!({
+                        "type": "m.room.member", "state_key": me,
+                        "sender": "@inviter:example.org",
+                        "content": content
+                    })
+                    .to_string(),
+                )
+                .unwrap()]);
+                response.rooms.insert(room.to_owned(), entry);
+            }
+            client
+                .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+                .await
+                .expect("sync processed");
+            (server, client)
+        });
+        let dm_room = client.get_room(dm).unwrap();
+        let plain_room = client.get_room(plain).unwrap();
+        assert_eq!(dm_room.state(), RoomState::Invited);
+        assert!(dm_room.direct_targets().is_empty(), "no m.direct before join");
+        assert!(rt.block_on(payload_is_direct(&dm_room, false)));
+        assert!(!rt.block_on(payload_is_direct(&plain_room, false)));
+        // m.direct still decides for a joined room.
+        assert!(rt.block_on(payload_is_direct(&plain_room, true)));
+        drop(client);
+        drop(server);
+        drop(rt);
     }
 
     // GitHub #28: "Leave room" on an invitation (the only invite action in the

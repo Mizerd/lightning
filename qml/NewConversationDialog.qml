@@ -6,7 +6,9 @@ import MatrixClient
 
 // One modal for starting a DM, creating a room or creating a Space. DM: search,
 // select a user; existing joined DMs (the SDK's m.direct projection) are
-// offered for reuse first, with a new encrypted DM as the secondary action.
+// offered for reuse first, with a new encrypted DM as the secondary action. A
+// target the homeserver does not know (404 on its profile) is asked about
+// before any room is created.
 // Room: name/topic, Private/Public, encryption (on by default for private,
 // forced off for public), alias for public rooms, invites, optional placement
 // in the active Space, and an optional picture applied after creation (a failed
@@ -617,6 +619,7 @@ Dialog {
                             root.selectedUserId = ""
                             root.selectedDisplayName = ""
                             root.selectedAvatarUrl = ""
+                            app.conversations.dismissUnknownTarget()
                             app.conversations.userSearch.clear()
                             Qt.callLater(function() { dmPicker.focusSearch() })
                         }
@@ -647,23 +650,36 @@ Dialog {
                     border.color: AppTheme.stormBorder
                     implicitHeight: existingRowContent.implicitHeight
                                     + AppTheme.spacing8 * 2
+                    // The room list's name for the room, else the person
+                    // this dialog is about: every row here is a DM with them.
                     readonly property string dmName:
                         modelData.name && modelData.name.length > 0
-                        ? modelData.name : qsTr("Existing conversation")
+                        ? modelData.name
+                        : (root.selectedDisplayName.length > 0
+                           ? root.selectedDisplayName : root.selectedUserId)
+                    // Same rule for the picture; a group DM keeps its own.
+                    readonly property string dmAvatar:
+                        modelData.avatarUrl && modelData.avatarUrl.length > 0
+                        ? modelData.avatarUrl
+                        : (modelData.oneToOne === false ? ""
+                                                        : root.selectedAvatarUrl)
                     RowLayout {
                         id: existingRowContent
                         anchors.fill: parent
                         anchors.margins: AppTheme.spacing8
                         spacing: AppTheme.spacing8
                         Avatar {
+                            objectName: "existingDmAvatar_" + existingRow.index
                             size: 32
                             circle: true
+                            mxc: existingRow.dmAvatar
                             name: existingRow.dmName
                             // Keyed by the person, like every other surface
                             // showing them.
                             colorKey: root.selectedUserId
                         }
                         Label {
+                            objectName: "existingDmName_" + existingRow.index
                             // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
@@ -688,12 +704,87 @@ Dialog {
                 }
             }
 
+            // The target's homeserver says there is no such user (404
+            // M_NOT_FOUND on the profile lookup). As in Element: say so and
+            // let the person decide, rather than leave an encrypted room
+            // nobody will ever join.
+            Rectangle {
+                id: unknownTargetPanel
+                objectName: "dmUnknownTargetPanel"
+                readonly property bool shown: root.selectedUserId !== ""
+                    && app.conversations.unknownTarget === root.selectedUserId
+                visible: shown
+                Layout.fillWidth: true
+                radius: AppTheme.radiusMd
+                color: AppTheme.chipWarningFill
+                border.width: 1
+                border.color: AppTheme.chipWarningBorder
+                implicitHeight: unknownTargetColumn.implicitHeight
+                                + AppTheme.spacing12 * 2
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: unknownTargetTitle.text
+                ColumnLayout {
+                    id: unknownTargetColumn
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacing12
+                    spacing: AppTheme.spacing8
+                    Label {
+                        id: unknownTargetTitle
+                        Layout.fillWidth: true
+                        text: qsTr("This user may not exist")
+                        color: AppTheme.chipWarningInk
+                        font.pixelSize: AppTheme.textSubtitle
+                        font.weight: AppTheme.weightBold
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        objectName: "dmUnknownTargetText"
+                        // Carries a typed user id: never markup.
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        text: qsTr("The server could not find a profile for "
+                                   + "%1. If you start a conversation anyway, "
+                                   + "it may never be answered.")
+                              .arg(root.selectedUserId)
+                        color: AppTheme.stormTextSecondary
+                        font.pixelSize: AppTheme.textBody
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        wrapMode: Text.Wrap
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            storm: true
+                            objectName: "dmUnknownTargetCancel"
+                            text: qsTr("Cancel")
+                            enabled: !root.busy
+                            Accessible.name: qsTr("Do not start the conversation")
+                            onClicked: app.conversations.dismissUnknownTarget()
+                        }
+                        AppButton {
+                            storm: true
+                            objectName: "dmUnknownTargetStartAnyway"
+                            kind: "primary"
+                            text: qsTr("Start anyway")
+                            enabled: !root.busy
+                            Accessible.name: qsTr("Start the conversation anyway")
+                            onClicked: app.conversations.startDirectMessageAnyway(
+                                           root.selectedUserId)
+                        }
+                    }
+                }
+            }
+
             // Primary action when there is nothing to reuse…
             AppButton {
                 storm: true
                 objectName: "dmStartButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length === 0
+                         && !unknownTargetPanel.shown
                 kind: "primary"
                 Layout.fillWidth: true
                 enabled: !root.busy
@@ -707,6 +798,7 @@ Dialog {
                 objectName: "dmStartAnywayButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
+                         && !unknownTargetPanel.shown
                 Layout.fillWidth: true
                 enabled: !root.busy
                 text: qsTr("Start a new conversation anyway")

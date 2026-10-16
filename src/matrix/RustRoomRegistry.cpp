@@ -56,6 +56,13 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
         // event decrypted in an open timeline) stays.
         else if (undecryptable && (room.lastMessagePreview.isEmpty() || newer))
             room.lastMessagePreview = matrix::preview::undecryptablePreview();
+        // Our own join is the newest event and nothing has been said yet (a
+        // DM just accepted): words instead of a blank line. Only a BLANK row:
+        // any preview it already has (an open timeline's state row, a live
+        // message) describes the same room at least as well.
+        else if (obj.value(QStringLiteral("last_message_own_join")).toBool(false)
+                 && room.lastMessagePreview.isEmpty())
+            room.lastMessagePreview = matrix::preview::ownJoinPreview();
     }
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
     room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);

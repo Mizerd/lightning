@@ -14440,6 +14440,14 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         room_ordering_timestamp_ms(&latest_event, edited_ts),
         settled,
     );
+    // Our own join as the latest event (a room just joined): a flag, worded by
+    // C++ (see `previewbackfill::is_own_join`).
+    let own_join_latest = own_preview.is_empty()
+        && matches!(&latest_event,
+            matrix_sdk_base::latest_event::LatestEventValue::Remote(event)
+                if previewbackfill::is_own_join(event.raw(), room.own_user_id()));
+    // An invitation has no m.direct yet; see `rooms::payload_is_direct`.
+    let is_direct = rooms::payload_is_direct(room, !direct_targets.is_empty()).await;
 
     json!({
         "id": room.room_id().to_string(),
@@ -14452,6 +14460,9 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         // True when the last message could not be decrypted: C++ renders the
         // placeholder (no text crosses, so no real body can imitate it).
         "last_message_undecryptable": own_undecryptable,
+        // True when the latest event is our own join and there is no message
+        // yet: C++ shows its own words, so a newly accepted DM is not blank.
+        "last_message_own_join": own_join_latest,
         "last_activity_ms": own_activity,
         "unread_count": unread_count,
         "highlight_count": highlight_count,
@@ -14470,7 +14481,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         // persistence and server search fail closed on it).
         "encryption_known": !room.encryption_state().is_unknown(),
         "is_space": room.is_space(),
-        "is_direct": !direct_targets.is_empty(),
+        "is_direct": is_direct,
         "direct_user_id": direct_targets.first().cloned().unwrap_or_default(),
         "direct_user_ids": direct_targets,
         "member_count": room.joined_members_count(),

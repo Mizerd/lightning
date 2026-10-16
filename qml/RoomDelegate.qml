@@ -396,19 +396,27 @@ Item {
                 }
             }
 
-            RowLayout {
+            // The invitation line has the row's whole width, the buttons the
+            // line below: sharing one line with two buttons left it about 80
+            // px, so every invitation read "Room invitati…" and the inviter
+            // never showed (break-it s03/s04).
+            ColumnLayout {
                 visible: model.membership === "invited"
-                spacing: AppTheme.spacingS
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing4
                 Label {
+                    objectName: "roomInviteLabel"
                     // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
+                    // The inviter first, so a long name elides the generic
+                    // tail rather than the one part that says who it is.
                     text: model.inviter
                           ? (model.isSpace
-                             ? qsTr("Space invitation from %1").arg(model.inviter)
+                             ? qsTr("%1 invited you to a Space").arg(model.inviter)
                              : (model.isDirect
-                                ? qsTr("Direct message invitation from %1").arg(model.inviter)
-                                : qsTr("Room invitation from %1").arg(model.inviter)))
+                                ? qsTr("%1 invited you to chat").arg(model.inviter)
+                                : qsTr("%1 invited you to a room").arg(model.inviter)))
                           : (model.isSpace ? qsTr("Space invitation")
                                            : (model.isDirect
                                               ? qsTr("Direct message invitation")
@@ -417,25 +425,29 @@ Item {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
-                AppButton {
-                    kind: "primary"
-                    implicitHeight: AppTheme.buttonHeightSm
-                    leftPadding: AppTheme.buttonPaddingHSm
-                    rightPadding: AppTheme.buttonPaddingHSm
-                    text: qsTr("Accept")
-                    enabled: !model.invitePending
-                    Accessible.name: qsTr("Accept room invitation")
-                    onClicked: root.acceptInvite()
-                }
-                AppButton {
-                    kind: "danger"
-                    implicitHeight: AppTheme.buttonHeightSm
-                    leftPadding: AppTheme.buttonPaddingHSm
-                    rightPadding: AppTheme.buttonPaddingHSm
-                    text: qsTr("Reject")
-                    enabled: !model.invitePending
-                    Accessible.name: qsTr("Reject room invitation")
-                    onClicked: root.rejectInvite()
+                RowLayout {
+                    objectName: "roomInviteButtons"
+                    spacing: AppTheme.spacingS
+                    AppButton {
+                        kind: "primary"
+                        implicitHeight: AppTheme.buttonHeightSm
+                        leftPadding: AppTheme.buttonPaddingHSm
+                        rightPadding: AppTheme.buttonPaddingHSm
+                        text: qsTr("Accept")
+                        enabled: !model.invitePending
+                        Accessible.name: qsTr("Accept room invitation")
+                        onClicked: root.acceptInvite()
+                    }
+                    AppButton {
+                        kind: "danger"
+                        implicitHeight: AppTheme.buttonHeightSm
+                        leftPadding: AppTheme.buttonPaddingHSm
+                        rightPadding: AppTheme.buttonPaddingHSm
+                        text: qsTr("Reject")
+                        enabled: !model.invitePending
+                        Accessible.name: qsTr("Reject room invitation")
+                        onClicked: root.rejectInvite()
+                    }
                 }
             }
             Label {
