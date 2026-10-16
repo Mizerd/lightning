@@ -427,6 +427,22 @@ private Q_SLOTS:
 
     // ---- the collection ----
 
+    // B089: the first theme starts from the palette in effect, not from Storm;
+    // System and Custom are no palette and keep the Storm default.
+    void theFirstThemeStartsFromTheActiveBuiltInPalette()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        settings.setTheme(SettingsManager::IndigoNightTheme);
+        const QString id = store.createTheme(QString());
+        QCOMPARE(store.baseTheme(), int(SettingsManager::IndigoNightTheme));
+        store.deleteTheme(id);
+        QVERIFY(!store.exists());
+        settings.setTheme(SettingsManager::SystemTheme);
+        store.createTheme(QString());
+        QCOMPARE(store.baseTheme(), int(SettingsManager::StormTheme));
+    }
+
     void themesAreACollectionWithOneActiveMember()
     {
         SettingsManager settings;

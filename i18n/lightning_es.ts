@@ -19905,7 +19905,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="-3268" />
         <location line="+3360" />
         <source>Motion and time</source>
-        <translation>movimiento y tiempo</translation>
+        <translation>Movimiento y tiempo</translation>
     </message>
     <message>
         <location line="+11" />
@@ -19966,7 +19966,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="-3511" />
         <location line="+3534" />
         <source>Message box</source>
-        <translation>cuadro de mensaje</translation>
+        <translation>Cuadro de mensaje</translation>
     </message>
     <message>
         <location line="+22" />

@@ -45,8 +45,73 @@ ComboBox {
             root.currentIndex = j
     }
 
-    onModelChanged: if (root.syncedValue !== undefined) Qt.callLater(root._resync)
+    onModelChanged: {
+        root._openTurn()
+        root._modelTurn = true
+        if (root.syncedValue !== undefined)
+            Qt.callLater(root._resync)
+    }
     onCountChanged: if (root.syncedValue !== undefined) Qt.callLater(root._resync)
+
+    // A language change re-evaluates every qsTr() model and ComboBox answers
+    // by resetting currentIndex to 0 WITHOUT `activated`, so a combo that
+    // binds `currentIndex: app.settings.X` (nothing re-evaluates that binding:
+    // X did not change) shows row 0 while the stored value is something else.
+    // Reported on privacy controls (read receipts, notification preview) and
+    // on a keyword rule created disabled. Cover every combo here instead of
+    // in each caller: remember the index that stood at the start of an
+    // event-loop turn, and when that turn rebuilt the model with the SAME row
+    // count and left the index at 0, put the old one back. A Binding with
+    // RestoreNone writes without destroying the caller's own binding (an
+    // imperative write would, for the life of the object). Combos that use
+    // syncToValue keep their own mechanism.
+    // Set false on a combo whose model is DATA (devices, fonts, rooms): a
+    // same-size rebuild there is a real change and a reset to row 0 is meant.
+    property bool restoreAfterModelReset: true
+    property int _committed: -1
+    property int _committedCount: -1
+    property int _beforeTurn: -1
+    property int _current: -1
+    property bool _turnPending: false
+    property bool _modelTurn: false
+    property int _restoreIndex: -1
+    property bool _restoring: false
+
+    function _openTurn() {
+        if (root._turnPending)
+            return
+        root._turnPending = true
+        root._beforeTurn = root._committed
+        Qt.callLater(root._endTurn)
+    }
+
+    function _endTurn() {
+        root._turnPending = false
+        var modelTurn = root._modelTurn
+        root._modelTurn = false
+        var before = root._beforeTurn
+        if (modelTurn && root.restoreAfterModelReset && root.syncedValue === undefined && before > 0
+                && root.currentIndex === 0 && root.count === root._committedCount
+                && before < root.count) {
+            root._restoreIndex = before
+            root._restoring = true
+            Qt.callLater(function () { root._restoring = false })
+            return
+        }
+        root._committed = root.currentIndex
+        root._committedCount = root.count
+    }
+
+    Binding {
+        target: root
+        property: "currentIndex"
+        value: root._restoreIndex
+        when: root._restoring
+        restoreMode: Binding.RestoreNone
+    }
+
+    onCurrentIndexChanged: { root._current = currentIndex; root._openTurn() }
+    Component.onCompleted: root._openTurn()
 
     implicitHeight: AppTheme.buttonHeight
     font.pixelSize: AppTheme.textBody
@@ -100,6 +165,10 @@ ComboBox {
         required property int index
         width: ListView.view ? ListView.view.width : implicitWidth
         implicitHeight: AppTheme.menuItemHeight
+        // Fixed row, whatever the script: a tall fallback face (Arabic,
+        // Devanagari, Bengali) must not stretch its row or crowd the next.
+        height: AppTheme.menuItemHeight
+        clip: true
         hoverEnabled: true
         highlighted: root.highlightedIndex === index
         contentItem: Label {
@@ -113,7 +182,10 @@ ComboBox {
             font.weight: AppTheme.weightStrong
             color: root.currentIndex === entry.index ? AppTheme.stormText
                                                      : AppTheme.stormTextSecondary
+            height: entry.availableHeight
             verticalAlignment: Text.AlignVCenter
+            // Rows read from the left whatever the row's own script is.
+            horizontalAlignment: Text.AlignLeft
             elide: Label.ElideRight
         }
         background: Rectangle {
@@ -161,6 +233,10 @@ ComboBox {
             implicitHeight: contentHeight
             model: root.popup.visible ? root.delegateModel : null
             currentIndex: root.highlightedIndex
+            // The model is attached when the popup shows; open on the row
+            // that is selected rather than at the top of the list.
+            onCountChanged: if (count > 0 && root.currentIndex >= 0)
+                                positionViewAtIndex(root.currentIndex, ListView.Contain)
             ScrollBar.vertical: AppScrollBar { thin: true }
         }
     }

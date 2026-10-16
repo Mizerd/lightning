@@ -33,6 +33,10 @@ Item {
             // screenshot demo sets a query after showing.
             if (settingsSearchField)
                 settingsSearchField.text = ""
+            // The screen is kept alive when hidden, so an open inline picker
+            // would be open again on the next visit.
+            if (typeof nameColorPicker !== "undefined" && nameColorPicker)
+                nameColorPicker.open = false
         }
     }
     onSectionChanged: {
@@ -812,7 +816,7 @@ Item {
             { label: qsTr("Encryption"),
               anchors: ["cryptoHealthSummary", "privacyStorageFactsCard"] },
             { label: qsTr("Recovery key"),
-              anchors: ["recoveryEntry", "crossSigningSetupCard",
+              anchors: ["crossSigningSetupCard", "recoveryEntry",
                         "privacyStorageFactsCard"] },
         ],
     })
@@ -1409,7 +1413,17 @@ Item {
         // hidden, and a second enabled Escape in the window would make Qt fire
         // neither.
         enabled: root.visible && !accountIdentityCard.editingDisplayName
-        onActivated: root.goBack()
+        // Escape peels one layer at a time (as ThemeEditor.peelEscape does):
+        // a non-empty search query, then an open name-colour picker, and only
+        // then Settings itself.
+        onActivated: {
+            if (settingsSearchField && settingsSearchField.text.length > 0)
+                settingsSearchField.text = ""
+            else if (nameColorPicker.open)
+                nameColorPicker.open = false
+            else
+                root.goBack()
+        }
     }
     // Focuses the settings search field when Settings is already open.
     // MainScreen declares the same action for when it is closed; the gates must
@@ -1938,6 +1952,9 @@ Item {
 
                         // Quick-filter chips seeding example queries.
                         Flow {
+                            // Example queries: only while there is no result
+                            // list under them.
+                            visible: root.matchedSearchResults.length === 0
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing4
                             spacing: AppTheme.spacing4
@@ -2074,9 +2091,10 @@ Item {
                                     if (root.matchedSearchSections[k] === true)
                                         sections++
                                 }
-                                return qsTr("Matches · %1 sections · %2 settings")
-                                       .arg(sections)
-                                       .arg(root.matchedSearchResults.length)
+                                return qsTr("Matches · %1").arg(
+                                    qsTr("%n section(s)", "", sections) + " · "
+                                    + qsTr("%n setting(s)", "",
+                                           root.matchedSearchResults.length))
                             }
                             font.pixelSize: AppTheme.textMeta
                             font.weight: AppTheme.weightMedium
@@ -3356,6 +3374,7 @@ Item {
                                     storm: true
                                     Layout.fillWidth: true
                                     model: root.fontManager ? root.fontManager.uiFamilies : []
+                                    restoreAfterModelReset: false
                                     Accessible.name: qsTr("Interface font family")
                                     // Never bind currentIndex (see
                                     // AppComboBox): indexOfValue() is -1 at
@@ -3411,6 +3430,7 @@ Item {
                                     storm: true
                                     Layout.fillWidth: true
                                     model: root.fontManager ? root.fontManager.monospaceFamilies : []
+                                    restoreAfterModelReset: false
                                     Accessible.name: qsTr("Monospace font family")
                                     Component.onCompleted:
                                         syncToValue(root.fontManager ? root.fontManager.storedMonospaceFamily : "")
@@ -4341,6 +4361,10 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Check spelling as you type")
                                     checked: app.settings.spellCheckEnabled
+                                    // A feature that cannot run is not offered as
+                                    // a live switch; the stored preference is left
+                                    // alone so a later install takes effect.
+                                    enabled: !app.spell || app.spell.available
                                     onToggled: app.settings.spellCheckEnabled = checked
                                 }
                                 RowLayout {
@@ -4362,6 +4386,7 @@ Item {
                                         textRole: "label"
                                         valueRole: "tag"
                                         model: app.spell ? app.spell.languageOptions : []
+                                        restoreAfterModelReset: false
                                         Accessible.name: qsTr("Spelling language")
                                         // Never bind currentIndex; see
                                         // AppComboBox.
@@ -8263,8 +8288,18 @@ Item {
                                                 ? qsTr("Set up cross-signing and recovery…")
                                                 : qsTr("Set up recovery and backup")
                                         onClicked: {
-                                            if (needsCrossSigning)
+                                            if (needsCrossSigning) {
+                                                // Land on the setup card, not the
+                                                // top of the page. Deferred: the
+                                                // section's pane is built after
+                                                // the switch.
                                                 root.section = "privacy"
+                                                Qt.callLater(function () {
+                                                    root.revealSearchResult({
+                                                        section: "privacy",
+                                                        anchor: "crossSigningSetupCard" })
+                                                })
+                                            }
                                             else
                                                 app.backup.runAction("enable")
                                         }
@@ -8415,10 +8450,22 @@ Item {
                                 return qsTr("%1 of 3 checks complete")
                                        .arg(complete)
                             }
+                            // Verify asks the account's cross-signing identity
+                            // to vouch for THIS session, so it is offered only
+                            // while the session is not verified and an identity
+                            // exists to ask; without one the SDK can only answer
+                            // "no cross-signing identity", and the card's own
+                            // text already says to set one up. SDK state only.
+                            readonly property bool identityAvailable:
+                                app.cryptoHealth.crossSigningSetup !== "not_set_up"
+                                && app.cryptoHealth.crossSigningSetup !== "unconfirmed"
                             showVerify: !app.verificationActive
                                         && app.verificationState === ""
+                                        && app.sessionTrustState !== "Verified"
+                                        && identityAvailable
                             showRecoveryOption: app.backendName === "rust"
                                                 && app.sessionTrustState !== "Verified"
+                                                && identityAvailable
                             onVerifyRequested: app.startOwnVerification()
                             onRecoveryRequested: sessionsRecoveryCard.open
                                                  = !sessionsRecoveryCard.open

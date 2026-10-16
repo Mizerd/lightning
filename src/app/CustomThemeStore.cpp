@@ -1624,8 +1624,18 @@ QString CustomThemeStore::createTheme(const QString &name)
     theme.name = name.trimmed().left(kMaxNameLength);
     if (theme.name.isEmpty())
         theme.name = tr("My theme");
-    theme.baseTheme = themes.isEmpty() ? int(SettingsManager::StormTheme)
-                                       : themes.at(qMax(0, activeIndex())).baseTheme;
+    if (themes.isEmpty()) {
+        // The first theme starts from the palette the user is looking at, so
+        // the editor opens on what they see and not on Storm. System resolves
+        // to a palette per OS appearance and Custom is no palette, so both
+        // keep the old default.
+        const int shown = m_settings ? int(m_settings->theme()) : 0;
+        theme.baseTheme = (shown >= SettingsManager::LightTheme
+                           && shown <= SettingsManager::StormTheme)
+                              ? shown : int(SettingsManager::StormTheme);
+    } else {
+        theme.baseTheme = themes.at(qMax(0, activeIndex())).baseTheme;
+    }
     themes.append(theme);
     clearHistory();
     save(themes, theme.id);

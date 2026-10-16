@@ -41,9 +41,31 @@ Popup {
     // overrides simply follows its base. A host that opened the editor for one
     // job ("Add a gradient" in Settings) names the role to open with.
     property string initialRole: ""
+    // The theme this open created and its untouched shape, so closing without
+    // an edit or "Use this theme" leaves nothing stored behind.
+    property string createdId: ""
+    property string createdName: ""
+    property int createdBase: -1
+    function discardUntouchedCreation() {
+        var id = root.createdId
+        root.createdId = ""
+        if (id.length === 0 || root.store.activeThemeId !== id)
+            return
+        if (root.store.themes.length !== 1 || app.settings.theme === 12
+                || root.store.overrideCount > 0 || root.gradientCount > 0
+                || root.store.name !== root.createdName
+                || root.store.baseTheme !== root.createdBase)
+            return
+        root.store.deleteTheme(id)
+    }
+    onClosed: root.discardUntouchedCreation()
     onOpened: {
-        if (!root.store.exists)
-            root.store.createTheme("")
+        root.createdId = ""
+        if (!root.store.exists) {
+            root.createdId = root.store.createTheme("")
+            root.createdName = root.store.name
+            root.createdBase = root.store.baseTheme
+        }
         // A theme with nothing changed starts at Simple; one that has been
         // worked on starts where its changes are. A level the user has picked
         // is kept for as long as the editor lives.

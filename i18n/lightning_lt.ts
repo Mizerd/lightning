@@ -6072,7 +6072,7 @@ Dydis: %3</translation>
     <message>
         <location line="+17" />
         <source>Theme</source>
-        <translation>tema</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="+12" />
@@ -17810,7 +17810,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+685" />
         <location line="+1497" />
         <source>Theme</source>
-        <translation>tema</translation>
+        <translation>Tema</translation>
     </message>
     <message>
         <location line="-2181" />

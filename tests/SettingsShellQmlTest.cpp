@@ -332,6 +332,76 @@ private slots:
             item("spacesRail") && item("spacesRail")->isVisible(), 3000);
     }
 
+    // A language change re-evaluates every qsTr() model and ComboBox resets
+    // currentIndex to 0 without `activated`; a combo bound to a stored setting
+    // then showed row 0 (read receipts, notification preview). AppComboBox
+    // restores the index itself. Asserts the COUNT of combos checked, so a
+    // renamed objectName cannot turn this into a vacuous pass.
+    void comboBoxesKeepTheirStoredValueAcrossARetranslation()
+    {
+        auto *settings = m_controller->settings();
+        settings->setReadReceiptMode(2);
+        settings->setNotificationPreview(2);
+        m_controller->showSettings();
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        struct Case { const char *name; int expected; };
+        const Case privacy[] = { { "readReceiptModeCombo", 2 } };
+        int checked = 0;
+        for (const Case &c : privacy) {
+            auto *combo = item(c.name);
+            QVERIFY2(combo, c.name);
+            QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentIndex").toInt(),
+                                      c.expected, 3000);
+        }
+        m_controller->showSettingsSection(QStringLiteral("notifications"));
+        QCoreApplication::processEvents();
+        const Case notif[] = { { "notificationPreviewCombo", 2 } };
+        for (const Case &c : notif) {
+            auto *combo = item(c.name);
+            QVERIFY2(combo, c.name);
+            QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentIndex").toInt(),
+                                      c.expected, 3000);
+        }
+        // What setLanguage does through main.cpp's retranslateRequested.
+        m_engine->retranslate();
+        QCoreApplication::processEvents();
+        for (const char *name : { "readReceiptModeCombo",
+                                  "notificationPreviewCombo" }) {
+            auto *combo = item(name);
+            QVERIFY2(combo, name);
+            QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentIndex").toInt(),
+                                      2, 3000);
+            ++checked;
+        }
+        QCOMPARE(checked, 2);
+        settings->setReadReceiptMode(0);
+        settings->setNotificationPreview(0);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+    }
+
+    // Escape peels the search query before it leaves Settings (B094).
+    void settingsEscapePeelsTheSearchQueryBeforeLeaving()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        auto *field = item("settingsSearchField");
+        QVERIFY(field);
+        field->setProperty("text", QStringLiteral("zz"));
+        QCoreApplication::processEvents();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QCOMPARE(field->property("text").toString(), QString());
+        QCOMPARE(int(m_controller->currentScreen()),
+                 int(AppController::SettingsScreen));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_COMPARE_WITH_TIMEOUT(int(m_controller->currentScreen()),
+                                  int(AppController::MainScreen), 3000);
+        m_controller->showMain();
+    }
+
     // "Preload short videos": the switch, slider and number field live in the
     // Media card, show the stored values on first open, and stay in sync
     // both ways.
