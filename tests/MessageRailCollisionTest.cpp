@@ -32,12 +32,16 @@
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextDocument>
+#include <QTextFrame>
+#include <QTextTable>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "models/MessageHtml.h"
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
@@ -345,6 +349,485 @@ private Q_SLOTS:
             QCOMPARE(roomy - cozy, base + roomyExtra - base);
             QVERIFY2(compact <= cozy && cozy < roomy, qPrintable(what));
         }
+    }
+
+    // Break-it B061: a pending local echo showed the whole hover bar, and
+    // Reply / More did nothing (there is no server event to act on yet). No
+    // bar is offered until the event has a server id; a sent row under the
+    // same pointer still gets one, so the case can tell the two apart.
+    void aPendingLocalEchoOffersNoActionBar()
+    {
+        AppController app(AppController::MockBackend);
+        const auto hostFor = [](QQmlEngine *engine, const QString &key) {
+            QQmlComponent comp(engine);
+            comp.setData(QByteArray(
+                             "import QtQuick\nQtObject {"
+                             " property string pinnedActionsKey: \"\";"
+                             " property string hoveredActionsKey: \"")
+                             + key.toUtf8() + "\" }",
+                         QUrl());
+            return std::unique_ptr<QObject>(comp.create());
+        };
+
+        {
+            Delegate d;
+            QVERIFY(build(app, baseFixture(), d));
+            auto view = hostFor(d.engine.get(), QStringLiteral("rail-item"));
+            QVERIFY(view);
+            QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                                QVariant::fromValue(view.get()));
+            QCoreApplication::processEvents();
+            QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("actionsVisible"))
+                         .toBool(),
+                     "a hovered, sent row shows no bar: the fixture cannot "
+                     "hover, and the echo case below proves nothing");
+            QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                                QVariant());
+        }
+
+        for (const QString &pendingId :
+             { QString(), QStringLiteral("local:txn-1") }) {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("isOwn"), true);
+            f.insert(QStringLiteral("isLocalEcho"), true);
+            f.insert(QStringLiteral("status"), 1);   // Sending
+            f.insert(QStringLiteral("eventId"), pendingId);
+            f.insert(QStringLiteral("itemId"), QStringLiteral("echo-item"));
+            Delegate d;
+            QVERIFY(build(app, f, d));
+            auto view = hostFor(d.engine.get(), QStringLiteral("echo-item"));
+            QVERIFY(view);
+            QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                                QVariant::fromValue(view.get()));
+            QCoreApplication::processEvents();
+            QVERIFY2(!QQmlProperty::read(d.root, QStringLiteral("actionsVisible"))
+                          .toBool(),
+                     qPrintable(QStringLiteral(
+                         "a pending echo (event id \"%1\") shows the hover "
+                         "bar; its Reply and More cannot act on it")
+                         .arg(pendingId)));
+            QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                                QVariant());
+        }
+    }
+
+    // Break-it B073: the file card's kind read "PLAIN" for text/plain and
+    // "compressed-tar" for application/x-compressed-tar. Common families get
+    // a word; an unknown long subtype says "File" rather than leaking raw MIME.
+    void aFileCardNamesItsKindInWords_data()
+    {
+        QTest::addColumn<QString>("mime");
+        QTest::addColumn<QString>("label");
+        QTest::newRow("text") << "text/plain" << "Text";
+        QTest::newRow("text+charset") << "text/plain; charset=utf-8" << "Text";
+        QTest::newRow("tar.gz") << "application/x-compressed-tar" << "Archive";
+        QTest::newRow("zip") << "application/zip" << "Archive";
+        QTest::newRow("7z") << "application/x-7z-compressed" << "Archive";
+        QTest::newRow("gzip") << "application/gzip" << "Archive";
+        QTest::newRow("pdf") << "application/pdf" << "PDF";
+        QTest::newRow("svg") << "image/svg+xml" << "SVG";
+        QTest::newRow("binary") << "application/octet-stream" << "File";
+        QTest::newRow("epub") << "application/epub+zip" << "EPUB";
+        QTest::newRow("docx")
+            << "application/vnd.openxmlformats-officedocument."
+               "wordprocessingml.document"
+            << "File";
+    }
+    void aFileCardNamesItsKindInWords()
+    {
+        QFETCH(QString, mime);
+        QFETCH(QString, label);
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isFile"), true);
+        f.insert(QStringLiteral("mediaSize"), 3000);
+        f.insert(QStringLiteral("mediaMimetype"), mime);
+        f.insert(QStringLiteral("mediaKey"), QStringLiteral("k73"));
+        f.insert(QStringLiteral("mediaFilename"), QStringLiteral("a.tar.gz"));
+        f.insert(QStringLiteral("body"), QStringLiteral("a.tar.gz"));
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *card = d.root->findChild<QQuickItem *>(QStringLiteral("fileCard"));
+        QVERIFY2(card, "no file card in the row");
+        QVariant out;
+        QVERIFY(QMetaObject::invokeMethod(card, "fileTypeLabel",
+                                          Q_RETURN_ARG(QVariant, out),
+                                          Q_ARG(QVariant, mime)));
+        QCOMPARE(out.toString(), label);
+        auto *subtitle = findVisual(card, QStringLiteral("fileCardSubtitle"));
+        QVERIFY2(subtitle, "no fileCardSubtitle on the card");
+        QVERIFY2(subtitle->property("text").toString().endsWith(label),
+                 qPrintable(subtitle->property("text").toString()));
+        // The kind can fall back to the sender's mimetype: never AutoText.
+        QCOMPARE(subtitle->property("textFormat").toInt(), 0);
+    }
+
+    // Break-it B101: with the Search panel narrowing the timeline, a reader's
+    // avatar sat on the last letters of "...about quokka". The reserve was a
+    // rightMargin on a non-fill (Fixed) Layout item, which only widens the
+    // column's minimum: the body kept its full width and ran under the pile.
+    // Bodies from just under the column width to several lines, in steps
+    // smaller than the pile, so one of them lands in the band where the
+    // natural width fits the column but not the column minus the pile.
+    void theLastLineClearsTheReceiptPileOnANarrowRow()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);   // Modern
+        const QString sentence = QStringLiteral(
+            "second encrypted message about quokka and the other quokka ");
+        int checked = 0;
+        for (int chars = 30; chars <= 120; chars += 2) {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("showSenderIdentity"), false);
+            f.insert(QStringLiteral("body"),
+                     sentence.repeated(3).left(chars).trimmed());
+            f.insert(QStringLiteral("readReceipts"), receipts(1));
+            f.insert(QStringLiteral("readReceiptsTotal"), 1);
+            Delegate d;
+            QVERIFY(build(app, f, d, 360));
+            auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+            auto *pile = d.root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptRow"));
+            QVERIFY2(body && body->width() > 0, "no message body in the row");
+            QVERIFY2(pile && pile->width() > 0, "no receipt facepile in the row");
+            const qreal bodyRight = rightEdgeIn(body, d.root);
+            const qreal pileLeft = leftEdgeIn(pile, d.root);
+            QVERIFY2(bodyRight <= pileLeft + 0.5,
+                     qPrintable(QStringLiteral(
+                         "a %1-character body ends at %2 and the receipt "
+                         "facepile starts at %3: the avatar is drawn over "
+                         "the last line (reserve %4)")
+                         .arg(chars).arg(bodyRight).arg(pileLeft)
+                         .arg(d.root->property("receiptRailReserve").toReal())));
+            ++checked;
+        }
+        QCOMPARE(checked, 46);
+    }
+
+    // Break-it B114: a long own display name ran off the row (and under the
+    // hover bar) instead of eliding, and took the timestamp with it. The
+    // header's cap was honoured by its Loader, but the name inside was a
+    // Fixed Layout item that could not shrink to it.
+    void aLongSenderNameElidesInsideTheHeaderCap_data()
+    {
+        QTest::addColumn<bool>("own");
+        QTest::newRow("own") << true;
+        QTest::newRow("other") << false;
+    }
+    void aLongSenderNameElidesInsideTheHeaderCap()
+    {
+        QFETCH(bool, own);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);   // Modern
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("senderDisplayName"),
+                 QStringLiteral("Me With A Fairly Long Display Name That Goes "
+                                "On And On And On"));
+        Delegate d;
+        QVERIFY(build(app, f, d, 360));
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *header = findVisual(d.root, QStringLiteral("senderIdentityHeader"));
+        auto *name = findVisual(d.root, QStringLiteral("senderName"));
+        auto *stamp = findVisual(d.root, QStringLiteral("senderTimestamp"));
+        QVERIFY(bubble);
+        QVERIFY2(header && name && stamp, "no sender header in the row");
+        QVERIFY2(name->width() > 0, "the sender name measured empty");
+
+        const qreal headerRight = rightEdgeIn(header, d.root);
+        const qreal nameRight = rightEdgeIn(name, d.root);
+        const qreal stampLeft = leftEdgeIn(stamp, d.root);
+        const qreal stampRight = rightEdgeIn(stamp, d.root);
+        QVERIFY2(name->property("truncated").toBool(),
+                 "the long name was not elided");
+        QVERIFY2(nameRight <= stampLeft + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the name ends at %1, over the timestamp at %2")
+                     .arg(nameRight).arg(stampLeft)));
+        QVERIFY2(stampRight <= headerRight + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the timestamp ends at %1, past the header cap at %2: "
+                     "the name pushed it out")
+                     .arg(stampRight).arg(headerRight)));
+        QVERIFY2(headerRight <= rightEdgeIn(bubble, d.root) + 0.5,
+                 "the header runs past its content column");
+    }
+
+    // Break-it B127: a sticker whose media failed showed "Sticker failed to
+    // load — click to retry" wrapped into a ~64px tile, four or more lines
+    // spilling above and below it over the neighbouring rows. Every glyph the
+    // failed tile draws stays inside the tile.
+    void aFailedStickerKeepsItsErrorInsideItsTile_data()
+    {
+        QTest::addColumn<int>("edge");
+        QTest::newRow("64px") << 64;
+        QTest::newRow("32px") << 32;
+        QTest::newRow("180px") << 180;
+    }
+    void aFailedStickerKeepsItsErrorInsideItsTile()
+    {
+        QFETCH(int, edge);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isSticker"), true);
+        f.insert(QStringLiteral("mediaWidth"), edge);
+        f.insert(QStringLiteral("mediaHeight"), edge);
+        f.insert(QStringLiteral("body"), QStringLiteral("a sticker"));
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *tile = findVisual(d.root, QStringLiteral("stickerMedia"));
+        QVERIFY2(tile, "no sticker tile in the row");
+        QVERIFY(QQmlProperty::write(tile, QStringLiteral("bridgeFailed"), true));
+        for (int i = 0; i < 4; ++i)
+            QCoreApplication::processEvents();
+        QCOMPARE(tile->width(), qreal(edge));
+        QCOMPARE(tile->height(), qreal(edge));
+
+        // Every visible text item (the label and the glyph) inside the tile.
+        // Walked before anything names the new error item, so the old
+        // wrapped sentence fails here, on geometry.
+        int drawn = 0;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
+            for (QQuickItem *c : it->childItems()) {
+                if (!c->isVisible())
+                    continue;
+                if (c->inherits("QQuickText")
+                    && !c->property("text").toString().isEmpty()) {
+                    ++drawn;
+                    const QRectF r = c->mapRectToItem(
+                        tile, QRectF(0, 0, c->width(), c->height()));
+                    QVERIFY2(r.top() >= -0.5 && r.bottom() <= edge + 0.5
+                                 && r.left() >= -0.5 && r.right() <= edge + 0.5,
+                             qPrintable(QStringLiteral(
+                                 "\"%1\" is drawn at %2,%3 %4x%5 in a %6px "
+                                 "tile: it spills over the neighbouring rows")
+                                 .arg(c->property("text").toString())
+                                 .arg(r.x()).arg(r.y()).arg(r.width())
+                                 .arg(r.height()).arg(edge)));
+                }
+                walk(c);
+            }
+        };
+        walk(tile);
+        if (QTest::currentTestFailed())
+            return;
+        QVERIFY2(drawn >= 1, "the failed tile draws nothing at all");
+        auto *error = findVisual(tile, QStringLiteral("stickerError"));
+        QVERIFY2(error && error->isVisible(),
+                 "the failed tile shows no error state");
+        // The explanation is still there, as the tooltip.
+        QVERIFY(QQmlProperty::read(tile, QStringLiteral("loadFailed")).toBool());
+    }
+
+    // Break-it B027/B067 support: a failed echo said only "failed". It names
+    // the SDK's coarse category, so a refused send (permissions, size) does
+    // not read like a dropped connection that Retry would fix.
+    void aFailedEchoSaysWhyItFailed_data()
+    {
+        QTest::addColumn<QString>("category");
+        QTest::addColumn<QString>("phrase");
+        QTest::newRow("rejected") << "rejected" << "the server refused it";
+        QTest::newRow("network") << "network" << "connection problem";
+        QTest::newRow("unknown") << "" << "failed";
+    }
+    void aFailedEchoSaysWhyItFailed()
+    {
+        QFETCH(QString, category);
+        QFETCH(QString, phrase);
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("isLocalEcho"), true);
+        f.insert(QStringLiteral("eventId"), QString());
+        f.insert(QStringLiteral("status"), 2);   // Failed
+        f.insert(QStringLiteral("sendErrorCategory"), category);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *status = findVisual(d.root, QStringLiteral("messageStatusText"));
+        QVERIFY2(status, "a failed echo shows no status line");
+        const QString text = status->property("text").toString();
+        QVERIFY2(text.contains(phrase), qPrintable(text));
+    }
+
+    // Review of break-it B065: a table is laid out at its columns' minimum
+    // widths however narrow the column is, so a remote table painted past the
+    // body, over the receipt rail and out of the row. What is drawn of the
+    // body must end inside the content column and short of the facepile: the
+    // sanitizer flattens a table past its bound, and a bounded table that is
+    // still wider than a narrow row is clipped.
+    void aWideTableStaysInsideItsColumn_data()
+    {
+        QTest::addColumn<int>("columns");
+        QTest::addColumn<bool>("rendersAsTable");
+        QTest::newRow("300 cells in one row, flattened") << 300 << false;
+        QTest::newRow("16 wide cells, bounded but wider than the row")
+            << 16 << true;
+    }
+    void aWideTableStaysInsideItsColumn()
+    {
+        QFETCH(int, columns);
+        QFETCH(bool, rendersAsTable);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);   // Modern
+        QString raw = QStringLiteral("<table><tr>");
+        for (int c = 0; c < columns; ++c)
+            raw += QStringLiteral("<td>WWWWWW</td>");
+        raw += QStringLiteral("</tr></table>");
+        // What the model hands the delegate: the sanitizer's output.
+        const QString html = MessageHtml::sanitize(
+            raw, nullptr, QString(),
+            MessageHtml::MentionStyle{QString(), QString(),
+                                      QStringLiteral("#203040"), false});
+        QCOMPARE(html.contains(QStringLiteral("<table")), rendersAsTable);
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("body"), QStringLiteral("| WWWWWW |"));
+        f.insert(QStringLiteral("formattedBody"), html);
+        f.insert(QStringLiteral("readReceipts"), receipts(1));
+        f.insert(QStringLiteral("readReceiptsTotal"), 1);
+        Delegate d;
+        QVERIFY(build(app, f, d, 360));
+        auto *column = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(column);
+        QVERIFY2(body && body->width() > 0, "no message body in the row");
+        QVERIFY2(pile && pile->width() > 0, "no receipt facepile in the row");
+        QTextDocument *doc = documentOf(body);
+        QVERIFY(doc);
+        // The width the document is laid out to, whatever the item's width.
+        const qreal laidOut =
+            std::max(doc->size().width(),
+                     body->property("contentWidth").toReal());
+        if (rendersAsTable) {
+            // Otherwise this row proves nothing about the clip.
+            QVERIFY2(laidOut > body->width() + 1,
+                     qPrintable(QStringLiteral(
+                         "the bounded table is laid out %1 wide in a %2 body; "
+                         "make its cells wider")
+                         .arg(laidOut).arg(body->width())));
+        }
+        const qreal drawn =
+            body->clip() ? std::min(laidOut, body->width()) : laidOut;
+        const qreal drawnRight = leftEdgeIn(body, d.root) + drawn;
+        QVERIFY2(drawnRight <= rightEdgeIn(column, d.root) + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the table is drawn to %1, past the content column's "
+                     "right edge %2 (clip %3)")
+                     .arg(drawnRight).arg(rightEdgeIn(column, d.root))
+                     .arg(body->clip())));
+        QVERIFY2(drawnRight <= leftEdgeIn(pile, d.root) + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the table is drawn to %1, over the receipt facepile "
+                     "at %2 (clip %3)")
+                     .arg(drawnRight).arg(leftEdgeIn(pile, d.root))
+                     .arg(body->clip())));
+    }
+
+    // §18 review N1/N2, measured where it matters: the cells Qt itself builds
+    // from the sanitizer's output, every QTextTable in the document (nested
+    // ones included) as rows x columns. On the round-2 sanitizer the escape
+    // rows built 496, 496, 496, 496, 6528, 497, 497 and 93,601 cells
+    // (QTextDocument, Qt 6.11.2), against a bound of 400 per body. The last row is the control:
+    // a legal 400-cell table must still be built, or this probe sees nothing.
+    void qtBuildsNoMoreTableCellsThanTheBodyBudget_data()
+    {
+        QTest::addColumn<QString>("html");
+        QTest::addColumn<qint64>("cells");
+        const QString cells15 = QStringLiteral("<td>x</td>").repeated(15);
+        const QString rows30 = QStringLiteral("<tr>").repeated(30);
+        const QString full = QStringLiteral("<table><tr>")
+            + QStringLiteral("<td>x</td>").repeated(16)
+            + QStringLiteral("</tr>") + QStringLiteral("<tr>").repeated(24)
+            + QStringLiteral("</table>");
+        QTest::newRow("</td> escape")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table></td></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << qint64(16);
+        QTest::newRow("</tr> escape")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << qint64(16);
+        QTest::newRow("</tbody> escape")
+            << QStringLiteral("<table><tbody><tr>") + cells15
+                   + QStringLiteral("<td><table></tbody>") + rows30
+                   + QStringLiteral("</table></table>")
+            << qint64(16);
+        QTest::newRow("</b> escape")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table></b></td></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << qint64(16);
+        QTest::newRow("cell in no row of the inner table")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table><td>y")
+                   + QStringLiteral("<tr>").repeated(383)
+                   + QStringLiteral("</table></td></tr></table>")
+            << qint64(16);
+        QTest::newRow("implicitly closed <p>")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><p><table><tr><td><p>a<p>b</p></p>"
+                                    "</td></tr>")
+                   + rows30 + QStringLiteral("</table></td></tr></table>")
+            << qint64(0);
+        QTest::newRow("implicitly closed <li>")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><ul><li><table><tr><td><ul><li><li>a"
+                                    "</li></li></td></tr>")
+                   + rows30
+                   + QStringLiteral("</table></li></ul></td></tr></table>")
+            << qint64(0);
+        // Review round 3: an emitted </br> or </hr> closed the <b> opened
+        // after it, so the sender's </b> walked out of the inner table and
+        // its 383 rows were built 16 wide (6,145 cells measured on the
+        // round-3 sanitizer). Not emitted now: 1 x 16 + 384 x 1 = 400.
+        QTest::newRow("</br> escape")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table><tr><td><br><b></br></b>")
+                   + QStringLiteral("<tr>").repeated(383)
+                   + QStringLiteral("</table></b></td></tr></table>")
+            << qint64(400);
+        QTest::newRow("</hr> escape")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table><tr><td><hr><b></hr></b>")
+                   + QStringLiteral("<tr>").repeated(383)
+                   + QStringLiteral("</table></b></td></tr></table>")
+            << qint64(400);
+        QTest::newRow("300 legal 400-cell tables in one body")
+            << full.repeated(300) << qint64(400);
+        QTest::newRow("control: one legal 400-cell table") << full << qint64(400);
+    }
+    void qtBuildsNoMoreTableCellsThanTheBodyBudget()
+    {
+        QFETCH(QString, html);
+        QFETCH(qint64, cells);
+        QTextDocument doc;
+        doc.setHtml(MessageHtml::sanitize(html, nullptr, QString()));
+        qint64 built = 0;
+        int widest = 0;
+        const std::function<void(QTextFrame *)> walk = [&](QTextFrame *frame) {
+            for (QTextFrame *child : frame->childFrames()) {
+                if (auto *table = qobject_cast<QTextTable *>(child)) {
+                    built += qint64(table->rows()) * table->columns();
+                    widest = std::max(widest, table->columns());
+                }
+                walk(child);
+            }
+        };
+        walk(doc.rootFrame());
+        QCOMPARE(built, cells);
+        QVERIFY2(widest <= 16, qPrintable(QString::number(widest)));
     }
 
     // A short row with receipts: the bar must end before the facepile begins.

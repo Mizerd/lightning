@@ -416,7 +416,12 @@ public:
     // and name resolver), for the edit-history dialog's untrusted revisions.
     Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
-    Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;
+    /// Own messages always; another member's only when `canRedactOthers`,
+    /// which the caller takes from the SDK's power-level answer for this room
+    /// (RoomInfoController::canRedactOthers). Never derived here. Edit stays
+    /// own-only whatever this says.
+    Q_INVOKABLE bool canRedactEvent(const QString &eventId,
+                                    bool canRedactOthers = false) const;
     /// Delete and react through the model showing the event, since only it
     /// knows which timeline that is: in a thread this model's id is the
     /// composite, and the live room timeline (hide_threaded_events) cannot find

@@ -193,6 +193,15 @@ private Q_SLOTS:
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
+    // Break-it B025: a moderator's grant opens Delete on another member's
+    // message, and nothing else.
+    void moderatorsMayRemoveOthersMessagesButNeverEditThem();
+    // Break-it B082: an undecryptable row has no text to edit.
+    void anUndecryptableOwnMessageCannotBeEdited();
+    // Break-it B028: the waveform role carries the documented 0..100 buckets.
+    void theWaveformRoleCarriesTheRawBuckets();
+    // Break-it B141: a carried "name" equal to the MXID is unresolved.
+    void aSenderNameEqualToTheMxidFallsThroughToARealName();
     // MSC3381 poll roles and the conservative end-poll rule.
     void pollRolesExposeOutcomeAndEndPermission();
     // Read-receipt chips: identity resolution, own-receipt exclusion,
@@ -2024,6 +2033,112 @@ void TimelineModelDiffTest::staleAndInapplicableMessageActionsAreRejected()
     QVERIFY(!m_model->canRedactEvent(redacted.eventId));
     QVERIFY(m_model->messageDetails(QStringLiteral("$stale")).isEmpty());
     QVERIFY(m_model->messagePermalink(QStringLiteral("$stale")).isEmpty());
+}
+
+void TimelineModelDiffTest::moderatorsMayRemoveOthersMessagesButNeverEditThem()
+{
+    auto remote = makeEvent(QStringLiteral("$remote:example.org"),
+                            QStringLiteral("remote"));
+    auto activity = makeEvent(QStringLiteral("$state:example.org"),
+                              QStringLiteral("joined"));
+    activity.type = TimelineEvent::StateChange;
+    auto gone = makeEvent(QStringLiteral("$gone:example.org"),
+                          QStringLiteral("already removed"));
+    gone.redacted = true;
+    m_client->mirror = { remote, activity, gone };
+    Q_EMIT m_client->loginSucceeded(QStringLiteral("@me:example.org"));
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    // Without the SDK's grant: own messages only, as before.
+    QVERIFY(!m_model->canRedactEvent(remote.eventId));
+    QVERIFY(!m_model->canRedactEvent(remote.eventId, false));
+    // With it: another member's message can be removed...
+    QVERIFY(m_model->canRedactEvent(remote.eventId, true));
+    // ...but the grant never reaches past the existing guards...
+    QVERIFY(!m_model->canRedactEvent(activity.eventId, true));
+    QVERIFY(!m_model->canRedactEvent(gone.eventId, true));
+    QVERIFY(!m_model->canRedactEvent(QStringLiteral("$stale"), true));
+    // ...and never turns into an edit of someone else's words.
+    QVERIFY(!m_model->canEditEvent(remote.eventId));
+}
+
+void TimelineModelDiffTest::anUndecryptableOwnMessageCannotBeEdited()
+{
+    auto own = makeEvent(QStringLiteral("$utd:example.org"),
+                         QStringLiteral("[unable to decrypt yet]"));
+    own.sender = QStringLiteral("@me:example.org");
+    own.isEncrypted = true;
+    own.undecryptable = true;
+    auto readable = makeEvent(QStringLiteral("$ok:example.org"),
+                              QStringLiteral("hello"));
+    readable.sender = QStringLiteral("@me:example.org");
+    m_client->mirror = { own, readable };
+    Q_EMIT m_client->loginSucceeded(QStringLiteral("@me:example.org"));
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QVERIFY(m_model->canEditEvent(readable.eventId));
+    // Editing would load the placeholder and send it as the new content.
+    QVERIFY(!m_model->canEditEvent(own.eventId));
+    // Deleting a message you cannot read is still yours to do.
+    QVERIFY(m_model->canRedactEvent(own.eventId));
+}
+
+void TimelineModelDiffTest::theWaveformRoleCarriesTheRawBuckets()
+{
+    auto voice = makeEvent(QStringLiteral("$voice:example.org"),
+                           QStringLiteral("voice.ogg"));
+    voice.type = TimelineEvent::Audio;
+    voice.mediaIsVoice = true;
+    voice.mediaWaveform = { 0, 50, 100 };
+    m_client->mirror = { voice };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    const QVariantList wf =
+        m_model->data(m_model->index(0), TimelineModel::MediaWaveformRole)
+            .toList();
+    QCOMPARE(wf.size(), 3);
+    // AudioPlayerCard draws a bar at wf[i] / 100: a full bucket must be 100
+    // here, or the loudest bar is 1% tall and every bar sits at the floor.
+    QCOMPARE(wf.at(0).toDouble(), 0.0);
+    QCOMPARE(wf.at(1).toDouble(), 50.0);
+    QCOMPARE(wf.at(2).toDouble(), 100.0);
+}
+
+void TimelineModelDiffTest::aSenderNameEqualToTheMxidFallsThroughToARealName()
+{
+    // The live-sync path stamps displayNameFor(), which hands back the raw id
+    // while the room's members are still hydrating.
+    auto early = makeEvent(QStringLiteral("$early"), QStringLiteral("H bk074 29"));
+    early.sender = QStringLiteral("@bk074:localhs.test");
+    early.senderDisplayName = early.sender;
+    m_client->mirror = { early };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    // Nothing known anywhere: the localpart, never the MXID.
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("bk074"));
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::SenderInitialsRole).toString(),
+             QStringLiteral("B"));
+
+    // The SDK named the same sender on another event: that name, not the
+    // MXID, for the row that carried only the id.
+    auto named = makeEvent(QStringLiteral("$named"), QStringLiteral("H bk074 30"));
+    named.sender = early.sender;
+    named.senderDisplayName = QStringLiteral("Bee Seventy-Four");
+    m_client->mirror = { early, named };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Bee Seventy-Four"));
+
+    // The member lookup, once it answers, wins over the remembered name.
+    m_client->displayNames.insert(early.sender, QStringLiteral("bk074 (member)"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("bk074 (member)"));
 }
 
 // beginSearch matches loaded, visible message text (case-insensitive),

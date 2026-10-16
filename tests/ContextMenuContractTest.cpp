@@ -539,6 +539,73 @@ private Q_SLOTS:
                  "a bare Button is back in the destructive confirm; it renders "
                  "as the Qt Basic default and ignores the AppTheme ladder");
     }
+
+    // Break-it B082: "Copy text" on an undecryptable row copied our own
+    // "[unable to decrypt yet]" placeholder, which could then be pasted and
+    // sent. The menu item and its Ctrl+C shortcut share one gate, and that
+    // gate refuses an undecryptable row.
+    void copyTextIsWithheldForUndecryptableRows()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = moreMenuBlock(delegate);
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
+        const int item = block.indexOf(
+            QStringLiteral("objectName: \"copyTextMenuItem\""));
+        QVERIFY2(item >= 0, "the Copy text item lost its objectName");
+        QVERIFY2(block.mid(item, 300).contains(
+                     QStringLiteral("enabled: root.copyableText")),
+                 "Copy text is not gated on root.copyableText");
+        QVERIFY2(block.contains(QStringLiteral("if (root.copyableText) {")),
+                 "the Ctrl+C shortcut does not share Copy text's gate");
+
+        const int gate = delegate.indexOf(
+            QStringLiteral("readonly property bool copyableText:"));
+        QVERIFY2(gate >= 0, "root.copyableText is gone");
+        QVERIFY2(delegate.mid(gate, 300).contains(
+                     QStringLiteral("model.undecryptable !== true")),
+                 "copyableText no longer refuses an undecryptable row");
+    }
+
+    // Break-it B025: moderators could not remove another member's message.
+    // Delete and its separator pass the SDK's grant to the model, and the
+    // grant is READ from the room-info controller, never computed in QML.
+    void deleteTakesTheModeratorGrantFromTheSdk()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = moreMenuBlock(delegate);
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
+        const QString grantCall = QStringLiteral(
+            "canRedactEvent(\n                             root.menuEventId, "
+            "root.canRedactOthers)");
+        QCOMPARE(block.count(grantCall), 2);   // the separator and Delete
+        QVERIFY2(delegate.contains(QStringLiteral(
+                     "enabled: root.timelineModel.canRedactEvent(\n"
+                     "                             root.menuEventId, "
+                     "root.canRedactOthers)")),
+                 "the Delete item does not pass the moderator grant");
+        // No single-argument (own-only) call is left in the menu.
+        QVERIFY2(!block.contains(QStringLiteral(
+                     "canRedactEvent(root.menuEventId)")),
+                 "an own-only canRedactEvent call is left in the menu");
+
+        const int grant = delegate.indexOf(
+            QStringLiteral("readonly property bool canRedactOthers:"));
+        QVERIFY2(grant >= 0, "root.canRedactOthers is gone");
+        const QString def = delegate.mid(grant, 200);
+        QVERIFY2(def.contains(QStringLiteral(
+                     "app.roomInfo.canRedactOthers === true")),
+                 "canRedactOthers is not the SDK's answer, strictly true");
+        QVERIFY2(!def.contains(QStringLiteral("powerLevel")),
+                 "power levels are being computed in QML");
+    }
 };
 
 QTEST_GUILESS_MAIN(ContextMenuContractTest)

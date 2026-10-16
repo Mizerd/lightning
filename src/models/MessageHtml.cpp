@@ -32,6 +32,244 @@ const QSet<QString> &allowedTags()
     return s;
 }
 
+// Table structure (GFM tables reach us as <table>). Handled apart from
+// allowedTags(): row and cell tags are emitted only inside a table this pass
+// opened, and tables nest only to kMaxTableDepth, because Qt lays a table out
+// as a frame recursively and the input is remote. A table wider than
+// kMaxTableColumns cells in a row is flattened as well, and so is one whose
+// cells would take the BODY past kMaxTableCells (one budget per message, nested
+// tables' cells included, so many tables cannot add up to what one may not
+// be): every column has a minimum width (padding, rule, one glyph), so a row of
+// a few hundred cells is laid out far wider than the message column, and each
+// cell is layout work on the GUI thread.
+// Cells are counted the way Qt BUILDS them, not the way the sender wrote them:
+// QTextHtmlImporter::scanTable takes rows = every <tr> and columns = the
+// widest row, then inserts rows x columns cells, padding each short row. So
+// one wide row over thousands of empty <tr> is thousands of rows of cells.
+const QSet<QString> &tableTags()
+{
+    static const QSet<QString> s = {
+        QStringLiteral("table"), QStringLiteral("thead"),
+        QStringLiteral("tbody"), QStringLiteral("tr"),
+        QStringLiteral("th"),    QStringLiteral("td"),
+    };
+    return s;
+}
+constexpr int kMaxTableDepth = 2;
+constexpr int kMaxTableColumns = 16;
+constexpr int kMaxTableCells = 400;
+
+// What Qt will build from one emitted table, read back from the sanitizer's
+// own output (every '<' there opens a tag this pass emitted). `wellFormed` is
+// false when Qt's tree could differ from the table as written; such a table is
+// flattened rather than counted, because QTextHtmlParser (6.11) does not keep
+// to a table's bounds:
+//  - a close tag walks up to the nearest open element of that name, through
+//    any <table>, so a stray </td> or </b> inside an inner table closes the
+//    OUTER cell and later rows land in the outer table;
+//  - a <td> climbs to the nearest <tr> anywhere above it, and with none it
+//    makes a table of its own; a <tr> or section climbs to the nearest table;
+//  - a <p> closes an open <p> above it up to the nearest block, and an <li>
+//    closes an <li> directly above it, so a later </p> or </li> may match
+//    nothing inside the table and walk out of it.
+// The read below follows exactly those rules and refuses everything else they
+// would make ambiguous: a close tag that matches nothing inside the innermost
+// table, a cell with no row of that table open, and any other element opened
+// directly in table, section or row context. Real clients send none of these.
+struct EmittedTableShape {
+    bool wellFormed = false;
+    int columns = 0;   // the table's own widest row
+    qint64 cells = 0;  // its rows x columns, plus every kept nested table's
+};
+
+EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
+{
+    // Block elements per Qt's element table, among the tags this pass emits
+    // (<hr> is void, <table>/<thead>/<tbody>/<tr> are display:table).
+    static const QSet<QString> blockTags = {
+        QStringLiteral("p"),  QStringLiteral("pre"), QStringLiteral("blockquote"),
+        QStringLiteral("h1"), QStringLiteral("h2"),  QStringLiteral("h3"),
+        QStringLiteral("h4"), QStringLiteral("h5"),  QStringLiteral("h6"),
+        QStringLiteral("ul"), QStringLiteral("ol"),  QStringLiteral("li"),
+        QStringLiteral("td"), QStringLiteral("th"),
+    };
+    static const QSet<QString> voidTags = {
+        QStringLiteral("br"), QStringLiteral("hr"), QStringLiteral("img"),
+    };
+    static const QSet<QString> tableContext = {
+        QStringLiteral("table"), QStringLiteral("thead"),
+        QStringLiteral("tbody"), QStringLiteral("tr"),
+    };
+    struct Open {
+        QString name;
+        qsizetype block = -1;   // nearest block element at or below this one
+    };
+    struct Grid {
+        qint64 rows = 0;
+        int rowCells = 0;
+        int columns = 0;
+        qint64 nested = 0;
+        qint64 cells() const { return rows * columns + nested; }
+    };
+    QList<Open> stack;
+    QList<qsizetype> tableAt;   // stack index of each open table
+    QList<Grid> grids;          // one per open table, innermost last
+    const auto push = [&](const QString &name) {
+        const qsizetype at = stack.size();
+        const qsizetype below = stack.isEmpty() ? -1 : stack.last().block;
+        stack.append(Open{name, blockTags.contains(name) ? at : below});
+        if (name == QLatin1String("table")) {
+            tableAt.append(at);
+            grids.append(Grid{});
+        }
+    };
+
+    const qsizetype n = out.size();
+    qsizetype i = from;
+    while (i < n) {
+        const qsizetype lt = out.indexOf(QLatin1Char('<'), i);
+        if (lt < 0)
+            break;
+        const qsizetype gt = out.indexOf(QLatin1Char('>'), lt);
+        if (gt < 0)
+            return {};
+        qsizetype k = lt + 1;
+        const bool closing = k < gt && out[k] == QLatin1Char('/');
+        if (closing)
+            ++k;
+        qsizetype e = k;
+        while (e < gt && out[e].isLetterOrNumber())
+            ++e;
+        const QString name = out.mid(k, e - k);
+        i = gt + 1;
+
+        if (stack.isEmpty()) {
+            // The span starts at the table's own open tag.
+            if (closing || name != QLatin1String("table"))
+                return {};
+            push(name);
+            continue;
+        }
+        const qsizetype scope = tableAt.last();   // innermost open table
+        const bool inTableContext = tableContext.contains(stack.last().name);
+
+        if (closing) {
+            // Never emitted (sanitize() drops </br> and </hr>), and not
+            // harmless: Qt's parseCloseTag matches a void element just before
+            // the current node and closes everything opened after it, so
+            // "<br><b></br>" closes the <b> and a later </b> walks out.
+            if (voidTags.contains(name))
+                return {};
+            if (name == QLatin1String("table")) {
+                if (tableAt.size() < 2)
+                    return {};   // the root's own close is not in the span
+                stack.resize(scope);
+                tableAt.removeLast();
+                const Grid inner = grids.takeLast();
+                grids.last().nested += inner.cells();
+                continue;
+            }
+            qsizetype j = stack.size() - 1;
+            while (j > scope && stack[j].name != name)
+                --j;
+            if (j == scope)
+                return {};   // would walk out of this table
+            stack.resize(j);
+            continue;
+        }
+
+        if (name == QLatin1String("thead") || name == QLatin1String("tbody")) {
+            stack.resize(scope + 1);
+            push(name);
+        } else if (name == QLatin1String("tr")) {
+            qsizetype j = stack.size() - 1;
+            while (!tableContext.contains(stack[j].name)
+                   || stack[j].name == QLatin1String("tr"))
+                --j;   // stops at the innermost table at the latest
+            stack.resize(j + 1);
+            push(name);
+            ++grids.last().rows;
+            grids.last().rowCells = 0;
+        } else if (name == QLatin1String("td") || name == QLatin1String("th")) {
+            qsizetype j = stack.size() - 1;
+            while (j > scope && stack[j].name != QLatin1String("tr"))
+                --j;
+            if (j == scope)
+                return {};   // no row of this table open
+            stack.resize(j + 1);
+            push(name);
+            Grid &g = grids.last();
+            g.columns = qMax(g.columns, ++g.rowCells);
+        } else if (inTableContext) {
+            return {};   // text-level markup belongs in a cell
+        } else if (voidTags.contains(name)) {
+            // nothing stays open
+        } else {
+            if (name == QLatin1String("p")) {
+                const qsizetype b = stack.last().block;
+                if (b > scope && stack[b].name == QLatin1String("p"))
+                    stack.resize(b);
+            } else if (name == QLatin1String("li")
+                       && stack.last().name == QLatin1String("li")) {
+                stack.resize(stack.size() - 1);
+            }
+            push(name);
+        }
+    }
+    if (tableAt.size() != 1)
+        return {};
+    EmittedTableShape shape;
+    shape.wellFormed = true;
+    shape.columns = grids.first().columns;
+    shape.cells = grids.first().cells();
+    return shape;
+}
+
+// Rewrites out[from..] (sanitizer OUTPUT, where every '<' opens a tag this
+// pass emitted: text and attribute values are escaped) with its table markup
+// flattened the way a too-deep table is: a cell ends in a space, a row in a
+// line break, and every other table tag goes. Other markup is kept.
+void flattenEmittedTables(QString &out, qsizetype from)
+{
+    QString flat;
+    flat.reserve(out.size() - from);
+    qsizetype i = from;
+    const qsizetype n = out.size();
+    while (i < n) {
+        const qsizetype lt = out.indexOf(QLatin1Char('<'), i);
+        if (lt < 0) {
+            flat += QStringView(out).mid(i);
+            break;
+        }
+        flat += QStringView(out).mid(i, lt - i);
+        const qsizetype gt = out.indexOf(QLatin1Char('>'), lt);
+        if (gt < 0) {   // cannot happen in our own output; keep it verbatim
+            flat += QStringView(out).mid(lt);
+            break;
+        }
+        qsizetype k = lt + 1;
+        const bool closing = k < gt && out[k] == QLatin1Char('/');
+        if (closing)
+            ++k;
+        qsizetype e = k;
+        while (e < gt && out[e].isLetterOrNumber())
+            ++e;
+        const QString name = out.mid(k, e - k);
+        if (tableTags().contains(name)) {
+            if (closing && (name == QLatin1String("td")
+                            || name == QLatin1String("th")))
+                flat += QLatin1Char(' ');
+            else if (closing && name == QLatin1String("tr"))
+                flat += QStringLiteral("<br>");
+        } else {
+            flat += QStringView(out).mid(lt, gt + 1 - lt);
+        }
+        i = gt + 1;
+    }
+    out.truncate(from);
+    out += flat;
+}
+
 // Tags dropped together with their content.
 const QSet<QString> &dropContentTags()
 {
@@ -662,6 +900,28 @@ QString MessageHtml::sanitize(
     // </span> from closing a spoiler anchor and vice versa.
     QList<bool> spanIsSpoiler;
     int codeDepth = 0;      // inside <code>/<pre>: a URL there stays text
+    // Per open <table>: did this pass emit it? A table past kMaxTableDepth is
+    // flattened into its parent cell.
+    QList<bool> tableEmitted;
+    // Where each EMITTED open table's markup starts in `out`. Its shape is read
+    // back from that span when it closes (measureEmittedTable): one that is
+    // malformed, past the column bound, or past what is left of the body's
+    // cell budget is flattened; a flattened table holds no cells. A kept
+    // nested table's cells are part of its parent's span and so of its count.
+    QList<qsizetype> openTableStarts;
+    qint64 tableCellsKept = 0;   // cells of the top-level tables kept so far
+    const auto closeEmittedTable = [&out, &openTableStarts, &tableCellsKept]() {
+        const qsizetype start = openTableStarts.takeLast();
+        const EmittedTableShape shape = measureEmittedTable(out, start);
+        if (!shape.wellFormed || shape.columns > kMaxTableColumns
+            || tableCellsKept + shape.cells > kMaxTableCells) {
+            flattenEmittedTables(out, start);
+            return;
+        }
+        out += QStringLiteral("</table>");
+        if (openTableStarts.isEmpty())
+            tableCellsKept += shape.cells;
+    };
 
     const qsizetype n = in.size();
     TagScanner scanner(in);
@@ -925,9 +1185,59 @@ QString MessageHtml::sanitize(
                 --codeDepth;
         }
 
+        if (tableTags().contains(name)) {
+            if (name == QLatin1String("table")) {
+                if (!t.closing) {
+                    const bool withinBound =
+                        openTableStarts.size() < kMaxTableDepth;
+                    tableEmitted.append(withinBound);
+                    if (!withinBound)
+                        continue;
+                    openTableStarts.append(out.size());
+                    // No sender attribute survives (border, width, bgcolor,
+                    // style). The grid is ours: a one-pixel collapsed rule and
+                    // cell padding, so cells read as cells ("a | b" ran
+                    // together as "ab"). The colour is a validated theme
+                    // QColor, escaped again.
+                    out += QStringLiteral("<table border=\"1\" cellspacing=\"0\" "
+                                          "cellpadding=\"6\" style=\"border-collapse:"
+                                          "collapse");
+                    if (!mentionStyle.codeBackground.isEmpty()) {
+                        out += QStringLiteral("; border-color:")
+                            + mentionStyle.codeBackground.toHtmlEscaped();
+                    }
+                    out += QStringLiteral("\">");
+                } else if (!tableEmitted.isEmpty()) {
+                    if (tableEmitted.takeLast())
+                        closeEmittedTable();
+                }
+                continue;
+            }
+            // Rows and cells: only directly inside a table this pass emitted.
+            // In a flattened (too deep) table a cell ends in a space and a row
+            // in a line break, so its text still does not run together.
+            if (tableEmitted.isEmpty() || !tableEmitted.last()) {
+                if (t.closing && (name == QLatin1String("td")
+                                  || name == QLatin1String("th")))
+                    out += QLatin1Char(' ');
+                else if (t.closing && name == QLatin1String("tr"))
+                    out += QStringLiteral("<br>");
+                continue;
+            }
+            // Emitted as written; whether Qt would build it as written is
+            // decided from the output when the table closes.
+            out += (t.closing ? QStringLiteral("</") : QStringLiteral("<"))
+                + name + QStringLiteral(">");
+            continue;
+        }
+
         if (allowedTags().contains(name)) {
             if (t.closing) {
-                out += QStringLiteral("</") + name + QStringLiteral(">");
+                // </br> and </hr> mean nothing, and Qt reads them as closing
+                // whatever was opened right after the <br>/<hr> (see
+                // measureEmittedTable), so they are never emitted.
+                if (name != QLatin1String("br") && name != QLatin1String("hr"))
+                    out += QStringLiteral("</") + name + QStringLiteral(">");
             } else if (name == QLatin1String("ol")) {
                 // `start` survives on <ol>. Markdown splits a numbered list
                 // interrupted by nested bullets into several <ol start="N">
@@ -981,6 +1291,10 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
+    // Then tables, outermost last, so nothing after this body is laid out
+    // inside a cell.
+    while (!openTableStarts.isEmpty())
+        closeEmittedTable();
     // Emoji sizing runs last, over already-safe output, so the formatted and
     // code-block paths share it. The one non-render consumer (beginEdit ->
     // mention::refsFromSanitizedHtml) matches only mention anchors and strips

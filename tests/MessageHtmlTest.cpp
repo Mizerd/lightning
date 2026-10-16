@@ -61,6 +61,64 @@ int countOf(const QList<MessageHtml::Segment> &segs,
             ++n;
     return n;
 }
+
+// The first tag of sanitizer output that leaves the table it was written in,
+// or an empty string. Qt's HTML parser walks a close tag up to the nearest
+// open element of that name through any <table>, and puts a <td> in the
+// nearest <tr> above it, in whichever table that is. So inside a table every
+// close tag must match an element opened inside that same (innermost) table,
+// and every cell must have a row of that table open; otherwise the rows that
+// follow are built into a table the sanitizer did not count.
+QString tagLeavingItsTable(const QString &out)
+{
+    static const QRegularExpression tag(
+        QStringLiteral("<(/?)([a-z0-9]+)[^>]*>"));
+    QStringList open;
+    QList<qsizetype> tables;   // index in `open` of each open <table>
+    auto it = tag.globalMatch(out);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const QString where = m.captured(0) + QStringLiteral(" at ")
+            + QString::number(m.capturedStart());
+        const bool closing = !m.captured(1).isEmpty();
+        const QString name = m.captured(2);
+        const qsizetype base = tables.isEmpty() ? -1 : tables.last();
+        if (name == QLatin1String("br") || name == QLatin1String("hr")
+            || name == QLatin1String("img")) {
+            // A void close tag is not inert: Qt's parseCloseTag closes
+            // everything opened after the <br>/<hr> just before it.
+            if (closing && base >= 0)
+                return where;
+            continue;
+        }
+        if (closing && name == QLatin1String("table")) {
+            if (tables.isEmpty())
+                return where;
+            open.resize(tables.takeLast());
+            continue;
+        }
+        if (closing || name == QLatin1String("td")
+            || name == QLatin1String("th")) {
+            const QString want = closing ? name : QStringLiteral("tr");
+            qsizetype j = open.size() - 1;
+            while (j > base && open[j] != want)
+                --j;
+            if (j == base) {
+                if (!closing || base >= 0)
+                    return where;   // walks out of a table / cell in no row
+                continue;           // outside every table: harmless
+            }
+            if (closing) {
+                open.resize(j);
+                continue;
+            }
+        }
+        if (name == QLatin1String("table"))
+            tables.append(open.size());
+        open.append(name);
+    }
+    return {};
+}
 } // namespace
 
 class MessageHtmlTest : public QObject
@@ -76,6 +134,323 @@ private Q_SLOTS:
                  QStringLiteral("a<br>b"));
         QCOMPARE(sanitize(QStringLiteral("<code>x = 1</code>")),
                  QStringLiteral("<code>x = 1</code>"));
+    }
+
+    // Break-it B065: a GFM table arrived as <table> and rendered as "ab 12"
+    // with no structure, because the table tags were not on the allow-list.
+    // They survive now, with every sender attribute stripped and only the
+    // sanitizer's own grid attributes on <table>.
+    void aTableSurvivesWithOnlyTheSanitizersOwnAttributes()
+    {
+        const QString out = sanitize(QStringLiteral(
+            "<table border=\"9\" width=\"5000\" bgcolor=\"red\" "
+            "style=\"position:fixed\" onclick=\"x()\">"
+            "<thead><tr class=\"h\"><th align=\"right\" style=\"color:red\">"
+            "a</th><th>b</th></tr></thead>"
+            "<tbody><tr><td width=\"999\" bgcolor=\"#f00\">1</td>"
+            "<td colspan=\"500\">2</td></tr></tbody></table>"));
+        QCOMPARE(out,
+                 QStringLiteral(
+                     "<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\" "
+                     "style=\"border-collapse:collapse\">"
+                     "<thead><tr><th>a</th><th>b</th></tr></thead>"
+                     "<tbody><tr><td>1</td><td>2</td></tr></tbody></table>"));
+        // The theme's code-surface ink, validated and escaped, draws the grid.
+        const QString themed = MessageHtml::sanitize(
+            QStringLiteral("<table><tr><td>x</td></tr></table>"), nullptr,
+            QString(),
+            MessageHtml::MentionStyle{QString(), QString(),
+                                      QStringLiteral("#203040"), false});
+        QVERIFY2(themed.startsWith(QStringLiteral(
+                     "<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\" "
+                     "style=\"border-collapse:collapse; border-color:#203040\">")),
+                 qPrintable(themed));
+    }
+
+    // Row and cell tags mean nothing outside a table this pass opened, and a
+    // table nested past the bound is flattened into its parent cell (Qt lays
+    // tables out recursively; the input is remote). Every emitted table is
+    // closed, so nothing after the body is laid out inside a cell.
+    void tableStructureIsBoundedAndBalanced()
+    {
+        // Stray rows and cells: dropped, text kept and separated.
+        QCOMPARE(sanitize(QStringLiteral("<tr><td>a</td><td>b</td></tr>c")),
+                 QStringLiteral("a b <br>c"));
+        // Fifty nested tables: at most two are emitted, and balanced.
+        QString deep;
+        for (int i = 0; i < 50; ++i)
+            deep += QStringLiteral("<table><tr><td>");
+        deep += QStringLiteral("core");
+        for (int i = 0; i < 50; ++i)
+            deep += QStringLiteral("</td></tr></table>");
+        const QString out = sanitize(deep);
+        QCOMPARE(out.count(QStringLiteral("<table")), 2);
+        QCOMPARE(out.count(QStringLiteral("</table>")), 2);
+        QVERIFY(out.contains(QStringLiteral("core")));
+        // An unclosed table is closed at the end.
+        const QString open = sanitize(QStringLiteral("<table><tr><td>x"));
+        QCOMPARE(open.count(QStringLiteral("<table")), 1);
+        QVERIFY(open.endsWith(QStringLiteral("</table>")));
+        // A stray </table> closes nothing it did not open.
+        QCOMPARE(sanitize(QStringLiteral("x</table>y")), QStringLiteral("xy"));
+    }
+
+    // A table is laid out at its columns' minimum widths however narrow the
+    // message column is, so a remote row of hundreds of cells painted far
+    // outside the row (and cost a layout per cell). Past 16 cells in a row or
+    // 400 cells in all, nested tables' cells included, the table is flattened
+    // exactly like a too-deep one; the bounds themselves still render.
+    void aTablePastTheColumnOrCellBoundIsFlattened()
+    {
+        const auto row = [](int cells) {
+            QString r = QStringLiteral("<tr>");
+            for (int c = 0; c < cells; ++c)
+                r += QStringLiteral("<td>x</td>");
+            return r + QStringLiteral("</tr>");
+        };
+        const auto table = [](const QString &rows) {
+            return QStringLiteral("<table>") + rows + QStringLiteral("</table>");
+        };
+        // Sixteen columns render; seventeen are flattened, text kept and
+        // separated, nothing after the table swallowed.
+        const QString sixteen = sanitize(table(row(16)));
+        QCOMPARE(sixteen.count(QStringLiteral("<td>")), 16);
+        QCOMPARE(sixteen.count(QStringLiteral("</table>")), 1);
+        const QString seventeen =
+            sanitize(table(row(17)) + QStringLiteral("<b>after</b>"));
+        QCOMPARE(seventeen,
+                 QStringLiteral("x ").repeated(17) + QStringLiteral("<br>")
+                     + QStringLiteral("<b>after</b>"));
+        // The reported shape: one row of three hundred cells.
+        const QString wide = sanitize(table(row(300)));
+        QVERIFY2(!wide.contains(QStringLiteral("<t")), qPrintable(wide.left(200)));
+        QCOMPARE(wide.count(QLatin1Char('x')), 300);
+        // 400 cells render (25 rows of 16); 401 do not.
+        QCOMPARE(sanitize(table(row(16).repeated(25)))
+                     .count(QStringLiteral("<td>")), 400);
+        QVERIFY(!sanitize(table(row(16).repeated(25) + row(1)))
+                     .contains(QStringLiteral("<table")));
+        // Markup inside a flattened cell survives; an unclosed over-bound
+        // table is flattened at the end too.
+        QCOMPARE(sanitize(QStringLiteral("<table><tr>")
+                          + QStringLiteral("<td><em>y</em></td>").repeated(17)),
+                 QStringLiteral("<em>y</em> ").repeated(17));
+        // A nested table past the bound is flattened into its parent's cell
+        // and the parent stays a table.
+        const QString innerWide = sanitize(table(
+            QStringLiteral("<tr><td>") + table(row(17))
+            + QStringLiteral("</td><td>z</td></tr>")));
+        QCOMPARE(innerWide.count(QStringLiteral("<table")), 1);
+        QCOMPARE(innerWide.count(QStringLiteral("</table>")), 1);
+        QCOMPARE(innerWide.count(QStringLiteral("<td>")), 2);
+        // Nested cells count toward the parent: two inner tables of 208 cells
+        // are each within bound, but the parent then holds 418 and goes,
+        // inner tables and all.
+        const QString inner = table(row(16).repeated(13));
+        const QString parentFull = sanitize(table(
+            QStringLiteral("<tr><td>") + inner + QStringLiteral("</td><td>")
+            + inner + QStringLiteral("</td></tr>")));
+        QVERIFY2(!parentFull.contains(QStringLiteral("<t")),
+                 qPrintable(parentFull.left(200)));
+        QCOMPARE(parentFull.count(QLatin1Char('x')), 416);
+
+        // Qt builds rows x widest-row cells (QTextHtmlImporter::scanTable pads
+        // every short row), so EMPTY rows are cells too. One 16-cell row over
+        // 30 empty <tr> is 496 cells and goes; over 24 it is 400 and stays.
+        const QString emptyRows30 = row(16) + QStringLiteral("<tr>").repeated(30);
+        const QString emptyRows24 = row(16) + QStringLiteral("<tr>").repeated(24);
+        QVERIFY2(!sanitize(table(emptyRows30)).contains(QStringLiteral("<t")),
+                 qPrintable(sanitize(table(emptyRows30)).left(200)));
+        const QString kept24 = sanitize(table(emptyRows24));
+        QCOMPARE(kept24.count(QStringLiteral("<table")), 1);
+        QCOMPARE(kept24.count(QStringLiteral("<td>")), 16);
+        QCOMPARE(kept24.count(QStringLiteral("<tr>")), 25);
+        // The same through a section element.
+        const auto inBody = [](const QString &rows) {
+            return QStringLiteral("<table><tbody>") + rows
+                + QStringLiteral("</tbody></table>");
+        };
+        QVERIFY(!sanitize(inBody(emptyRows30)).contains(QStringLiteral("<t")));
+        QCOMPARE(sanitize(inBody(emptyRows24)).count(QStringLiteral("<table")), 1);
+        // One column is enough: 401 rows of one cell.
+        QVERIFY(!sanitize(table(row(1) + QStringLiteral("<tr>").repeated(400)))
+                     .contains(QStringLiteral("<t")));
+        // The reported shape: thousands of empty rows under one wide row.
+        const QString tall =
+            sanitize(table(row(16) + QStringLiteral("<tr>").repeated(15000)));
+        QVERIFY2(!tall.contains(QStringLiteral("<t")), qPrintable(tall.left(200)));
+        QCOMPARE(tall.count(QLatin1Char('x')), 16);
+        // A nested table's padded grid is its parent's work: a kept inner
+        // table of exactly 400 cells pushes a two-cell parent to 402.
+        const QString nestedTall = sanitize(table(
+            QStringLiteral("<tr><td>") + table(emptyRows24)
+            + QStringLiteral("</td><td>z</td></tr>")));
+        QVERIFY2(!nestedTall.contains(QStringLiteral("<t")),
+                 qPrintable(nestedTall.left(200)));
+        QCOMPARE(nestedTall.count(QLatin1Char('x')), 16);
+        QVERIFY(nestedTall.contains(QLatin1Char('z')));
+    }
+
+    // §18 review N1: the cell count is only as good as the table the rows
+    // land in. Qt walks a close tag out through any <table> and puts a cell in
+    // the nearest row above it, so markup that ends an inner table early (or
+    // puts a cell in no row of it) sent the rows the sanitizer charged to an
+    // EMPTY inner table into the outer one: 16 counted, 496 built (measured
+    // with QTextDocument on the round-2 sanitizer; 6528 for the stray cell).
+    // Such a table is flattened now, and what is emitted keeps every tag
+    // inside the table it was written in.
+    void noTagLeavesTheTableItWasWrittenIn_data()
+    {
+        QTest::addColumn<QString>("html");
+        QTest::addColumn<int>("tables");   // what survives as written
+        QTest::addColumn<int>("rows");
+        QTest::addColumn<int>("cells");
+        const QString cells15 = QStringLiteral("<td>x</td>").repeated(15);
+        const QString rows30 = QStringLiteral("<tr>").repeated(30);
+        // The outer table survives as written (one row of 16 cells); the
+        // malformed inner one is flattened, and none of the rows that were
+        // meant to escape is left to land anywhere.
+        QTest::newRow("</td> ends the inner table")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table></td></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << 1 << 1 << 16;
+        QTest::newRow("</tr> ends the inner table")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << 1 << 1 << 16;
+        QTest::newRow("</tbody> ends the inner table")
+            << QStringLiteral("<table><tbody><tr>") + cells15
+                   + QStringLiteral("<td><table></tbody>") + rows30
+                   + QStringLiteral("</table></table>")
+            << 1 << 1 << 16;
+        QTest::newRow("</b> opened in the outer cell")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table></b></td></tr>") + rows30
+                   + QStringLiteral("</table></table>")
+            << 1 << 1 << 16;
+        QTest::newRow("a cell in no row of the inner table")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><table><td>y")
+                   + QStringLiteral("<tr>").repeated(383)
+                   + QStringLiteral("</table></td></tr></table>")
+            << 1 << 1 << 16;
+        // Review round 3: Qt's parseCloseTag closes everything opened after
+        // a <br>/<hr> that sits just before the current node, so an emitted
+        // </br> closed the inner <b> and the sender's </b> then closed the
+        // OUTER one, inner table and all. </br> and </hr> are not emitted
+        // now, so both tables survive exactly as Qt builds them.
+        QTest::newRow("</br> closes what follows a <br>")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table><tr><td><br><b></br></b>")
+                   + rows30
+                   + QStringLiteral("</table></b></td></tr></table>")
+            << 2 << 32 << 17;
+        QTest::newRow("</hr> closes what follows an <hr>")
+            << QStringLiteral("<table><tr>") + cells15
+                   + QStringLiteral("<td><b><table><tr><td><hr><b></hr></b>")
+                   + rows30
+                   + QStringLiteral("</table></b></td></tr></table>")
+            << 2 << 32 << 17;
+    }
+    void noTagLeavesTheTableItWasWrittenIn()
+    {
+        QFETCH(QString, html);
+        QFETCH(int, tables);
+        QFETCH(int, rows);
+        QFETCH(int, cells);
+        const QString out = sanitize(html);
+        const QString leaving = tagLeavingItsTable(out);
+        QVERIFY2(leaving.isEmpty(),
+                 qPrintable(leaving + QStringLiteral(" in ") + out.left(400)));
+        QCOMPARE(out.count(QStringLiteral("<table")), tables);
+        QCOMPARE(out.count(QStringLiteral("<tr>")), rows);
+        QCOMPARE(out.count(QStringLiteral("<td>")), cells);
+        QVERIFY(!out.contains(QStringLiteral("</br>")));
+        QVERIFY(!out.contains(QStringLiteral("</hr>")));
+    }
+
+    // The same escape through Qt's two implicit closes: a <p> closes an open
+    // <p> above it (up to the nearest block) and an <li> closes an <li>
+    // directly above it, so the sender's second </p> or </li> matches the
+    // element opened in the OUTER cell and closes the inner table with it.
+    // The whole table goes, text kept.
+    void anImplicitlyClosedParagraphOrItemDoesNotOpenAnEscape()
+    {
+        const QString cells15 = QStringLiteral("<td>x</td>").repeated(15);
+        const QString rows30 = QStringLiteral("<tr>").repeated(30);
+        QCOMPARE(sanitize(QStringLiteral("<table><tr>") + cells15
+                          + QStringLiteral("<td><p><table><tr><td><p>a<p>b"
+                                           "</p></p></td></tr>")
+                          + rows30 + QStringLiteral("</table></td></tr></table>")),
+                 QStringLiteral("x ").repeated(15)
+                     + QStringLiteral("<p><p>a<p>b</p></p> <br> <br>"));
+        QCOMPARE(sanitize(QStringLiteral("<table><tr>") + cells15
+                          + QStringLiteral("<td><ul><li><table><tr><td><ul>"
+                                           "<li><li>a</li></li></td></tr>")
+                          + rows30
+                          + QStringLiteral("</table></li></ul></td></tr></table>")),
+                 QStringLiteral("x ").repeated(15)
+                     + QStringLiteral("<ul><li><ul><li><li>a</li></li> <br>"
+                                      "</li></ul> <br>"));
+        // What real clients send still renders as a table: GFM's own shape
+        // with whitespace between the structure tags, and a cell holding
+        // paragraphs, a list, a link and code.
+        const QString gfm = sanitize(QStringLiteral(
+            "<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n"
+            "<tbody>\n<tr>\n<td><strong>1</strong> https://example.org</td>\n"
+            "<td><code>2</code></td>\n</tr>\n</tbody>\n</table>\n"));
+        QCOMPARE(gfm.count(QStringLiteral("<table")), 1);
+        QVERIFY2(tagLeavingItsTable(gfm).isEmpty(), qPrintable(gfm));
+        const QString blocks = sanitize(QStringLiteral(
+            "<table><tr><td><p>a</p><p>b</p><ul><li>c</li><li>d</li></ul>"
+            "</td><td>e</td></tr></table>"));
+        QCOMPARE(blocks.count(QStringLiteral("<table")), 1);
+        QCOMPARE(blocks.count(QStringLiteral("<td>")), 2);
+    }
+
+    // §18 review N2: the bound was per table, so ~360 legal 400-cell tables
+    // (179 bytes each) in one 64 KiB body were ~144,000 cells on the GUI
+    // thread. One budget covers the whole body now: a table that would take
+    // it past kMaxTableCells is flattened, and a later one that still fits is
+    // kept.
+    void oneCellBudgetCoversTheWholeBody()
+    {
+        const auto row = [](int cells) {
+            return QStringLiteral("<tr>")
+                + QStringLiteral("<td>x</td>").repeated(cells)
+                + QStringLiteral("</tr>");
+        };
+        const auto table = [](const QString &rows) {
+            return QStringLiteral("<table>") + rows + QStringLiteral("</table>");
+        };
+        // 400 cells each: the reported shape. The round-2 sanitizer kept the
+        // 235 that fit the input bound (93,601 cells as Qt built them).
+        const QString full =
+            table(row(16) + QStringLiteral("<tr>").repeated(24));
+        const QString many = sanitize(full.repeated(300));
+        QCOMPARE(many.count(QStringLiteral("<table")), 1);
+        QCOMPARE(many.count(QStringLiteral("</table>")), 1);
+        // 200 + 200 fit; the third 200 does not.
+        const QString halves = sanitize(table(row(10).repeated(20)).repeated(3));
+        QCOMPARE(halves.count(QStringLiteral("<table")), 2);
+        QCOMPARE(halves.count(QStringLiteral("<td>")), 400);
+        QCOMPARE(halves.count(QLatin1Char('x')), 600);   // text kept
+        // A spent budget flattens even a one-cell table.
+        QCOMPARE(sanitize(full + table(row(1))).count(QStringLiteral("<table")),
+                 1);
+        // First come, first kept: one cell leaves 399, so 400 more go.
+        QCOMPARE(sanitize(table(row(1)) + full).count(QStringLiteral("<table")),
+                 1);
+        // A nested table draws on the same budget: after 200 kept cells a
+        // 300-cell inner table is flattened inside a parent that still fits.
+        const QString nested = sanitize(
+            table(row(10).repeated(20))
+            + table(QStringLiteral("<tr><td>") + table(row(10).repeated(30))
+                    + QStringLiteral("</td><td>z</td></tr>")));
+        QCOMPARE(nested.count(QStringLiteral("<table")), 2);
+        QCOMPARE(nested.count(QStringLiteral("<td>")), 202);
     }
 
     void attributesAreStripped()

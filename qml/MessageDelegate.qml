@@ -28,6 +28,17 @@ Item {
     // reply. Set by the hosting view; the room timeline never sets it.
     readonly property bool readOnlyView:
         root.timelineView && root.timelineView.readOnlyContext === true
+    // Copy text: an undecryptable row's body is our own "unable to decrypt"
+    // placeholder, not the message, so there is nothing to copy (the reply
+    // banner still quotes the placeholder, which is honest there).
+    readonly property bool copyableText:
+        model.undecryptable !== true
+        && root.menuEventId !== ""
+        && root.timelineModel.visibleTextForEvent(root.menuEventId).length > 0
+    // The SDK's power-level answer for the open room: may we redact another
+    // member's message. Read, never computed here; true only when it says so.
+    readonly property bool canRedactOthers:
+        !!app.roomInfo && app.roomInfo.canRedactOthers === true
     // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true
@@ -610,12 +621,22 @@ Item {
     readonly property bool actionsVisible:
         !root.readOnlyView
         && !root.transientOwnerBlocks
+        && root.hasServerEventId
         && (root.moreMenuOpen
             || (root.timelineView
                 && (root.timelineView.hoveredActionsKey === actionKey
                     || (actionsPinned
                         && root.timelineView.hoveredActionsKey === ""))))
     property string menuEventId: ""
+    // Every hover-bar action (react, reply, thread, edit, the More menu)
+    // needs an event the server has. A pending local echo has none (the Rust
+    // bridge sends "" until the send lands; the HTTP backend a "local:" txn
+    // id), so the bar is not offered at all rather than shown with buttons
+    // that do nothing. A failed echo keeps its inline Retry/Cancel.
+    readonly property bool hasServerEventId: {
+        var id = model.eventId || ""
+        return id.length > 0 && id.indexOf("local:") !== 0
+    }
 
     // Clears the view's hovered key if this row owns it. A row destroyed under
     // the pointer (room change) gets no leave event, and no bar would show
@@ -1681,6 +1702,14 @@ Item {
                                 ? 13 : AppTheme.fontSizeM)
                             font.weight: Font.DemiBold
                             elide: Label.ElideRight
+                            // fillWidth makes the name the one item the header
+                            // shrinks when the Loader's cap bites. Without it
+                            // a Layout item is Fixed at its implicit width, so
+                            // a long name never elided and pushed the
+                            // timestamp off the row (break-it B114). The
+                            // header hugs its content, so the name never grows
+                            // past its own text.
+                            Layout.fillWidth: true
                             Layout.maximumWidth: 320
                             Accessible.name: qsTr("Sender: %1").arg(text)
                             // Full MXID on hover.
@@ -1863,6 +1892,7 @@ Item {
                             Label {
                                 objectName: "replyQuoteSender"
                                 text: model.replyToSender || qsTr("Reply")
+                                textFormat: Text.PlainText
                                 color: root.replySenderInk
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 font.weight: AppTheme.weightStrong
@@ -1878,6 +1908,7 @@ Item {
                                 text: model.replyToPreview
                                       || root.replyKindLabel()
                                       || qsTr("(original message not loaded)")
+                                textFormat: Text.PlainText
                                 color: root.replyBodyInk
                                 // No resting fade on an own bubble: the ink
                                 // is already de-emphasised, and a second
@@ -2093,16 +2124,29 @@ Item {
                         // wrapped text against a tiny width yields an enormous
                         // transient height; use a normal column width until
                         // then.
+                        // Keep the last line clear of the receipt rail. The
+                        // reserve comes off the CAP, not only the margin: a
+                        // non-fill Layout item is Fixed (its minimum is its
+                        // preferred width), so a rightMargin alone made the
+                        // column overflow by the reserve and the text ran
+                        // under the facepile (break-it B101).
                         Layout.maximumWidth: bubbleRow.width > 8
-                                             ? Math.min(720,
-                                                        root.contentInnerCap)
+                                             ? Math.max(1, Math.min(
+                                                   720,
+                                                   root.contentInnerCap
+                                                   - root.receiptRailReserve))
                                              : 560
-                        // Keep the last line clear of the receipt rail.
                         Layout.rightMargin: root.receiptRailReserve
                         // Right-aligned text needs the column's width: a body
                         // as wide as its own text reads left-aligned.
                         Layout.fillWidth: bodyDirection.rightToLeft
                         textFormat: Text.RichText
+                        // A table is laid out at its columns' minimum widths
+                        // however narrow this column is, and painted past it
+                        // over the receipt rail. MessageHtml bounds a table's
+                        // size; the clip keeps a bounded one inside the row.
+                        // "<table" occurs only where the sanitizer emitted one.
+                        clip: (model.formattedBody || "").indexOf("<table") >= 0
                         selectByMouse: true
                         Accessible.name: model.body || ""
 
@@ -2252,6 +2296,10 @@ Item {
                                             wrapMode: Text.Wrap
                                             readOnly: true
                                             textFormat: Text.RichText
+                                            // A table can be wider than the
+                                            // column: same clip as the body.
+                                            clip: (segmentRow.modelData.text
+                                                   || "").indexOf("<table") >= 0
                                             selectByMouse: true
                                             onLinkActivated: function(link) {
                                                 root.openMessageLink(link)
@@ -2516,8 +2564,22 @@ Item {
                                                     root.uploadProgress * 100))
                                         return qsTr("%1 • sending…").arg(ts)
                                     }
-                                    if (model.isOwn && model.status === 2)
+                                    // The SDK's coarse reason (never the raw
+                                    // error, which can carry server detail):
+                                    // a recoverable failure is the
+                                    // connection, an unrecoverable one the
+                                    // server refusing the event (permissions,
+                                    // size). Retry only helps the first.
+                                    if (model.isOwn && model.status === 2) {
+                                        var why = model.sendErrorCategory || ""
+                                        if (why === "network")
+                                            return qsTr("%1 • not sent: connection problem")
+                                                .arg(ts)
+                                        if (why === "rejected")
+                                            return qsTr("%1 • not sent: the server refused it")
+                                                .arg(ts)
                                         return qsTr("%1 • failed").arg(ts)
+                                    }
                                     // Parenthesised, as Element and Discord
                                     // write it: a bare underlined "edited"
                                     // read as a link of its own.
@@ -3141,6 +3203,8 @@ Item {
                             lineHeight: AppTheme.scaled(AppTheme.reactionEmojiBox)
                             text: reactionChip.customEmojiReaction
                                   ? "" : modelData.key
+                            // A reaction key is any string the reactor chose.
+                            textFormat: Text.PlainText
                             // Name the emoji face so Qt 6.8 does not fall back
                             // to a monochrome one.
                             font.family: app.emojiFontFamily || ""
@@ -3939,8 +4003,7 @@ Item {
                 enabled: moreMenu.opened
                 context: Qt.ApplicationShortcut
                 onActivated: {
-                    if (root.timelineModel.visibleTextForEvent(
-                            root.menuEventId).length > 0) {
+                    if (root.copyableText) {
                         root.copyToClipboard(
                             root.timelineModel.visibleTextForEvent(
                                 root.menuEventId))
@@ -4031,11 +4094,11 @@ Item {
                 onTriggered: app.pinned.unpin(root.menuEventId)
             }
             AppMenuItem {
+                objectName: "copyTextMenuItem"
                 iconName: "content_copy"
                 text: qsTr("Copy text")
                 accel: "Ctrl+C"
-                enabled: root.timelineModel.visibleTextForEvent(
-                             root.menuEventId).length > 0
+                enabled: root.copyableText
                 onTriggered: root.copyToClipboard(
                     root.timelineModel.visibleTextForEvent(root.menuEventId))
             }
@@ -4315,7 +4378,7 @@ Item {
             }
             AppMenuSeparator {
                 visible: root.timelineModel.canRedactEvent(
-                             root.menuEventId)
+                             root.menuEventId, root.canRedactOthers)
                          || (app.moderation.reportSupported
                              && model.isOwn !== true)
             }
@@ -4394,19 +4457,34 @@ Item {
                     root.timelineModel.realRoomIdForEvent(root.menuEventId),
                     root.menuEventId)
             }
+            // Own messages, and another member's when the SDK says our power
+            // level may redact others (a moderator removal). The confirm names
+            // whose message it is, since that is the step people get wrong.
             AppMenuItem {
+                objectName: "deleteMessageMenuItem"
                 iconName: "delete"
                 text: qsTr("Delete")
                 danger: true
-                enabled: root.timelineModel.canRedactEvent(root.menuEventId)
+                enabled: root.timelineModel.canRedactEvent(
+                             root.menuEventId, root.canRedactOthers)
                 visible: enabled
                 onTriggered: {
                     var id = root.menuEventId
+                    if (model.isOwn === true) {
+                        root.confirmDestructive(
+                            qsTr("Delete message?"),
+                            qsTr("This removes the message for everyone in the "
+                                 + "room. It cannot be undone."),
+                            qsTr("Delete"),
+                            function() { root.timelineModel.redactEvent(id) })
+                        return
+                    }
                     root.confirmDestructive(
-                        qsTr("Delete message?"),
-                        qsTr("This removes the message for everyone in the "
-                             + "room. It cannot be undone."),
-                        qsTr("Delete"),
+                        qsTr("Remove message?"),
+                        qsTr("This removes %1's message for everyone in the "
+                             + "room. It cannot be undone.")
+                            .arg(model.senderDisplayName || model.sender || ""),
+                        qsTr("Remove"),
                         function() { root.timelineModel.redactEvent(id) })
                 }
             }
@@ -6019,8 +6097,15 @@ Item {
                 enabled: !root.mediaHidden
                 onHoveredChanged: stickerBox.gifHovered = hovered
             }
-            ToolTip.text: model.body || ""
-            ToolTip.visible: stickerHover.hovered && (model.body || "").length > 0
+            readonly property bool loadFailed:
+                !root.mediaHidden
+                && (stickerImg.status === Image.Error || bridgeFailed)
+            // The failure's explanation lives here: the tile can be a few
+            // dozen pixels, too small for a sentence.
+            ToolTip.text: loadFailed
+                          ? qsTr("Sticker failed to load — click to retry")
+                          : (model.body || "")
+            ToolTip.visible: stickerHover.hovered && ToolTip.text.length > 0
             ToolTip.delay: 400
             TapHandler {
                 enabled: !root.mediaHidden && root.rowActionsEnabled
@@ -6034,17 +6119,43 @@ Item {
                                                      model.mediaUrl)
                 }
             }
-            Label {
-                anchors.centerIn: parent
-                width: parent.width - 12
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                text: qsTr("Sticker failed to load — click to retry")
-                color: AppTheme.textMuted
-                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                visible: !root.mediaHidden
-                         && (stickerImg.status === Image.Error
-                             || stickerBox.bridgeFailed)
+            // Failed: a retry glyph, and a one-word label only where the tile
+            // has room for it, all clipped to the tile. A sentence wrapped to
+            // a 64px tile ran several lines above and below it, over the
+            // neighbouring rows (break-it B127). The full text is the tooltip
+            // and the accessible name.
+            Item {
+                id: stickerError
+                objectName: "stickerError"
+                anchors.fill: parent
+                clip: true
+                visible: stickerBox.loadFailed
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Sticker failed to load — click to retry")
+                Accessible.onPressAction: stickerBox.refreshBridgeSource()
+                Column {
+                    anchors.centerIn: parent
+                    width: parent.width - 8
+                    spacing: 2
+                    Icon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        name: "refresh"
+                        size: Math.max(12, Math.min(24,
+                                                    stickerError.height - 8))
+                        color: AppTheme.textMuted
+                    }
+                    Label {
+                        objectName: "stickerErrorLabel"
+                        width: parent.width
+                        visible: stickerError.height >= 48
+                        horizontalAlignment: Text.AlignHCenter
+                        text: qsTr("Retry")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
+                    }
+                }
             }
         }
     }
@@ -6459,19 +6570,46 @@ Item {
                 return "attach_file"
             }
             function fileTypeLabel(mime) {
-                // Show the subtype tail ("ZIP", "PDF") rather than a raw MIME
-                // type.
-                var m = (mime || "")
+                // A human kind for the common families ("Archive", "Text"),
+                // else the subtype tail ("PDF", "JSON") rather than a raw
+                // MIME type. The mimetype is the sender's, so whatever comes
+                // back is shown as plain text.
+                var m = (mime || "").toLowerCase()
                 var slash = m.indexOf("/")
-                if (slash < 0) return m
+                if (slash < 0) return ""
+                var top = m.substring(0, slash)
                 var sub = m.substring(slash + 1)
+                var semi = sub.indexOf(";")
+                if (semi >= 0) sub = sub.substring(0, semi).trim()
+                // Before the archive test: an EPUB is a zip, and a book.
+                if (sub === "epub+zip") return "EPUB"
+                if (/(^|[-.+])(zip|tar|gzip|bzip2?|xz|7z|rar|zstd|lzma)($|[-.+])/
+                        .test(sub.replace(/^x-/, ""))
+                        || sub.indexOf("compressed") >= 0
+                        || sub === "java-archive"
+                        || sub === "vnd.android.package-archive")
+                    return qsTr("Archive")
+                if (top === "text") {
+                    if (sub === "csv") return "CSV"
+                    if (sub === "html") return "HTML"
+                    if (sub === "markdown" || sub === "x-markdown")
+                        return "Markdown"
+                    if (sub === "calendar") return qsTr("Calendar")
+                    if (sub === "vcard" || sub === "x-vcard")
+                        return qsTr("Contact")
+                    return qsTr("Text")
+                }
+                if (top === "font") return qsTr("Font")
                 // "svg+xml" would otherwise read as "XML".
                 if (sub.toLowerCase().indexOf("svg") === 0) return "SVG"
                 var plus = sub.lastIndexOf("+")
                 if (plus >= 0) sub = sub.substring(plus + 1)
                 if (sub.indexOf("x-") === 0) sub = sub.substring(2)
                 if (sub === "octet-stream") return qsTr("File")
-                return sub.length <= 12 ? sub.toUpperCase() : sub
+                // An unknown long subtype ("vnd.openxmlformats-...") says
+                // nothing a reader can use; the file name carries the kind.
+                return sub.length > 0 && sub.length <= 12 ? sub.toUpperCase()
+                                                          : qsTr("File")
             }
 
             RowLayout {
@@ -6510,6 +6648,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     Label {
+                        objectName: "fileCardSubtitle"
                         text: {
                             // Shared formatter, so this matches the collapsed
                             // summary and is translatable.
@@ -6526,6 +6665,8 @@ Item {
                                      : kind ? size + " • " + kind : size
                             return status ? base + " • " + status : base
                         }
+                        // The kind can fall back to the sender's mimetype.
+                        textFormat: Text.PlainText
                         color: fileCard.savedFlash && !fileCard.savedOk
                                && !fileCard.savedCancelled
                                ? AppTheme.danger
@@ -6788,9 +6929,13 @@ Item {
                         size: 16
                         color: AppTheme.accent
                     }
+                    // MSC3381 question and answers are plain text from the
+                    // sender: never AutoText, which would render their markup
+                    // (fetching remote <img>s, live <a>s with a spoofed label).
                     Label {
                         objectName: "pollQuestion"
                         text: model.pollQuestion || ""
+                        textFormat: Text.PlainText
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.fontSizeM)
@@ -6870,7 +7015,9 @@ Item {
                                     }
                                 }
                                 Label {
+                                    objectName: "pollAnswerText"
                                     text: modelData.text || ""
+                                    textFormat: Text.PlainText
                                     color: AppTheme.text
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.scaled(13)

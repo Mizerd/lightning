@@ -94,10 +94,18 @@ TimelineModel::TimelineModel(QObject *parent)
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
 {
-    // Fallback order: the room-specific name carried on the event, the backend
-    // member lookup, then the localpart. The full MXID is never the visible
-    // label; it stays available for tooltips, details and disambiguation.
-    if (!event.senderDisplayName.isEmpty())
+    // Fallback order, the mention pills' (§16): the room-specific name carried
+    // on the event, the backend member lookup, the name this timeline already
+    // saw on the sender's other events, an already-fetched global profile,
+    // then the localpart. The full MXID is never the visible label; it stays
+    // available for tooltips, details and disambiguation.
+    //
+    // A carried name EQUAL to the MXID is not a name: the live-sync path
+    // stamps displayNameFor(), which returns the raw id while the room's
+    // members are still hydrating, and the header showed "@bk074:server"
+    // until they landed (break-it B141).
+    if (!event.senderDisplayName.isEmpty()
+        && event.senderDisplayName != event.sender)
         return event.senderDisplayName;
     if (m_client) {
         const QString display = m_client->displayNameFor(
@@ -106,6 +114,17 @@ QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
         // not a display name.
         if (!display.isEmpty() && display != event.sender)
             return display;
+    }
+    const QString seen = m_senderNameIndex.value(event.sender);
+    if (!seen.isEmpty())
+        return seen;
+    // Never asked from here: a flood of senders in a freshly opened room would
+    // be one /profile each, and member hydration answers them anyway. A
+    // profile someone else asked for repaints the row (setProfileResolver).
+    if (m_profiles) {
+        const UserProfileResolver::Profile p = m_profiles->profile(event.sender);
+        if (p.known && !p.displayName.isEmpty())
+            return p.displayName;
     }
     return matrix::user_lookup::localpartOrUserId(event.sender);
 }
@@ -346,6 +365,13 @@ void TimelineModel::setProfileResolver(UserProfileResolver *resolver)
                     refreshReceiptReader(userId);
                     // A profile can name a reactor with no message or receipt.
                     for (int row = 0; row < m_events.size(); ++row) {
+                        // ...and a sender still on the localpart fallback.
+                        if (m_events.at(row).sender == userId) {
+                            const QModelIndex idx = index(row);
+                            Q_EMIT dataChanged(idx, idx,
+                                               { SenderDisplayNameRole,
+                                                 SenderInitialsRole });
+                        }
                         for (const auto &reaction : m_events.at(row).reactions) {
                             if (reaction.senders.contains(userId)) {
                                 const QModelIndex idx = index(row);
@@ -1518,8 +1544,11 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MediaWaveformRole: {
         QVariantList out;
         out.reserve(e.mediaWaveform.size());
+        // The raw 0..100 buckets, as the role is documented. The one
+        // consumer (AudioPlayerCard) scales by 100 itself; scaling here too
+        // drew every bar at the floor (break-it B028).
         for (int amp : e.mediaWaveform)
-            out.append(amp / 100.0); // QML consumes normalized 0..1
+            out.append(amp);
         return out;
     }
     case ReactionsRole:          return reactionsVariant(e);
@@ -2726,12 +2755,18 @@ QString TimelineModel::messagePermalink(const QString &eventId) const
         .arg(encodeId(realRoomId), encodeId(event->eventId));
 }
 
-bool TimelineModel::canRedactEvent(const QString &eventId) const
+bool TimelineModel::canRedactEvent(const QString &eventId,
+                                   bool canRedactOthers) const
 {
     const auto *event = eventForId(eventId);
-    return event && event->sender == m_selfUserId && !event->redacted
-        && !event->isVirtual() && event->type != TimelineEvent::StateChange
-        && !event->eventId.startsWith(QLatin1String("local:"));
+    if (!event || event->redacted || event->isVirtual()
+        || event->type == TimelineEvent::StateChange
+        || event->eventId.startsWith(QLatin1String("local:")))
+        return false;
+    // A moderator removes another member's message with the same redaction;
+    // the permission is the SDK's answer, passed in, and the server enforces
+    // it again.
+    return event->sender == m_selfUserId || canRedactOthers;
 }
 
 void TimelineModel::redactEvent(const QString &eventId, const QString &reason)
@@ -2753,9 +2788,13 @@ void TimelineModel::toggleReaction(const QString &eventId, const QString &key)
 bool TimelineModel::canEditEvent(const QString &eventId) const
 {
     const auto *event = eventForId(eventId);
+    // Own messages only (canRedactEvent without the moderator grant), and
+    // never one we cannot read: its body is the "unable to decrypt"
+    // placeholder, and an edit would send that text as the new content.
     return canRedactEvent(eventId) && event
         && event->type == TimelineEvent::TextMessage
-        && event->status == TimelineEvent::Sent;
+        && event->status == TimelineEvent::Sent
+        && !event->undecryptable;
 }
 
 QVariantMap TimelineModel::messageDetails(const QString &eventId) const
@@ -2941,7 +2980,11 @@ void TimelineModel::noteSenderProfile(const TimelineEvent &event)
         return;
     if (!event.senderAvatarUrl.isEmpty())
         m_senderAvatarIndex.insert(event.sender, event.senderAvatarUrl);
-    if (!event.senderDisplayName.isEmpty())
+    // A carried name equal to the MXID is a backend's "unresolved"
+    // (RustSdkMatrixClient::displayNameFor returns the id for an unhydrated
+    // member), not a name to remember.
+    if (!event.senderDisplayName.isEmpty()
+        && event.senderDisplayName != event.sender)
         m_senderNameIndex.insert(event.sender, event.senderDisplayName);
 }
 

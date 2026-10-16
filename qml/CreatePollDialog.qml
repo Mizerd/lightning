@@ -426,19 +426,24 @@ Dialog {
                             anchors.margins: AppTheme.spacing12
                             spacing: AppTheme.spacing8
 
+                            // Plain text and Text.Wrap, exactly as the
+                            // timeline's poll card draws it: poll text is never
+                            // markup, and a long unbroken word breaks rather
+                            // than running off the card.
                             Label {
                                 objectName: "pollPreviewQuestion"
                                 Layout.fillWidth: true
                                 text: questionField.text.trim().length > 0
                                       ? questionField.text
                                       : qsTr("Ask a question…")
+                                textFormat: Text.PlainText
                                 color: questionField.text.trim().length > 0
                                        ? AppTheme.stormText : AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.textSubtitle
                                 font.weight: AppTheme.weightBold
                                 lineHeight: AppTheme.lineHeightBody
                                 lineHeightMode: Text.ProportionalHeight
-                                wrapMode: Text.WordWrap
+                                wrapMode: Text.Wrap
                             }
 
                             ColumnLayout {
@@ -461,15 +466,23 @@ Dialog {
                                         // both edges, so budget for both.
                                         implicitHeight: previewOptionLabel.implicitHeight
                                                         + AppTheme.spacing8 * 2
+                                        // Wraps like the timeline's answer
+                                        // rows. Anchored left/right/top, not
+                                        // filled: the row's height is derived
+                                        // from this label's wrapped height.
                                         Label {
                                             id: previewOptionLabel
-                                            anchors.fill: parent
+                                            objectName: "pollPreviewAnswer"
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
                                             anchors.margins: AppTheme.spacing8
                                             text: previewOption.modelData
+                                            textFormat: Text.PlainText
                                             color: previewOption.first
                                                    ? AppTheme.stormText : AppTheme.stormTextSecondary
                                             font.pixelSize: AppTheme.textBody
-                                            elide: Label.ElideRight
+                                            wrapMode: Text.Wrap
                                         }
                                     }
                                 }
