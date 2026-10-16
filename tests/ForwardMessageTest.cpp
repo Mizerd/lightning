@@ -396,6 +396,24 @@ private Q_SLOTS:
         QVERIFY(!fwd.error().isEmpty());
     }
 
+    void beginRefusesALocationInsteadOfSendingItAsText()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+
+        QVariantMap snap = textSnapshot(QStringLiteral("Vilnius"));
+        snap.insert(QStringLiteral("isLocation"), true);
+        fwd.begin(kRoomA, kEventA, snap);
+
+        QVERIFY(!fwd.active());
+        QVERIFY(fwd.error().contains(QStringLiteral("Locations")));
+
+        // Picking one in a multi-select is refused the same way.
+        fwd.toggleSelected(QStringLiteral("$loc"), snap);
+        QVERIFY(!fwd.isSelected(QStringLiteral("$loc")));
+    }
+
     void beginRefusesEmptyTextBody()
     {
         FakeClient client;

@@ -123,6 +123,14 @@ void ForwardController::begin(const QString &sourceRoomId,
         return;
     }
 
+    // A shared place is not text: its body is only the label, and sending
+    // that as m.text drops the geo_uri while looking like it worked. Refused
+    // until a real location send exists.
+    if (snapshot.value(QStringLiteral("isLocation")).toBool()) {
+        setError(tr("Locations can't be forwarded yet."));
+        return;
+    }
+
     const bool isMedia = snapshotIsMedia(snapshot);
     if (isMedia) {
         if (snapshot.value(QStringLiteral("mediaKey")).toString().isEmpty()) {
@@ -193,6 +201,11 @@ void ForwardController::toggleSelected(const QString &eventId,
         m_selectedIds.removeAt(at);
         m_selectionSnapshots.removeAt(at);
     } else {
+        if (snapshot.value(QStringLiteral("isLocation")).toBool()) {
+            setError(tr("Locations can't be forwarded yet."));
+            Q_EMIT changed();
+            return;
+        }
         // Bounds how much one gesture can send.
         constexpr int kMaxSelected = 50;
         if (m_selectedIds.size() >= kMaxSelected) {

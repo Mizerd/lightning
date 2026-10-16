@@ -1097,6 +1097,15 @@ bool ActivityModel::noteReaction(const QString &rawRoomId, const QString &roomNa
     return addEntry(std::move(e));
 }
 
+// The name an unsettled stripped invite carries: empty, the raw id, or the
+// SDK's own "Empty Room" placeholder (also "Empty Room (was X)"). Non-empty,
+// so it used to freeze the row; none of them is a name worth keeping.
+static bool inviteNameIsPlaceholder(const QString &name, const QString &roomId)
+{
+    return name.isEmpty() || name == roomId
+        || name.startsWith(QLatin1String("Empty Room"));
+}
+
 bool ActivityModel::noteInvite(const RoomInfo &room)
 {
     if (room.id.isEmpty() || room.membership != RoomInfo::Invited)
@@ -1105,19 +1114,51 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
         return false;
     Entry e;
     e.id = QStringLiteral("invite:") + room.id;
-    if (m_ids.contains(e.id))
+    if (m_ids.contains(e.id)) {
+        // Seen again: the first sighting is often unsettled (placeholder
+        // name, no invite details yet), so a row still pending takes what the
+        // room list reports now. Rows only move away from a placeholder.
+        for (int i = 0; i < m_entries.size(); ++i) {
+            Entry &old = m_entries[i];
+            if (old.id != e.id)
+                continue;
+            bool changed = false;
+            if (old.roomNamePending
+                && !inviteNameIsPlaceholder(room.name, room.id)) {
+                old.roomName = room.name;
+                old.roomNamePending = false;
+                changed = true;
+            }
+            if (old.senderNamePending && !room.inviterUserId.isEmpty()) {
+                const QString name = room.inviterDisplayName.isEmpty()
+                    ? room.inviterUserId : room.inviterDisplayName;
+                if (old.senderId != room.inviterUserId || old.senderName != name) {
+                    old.senderId = room.inviterUserId;
+                    old.senderName = name;
+                    old.senderNamePending = name == room.inviterUserId;
+                    changed = true;
+                }
+            }
+            const int visibleRow = m_visible.indexOf(i);
+            if (changed && visibleRow >= 0) {
+                const QModelIndex idx = index(visibleRow, 0);
+                Q_EMIT dataChanged(idx, idx, { RoomNameRole, SenderNameRole });
+            }
+            break;
+        }
         return false;
+    }
     e.kind = QStringLiteral("invite");
     e.roomId = room.id;
     e.roomName = room.name.isEmpty() ? room.id : room.name;
-    e.roomNamePending = room.name.isEmpty();
+    e.roomNamePending = inviteNameIsPlaceholder(room.name, room.id);
     e.senderId = room.inviterUserId;
     e.senderName = room.inviterDisplayName.isEmpty() ? room.inviterUserId
                                                      : room.inviterDisplayName;
     // Invites are where a raw id is most likely to stick (no roster is fetched
     // for a room the user is not in); the roomsChanged sweep can still name the
     // room from the invite payload.
-    e.senderNamePending = e.senderName == e.senderId;
+    e.senderNamePending = e.senderId.isEmpty() || e.senderName == e.senderId;
     // Stripped invite state carries no origin_server_ts. Stamping "now" on
     // every launch made a two-week-old invite the newest, unseen row after
     // each restart, so the first time this account noted it is remembered,
@@ -1325,7 +1366,8 @@ void ActivityModel::resolvePendingSeedNames(const QString &roomId)
         bool changed = false;
         if (e.roomNamePending) {
             const RoomInfo info = m_client->roomInfo(e.roomId);
-            if (info.id == e.roomId && !info.name.isEmpty()) {
+            if (info.id == e.roomId
+                && !inviteNameIsPlaceholder(info.name, e.roomId)) {
                 e.roomName = info.name;
                 e.roomNamePending = false;
                 changed = true;

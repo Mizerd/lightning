@@ -572,6 +572,55 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 0);
     }
 
+    void aFirstUnsettledInviteSightingIsRefreshedByTheNextPass()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Empty Room");   // the SDK's unsettled name
+        r.membership = RoomInfo::Invited;        // and no inviter yet
+        QVERIFY(h.model.noteInvite(r));
+
+        r.name = QStringLiteral("Inv Room One");
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        r.inviterDisplayName = QStringLiteral("Bob");
+        QVERIFY(!h.model.noteInvite(r));          // still one row
+
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("roomName")).toString(),
+                 QStringLiteral("Inv Room One"));
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("Bob"));
+
+        // A settled row is not overwritten by a later placeholder.
+        r.name = QStringLiteral("Empty Room");
+        QVERIFY(!h.model.noteInvite(r));
+        QCOMPARE(h.row(0).value(QStringLiteral("roomName")).toString(),
+                 QStringLiteral("Inv Room One"));
+    }
+
+    // The roomsChanged sweep settles pending names from roomInfo(). It must not
+    // treat the SDK's "Empty Room" as a name, or it freezes the invite row and
+    // a later noteInvite refresh skips it.
+    void theSeedSweepDoesNotFreezeAnInvitesPlaceholderName()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv2:mock.local");
+        r.name = QStringLiteral("Empty Room");
+        r.membership = RoomInfo::Invited;
+        QVERIFY(h.model.noteInvite(r));
+
+        h.client.roomSet = { r };               // roomInfo() still answers it
+        Q_EMIT h.client.roomsChanged();         // the sweep runs
+
+        r.name = QStringLiteral("Real Name");
+        h.client.roomSet = { r };
+        QVERIFY(!h.model.noteInvite(r));
+        QCOMPARE(h.row(0).value(QStringLiteral("roomName")).toString(),
+                 QStringLiteral("Real Name"));
+    }
+
     void seenStateIsOwnedByTheModelAndOnlyTheMarkerIsPersisted()
     {
         Harness h;

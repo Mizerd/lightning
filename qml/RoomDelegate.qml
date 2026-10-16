@@ -406,9 +406,13 @@ Item {
                     text: model.inviter
                           ? (model.isSpace
                              ? qsTr("Space invitation from %1").arg(model.inviter)
-                             : qsTr("Room invitation from %1").arg(model.inviter))
+                             : (model.isDirect
+                                ? qsTr("Direct message invitation from %1").arg(model.inviter)
+                                : qsTr("Room invitation from %1").arg(model.inviter)))
                           : (model.isSpace ? qsTr("Space invitation")
-                                           : qsTr("Room invitation"))
+                                           : (model.isDirect
+                                              ? qsTr("Direct message invitation")
+                                              : qsTr("Room invitation")))
                     color: root.metaInk
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
@@ -483,21 +487,39 @@ Item {
         }
     }
 
-    // The context menu is for joined rooms only; invitations offer
-    // Accept/Reject.
+    // The room menu is for joined rooms; an invitation offers Accept/Reject
+    // on the row and, in its own small menu, Ignore user.
+    readonly property bool isInviteRow: model.membership === "invited"
+    // The id to ignore comes ONLY from the model's inviterUserId role. The
+    // `inviter` role is the inviter's own display name, which they control, so
+    // an id is never inferred from it (a name of "@admin:x.org" would make
+    // Ignore user hit an innocent account). Empty when the role is absent.
+    readonly property string inviterUserId: model.inviterUserId || ""
+    AppMenu {
+        id: inviteMenu
+        objectName: "inviteContextMenu"
+        AppMenuItem {
+            objectName: "inviteIgnoreUserItem"
+            iconName: "block"
+            text: qsTr("Ignore user")
+            onTriggered: app.moderation.ignoreUser(root.inviterUserId)
+        }
+    }
     TapHandler {
         // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: model.membership === "joined"
-        onTapped: roomMenu.popup()
+                 || (root.isInviteRow && root.inviterUserId !== "")
+        onTapped: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()
     }
     // Touch has no right button, so a long press is its way to the menu. A
     // held press never also emits the open-room handler's tapped.
     TapHandler {
         acceptedDevices: PointerDevice.TouchScreen
         enabled: model.membership === "joined"
-        onLongPressed: roomMenu.popup()
+                 || (root.isInviteRow && root.inviterUserId !== "")
+        onLongPressed: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()
     }
     // Keyboard open path, joined rooms only like right-click.
     Keys.onPressed: (event) => {
