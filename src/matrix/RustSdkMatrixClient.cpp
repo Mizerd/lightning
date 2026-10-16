@@ -6638,9 +6638,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("invite_state_update")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        const QString state = event.value(QStringLiteral("state")).toString();
+        // The server has the answer; the room list learns it only from the
+        // next sync (a declined room leaves the list later still), and the
+        // bell must not keep the invite until then.
+        if (state == QLatin1String("done") && !roomId.isEmpty()) {
+            Q_EMIT inviteAnswered(
+                roomId, event.value(QStringLiteral("action")).toString()
+                            == QLatin1String("accept"));
+        }
         auto room = m_rooms.find(roomId);
         if (room == m_rooms.end()) return;
-        const QString state = event.value(QStringLiteral("state")).toString();
         room->invitePending = state == QLatin1String("pending");
         room->inviteError = state == QLatin1String("failed")
             ? tr("Invite action failed. Try again.") : QString{};
@@ -12732,7 +12740,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 qCInfo(lcRust) << "activity seed failed again"
                                << "attempts=" << seedFailuresInARow;
             }
-            Q_EMIT activitySeedFailed();
+            Q_EMIT activitySeedFailed(category.left(48));
             return true;
         }
         seedFailuresInARow = 0;

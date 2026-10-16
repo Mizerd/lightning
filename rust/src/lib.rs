@@ -11900,14 +11900,17 @@ async fn decrypted_event_json(
         object.insert("backlog".to_owned(), backlog.into());
     }
     // The redecryptor stores the actions it computed on the decrypted event;
-    // without a push context it had none, and the rules are asked here.
+    // without a push context it had none, and the rules are asked here (with
+    // SyncVerdicts' fallback context when the SDK cannot build one).
     let verdict = match cached.push_actions() {
-        Some(actions) => verdicts.verdict(room, actions).await,
+        Some(actions) => verdicts.verdict(room, actions, raw.json()).await,
         None => match room.push_context().await.ok().flatten() {
             Some(context) => Some(push_verdict::PushVerdict::from_actions(
                 &context.for_event(&raw).await,
             )),
-            None => None,
+            // No context now, so no actions to read: the fallback alone, never
+            // "quiet" for a room once remembered as having our member.
+            None => verdicts.without_sdk_context(room, raw.json()).await,
         },
     };
     push_verdict::PushVerdict::write(verdict, &mut event);
@@ -12218,7 +12221,8 @@ fn install_event_handlers(
         move |ev: OriginalSyncRoomMessageEvent,
               room: Room,
               encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
-              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+              push_actions: Vec<matrix_sdk::ruma::push::Action>,
+              raw: matrix_sdk::event_handler::RawEvent| {
             let events = Arc::clone(&plaintext_events);
             let verdicts = plaintext_verdicts.clone();
             let notify = Arc::clone(&plaintext_notify);
@@ -12240,7 +12244,7 @@ fn install_event_handlers(
                     unsigned_age_ms(ev.unsigned.age),
                 );
                 push_verdict::PushVerdict::write(
-                    verdicts.verdict(&room, &push_actions).await,
+                    verdicts.verdict(&room, &push_actions, &raw).await,
                     &mut event,
                 );
                 enqueue(
@@ -12266,7 +12270,8 @@ fn install_event_handlers(
         move |ev: matrix_sdk::ruma::events::poll::unstable_start::OriginalSyncUnstablePollStartEvent,
               room: Room,
               encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
-              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+              push_actions: Vec<matrix_sdk::ruma::push::Action>,
+              raw: matrix_sdk::event_handler::RawEvent| {
             let events = Arc::clone(&poll_events);
             let verdicts = poll_verdicts.clone();
             let notify = Arc::clone(&poll_notify);
@@ -12286,7 +12291,7 @@ fn install_event_handlers(
                     unsigned_age_ms(ev.unsigned.age),
                 );
                 push_verdict::PushVerdict::write(
-                    verdicts.verdict(&room, &push_actions).await,
+                    verdicts.verdict(&room, &push_actions, &raw).await,
                     &mut event,
                 );
                 enqueue(&events, json!({
@@ -12304,7 +12309,8 @@ fn install_event_handlers(
         move |ev: matrix_sdk::ruma::events::poll::start::OriginalSyncPollStartEvent,
               room: Room,
               encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
-              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+              push_actions: Vec<matrix_sdk::ruma::push::Action>,
+              raw: matrix_sdk::event_handler::RawEvent| {
             let events = Arc::clone(&stable_poll_events);
             let verdicts = stable_poll_verdicts.clone();
             let notify = Arc::clone(&stable_poll_notify);
@@ -12324,7 +12330,7 @@ fn install_event_handlers(
                     unsigned_age_ms(ev.unsigned.age),
                 );
                 push_verdict::PushVerdict::write(
-                    verdicts.verdict(&room, &push_actions).await,
+                    verdicts.verdict(&room, &push_actions, &raw).await,
                     &mut event,
                 );
                 enqueue(&events, json!({
@@ -12438,7 +12444,8 @@ fn install_event_handlers(
     client.add_event_handler(
         move |ev: OriginalSyncRoomEncryptedEvent,
               room: Room,
-              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+              push_actions: Vec<matrix_sdk::ruma::push::Action>,
+              raw: matrix_sdk::event_handler::RawEvent| {
             let events = Arc::clone(&encrypted_events);
             let verdicts = sync_verdicts.clone();
             let notify = Arc::clone(&encrypted_notify);
@@ -12474,7 +12481,7 @@ fn install_event_handlers(
                 notify.remember_utd(room.room_id(), &ev.event_id, backlog);
                 // Undecryptable, so the rules saw the encrypted event.
                 push_verdict::PushVerdict::write(
-                    verdicts.verdict(&room, &push_actions).await,
+                    verdicts.verdict(&room, &push_actions, &raw).await,
                     &mut event,
                 );
                 enqueue(

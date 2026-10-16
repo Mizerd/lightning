@@ -277,6 +277,40 @@ private Q_SLOTS:
         QCOMPARE(h.model.unseenCount(), 0);
     }
 
+    // Break-it rerun, section 10 (F4, NOT explained, NOT reproduced here): a
+    // row showed as seen before its room was opened, and this read-state path
+    // is the only writer left that the log did not rule out. It now says when
+    // it marks rows, with a hashed room and how long after the row the
+    // deciding counts were written, so a capture can name the payload. This
+    // case pins that line; it does not reproduce F4. Old code: no such message,
+    // so ignoreMessage fails the case.
+    void aRowMarkedSeenByRoomReadStateIsLogged()
+    {
+        Harness h;
+        TimelineEvent e = text(QStringLiteral("$atroom"),
+                               QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("@room attention"), 1000);
+        e.mentionsRoom = true;
+        QVERIFY(h.model.ingest(e, QStringLiteral("notif-A")));
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Read on another device: all counters clear, written after the row.
+        RoomInfo readElsewhere;
+        readElsewhere.id = kRoom;
+        readElsewhere.name = QStringLiteral("notif-A");
+        readElsewhere.encryptionKnown = true;
+        readElsewhere.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
+        h.client.roomSet = { h.fresh(readElsewhere) };
+        // The whole line, anchored: the raw room id never appears in it.
+        QTest::ignoreMessage(
+            QtInfoMsg,
+            QRegularExpression(QStringLiteral(
+                "^rows marked seen by room read state room= \"?![0-9a-f]{8}\"?"
+                " rows= 1 counts_after_row_ms= \\d+ encrypted= false$")));
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
     // Refusals that keep the cross-device path from over-claiming.
     void aClearRoomNeverClearsWhatItCannotSpeakFor()
     {
@@ -554,6 +588,56 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 1);
     }
 
+    // Break-it rerun, section 10: a server without GET /notifications
+    // (Continuwuity: 404 M_UNRECOGNIZED) was asked again at 5..160 s and on
+    // every Syncing edge, and the panel said "Nothing here yet".
+    void aServerWithoutNotificationsIsAPermanentSeedFailure()
+    {
+        QVERIFY(ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_404_M_UNRECOGNIZED")));
+        QVERIFY(ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_405_M_UNRECOGNIZED")));
+        QVERIFY(ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_400_M_UNRECOGNIZED")));
+        QVERIFY(ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_404_no_errcode")));
+        QVERIFY(ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_501_no_errcode")));
+        // Worth asking again.
+        QVERIFY(!ActivityModel::seedFailureIsPermanent(QString()));
+        QVERIFY(!ActivityModel::seedFailureIsPermanent(QStringLiteral("timeout")));
+        QVERIFY(!ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_502_no_errcode")));
+        QVERIFY(!ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_429_M_LIMIT_EXCEEDED")));
+        QVERIFY(!ActivityModel::seedFailureIsPermanent(
+            QStringLiteral("http_401_M_UNKNOWN_TOKEN")));
+    }
+
+    void historyUnavailableFollowsTheSeedAndTheAccount()
+    {
+        Harness h;
+        QSignalSpy changed(&h.model, &ActivityModel::historyUnavailableChanged);
+        QVERIFY(!h.model.historyUnavailable());
+        // A dropped connection says nothing about the server.
+        Q_EMIT h.client.activitySeedFailed(QStringLiteral("timeout"));
+        QVERIFY(!h.model.historyUnavailable());
+        Q_EMIT h.client.activitySeedFailed(QStringLiteral("http_404_M_UNRECOGNIZED"));
+        QVERIFY(h.model.historyUnavailable());
+        QCOMPARE(changed.count(), 1);
+        // A later transient failure does not hide it.
+        Q_EMIT h.client.activitySeedFailed(QStringLiteral("timeout"));
+        QVERIFY(h.model.historyUnavailable());
+        // Any answer clears it (an upgraded server).
+        Q_EMIT h.client.activitySeedReceived({});
+        QVERIFY(!h.model.historyUnavailable());
+        // And so does the next account.
+        Q_EMIT h.client.activitySeedFailed(QStringLiteral("http_404_M_UNRECOGNIZED"));
+        QVERIFY(h.model.historyUnavailable());
+        h.model.clear();
+        QVERIFY(!h.model.historyUnavailable());
+    }
+
     void invitesListOnceAndLeaveWhenAnswered()
     {
         Harness h;
@@ -570,6 +654,44 @@ private Q_SLOTS:
         QVERIFY(!h.model.noteInvite(r));
         h.model.inviteResolved(r.id);
         QCOMPARE(h.model.count(), 0);
+    }
+
+    // Break-it rerun, section 3 (F6): an invite declined here stayed on the
+    // bell after the room list had dropped it, because the row waited for the
+    // list's next sync plus the invite tracker's grace, and a list still
+    // reporting the room as invited until then would note it again. Old code:
+    // no inviteAnswered, so the row and the badge stay at 1.
+    void anInviteAnsweredHereLeavesTheBellAtOnceAndStaysGone()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!inv:mock.local");
+        r.name = QStringLiteral("Priv8");
+        r.membership = RoomInfo::Invited;
+        r.inviterUserId = QStringLiteral("@bob:mock.local");
+        h.client.roomSet = { r };
+        QVERIFY(h.model.noteInvite(r));
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        QSignalSpy unseen(&h.model, &ActivityModel::unseenCountChanged);
+        Q_EMIT h.client.inviteAnswered(r.id, /*accepted=*/false);
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+        QVERIFY(unseen.count() >= 1);
+
+        // The list has not caught up: it still reports the invite, and the
+        // room-list pass notes invites again. Nothing comes back.
+        Q_EMIT h.client.roomsChanged();
+        QVERIFY(!h.model.noteInvite(r));
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // Once the list stops listing it, a new invite to the room is new.
+        h.client.roomSet.clear();
+        Q_EMIT h.client.roomsChanged();
+        h.client.roomSet = { r };
+        QVERIFY(h.model.noteInvite(r));
+        QCOMPARE(h.model.unseenCount(), 1);
     }
 
     void aFirstUnsettledInviteSightingIsRefreshedByTheNextPass()

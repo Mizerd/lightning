@@ -14,8 +14,10 @@ use std::{
 use matrix_sdk::{
     room::PushContext,
     ruma::{
-        push::{Action, Tweak},
-        OwnedRoomId, RoomId,
+        events::AnySyncTimelineEvent,
+        push::{Action, PushConditionPowerLevelsCtx, PushConditionRoomCtx, Tweak},
+        serde::Raw,
+        OwnedRoomId, RoomId, UInt, UserId,
     },
     Room,
 };
@@ -23,6 +25,7 @@ use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{EventTimelineItem, TimelineItem},
 };
+use serde_json::value::RawValue as RawJsonValue;
 
 /// What the rules say about one event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,32 +68,90 @@ impl PushVerdict {
 /// The SDK hands over an empty list both when no rule notifies and when it
 /// had no push context, and it builds a context exactly when our own member
 /// event is known (matrix-sdk-base `get_push_room_context`). So an empty list
-/// is a quiet verdict in a room whose own member the store holds, and no
-/// verdict otherwise. Evaluating the rules again could only repeat one of
-/// those two answers. A room found once is remembered for the client's life,
-/// so the initial-sync backlog costs at most one store read per room.
+/// is a quiet verdict in a room whose own member the store holds. A room found
+/// once is remembered for the client's life, so the initial-sync backlog costs
+/// at most one store read per room.
+///
+/// Without our own member the SDK evaluated nothing, and that is not rare:
+/// simplified sliding sync takes member state from `required_state` alone, and
+/// a server may answer `$ME` with no member at all (measured against
+/// Continuwuity 26.9.1, see rooms.rs "Member roster freshness"). Every room the
+/// user has not opened then had no verdict, so a keyword or a plain
+/// display-name mention, which only the rules can see, reached neither the
+/// bell nor a notification while the server's highlight_count counted it. The
+/// rules are then asked here, through the SDK's own evaluator, with the
+/// context the SDK would have built: the room's member count and power levels
+/// from the store and, for our display name, the account's global one (the
+/// last answer kept in the store, then the localpart until one is known, as
+/// the SDK does for a member without one). Known limits: a per-room nickname
+/// is not seen, and a rename reaches this context up to `OWN_NAME_REFRESH`
+/// late.
+/// When the store cannot supply the count or the power levels, there is still
+/// no verdict: a rule like `.m.rule.room_one_to_one` or `@room` would be
+/// misjudged, and C++ keeps its local fallback for an unknown verdict.
 #[derive(Clone, Default)]
 pub(crate) struct SyncVerdicts {
     rooms_with_own_member: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    own_name: Arc<Mutex<OwnDisplayName>>,
 }
 
+/// The account's global display name, for the fallback context above. Asked
+/// of the server at most once per `OWN_NAME_REFRESH` (sooner after a failure),
+/// on a task of its own: an event handler runs inside sync processing and must
+/// not wait on a request. Every answer is also kept in the account's state
+/// store (`OWN_NAME_STORE_KEY`) and read back once per client before the first
+/// fallback, because the request cannot be answered before a restart's
+/// initial-sync backlog is judged, and on a server without `/notifications`
+/// that backlog is the only place a mention received while offline appears.
+/// Judged on the localpart instead, a mention by a display name that differs
+/// from it would be lost for good.
+#[derive(Default)]
+struct OwnDisplayName {
+    /// `Some(name)` once answered (or read back from the store); the
+    /// localpart when the profile has none.
+    name: Option<String>,
+    next_ask: Option<std::time::Instant>,
+    /// The store has been asked for the last answer (once per client).
+    store_checked: bool,
+}
+
+/// State-store custom key for the last global display name the server gave.
+/// A public profile field in the account's own store, deleted with it.
+pub(crate) const OWN_NAME_STORE_KEY: &[u8] = b"lightning.push_verdict.own_display_name";
+
+const OWN_NAME_REFRESH: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const OWN_NAME_RETRY: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+
 impl SyncVerdicts {
-    pub(crate) async fn verdict(&self, room: &Room, actions: &[Action]) -> Option<PushVerdict> {
-        self.verdict_with(room.room_id(), actions, || async {
-            matches!(room.get_member_no_sync(room.own_user_id()).await, Ok(Some(_)))
-        })
+    /// `event` is the event as the handler received it (decrypted when the
+    /// SDK decrypted it); it is read only when the SDK had no push context.
+    pub(crate) async fn verdict(
+        &self,
+        room: &Room,
+        actions: &[Action],
+        event: &RawJsonValue,
+    ) -> Option<PushVerdict> {
+        self.verdict_with(
+            room.room_id(),
+            actions,
+            || async { matches!(room.get_member_no_sync(room.own_user_id()).await, Ok(Some(_))) },
+            || self.fallback_actions(room, event),
+        )
         .await
     }
 
-    async fn verdict_with<F, Fut>(
+    async fn verdict_with<F, Fut, G, Gut>(
         &self,
         room_id: &RoomId,
         actions: &[Action],
         own_member_known: F,
+        fallback: G,
     ) -> Option<PushVerdict>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = bool>,
+        G: FnOnce() -> Gut,
+        Gut: Future<Output = Option<Vec<Action>>>,
     {
         if !actions.is_empty() {
             return Some(PushVerdict::from_actions(actions));
@@ -99,7 +160,9 @@ impl SyncVerdicts {
             return Some(PushVerdict::QUIET);
         }
         if !own_member_known().await {
-            return None;
+            // Not remembered: once the member is stored (a roster fetch on
+            // open), the SDK's own context takes over.
+            return fallback().await.map(|actions| PushVerdict::from_actions(&actions));
         }
         if let Ok(mut rooms) = self.rooms_with_own_member.lock() {
             rooms.insert(room_id.to_owned());
@@ -113,6 +176,118 @@ impl SyncVerdicts {
             .map(|rooms| rooms.contains(room_id))
             .unwrap_or(false)
     }
+
+    /// A verdict for an event the SDK evaluated with NO push context (its
+    /// `Room::push_context` was `None`), so there are no actions to read and
+    /// an empty list says nothing: unlike `verdict`, a room remembered as
+    /// having our own member is not taken as quiet. `None` when the fallback
+    /// cannot build a context either.
+    pub(crate) async fn without_sdk_context(
+        &self,
+        room: &Room,
+        event: &RawJsonValue,
+    ) -> Option<PushVerdict> {
+        self.fallback_actions(room, event).await.map(|actions| PushVerdict::from_actions(&actions))
+    }
+
+    /// The rules' actions for `event` with the context the SDK could not
+    /// build; `None` when the store lacks what that context needs.
+    async fn fallback_actions(&self, room: &Room, event: &RawJsonValue) -> Option<Vec<Action>> {
+        let power_levels = room.power_levels().await.ok()?;
+        let context = fallback_room_ctx(
+            room.room_id(),
+            room.own_user_id(),
+            room.active_members_count(),
+            self.own_display_name(room).await,
+            Some(power_levels.into()),
+        )?;
+        let rules = room.client().account().push_rules().await.ok()?;
+        let raw = Raw::<AnySyncTimelineEvent>::from_json(event.to_owned());
+        Some(PushContext::new(context, rules).for_event(&raw).await)
+    }
+
+    /// The cached global display name, or the localpart; asks the server in
+    /// the background when the cache is due. The first call per client reads
+    /// the last answer back from the store (one read, then never again).
+    async fn own_display_name(&self, room: &Room) -> String {
+        let localpart = room.own_user_id().localpart().to_owned();
+        let client = room.client();
+        let check_store = self
+            .own_name
+            .lock()
+            .map(|mut slot| !std::mem::replace(&mut slot.store_checked, true))
+            .unwrap_or(false);
+        if check_store {
+            let stored = client
+                .state_store()
+                .get_custom_value(OWN_NAME_STORE_KEY)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .filter(|name| !name.is_empty());
+            if let (Some(stored), Ok(mut slot)) = (stored, self.own_name.lock()) {
+                // A server answer that landed meanwhile is newer.
+                if slot.name.is_none() {
+                    slot.name = Some(stored);
+                }
+            }
+        }
+        let Ok(mut slot) = self.own_name.lock() else { return localpart };
+        let now = std::time::Instant::now();
+        if slot.next_ask.is_none_or(|at| now >= at) {
+            slot.next_ask = Some(now + OWN_NAME_REFRESH);
+            let cache = Arc::clone(&self.own_name);
+            let fallback = localpart.clone();
+            tokio::spawn(async move {
+                let answer = client.account().get_display_name().await;
+                let resolved = match answer {
+                    Ok(name) => name.filter(|name| !name.is_empty()).unwrap_or(fallback),
+                    Err(_) => {
+                        if let Ok(mut slot) = cache.lock() {
+                            slot.next_ask = Some(std::time::Instant::now() + OWN_NAME_RETRY);
+                        }
+                        return;
+                    }
+                };
+                if let Ok(mut slot) = cache.lock() {
+                    slot.name = Some(resolved.clone());
+                }
+                // For the next restart's backlog; a failed write only costs
+                // that backlog the localpart until the next answer.
+                let _ = client
+                    .state_store()
+                    .set_custom_value(OWN_NAME_STORE_KEY, resolved.into_bytes())
+                    .await;
+            });
+        }
+        slot.name.clone().unwrap_or(localpart)
+    }
+}
+
+/// The push-condition context the SDK builds (`Room::push_condition_room_ctx`)
+/// with our display name supplied rather than read from our member event.
+/// `None` without a member count or power levels: the one-to-one rules and
+/// `@room`'s sender permission would be judged on nothing. Pure.
+pub(crate) fn fallback_room_ctx(
+    room_id: &RoomId,
+    user_id: &UserId,
+    member_count: u64,
+    display_name: String,
+    power_levels: Option<PushConditionPowerLevelsCtx>,
+) -> Option<PushConditionRoomCtx> {
+    if member_count == 0 {
+        return None;
+    }
+    let power_levels = power_levels?;
+    let mut context = PushConditionRoomCtx::new(
+        room_id.to_owned(),
+        UInt::new(member_count).unwrap_or(UInt::MAX),
+        user_id.to_owned(),
+        display_name,
+    );
+    context.power_levels = Some(power_levels);
+    Some(context)
 }
 
 /// The items of a live append paired with their JSON slots in the diff
@@ -281,7 +456,10 @@ mod tests {
     use matrix_sdk_ui::eyeball_im::{Vector, VectorDiff};
     use serde_json::json;
 
-    use super::{live_append_slots, BacklogMarker, ItemFacts, PushVerdict, SyncVerdicts};
+    use super::{
+        fallback_room_ctx, live_append_slots, BacklogMarker, ItemFacts, PushConditionPowerLevelsCtx,
+        PushVerdict, SyncVerdicts,
+    };
 
     fn me() -> OwnedUserId {
         UserId::parse("@me:example.org").unwrap()
@@ -521,10 +699,15 @@ mod tests {
         let verdicts = SyncVerdicts::default();
         let lookups = AtomicUsize::new(0);
         let verdict = verdicts
-            .verdict_with(&room(), &[Action::Notify], || async {
-                lookups.fetch_add(1, Ordering::SeqCst);
-                true
-            })
+            .verdict_with(
+                &room(),
+                &[Action::Notify],
+                || async {
+                    lookups.fetch_add(1, Ordering::SeqCst);
+                    true
+                },
+                || async { panic!("the SDK's own actions need no fallback") },
+            )
             .await;
         assert_eq!(verdict, Some(PushVerdict { notify: true, highlight: false, sound: false }));
         assert_eq!(lookups.load(Ordering::SeqCst), 0);
@@ -536,10 +719,15 @@ mod tests {
         let lookups = AtomicUsize::new(0);
         for _ in 0..5 {
             let verdict = verdicts
-                .verdict_with(&room(), &[], || async {
-                    lookups.fetch_add(1, Ordering::SeqCst);
-                    true
-                })
+                .verdict_with(
+                    &room(),
+                    &[],
+                    || async {
+                        lookups.fetch_add(1, Ordering::SeqCst);
+                        true
+                    },
+                    || async { panic!("a known member needs no fallback") },
+                )
                 .await;
             assert_eq!(verdict, Some(PushVerdict::QUIET));
         }
@@ -547,18 +735,248 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_empty_list_without_our_member_is_no_verdict_until_it_is_known() {
+    async fn an_empty_list_without_our_member_asks_the_fallback_until_it_is_known() {
         let verdicts = SyncVerdicts::default();
-        // No own member: the SDK had no push context, so there is no verdict.
-        assert_eq!(verdicts.verdict_with(&room(), &[], || async { false }).await, None);
-        // Not remembered: the next event looks again, and is quiet once known.
+        let fallbacks = AtomicUsize::new(0);
+        // No own member: the SDK had no push context. A fallback that cannot
+        // build one is still no verdict.
         assert_eq!(
-            verdicts.verdict_with(&room(), &[], || async { true }).await,
+            verdicts
+                .verdict_with(&room(), &[], || async { false }, || async {
+                    fallbacks.fetch_add(1, Ordering::SeqCst);
+                    None
+                })
+                .await,
+            None
+        );
+        // One that can is the verdict.
+        let highlight = Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes));
+        assert_eq!(
+            verdicts
+                .verdict_with(&room(), &[], || async { false }, || async {
+                    fallbacks.fetch_add(1, Ordering::SeqCst);
+                    Some(vec![Action::Notify, highlight.clone()])
+                })
+                .await,
+            Some(PushVerdict { notify: true, highlight: true, sound: false })
+        );
+        // Not remembered: the next event looks again, and is quiet once known,
+        // without asking the fallback.
+        assert_eq!(
+            verdicts
+                .verdict_with(&room(), &[], || async { true }, || async {
+                    fallbacks.fetch_add(1, Ordering::SeqCst);
+                    None
+                })
+                .await,
             Some(PushVerdict::QUIET)
         );
+        assert_eq!(fallbacks.load(Ordering::SeqCst), 2);
         // Another room is looked up on its own.
         let other = RoomId::parse("!other:example.org").unwrap();
-        assert_eq!(verdicts.verdict_with(&other, &[], || async { false }).await, None);
+        assert_eq!(
+            verdicts.verdict_with(&other, &[], || async { false }, || async { None }).await,
+            None
+        );
+    }
+
+    // Spec 1.17 dropped `.m.rule.contains_display_name` from the defaults
+    // (ruma's server_default follows), but servers still send it in the
+    // account's rules, and the reporter's server highlighted on it. Its shape,
+    // under an id `insert` accepts.
+    fn display_name_rule(rules: &mut Ruleset) {
+        #[allow(deprecated)]
+        rules
+            .insert(
+                NewPushRule::Override(NewConditionalPushRule::new(
+                    "contains_display_name".to_owned(),
+                    vec![PushCondition::ContainsDisplayName],
+                    vec![
+                        Action::Notify,
+                        Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+                    ],
+                )),
+                None,
+                None,
+            )
+            .unwrap();
+    }
+
+    fn power_levels() -> PushConditionPowerLevelsCtx {
+        use matrix_sdk::ruma::{
+            int,
+            power_levels::NotificationPowerLevels,
+            room_version_rules::{AuthorizationRules, RoomPowerLevelsRules},
+        };
+        PushConditionPowerLevelsCtx::new(
+            std::collections::BTreeMap::new(),
+            int!(0),
+            NotificationPowerLevels::new(),
+            RoomPowerLevelsRules::new(&AuthorizationRules::V1, []),
+        )
+    }
+
+    async fn fallback_verdict(
+        rules: &Ruleset,
+        event: &Raw<serde_json::Value>,
+        display_name: &str,
+    ) -> PushVerdict {
+        let context =
+            fallback_room_ctx(&room(), &me(), 3, display_name.to_owned(), Some(power_levels()))
+                .expect("a count and power levels make a context");
+        PushVerdict::from_actions(rules.get_actions(event, &context).await)
+    }
+
+    // Break-it rerun, section 10: with no own member in the store, a server
+    // keyword and a plain display-name mention in a room nobody had opened
+    // reached neither the bell nor a notification. These are what the
+    // fallback context must see; neither carries m.mentions.
+    #[tokio::test]
+    async fn the_fallback_context_sees_a_keyword_and_a_plain_display_name() {
+        let mut rules = Ruleset::server_default(&me());
+        keyword_rule(
+            &mut rules,
+            vec![Action::Notify, Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
+        );
+        let keyword = message(json!({ "msgtype": "m.text", "body": "saw a BANANA today" }));
+        assert!(fallback_verdict(&rules, &keyword, "Rokas").await.highlight);
+        display_name_rule(&mut rules);
+        let by_name = message(json!({ "msgtype": "m.text", "body": "post-restart Rokas name only" }));
+        assert!(fallback_verdict(&rules, &by_name, "Rokas").await.highlight);
+        // The name it was given, not any word: a plain message stays a plain
+        // message.
+        assert!(!fallback_verdict(&rules, &plain(), "Rokas").await.highlight);
+    }
+
+    // Review of the break-it fix (L3, L1): the fallback's glue through a real
+    // client store rather than a hand-built context. The room is synced the
+    // way Continuwuity sends it, with no member of ours, so the SDK has no
+    // push context; the fallback must still find the power levels (which need
+    // the create event's creators), the member count, and the account's own
+    // rules from account data, and turn the handler's JSON into an event. The
+    // display name is the one a previous run stored, as after a restart: the
+    // server's profile answer (none is mounted here) cannot have arrived.
+    #[tokio::test]
+    async fn the_fallback_reads_its_whole_context_from_a_synced_store() {
+        use matrix_sdk::{
+            ruma::{
+                api::client::sync::sync_events::v5, events::push_rules::PushRulesEventContent,
+                room_id,
+            },
+            test_utils::mocks::MatrixMockServer,
+        };
+        use matrix_sdk_base::RequestedRequiredStates;
+        use serde_json::value::{to_raw_value, RawValue};
+
+        fn raw<T>(value: serde_json::Value) -> Raw<T> {
+            Raw::from_json_string(value.to_string()).unwrap()
+        }
+        fn state(kind: &str, key: &str, content: serde_json::Value, id: &str) -> serde_json::Value {
+            json!({
+                "type": kind, "state_key": key, "sender": "@alice:example.org",
+                "event_id": id, "origin_server_ts": 1_700_000_000_000u64, "content": content,
+            })
+        }
+        fn joined(user: &str, id: &str) -> serde_json::Value {
+            state("m.room.member", user, json!({ "membership": "join" }), id)
+        }
+        fn event(body: &str) -> Box<RawValue> {
+            to_raw_value(&json!({
+                "type": "m.room.message", "event_id": "$m:example.org",
+                "sender": "@alice:example.org", "origin_server_ts": 1_700_000_000_001u64,
+                "content": { "msgtype": "m.text", "body": body },
+            }))
+            .unwrap()
+        }
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let me = client.user_id().unwrap().to_owned();
+        assert_ne!(me.localpart(), "Rokas", "the stored name must differ from the localpart");
+
+        let mut rules = Ruleset::server_default(&me);
+        keyword_rule(
+            &mut rules,
+            vec![Action::Notify, Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
+        );
+        display_name_rule(&mut rules);
+        let full = room_id!("!full:example.org");
+        let bare = room_id!("!bare:example.org");
+        let mut response = v5::Response::new("pos-1".to_owned());
+        let mut entry = v5::response::Room::default();
+        entry.required_state = vec![
+            state("m.room.create", "", json!({ "room_version": "11" }), "$c"),
+            state(
+                "m.room.power_levels",
+                "",
+                json!({ "users": { "@alice:example.org": 100 } }),
+                "$p",
+            ),
+            joined("@alice:example.org", "$a"),
+            joined("@bob:example.org", "$b"),
+        ]
+        .into_iter()
+        .map(raw)
+        .collect();
+        entry.joined_count = Some(uint!(3));
+        response.rooms.insert(full.to_owned(), entry);
+        // A room whose power levels the store does not hold.
+        let mut entry = v5::response::Room::default();
+        entry.required_state = vec![raw(joined("@alice:example.org", "$a2"))];
+        entry.joined_count = Some(uint!(3));
+        response.rooms.insert(bare.to_owned(), entry);
+        response.extensions.account_data.global = vec![raw(json!({
+            "type": "m.push_rules",
+            "content": PushRulesEventContent::new(rules),
+        }))];
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+        client
+            .state_store()
+            .set_custom_value(super::OWN_NAME_STORE_KEY, b"Rokas".to_vec())
+            .await
+            .expect("stored name");
+
+        let room = client.get_room(full).expect("synced");
+        assert!(room.get_member_no_sync(&me).await.unwrap().is_none(), "no member of ours");
+        let verdicts = SyncVerdicts::default();
+        let highlight = |verdict: Option<PushVerdict>| verdict.map(|verdict| verdict.highlight);
+        assert_eq!(highlight(verdicts.verdict(&room, &[], &event("saw a BANANA")).await), Some(true));
+        assert_eq!(
+            highlight(verdicts.verdict(&room, &[], &event("ping Rokas please")).await),
+            Some(true),
+            "the stored name, not the localpart"
+        );
+        assert_eq!(highlight(verdicts.verdict(&room, &[], &event("hello")).await), Some(false));
+        // The late-decryption entry (L4) asks the same fallback, and it does
+        // so even for a room remembered as having our member: with no SDK
+        // context there is no empty action list to call quiet. Through
+        // `verdict` this room would now read as quiet.
+        assert_eq!(
+            verdicts.verdict_with(full, &[], || async { true }, || async { None }).await,
+            Some(PushVerdict::QUIET)
+        );
+        assert_eq!(
+            highlight(verdicts.without_sdk_context(&room, &event("saw a BANANA")).await),
+            Some(true)
+        );
+        // No power levels: still no verdict, never a guessed one.
+        let room = client.get_room(bare).expect("synced");
+        assert_eq!(verdicts.verdict(&room, &[], &event("saw a BANANA")).await, None);
+    }
+
+    #[test]
+    fn the_fallback_context_needs_a_member_count_and_power_levels() {
+        assert!(fallback_room_ctx(&room(), &me(), 0, "Me".to_owned(), Some(power_levels()))
+            .is_none());
+        assert!(fallback_room_ctx(&room(), &me(), 2, "Me".to_owned(), None).is_none());
+        let context =
+            fallback_room_ctx(&room(), &me(), 2, "Me".to_owned(), Some(power_levels())).unwrap();
+        assert_eq!(context.member_count, uint!(2));
+        assert_eq!(context.user_display_name, "Me");
+        assert_eq!(context.user_id, me());
     }
 
     // The annotation's pairing of timeline items with their JSON slots.

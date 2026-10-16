@@ -5,7 +5,8 @@
 // accessible name is built in ONE pass, so a reaction key or name containing
 // a place-marker cannot rewrite it; unseen state and time are in the name; a
 // custom-emoji (mxc) reaction never shows the raw URI; interpolated names are
-// bidi-isolated; and the panel has no keyword editor of its own.
+// bidi-isolated; the panel has no keyword editor of its own; and a server
+// that cannot list past highlights is said so, never "Nothing here yet".
 //
 // Run offscreen only (QT_QPA_PLATFORM=offscreen), never bare.
 #include <QtTest/QtTest>
@@ -58,6 +59,7 @@ QtObject {
         id: model
         property int unseenCount: 1
         property string filter: "all"
+        property bool historyUnavailable: false
         property var keywords: []
         property string lastOpened: ""
         property int openCalls: 0
@@ -261,6 +263,46 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(btn, "clicked");
         QCOMPARE(f.app->property("settingsSection").toString(),
                  QStringLiteral("notifications"));
+    }
+
+    // Break-it rerun, section 10: after a restart on a server without
+    // GET /notifications the list said "Nothing here yet" while the room list
+    // showed @2/@3/@5. Old code: neither label existed.
+    void aServerWithoutHistoryIsSaidSoNotNothingHereYet()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QObject *hint = f.panel->findChild<QObject *>(
+            QStringLiteral("activityHistoryUnavailable"));
+        QObject *empty = f.panel->findChild<QObject *>(
+            QStringLiteral("activityEmptyState"));
+        QVERIFY(hint);
+        QVERIFY(empty);
+        // History available: no hint over the rows.
+        QVERIFY(!hint->property("visible").toBool());
+
+        f.activity->setProperty("historyUnavailable", true);
+        settle();
+        // Rows present: one line above them.
+        QVERIFY(hint->property("visible").toBool());
+        QVERIFY(!empty->property("visible").toBool());
+
+        // Nothing listed: the empty state says why, not "Nothing here yet".
+        QMetaObject::invokeMethod(f.activity, "clear");
+        settle();
+        QVERIFY(empty->property("visible").toBool());
+        QVERIFY(!hint->property("visible").toBool());
+        const QString text = empty->property("text").toString();
+        QVERIFY2(text.contains(QStringLiteral("not available from this server")),
+                 qPrintable(text));
+        QVERIFY(!text.contains(QStringLiteral("Nothing here yet")));
+
+        // Invites do not come from that history.
+        f.activity->setProperty("filter", QStringLiteral("invites"));
+        settle();
+        QCOMPARE(empty->property("text").toString(),
+                 QStringLiteral("No pending invites."));
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
     }
 };
 

@@ -2739,6 +2739,7 @@ void MockMatrixClient::acceptInvite(const QString &roomId)
             r.lastMessagePreview = tr("You joined the room.");
         if (!m_timelines.contains(roomId))
             m_timelines[roomId] = {};
+        Q_EMIT inviteAnswered(roomId, true);
         Q_EMIT roomUpdated(roomId);
         Q_EMIT roomsChanged();
         Q_EMIT timelineReset(roomId);
@@ -2755,6 +2756,7 @@ void MockMatrixClient::rejectInvite(const QString &roomId)
             continue;
         m_rooms.removeAt(i);
         m_timelines.remove(roomId);
+        Q_EMIT inviteAnswered(roomId, false);
         Q_EMIT roomsChanged();
         return;
     }

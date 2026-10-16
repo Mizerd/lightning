@@ -2310,8 +2310,17 @@ Q_SIGNALS:
                                bool targetIsOwn = false, bool backlog = false);
     void activitySeedReceived(const QVariantList &entries);
     // requestActivitySeed failed: nothing was fetched. Distinct from an empty
-    // seed, which means the server has no highlights.
-    void activitySeedFailed();
+    // seed, which means the server has no highlights. `category` is the fixed
+    // failure token ("http_404_M_UNRECOGNIZED", "timeout", ...; empty when
+    // unknown), never server text: a server without the endpoint is told
+    // apart from a dropped connection by it
+    // (ActivityModel::seedFailureIsPermanent).
+    void activitySeedFailed(const QString &category = QString());
+    // This client's accept or decline of the invite to `roomId` completed on
+    // the server. The room list may still list the invite until the sync that
+    // carries the new membership, so whatever shows the invite stops now
+    // rather than then.
+    void inviteAnswered(const QString &roomId, bool accepted);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
     // op is "kick" or "ban"; category is a sanitized error class on failure.

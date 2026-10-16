@@ -45,6 +45,11 @@ class ActivityModel : public QAbstractListModel
     // Case-insensitive whole-word highlights (bounded; see kMaxKeywords).
     Q_PROPERTY(QStringList keywords READ keywords WRITE setKeywords
                    NOTIFY keywordsChanged)
+    // The server cannot list past highlights (GET /notifications is not
+    // implemented there), so after a restart the list holds only what has
+    // arrived since. The panel says so instead of "Nothing here yet".
+    Q_PROPERTY(bool historyUnavailable READ historyUnavailable
+                   NOTIFY historyUnavailableChanged)
 
 public:
     enum Roles {
@@ -115,6 +120,12 @@ public:
     void setFilter(const QString &filter);
     QStringList keywords() const { return m_keywords; }
     void setKeywords(const QStringList &keywords);
+    bool historyUnavailable() const { return m_historyUnavailable; }
+    /// A seed failure (MatrixClient::activitySeedFailed's category) that asking
+    /// again will not fix: the server does not implement GET /notifications
+    /// (M_UNRECOGNIZED, or a bare 404/405/501 from a proxy in front of it).
+    /// Pure; AppController's retry and this model's hint share it.
+    static bool seedFailureIsPermanent(const QString &category);
 
     // ---- Feeds (AppController). A thread-timeline copy is accepted: its
     // composite id is reduced to the real room and the thread root here, and
@@ -146,6 +157,12 @@ public:
     bool noteInvite(const RoomInfo &room);
     // The invite was answered (accepted or declined): drop its entry.
     void inviteResolved(const QString &roomId);
+    // This client answered the invite and the server confirmed it
+    // (MatrixClient::inviteAnswered): the entry goes now, and a room list
+    // still listing the room as invited until its next sync cannot bring it
+    // back. A later invite to the same room counts once the list has stopped
+    // listing this one.
+    void inviteAnswered(const QString &roomId);
     // Entries the server remembers (GET /notifications) for a fresh session,
     // oldest first; ids already present are skipped.
     void seed(const QVariantList &entries);
@@ -220,6 +237,7 @@ Q_SIGNALS:
     void unseenCountChanged();
     void filterChanged();
     void keywordsChanged();
+    void historyUnavailableChanged();
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
 
@@ -281,6 +299,7 @@ private:
     void loadStore();
     void scheduleStoreLoad();
     void saveStore();
+    void setHistoryUnavailable(bool unavailable);
     void rememberInvite(const QString &roomId, qint64 firstNotedMs, bool seen);
     void forgetInvite(const QString &roomId);
     bool persistSeenInvites();
@@ -337,6 +356,10 @@ private:
     // back. Bounded.
     QSet<QString> m_redactedIds;
     QList<QString> m_redactedOrder;
+    // Invites this client answered whose room the list may still report as
+    // invited; see inviteAnswered(). Bounded.
+    QSet<QString> m_answeredInvites;
+    bool m_historyUnavailable = false;
     // Seeded rows whose room was unknown when the seed landed, left on the
     // server's `read` flag. Retried on roomsChanged; a seed before any room
     // payload leaves every row here.

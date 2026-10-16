@@ -1922,7 +1922,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_activitySeeded = true;
         m_client->requestActivitySeed(60);
     });
-    connect(m_client.get(), &MatrixClient::activitySeedFailed, this, [this] {
+    connect(m_client.get(), &MatrixClient::activitySeedFailed, this,
+            [this](const QString &category) {
+        // A server without GET /notifications answers the same way every
+        // time: no retry, and no second ask on the next Syncing edge. The
+        // panel says history is unavailable (ActivityModel). A restart asks
+        // once again.
+        if (ActivityModel::seedFailureIsPermanent(category)) {
+            qCInfo(lcApp) << "activity seed unsupported by this server; not retrying";
+            m_activitySeedRetryTimer.stop();
+            return;
+        }
         m_activitySeeded = false;
         const int delay =
             notices::activitySeedRetryDelayMs(m_activitySeedAttempts);

@@ -3,13 +3,31 @@
 #include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QLoggingCategory>
 #include <QRegularExpression>
 
 #include <algorithm>
 #include <utility>
 
+Q_LOGGING_CATEGORY(lcActivity, "lightning.activity")
+
 namespace {
+// A room id as the logs print it (matrix::e2ee::redactId's form: the sigil,
+// then 8 hex of SHA-256 of the rest), without linking the crypto helpers into
+// every test that builds this model.
+QString redactedRoom(const QString &id)
+{
+    if (id.isEmpty())
+        return QStringLiteral("<none>");
+    const bool sigil = id.front() == QLatin1Char('!');
+    const QByteArray digest = QCryptographicHash::hash(
+        (sigil ? id.mid(1) : id).toUtf8(), QCryptographicHash::Sha256);
+    return (sigil ? QStringLiteral("!") : QString())
+        + QString::fromLatin1(digest.toHex().left(8));
+}
+
 // Every kind a row may claim. "highlight" is what the server gives without
 // saying which push rule matched, so it claims only that.
 const QStringList kKnownKinds{
@@ -119,6 +137,17 @@ void ActivityModel::setClient(MatrixClient *client)
             &ActivityModel::eventRedacted);
     connect(m_client, &MatrixClient::eventDecrypted, this,
             &ActivityModel::eventDecrypted);
+    connect(m_client, &MatrixClient::inviteAnswered, this,
+            [this](const QString &roomId, bool) { inviteAnswered(roomId); });
+    // Only a failure retrying cannot fix sets the hint; a dropped connection
+    // leaves it as it was, and any answer clears it.
+    connect(m_client, &MatrixClient::activitySeedFailed, this,
+            [this](const QString &category) {
+        if (seedFailureIsPermanent(category))
+            setHistoryUnavailable(true);
+    });
+    connect(m_client, &MatrixClient::activitySeedReceived, this,
+            [this] { setHistoryUnavailable(false); });
     // A left, kicked or banned room's rows go once it has stayed gone.
     connect(m_client, &MatrixClient::roomsChanged, this,
             &ActivityModel::pruneRoomsNoLongerJoined);
@@ -322,6 +351,7 @@ void ActivityModel::clear()
     m_roomsEverKnown.clear();
     m_redactedIds.clear();
     m_redactedOrder.clear();
+    m_answeredInvites.clear();
     // Room notification modes are account-scoped: a room two accounts share
     // can be muted for one and not the other.
     m_muteCache.clear();
@@ -330,8 +360,32 @@ void ActivityModel::clear()
     endResetModel();
     if (keywordsMoved)
         Q_EMIT keywordsChanged();
+    // The next account's server may have the endpoint.
+    setHistoryUnavailable(false);
     Q_EMIT countChanged();
     Q_EMIT unseenCountChanged();
+}
+
+void ActivityModel::setHistoryUnavailable(bool unavailable)
+{
+    if (m_historyUnavailable == unavailable)
+        return;
+    m_historyUnavailable = unavailable;
+    Q_EMIT historyUnavailableChanged();
+}
+
+bool ActivityModel::seedFailureIsPermanent(const QString &category)
+{
+    // http_failure_reason (rust/src/oauth.rs): "http_<status>_<errcode>", or a
+    // transport token. The spec's answer for an endpoint a server does not
+    // implement is M_UNRECOGNIZED (404 or 405); a proxy in front of it may give
+    // the bare status. Everything else (a timeout, a 5xx, a rate limit) is
+    // worth asking again.
+    if (category.endsWith(QLatin1String("_M_UNRECOGNIZED")))
+        return true;
+    return category.startsWith(QLatin1String("http_404_"))
+        || category.startsWith(QLatin1String("http_405_"))
+        || category.startsWith(QLatin1String("http_501_"));
 }
 
 // ---- roles ---------------------------------------------------------------
@@ -573,7 +627,8 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
     // Per-entry marks only, as in markRoomReadUpTo; m_seenUpToMs does not move.
     // Durability across a restart comes from seed() and
     // reconcileSeedAgainstRoomCounts().
-    bool changed = false;
+    int marked = 0;
+    qint64 nearestLagMs = -1;
     for (Entry &e : m_entries) {
         if (e.seenMark || e.roomId != roomId)
             continue;
@@ -589,9 +644,28 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
         if (e.timestampMs <= 0 || e.timestampMs > readUpToMs)
             continue;
         e.seenMark = true;
-        changed = true;
+        ++marked;
+        const qint64 lagMs = info.countsWrittenAtMs - e.arrivedMs;
+        if (nearestLagMs < 0 || lagMs < nearestLagMs)
+            nearestLagMs = lagMs;
     }
-    return changed;
+    // The one path that marks rows seen without the user acting here. Counts,
+    // a delay and a hashed room only, so a row reported "seen before I opened
+    // it" (break-it rerun, section 10, F4: NOT explained) can be traced to the
+    // payload that did it. The open candidate it settles: a room payload
+    // written just AFTER the row arrived but before matrix-sdk's event-cache
+    // task had counted the event (it processes a sync's updates
+    // asynchronously from the event handlers), so its client counts were
+    // still clear; in an unencrypted room that also needs the server's counts
+    // to have been absent from that response. A small counts_after_row_ms with
+    // no "timeline open" or receipt for the room nearby points there.
+    if (marked > 0) {
+        qCInfo(lcActivity) << "rows marked seen by room read state room="
+                           << redactedRoom(roomId) << "rows=" << marked
+                           << "counts_after_row_ms=" << nearestLagMs
+                           << "encrypted=" << info.encrypted;
+    }
+    return marked > 0;
 }
 
 void ActivityModel::markSeen(const QString &id)
@@ -1110,6 +1184,9 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
 {
     if (room.id.isEmpty() || room.membership != RoomInfo::Invited)
         return false;
+    // Answered here; the list has not caught up yet (see inviteAnswered).
+    if (m_answeredInvites.contains(room.id))
+        return false;
     if (isIgnored(room.inviterUserId))
         return false;
     Entry e;
@@ -1185,6 +1262,18 @@ void ActivityModel::inviteResolved(const QString &roomId)
     m_entries.removeIf([&id](const Entry &e) { return e.id == id; });
     rebuildVisible();
     Q_EMIT unseenCountChanged();
+}
+
+void ActivityModel::inviteAnswered(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return;
+    // Bounded like the remembered invites; a set this size is only ever
+    // reached by a burst of answers the list has not caught up with.
+    if (m_answeredInvites.size() >= kMaxRememberedInvites)
+        m_answeredInvites.clear();
+    m_answeredInvites.insert(roomId);
+    inviteResolved(roomId);
 }
 
 void ActivityModel::seed(const QVariantList &entries)
@@ -1398,6 +1487,16 @@ void ActivityModel::pruneRoomsNoLongerJoined()
 {
     if (!m_client)
         return;
+    // An answered invite is forgotten once the list no longer reports it as
+    // an invite (joined, left, or gone): from then on a new invite to that
+    // room is a new invite.
+    for (auto it = m_answeredInvites.begin(); it != m_answeredInvites.end();) {
+        const RoomInfo info = m_client->roomInfo(*it);
+        if (info.id != *it || info.membership != RoomInfo::Invited)
+            it = m_answeredInvites.erase(it);
+        else
+            ++it;
+    }
     QSet<QString> held;
     for (const Entry &e : std::as_const(m_entries))
         if (e.kind != QLatin1String("invite") && !e.roomId.isEmpty())

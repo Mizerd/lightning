@@ -152,6 +152,7 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
+        id: panelColumn
         spacing: AppTheme.spacing12
 
         RowLayout {
@@ -235,7 +236,28 @@ Dialog {
             }
         }
 
+        // The server cannot list past highlights (no GET /notifications), so
+        // after a restart only what arrived since is here, while the room list
+        // still counts older mentions. Said once, above the rows; an empty
+        // list says it in place of "Nothing here yet". Invites and keywords do
+        // not come from that history.
+        readonly property bool historyHintApplies: !!root.activity
+            && root.activity.historyUnavailable
+            && root.activity.filter !== "invites"
+            && root.activity.filter !== "keywords"
+
         Label {
+            objectName: "activityHistoryUnavailable"
+            visible: panelColumn.historyHintApplies && listView.count > 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("Older activity is not available from this server.")
+        }
+
+        Label {
+            objectName: "activityEmptyState"
             visible: listView.count === 0
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing24
@@ -246,6 +268,8 @@ Dialog {
             text: {
                 if (!root.activity)
                     return ""
+                if (panelColumn.historyHintApplies)
+                    return qsTr("Older activity is not available from this server. New mentions, replies and reactions will show up here as they arrive.")
                 switch (root.activity.filter) {
                 case "keywords":
                     return root.activity.keywords.length === 0

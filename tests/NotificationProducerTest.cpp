@@ -40,6 +40,8 @@ private:
         QStringList receiptsAccepted;
         QStringList receiptsFailed;
         int seedFailed = 0;
+        QStringList seedFailureCategories;
+        QList<QPair<QString, bool>> invitesAnswered;
         QList<QVariantList> seeds;
         QList<CallSignal> calls;
         struct Reaction {
@@ -86,7 +88,14 @@ private:
                              sink.receiptsFailed.append(id);
                          });
         QObject::connect(&client, &MatrixClient::activitySeedFailed,
-                         [&sink] { ++sink.seedFailed; });
+                         [&sink](const QString &category) {
+                             ++sink.seedFailed;
+                             sink.seedFailureCategories.append(category);
+                         });
+        QObject::connect(&client, &MatrixClient::inviteAnswered,
+                         [&sink](const QString &room, bool accepted) {
+                             sink.invitesAnswered.append({ room, accepted });
+                         });
         QObject::connect(&client, &MatrixClient::activitySeedReceived,
                          [&sink](const QVariantList &entries) {
                              sink.seeds.append(entries);
@@ -478,8 +487,14 @@ private slots:
         failed.insert(QStringLiteral("type"), QStringLiteral("activity_seed"));
         failed.insert(QStringLiteral("ok"), false);
         failed.insert(QStringLiteral("entries"), QJsonArray{});
+        failed.insert(QStringLiteral("category"),
+                      QStringLiteral("http_404_M_UNRECOGNIZED"));
         client.handleRustEventForTest(failed);
         QCOMPARE(sink.seedFailed, 1);
+        // The token reaches the consumers, so a server without the endpoint
+        // is not asked again (break-it rerun, section 10).
+        QCOMPARE(sink.seedFailureCategories,
+                 QStringList{ QStringLiteral("http_404_M_UNRECOGNIZED") });
         QVERIFY2(sink.seeds.isEmpty(), "a failed seed was reported as an empty one");
 
         // Finding 17 (C++ half): the msgtype passes through.
@@ -497,6 +512,37 @@ private slots:
                      .value(QStringLiteral("msgtype")).toString(),
                  QStringLiteral("m.image"));
         QCOMPARE(sink.seedFailed, 1);
+#endif
+    }
+
+    // Break-it rerun, section 3: the bell kept a declined invite until the
+    // room list's next sync. Only the server's "done" is an answer; pending
+    // and failed are not, and the room need not be in the registry.
+    void anInviteAnsweredHereIsAnnouncedOnTheServersDone()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Sink sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+        const auto update = [&client](const QString &action, const QString &state) {
+            QJsonObject event;
+            event.insert(QStringLiteral("type"), QStringLiteral("invite_state_update"));
+            event.insert(QStringLiteral("room_id"), kRoom);
+            event.insert(QStringLiteral("action"), action);
+            event.insert(QStringLiteral("state"), state);
+            client.handleRustEventForTest(event);
+        };
+        update(QStringLiteral("reject"), QStringLiteral("pending"));
+        update(QStringLiteral("reject"), QStringLiteral("failed"));
+        QVERIFY(sink.invitesAnswered.isEmpty());
+        update(QStringLiteral("reject"), QStringLiteral("done"));
+        update(QStringLiteral("accept"), QStringLiteral("done"));
+        QCOMPARE(sink.invitesAnswered.size(), 2);
+        QCOMPARE(sink.invitesAnswered.at(0), qMakePair(kRoom, false));
+        QCOMPARE(sink.invitesAnswered.at(1), qMakePair(kRoom, true));
 #endif
     }
 
