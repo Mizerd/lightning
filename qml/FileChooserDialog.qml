@@ -18,7 +18,11 @@ import MatrixClient
 //
 // Keys: Enter opens a folder or accepts, Backspace and Alt+Up go up,
 // Alt+Home goes home, Ctrl+L types a path, Ctrl+H shows hidden files,
-// Escape cancels, and typing a name in the list jumps to it.
+// Escape cancels, and typing a name in the list jumps to it. Choosing
+// several files (openMany) works as in a desktop's dialog: a click picks
+// one, Ctrl+click adds or removes one, Shift+click picks the run from the
+// last row clicked (Ctrl+Shift adds it), Shift+Up/Down extends, Ctrl+Up/Down
+// moves without choosing and Space then toggles, and Ctrl+A picks them all.
 Dialog {
     id: root
     objectName: "fileChooserDialog"
@@ -57,7 +61,9 @@ Dialog {
     property string suggestedName: ""
     // openMany: the selected rows, by name.
     property var selection: ({})
-    property int selectionAnchor: -1
+    // openMany: the row a Shift range runs from, by name, so a re-listing
+    // (a sort, Ctrl+H) that moves it does not leave the range on a stranger.
+    property string anchorName: ""
     property bool editingPath: false
     property bool creatingFolder: false
     // An error about the new-folder row goes with the row.
@@ -129,7 +135,7 @@ Dialog {
                                            filters.length - 1))
         suggestedName = saving ? (request.currentName || "") : ""
         selection = ({})
-        selectionAnchor = -1
+        anchorName = ""
         editingPath = false
         creatingFolder = false
         failure = ""
@@ -206,7 +212,7 @@ Dialog {
         editingPath = false
         creatingFolder = false
         selection = ({})
-        selectionAnchor = -1
+        anchorName = ""
         fileList.currentIndex = -1
         browser.folder = url
     }
@@ -241,6 +247,12 @@ Dialog {
     }
 
     // ── Selection ──
+    //
+    // In openMany the selection is its own state, changed only by what the
+    // reader does (a click, Space, Ctrl+A, an arrow key). It never follows
+    // the list's currentIndex by itself: a handler that did would run inside
+    // every assignment to currentIndex, a click's included, and wipe a
+    // Ctrl+click's selection before the click could add to it.
 
     function selectOnly(row) {
         var r = browser.get(row)
@@ -248,35 +260,83 @@ Dialog {
         if (r.name !== undefined)
             s[r.name] = true
         selection = s
-        selectionAnchor = row
+        anchorName = r.name !== undefined ? r.name : ""
+    }
+
+    function toggleRow(row) {
+        var r = browser.get(row)
+        if (r.name === undefined)
+            return
+        var s = Object.assign({}, selection)
+        if (s[r.name])
+            delete s[r.name]
+        else
+            s[r.name] = true
+        selection = s
+        anchorName = r.name
+    }
+
+    // The rows from the anchor to `row`, replacing the selection or added
+    // to it. With no anchor in this listing, `row` alone.
+    function extendTo(row, add) {
+        var anchor = anchorName.length > 0 ? browser.indexOfName(anchorName) : -1
+        if (anchor < 0) {
+            if (add)
+                toggleRow(row)
+            else
+                selectOnly(row)
+            return
+        }
+        var s = add ? Object.assign({}, selection) : ({})
+        var lo = Math.min(anchor, row)
+        var hi = Math.max(anchor, row)
+        for (var i = lo; i <= hi; ++i)
+            s[browser.get(i).name] = true
+        selection = s
+    }
+
+    function selectAll() {
+        var s = ({})
+        for (var i = 0; i < browser.count; ++i)
+            s[browser.get(i).name] = true
+        selection = s
     }
 
     function clickRow(row, modifiers) {
+        var r = browser.get(row)
+        if (r.name === undefined)
+            return
+        if (many && (modifiers & Qt.ShiftModifier))
+            extendTo(row, (modifiers & Qt.ControlModifier) !== 0)
+        else if (many && (modifiers & Qt.ControlModifier))
+            toggleRow(row)
+        else
+            selectOnly(row)
         fileList.currentIndex = row
         fileList.forceActiveFocus()
-        var r = browser.get(row)
-        if (many && (modifiers & Qt.ControlModifier)) {
-            var s = Object.assign({}, selection)
-            if (s[r.name])
-                delete s[r.name]
-            else
-                s[r.name] = true
-            selection = s
-            selectionAnchor = row
-        } else if (many && (modifiers & Qt.ShiftModifier)
-                   && selectionAnchor >= 0) {
-            var range = ({})
-            var lo = Math.min(selectionAnchor, row)
-            var hi = Math.max(selectionAnchor, row)
-            for (var i = lo; i <= hi; ++i)
-                range[browser.get(i).name] = true
-            selection = range
-        } else {
-            selectOnly(row)
-        }
         // Save: a file picked from the list is the name to save under.
         if (saving && !r.isDir)
             nameField.text = r.name
+    }
+
+    // openMany: Up/Down. Plain moves the selection with the cursor, Shift
+    // extends it from the anchor, Ctrl moves the cursor alone (Space then
+    // toggles the row it is on).
+    function moveCursor(step, modifiers) {
+        if (browser.count === 0)
+            return
+        var from = fileList.currentIndex
+        var to = from < 0 ? 0
+                          : Math.max(0, Math.min(browser.count - 1, from + step))
+        if ((modifiers & Qt.ShiftModifier) && from >= 0
+                && (anchorName.length === 0 || browser.indexOfName(anchorName) < 0))
+            anchorName = browser.get(from).name
+        fileList.currentIndex = to
+        fileList.positionViewAtIndex(to, ListView.Contain)
+        if (modifiers & Qt.ShiftModifier)
+            extendTo(to, (modifiers & Qt.ControlModifier) !== 0)
+        else if (!(modifiers & Qt.ControlModifier))
+            selectOnly(to)
     }
 
     function isSelected(row, name) {
@@ -298,7 +358,9 @@ Dialog {
             nameField.text = r.name
             acceptSave()
         } else if (!pickingFolder) {
-            if (many)
+            // Enter on a chosen file opens everything chosen with it, as in
+            // every desktop's dialog; on any other file, that file.
+            if (many && selection[r.name] !== true)
                 selectOnly(row)
             acceptCurrent()
         }
@@ -328,11 +390,14 @@ Dialog {
             return nameField.text.trim().length > 0
         if (pickingFolder)
             return browser.error.length === 0
-        // A folder can always be entered with the accept button too.
+        // Something to open, or a folder under the cursor that the button
+        // enters. In openMany a file under the cursor is not chosen until it
+        // is selected (a Ctrl+click can unselect the row it lands on), so
+        // the button is off rather than on and doing nothing.
+        if (chosenUrls().length > 0)
+            return true
         var current = browser.get(fileList.currentIndex)
-        var chosen = root.selection
-        return current.name !== undefined
-               || (chosen !== undefined && chosenUrls().length > 0)
+        return current.name !== undefined && (current.isDir || !many)
     }
 
     function acceptCurrent() {
@@ -1003,14 +1068,6 @@ Dialog {
                             Accessible.role: Accessible.List
                             Accessible.name: qsTr("Files")
 
-                            onCurrentIndexChanged: {
-                                // Arrow keys move the selection with them.
-                                if (root.many && currentIndex >= 0
-                                        && activeFocus && !root.resetting
-                                        && root.selection[browser.get(currentIndex).name] !== true)
-                                    root.selectOnly(currentIndex)
-                            }
-
                             Keys.onPressed: (event) => {
                                 if (event.key === Qt.Key_Return
                                         || event.key === Qt.Key_Enter) {
@@ -1022,10 +1079,20 @@ Dialog {
                                 } else if (event.key === Qt.Key_Backspace) {
                                     root.goUp()
                                     event.accepted = true
+                                } else if (root.many
+                                           && (event.key === Qt.Key_Up
+                                               || event.key === Qt.Key_Down)
+                                           && !(event.modifiers & Qt.AltModifier)) {
+                                    root.moveCursor(event.key === Qt.Key_Up ? -1 : 1,
+                                                    event.modifiers)
+                                    event.accepted = true
+                                } else if (root.many
+                                           && event.matches(StandardKey.SelectAll)) {
+                                    root.selectAll()
+                                    event.accepted = true
                                 } else if (event.key === Qt.Key_Space && root.many
                                            && fileList.currentIndex >= 0) {
-                                    root.clickRow(fileList.currentIndex,
-                                                  Qt.ControlModifier)
+                                    root.toggleRow(fileList.currentIndex)
                                     event.accepted = true
                                 } else if (event.text.length > 0
                                            && !(event.modifiers

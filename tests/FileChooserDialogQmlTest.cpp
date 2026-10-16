@@ -15,7 +15,13 @@
 //   * a filter naming one extension changes the name's extension;
 //   * open, openMany and folder answer what was chosen, through FileChooser;
 //   * Escape and Cancel answer "cancelled"; Backspace goes up;
-//   * every surface of it follows the theme, light and dark alike.
+//   * every surface of it follows the theme, light and dark alike;
+//   * openMany chooses like a desktop dialog (2026-10-16 break-it rerun,
+//     4/4: Ctrl+click and Shift+click chose nothing and Open did nothing),
+//     driven with REAL clicks and keys on a settled, focused list, because
+//     the defect lived in a handler that only ran with the list focused and
+//     the listing settled, and a case calling clickRow() straight after a
+//     listing ran before either and passed on the broken code.
 //
 // Nothing is shown on a screen: QT_QPA_PLATFORM=offscreen, software Quick.
 
@@ -30,6 +36,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
@@ -155,6 +162,81 @@ private:
     QList<QUrl> answerUrls() const
     {
         return lastAnswer().value(2).value<QList<QUrl>>();
+    }
+
+    QQuickItem *list() const
+    {
+        return qobject_cast<QQuickItem *>(child("fileChooserList"));
+    }
+
+    QQuickItem *rowItem(int row) const
+    {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(list(), "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, row));
+        return item;
+    }
+
+    // The listing has arrived AND the dialog has finished handling it
+    // (afterReset runs a turn later), and the list holds the keyboard: the
+    // state a reader's clicks and keys actually meet.
+    void settle()
+    {
+        QTRY_VERIFY(!m_model->loading());
+        QTRY_VERIFY(!m_dialog->property("resetting").toBool());
+        QTRY_VERIFY(list()->hasActiveFocus());
+    }
+
+    void clickRowItem(int row, Qt::KeyboardModifiers modifiers = {})
+    {
+        QQuickItem *item = rowItem(row);
+        QVERIFY2(item, qPrintable(QStringLiteral("no delegate for row %1").arg(row)));
+        const QPointF centre = item->mapToScene(
+            QPointF(item->width() / 2, item->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, modifiers, centre.toPoint());
+    }
+
+    // What the rows DRAW as selected, read off every delegate; the count of
+    // delegates read is checked so a short read cannot pass.
+    QStringList highlighted() const
+    {
+        QStringList names;
+        int read = 0;
+        for (int i = 0; i < m_model->rowCount(); ++i) {
+            QQuickItem *item = rowItem(i);
+            if (!item)
+                continue;
+            ++read;
+            if (item->property("selected").toBool())
+                names << item->property("name").toString();
+        }
+        if (read != m_model->rowCount())
+            names << QStringLiteral("<read %1 of %2 rows>")
+                         .arg(read).arg(m_model->rowCount());
+        return names;
+    }
+
+    bool acceptEnabled() const
+    {
+        return child("fileChooserAccept")->property("enabled").toBool();
+    }
+
+    void clickAccept()
+    {
+        auto *button = qobject_cast<QQuickItem *>(child("fileChooserAccept"));
+        QVERIFY(button);
+        const QPointF centre = button->mapToScene(
+            QPointF(button->width() / 2, button->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
+    }
+
+    QList<QUrl> urlsIn(const QString &dir, const QStringList &names) const
+    {
+        QList<QUrl> urls;
+        for (const QString &n : names)
+            urls << QUrl::fromLocalFile(QDir::cleanPath(dir) + QLatin1Char('/') + n);
+        return urls;
     }
 
     void closeAnyRequest()
@@ -406,6 +488,7 @@ private Q_SLOTS:
         request({{QStringLiteral("mode"), QStringLiteral("openMany")},
                  {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
         QTRY_COMPARE(m_model->rowCount(), 3);
+        settle();
         QVERIFY(call("clickRow", 0, int(Qt::NoModifier)));
         QVERIFY(call("clickRow", 2, int(Qt::ControlModifier)));
         QVERIFY(call("acceptCurrent"));
@@ -420,11 +503,189 @@ private Q_SLOTS:
         request({{QStringLiteral("mode"), QStringLiteral("openMany")},
                  {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
         QTRY_COMPARE(m_model->rowCount(), 3);
+        settle();
         QVERIFY(call("clickRow", 0, int(Qt::NoModifier)));
         QVERIFY(call("clickRow", 2, int(Qt::ShiftModifier)));
         QVERIFY(call("acceptCurrent"));
         QTRY_COMPARE(m_answers.size(), 1);
         QCOMPARE(answerUrls().size(), 3);
+        m_answers.clear();
+    }
+
+    // The report: Ctrl+click and Shift+click chose nothing, and Open stayed
+    // on and did nothing. Real clicks, with the modifiers on the events.
+    void ctrlAndShiftClicksChooseLikeADesktopDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const char *n : {"1.txt", "2.txt", "3.txt", "4.txt", "5.txt"})
+            touch(dir.path() + QLatin1Char('/') + QLatin1String(n));
+        request({{QStringLiteral("mode"), QStringLiteral("openMany")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_COMPARE(m_model->rowCount(), 5);
+        settle();
+
+        clickRowItem(0);
+        QCOMPARE(highlighted(), QStringList{QStringLiteral("1.txt")});
+        // Ctrl adds a row and keeps the others.
+        clickRowItem(2, Qt::ControlModifier);
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("1.txt"), QStringLiteral("3.txt")}));
+        // Shift picks the run from the last row clicked, replacing the rest.
+        clickRowItem(4, Qt::ShiftModifier);
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("3.txt"), QStringLiteral("4.txt"),
+                              QStringLiteral("5.txt")}));
+        // Ctrl+Shift adds the run from the same anchor.
+        clickRowItem(0, Qt::ControlModifier | Qt::ShiftModifier);
+        QCOMPARE(highlighted().size(), 5);
+        // Ctrl removes one.
+        clickRowItem(3, Qt::ControlModifier);
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("1.txt"), QStringLiteral("2.txt"),
+                              QStringLiteral("3.txt"), QStringLiteral("5.txt")}));
+        QVERIFY(acceptEnabled());
+        clickAccept();
+        QTRY_COMPARE(m_answers.size(), 1);
+        QCOMPARE(lastAnswer().value(1).toBool(), true);
+        QCOMPARE(answerUrls(),
+                 urlsIn(dir.path(), {QStringLiteral("1.txt"), QStringLiteral("2.txt"),
+                                     QStringLiteral("3.txt"), QStringLiteral("5.txt")}));
+        m_answers.clear();
+    }
+
+    // Open was on whenever the cursor was on a row, chosen or not, and then
+    // did nothing. It is on only when pressing it does something.
+    void openIsOffWhenNothingWouldBeChosen()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVERIFY(QDir(dir.path()).mkdir(QStringLiteral("sub")));
+        touch(dir.path() + QStringLiteral("/1.txt"));
+        touch(dir.path() + QStringLiteral("/2.txt"));
+        request({{QStringLiteral("mode"), QStringLiteral("openMany")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_COMPARE(m_model->rowCount(), 3);
+        settle();
+        const int one = m_model->indexOfName(QStringLiteral("1.txt"));
+        const int sub = m_model->indexOfName(QStringLiteral("sub"));
+        QVERIFY(one >= 0 && sub >= 0);
+
+        clickRowItem(one);
+        QVERIFY(acceptEnabled());
+        // Space unselects the row the cursor stays on: nothing is chosen.
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QCOMPARE(highlighted(), QStringList());
+        QCOMPARE(list()->property("currentIndex").toInt(), one);
+        QVERIFY(!acceptEnabled());
+        clickAccept();
+        QTest::qWait(50);
+        QCOMPARE(m_answers.size(), 0);
+        QVERIFY(m_dialog->property("visible").toBool());
+
+        // A folder under the cursor: the button enters it.
+        clickRowItem(sub);
+        QVERIFY(acceptEnabled());
+        clickAccept();
+        QTRY_COMPARE(m_model->folder(),
+                     QUrl::fromLocalFile(QDir::cleanPath(dir.path())
+                                         + QStringLiteral("/sub")));
+        QCOMPARE(m_answers.size(), 0);
+    }
+
+    // The keyboard half: plain arrows move the choice, Shift extends it,
+    // Ctrl moves the cursor alone, Space toggles, Ctrl+A takes everything,
+    // and Enter on a chosen row opens everything chosen.
+    void theKeyboardChoosesLikeADesktopDialog()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const char *n : {"1.txt", "2.txt", "3.txt", "4.txt"})
+            touch(dir.path() + QLatin1Char('/') + QLatin1String(n));
+        request({{QStringLiteral("mode"), QStringLiteral("openMany")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_COMPARE(m_model->rowCount(), 4);
+        settle();
+        const auto names = [](std::initializer_list<const char *> l) {
+            QStringList out;
+            for (const char *n : l)
+                out << QLatin1String(n);
+            return out;
+        };
+
+        clickRowItem(0);
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QCOMPARE(highlighted(), names({"2.txt"}));
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ShiftModifier);
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt", "4.txt"}));
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::ShiftModifier);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt"}));
+        QCOMPARE(list()->property("currentIndex").toInt(), 2);
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ControlModifier);
+        QCOMPARE(list()->property("currentIndex").toInt(), 3);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt"}));
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt", "4.txt"}));
+        QTest::keyClick(m_window, Qt::Key_A, Qt::ControlModifier);
+        QCOMPARE(highlighted(), names({"1.txt", "2.txt", "3.txt", "4.txt"}));
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::ControlModifier);
+        QCOMPARE(list()->property("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt", "4.txt"}));
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ControlModifier);
+        QCOMPARE(highlighted(), names({"2.txt", "3.txt", "4.txt"}));
+        // Enter on a chosen row: all of them, not that one alone.
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_answers.size(), 1);
+        QCOMPARE(lastAnswer().value(1).toBool(), true);
+        QCOMPARE(answerUrls(), urlsIn(dir.path(), names({"2.txt", "3.txt", "4.txt"})));
+        m_answers.clear();
+    }
+
+    // A re-listing (a sort here; Ctrl+H, a filter) moves the cursor's row
+    // and must not throw the choice away, and a Shift range afterwards runs
+    // from the same FILE, not from whatever now sits at its old row.
+    void aChoiceAndItsAnchorSurviveARelisting()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const char *n : {"1.txt", "2.txt", "3.txt", "4.txt"})
+            touch(dir.path() + QLatin1Char('/') + QLatin1String(n));
+        const auto restoreSort = qScopeGuard([this] {
+            m_model->setSortAscending(true);
+        });
+        request({{QStringLiteral("mode"), QStringLiteral("openMany")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_COMPARE(m_model->rowCount(), 4);
+        settle();
+
+        clickRowItem(0);                          // 1.txt
+        clickRowItem(2, Qt::ControlModifier);     // 3.txt
+        clickRowItem(1, Qt::ControlModifier);     // 2.txt, the anchor now
+        QTest::keyClick(m_window, Qt::Key_Space); // ...and unselected again
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("1.txt"), QStringLiteral("3.txt")}));
+
+        m_model->setSortAscending(false);         // 4, 3, 2, 1
+        QTRY_COMPARE(m_model->indexOfName(QStringLiteral("4.txt")), 0);
+        QTRY_VERIFY(!m_dialog->property("resetting").toBool());
+        QTRY_COMPARE(list()->property("currentIndex").toInt(),
+                     m_model->indexOfName(QStringLiteral("2.txt")));
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("3.txt"), QStringLiteral("1.txt")}));
+
+        clickRowItem(0, Qt::ShiftModifier);       // 4.txt back to 2.txt
+        QCOMPARE(highlighted(),
+                 (QStringList{QStringLiteral("4.txt"), QStringLiteral("3.txt"),
+                              QStringLiteral("2.txt")}));
+        clickAccept();
+        QTRY_COMPARE(m_answers.size(), 1);
+        QCOMPARE(answerUrls(),
+                 urlsIn(dir.path(), {QStringLiteral("4.txt"), QStringLiteral("3.txt"),
+                                     QStringLiteral("2.txt")}));
         m_answers.clear();
     }
 
