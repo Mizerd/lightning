@@ -2662,17 +2662,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>صوت مشاركة الشاشة</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>بلا صوت</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>النظام بأكمله</translation>
     </message>
@@ -17569,7 +17569,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>الابتدائية</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>يرى جميع المشاركين في المكالمة الشاشة التي تختارها بالكامل.</translation>
     </message>
@@ -17604,12 +17604,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>مشاركة نافذة واحدة غير متاحة على هذا النظام الأساسي حتى الآن. اختر شاشة بدلاً من ذلك.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>الصوت</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>بلا صوت</translation>
@@ -23169,22 +23169,32 @@ Note: importing keys does not verify this session.</source>
         <translation>توقف صوت المكالمة: انقطع جهاز إخراج الصوت في هذا الحاسوب. يُستأنف عندما يتوفر جهاز إخراج مجددًا؛ وإن لم يحدث ذلك، فغادر المكالمة وانضم إليها من جديد.</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>لا يستطيع هذا النظام التقاط الصوت الذي يشغّله.</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>الصوت: كل ما يشغّله هذا الحاسوب، عدا Lightning.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>الصوت: كل ما يشغّله هذا الحاسوب، بما في ذلك هذه المكالمة، لذا قد يسمع الآخرون أنفسهم.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>لم تُختر تطبيقات، لذا لا صوت في المشاركة.</translation>
     </message>
@@ -23234,7 +23244,7 @@ Note: importing keys does not verify this session.</source>
         <translation>رُفضت المكالمة.</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>هذه الغرفة مشفرة، والمكالمات المشفرة غير متاحة بعد في هذا الإصدار.</translation>
     </message>
@@ -29617,7 +29627,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>

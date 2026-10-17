@@ -2630,17 +2630,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>স্ক্রিন শেয়ারের শব্দ</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>শব্দ নেই</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>পুরো সিস্টেম</translation>
     </message>
@@ -17361,7 +17361,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রাথমিক</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>কলে থাকা প্রত্যেকে আপনার বাছাই করা সম্পূর্ণ ডিসপ্লে দেখতে পায়।</translation>
     </message>
@@ -17396,12 +17396,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই প্ল্যাটফর্মে একটি একক উইন্ডো শেয়ার করা এখনও উপলব্ধ নেই৷ পরিবর্তে একটি পর্দা চয়ন করুন.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>শব্দ</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>শব্দ নেই</translation>
@@ -22889,22 +22889,32 @@ Note: importing keys does not verify this session.</source>
         <translation>কলের অডিও থেমে গেছে: এই কম্পিউটারের শব্দ আউটপুট বিচ্ছিন্ন হয়েছে। আউটপুট আবার পাওয়া গেলে এটি চালু হবে; না হলে কল ছেড়ে আবার যোগ দিন।</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>এই সিস্টেম যে শব্দ বাজায় তা ক্যাপচার করতে পারে না।</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>শব্দ: Lightning ছাড়া এই কম্পিউটার যা বাজায় সবকিছু।</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>শব্দ: এই কলসহ এই কম্পিউটার যা বাজায় সবকিছু, তাই অন্যরা নিজেদের কণ্ঠ শুনতে পারে।</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>কোনো অ্যাপ বাছা হয়নি, তাই শেয়ারে শব্দ নেই।</translation>
     </message>
@@ -22954,7 +22964,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কলটি প্রত্যাখ্যান করা হয়েছে।</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
@@ -29177,7 +29187,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>

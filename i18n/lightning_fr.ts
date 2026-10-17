@@ -2632,17 +2632,17 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>Son du partage d&apos;écran</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>Aucun son</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>Tout le système</translation>
     </message>
@@ -17370,7 +17370,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Primaire</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Toutes les personnes participant à l&apos;appel voient l&apos;intégralité de l&apos;affichage que vous choisissez.</translation>
     </message>
@@ -17405,12 +17405,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Le partage d&apos;une seule fenêtre n&apos;est pas encore disponible sur cette plateforme. Choisissez plutôt un écran.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>Son</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>Aucun son</translation>
@@ -22898,22 +22898,32 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Le son de l&apos;appel s&apos;est arrêté : la sortie audio de cet ordinateur s&apos;est déconnectée. Il reprend lorsqu&apos;une sortie est à nouveau disponible ; sinon, quittez l&apos;appel et rejoignez-le.</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>Ce système ne peut pas capturer le son qu&apos;il joue.</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>Son : tout ce que cet ordinateur joue, sauf Lightning.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>Son : tout ce que cet ordinateur joue, y compris cet appel, de sorte que d&apos;autres peuvent s&apos;entendre eux-mêmes.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>Aucune application choisie, le partage n&apos;a donc pas de son.</translation>
     </message>
@@ -22963,7 +22973,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>L&apos;appel a été refusé.</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
@@ -29186,7 +29196,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

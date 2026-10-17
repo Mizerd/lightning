@@ -2640,17 +2640,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>Звук демонстрации экрана</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>Без звука</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>Вся система</translation>
     </message>
@@ -17422,7 +17422,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Первичный</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Все участники вызова видят весь выбранный вами дисплей.</translation>
     </message>
@@ -17457,12 +17457,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Совместное использование одного окна пока недоступно на этой платформе. Вместо этого выберите экран.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>Звук</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>Без звука</translation>
@@ -22968,22 +22968,32 @@ Note: importing keys does not verify this session.</source>
         <translation>Звук звонка остановлен: вывод звука на этом компьютере отключился. Он возобновится, когда вывод снова станет доступен; если нет — выйдите из звонка и присоединитесь снова.</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>Эта система не может захватить звук, который воспроизводит.</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>Звук: всё, что воспроизводит этот компьютер, кроме Lightning.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>Звук: всё, что воспроизводит этот компьютер, включая этот звонок, поэтому другие могут услышать себя.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>Приложения не выбраны, поэтому у демонстрации нет звука.</translation>
     </message>
@@ -23033,7 +23043,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Звонок был отклонён.</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Эта комната зашифрована, и зашифрованные звонки в этой сборке пока недоступны.</translation>
     </message>
@@ -29296,7 +29306,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Нативный клиент Matrix на Qt/QML. Бэкенд: --backend={mock,http,rust}. По умолчанию: rust (http в сборках без Rust SDK).</translation>
     </message>

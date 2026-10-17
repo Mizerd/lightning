@@ -2640,17 +2640,17 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>Ekrano bendrinimo garsas</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>Be garso</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>Visa sistema</translation>
     </message>
@@ -17422,7 +17422,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pirminis</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Visi skambučio dalyviai mato visą jūsų pasirinktą ekraną.</translation>
     </message>
@@ -17457,12 +17457,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Vieno lango bendrinimas šioje platformoje dar negalimas. Vietoj to pasirinkite ekraną.</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>Garsas</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>Be garso</translation>
@@ -22968,22 +22968,32 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambučio garsas sustojo: šio kompiuterio garso išvestis atsijungė. Jis tęsis, kai išvestis vėl bus prieinama; jei ne, išeikite iš skambučio ir prisijunkite iš naujo.</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>Ši sistema negali užfiksuoti, ką groja.</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>Garsas: viskas, ką groja šis kompiuteris, išskyrus „Lightning“.</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>Garsas: viskas, ką groja šis kompiuteris, įskaitant šį skambutį, todėl kiti gali girdėti save.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>Programų nepasirinkta, todėl bendrinimas be garso.</translation>
     </message>
@@ -23033,7 +23043,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambutis atmestas.</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
@@ -29296,7 +29306,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>

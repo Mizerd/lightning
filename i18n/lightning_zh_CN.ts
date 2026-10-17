@@ -2624,17 +2624,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+60"/>
         <source>Screen share sound</source>
         <translation>屏幕共享声音</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>No sound</source>
         <translation>无声音</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Entire system</source>
         <translation>整个系统</translation>
     </message>
@@ -17318,7 +17318,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>小学</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+310"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>通话中的每个人都会看到您选择的整个显示。</translation>
     </message>
@@ -17353,12 +17353,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>此平台尚不支持共享单个窗口。选择一个屏幕。</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Sound</source>
         <translation>声音</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+5"/>
         <source>No sound</source>
         <translation>无声音</translation>
@@ -22828,22 +22828,32 @@ Note: importing keys does not verify this session.</source>
         <translation>通话声音已停止：此电脑的声音输出已断开。当有可用输出时将恢复；如果没有恢复，请离开并重新加入通话。</translation>
     </message>
     <message>
-        <location line="+2273"/>
-        <source>This system can&apos;t capture the sound it plays.</source>
-        <translation>此系统无法捕获其播放的声音。</translation>
+        <location line="+2324"/>
+        <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
+        <source>Screen-share sound needs PipeWire; this system has only PulseAudio, or PipeWire isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Screen-share sound needs Windows build 20348 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Screen-share sound isn&apos;t available on this system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
         <translation>声音：此电脑播放的所有内容，Lightning 除外。</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation>声音：此电脑播放的所有内容，包括本次通话，因此其他人可能会听到自己。</translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No apps chosen, so the share has no sound.</source>
         <translation>未选择任何应用，因此共享没有声音。</translation>
     </message>
@@ -22893,7 +22903,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话已被拒绝。</translation>
     </message>
     <message>
-        <location line="-4079"/>
+        <location line="-4140"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
@@ -29076,7 +29086,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2454"/>
+        <location filename="../src/main.cpp" line="+2461"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>
