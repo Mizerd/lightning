@@ -748,7 +748,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7292"/>
+        <location filename="../src/app/AppController.cpp" line="+7317"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1025,13 +1025,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4950"/>
-        <location line="+2937"/>
+        <location line="-4975"/>
+        <location line="+2962"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2936"/>
+        <location line="-2961"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1041,7 +1041,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+589"/>
+        <location line="+614"/>
         <source>Call started</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6781,6 +6781,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2746"/>
         <source>Voice message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12224,7 +12225,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+249"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+250"/>
         <source>Choose a room picture</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14211,6 +14212,29 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/spaces/RailEntryModel.cpp" line="+249"/>
         <source>Direct Messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RailHiddenActions</name>
+    <message>
+        <location filename="../qml/RailHiddenActions.qml" line="+24"/>
+        <source>Settings — this session is not verified</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Settings — a Lightning update is available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+41"/>
+        <source>Account menu for %1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -16359,12 +16383,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+99"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+101"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-63"/>
+        <location line="-65"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16384,7 +16408,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+60"/>
+        <source>In a call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16662,7 +16691,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+183"/>
+        <location filename="../qml/RoomsPanel.qml" line="+186"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -16689,7 +16718,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+111"/>
         <source>Search</source>
         <translation type="unfinished"></translation>
     </message>
@@ -22552,7 +22581,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+711"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+745"/>
         <location line="+345"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -22851,7 +22880,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2270"/>
+        <location line="+2273"/>
         <source>This system can&apos;t capture the sound it plays.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -22916,7 +22945,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4076"/>
+        <location line="-4079"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -23532,7 +23561,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+758"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+787"/>
         <source>Create Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -23620,7 +23649,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+221"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+251"/>
         <source>All rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27095,7 +27124,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+1197"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1548"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27145,7 +27174,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1313"/>
+        <location line="+1319"/>
         <source>%1 is typing…</source>
         <translation type="unfinished"></translation>
     </message>
