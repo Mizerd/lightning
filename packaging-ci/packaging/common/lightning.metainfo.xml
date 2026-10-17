@@ -163,13 +163,19 @@
       <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.2</url>
       <description>
         <p>
-          A release about getting your conversations and settings out of the app
-          and back in: export a room as a web page with its photos, export your
-          room keys, take your settings to another device, and find an
-          attachment by its name. It also brings a rebuilt theme editor, read
-          receipts as faces, a notification troubleshooter, and updates that now
-          come from GitHub first.
+          Export a room as a web page, export your room keys, move your
+          settings to another device, and find attachments by name. Plus a long
+          round of fixes to screen sharing, notifications, files and sign-in.
         </p>
+        <ul>
+          <li>Screen-share sound no longer plays the call back to its participants, and your choice is remembered.</li>
+          <li>Saving a file asks where to save it, with the original name filled in.</li>
+          <li>Edits from other clients update reliably.</li>
+          <li>Call keys work from any window on Wayland, and Lightning is now available in German.</li>
+          <li>A rebuilt theme editor, read receipts as faces and a notification troubleshooter.</li>
+          <li>Windows MSI upgrades keep every file; macOS restores from the menu bar without crashing.</li>
+          <li>Updates are read from GitHub first. macOS is not yet tested live.</li>
+        </ul>
       </description>
     </release>
     <release version="0.10.1" date="2026-10-07" type="stable">
