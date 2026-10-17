@@ -208,8 +208,11 @@ TimelineEvent syncEventFromPayload(const QJsonObject &obj, const QString &roomId
     // the new content travels beside it.
     e.replacesEventId = obj.value(QStringLiteral("replaces_event_id")).toString();
     e.isEdit = !e.replacesEventId.isEmpty();
-    if (e.isEdit)
-        e.editNewBody = obj.value(QStringLiteral("new_body")).toString();
+    if (e.isEdit) {
+        const auto newBody = obj.value(QStringLiteral("new_body"));
+        e.editNewBodyAvailable = newBody.isString();
+        e.editNewBody = newBody.toString();
+    }
     return e;
 }
 

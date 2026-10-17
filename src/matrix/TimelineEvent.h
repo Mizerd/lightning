@@ -195,12 +195,14 @@ struct TimelineEvent {
 
     // An edit (`m.relates_to.rel_type: m.replace`) delivered as its own event
     // by the sync-handler path, for a room with no open timeline. `body` stays
-    // the sender's "* " fallback; `editNewBody` is `m.new_content.body` (empty
-    // when the bridge did not send one). The live timeline aggregates edits
+    // the sender's "* " fallback; `editNewBody` is `m.new_content.body`, which
+    // can be explicitly empty. The live timeline aggregates edits
     // into the original row and never sets these.
     bool isEdit = false;
     QString replacesEventId;
     QString editNewBody;
+    // An explicitly empty replacement is different from an absent legacy field.
+    bool editNewBodyAvailable = false;
 
     // Media. Non-empty only for media rows (Image/File/Video/Audio/Sticker).
     QString mediaMxcUrl;

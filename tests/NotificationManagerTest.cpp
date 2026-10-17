@@ -85,6 +85,11 @@ private Q_SLOTS:
     void anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead();
     void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
     void signingOutForgetsTheTrayBalloonsClick();
+    void anAggregatedEditUpdatesAWaitingCardWithoutAnotherDelivery();
+    void anUnchangedSetKeepsTheGroupedCount();
+    void aSetNeverOverridesAKnownQuietVerdictOrAUtdTransition();
+    void aDismissedCardIsNotRecreatedByAWaitingReplacement();
+    void aReplacementForASupersededCardIsDropped();
     void readingARoomDropsAPopupStillWaitingForItsAvatar();
     void aThreadReplyNotifiesForItsRoomNotItsTimelineId();
     void aTrayBalloonClickNeverRoutesToATimelineId();
@@ -1422,6 +1427,160 @@ void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
 
 // A popup still parked waiting for its room avatar is dropped when the room
 // is read, not shown a moment later.
+void NotificationManagerTest::anAggregatedEditUpdatesAWaitingCardWithoutAnotherDelivery()
+{
+    NotificationManager manager;
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+    auto context = baseContext();
+    // The edited text is only on a card that shows message text.
+    context.previewMode = NotificationManager::SenderAndMessage;
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    auto event = incomingText();
+    manager.processEvent(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+    event.body = QStringLiteral("latest words");
+    event.edited = true;
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("latest words"));
+    QCOMPARE(delivered.count(), 0);
+    QCOMPARE(manager.avatarWaitPayloadForTest(0).value(QStringLiteral("eventId")).toString(), event.eventId);
+
+    // Raw edits have not passed the SDK's target/sender validity check.
+    auto raw = event;
+    raw.isEdit = true;
+    raw.editNewBody = QStringLiteral("unvalidated");
+    manager.processUpdated(raw, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("latest words"));
+    // Nor can a Set for an older message replace the room's latest card.
+    event.eventId = QStringLiteral("$older:example.org");
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    // Undoing an edit is another authoritative update.
+    event = incomingText();
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), NotificationManager::decide(event, context).body);
+    manager.closeRoomNotifications(event.roomId);
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 0);
+
+    // A known Notify rule can allow a notice. A subsequent Set lacks that
+    // verdict; it must refresh the existing card rather than apply the
+    // Unknown-verdict fallback that suppresses notices.
+    event.type = TimelineEvent::Notice;
+    event.pushVerdict = TimelineEvent::PushVerdict::Notify;
+    manager.processEvent(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    event.pushVerdict = TimelineEvent::PushVerdict::Unknown;
+    event.body = QStringLiteral("updated notice");
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("updated notice"));
+    // Still the room's avatar/initials under the policy it was queued with.
+    QVERIFY(manager.avatarWaitHasImageForTest(0));
+    context.previewMode = NotificationManager::Private;
+    event.body = QStringLiteral("private words");
+    manager.processUpdated(event, context);
+    QVERIFY(!manager.avatarWaitBodyForTest(0).contains(QStringLiteral("private words")));
+    // A refresh under Private must also drop what identifies the room: the
+    // avatar reference and the initials disc.
+    QVERIFY2(!manager.avatarWaitHasImageForTest(0),
+             "a Private refresh kept the room avatar or initials");
+}
+
+// Finding 5: a refresh formats with the group's retained count.
+void NotificationManagerTest::anUnchangedSetKeepsTheGroupedCount()
+{
+    NotificationManager manager;
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+    auto context = baseContext();
+    // SenderOnly: a Private card carries no room avatar, so it is never parked
+    // waiting for one and there would be nothing to refresh.
+    context.previewMode = NotificationManager::SenderOnly;
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    auto first = incomingText();
+    auto second = incomingText();
+    second.eventId = QStringLiteral("$second:example.org");
+    manager.processEvent(first, context);
+    manager.processEvent(second, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 2);
+    const QString counted = manager.avatarWaitBodyForTest(1);
+    QVERIFY(counted != NotificationManager::decide(second, context).body);
+    // A receipt-style Set: nothing about the message changed.
+    manager.processUpdated(second, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(1), counted);
+    QCOMPARE(manager.groupBodyForTest(
+                 manager.firstGroupPayloadForTest().value(QStringLiteral("group")).toString()),
+             counted);
+    // A real edit under SenderOnly still shows the count, not one message.
+    second.body = QStringLiteral("edited words");
+    second.edited = true;
+    manager.processUpdated(second, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(1),
+             QCoreApplication::translate("Notifications", "%n new messages",
+                                         nullptr, 2));
+    // Switching to Private re-words the same card with Private's own count.
+    context.previewMode = NotificationManager::Private;
+    manager.processUpdated(second, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(1),
+             QCoreApplication::translate("Notifications",
+                                         "%n new Matrix notifications",
+                                         nullptr, 2));
+}
+
+// Finding 3: dismissing the card cancels an in-place update still waiting
+// for its avatar; it must not raise a fresh popup afterwards.
+void NotificationManagerTest::aDismissedCardIsNotRecreatedByAWaitingReplacement()
+{
+    NotificationManager manager;
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    auto event = incomingText();
+    manager.processEvent(event, context);
+    manager.notifyReplyForTest(QString(), manager.deliveryGenerationForTest(QString()),
+                               55, manager.firstGroupPayloadForTest());
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+    event.body = QStringLiteral("edited while shown");
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                                      Q_ARG(quint32, 55), Q_ARG(quint32, 2)));
+    QCOMPARE(manager.avatarWaitCountForTest(), 0);
+    QCOMPARE(manager.groupTableSizeForTest(), 0);
+    QCOMPARE(manager.droppedReplacementsForTest(), 0);
+}
+
+// Finding 3, the other half: whatever reaches dispatch is re-checked against
+// the group's current event, so a superseded replacement is dropped.
+void NotificationManagerTest::aReplacementForASupersededCardIsDropped()
+{
+    bool failed = false;
+    NotificationManager manager;
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    auto event = incomingText();
+    manager.processEvent(event, context);
+    manager.notifyReplyForTest(QString(), manager.deliveryGenerationForTest(QString()),
+                               56, manager.firstGroupPayloadForTest());
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [&failed](const QString &) { return failed; });
+    event.body = QStringLiteral("edited");
+    manager.processUpdated(event, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    // A newer message takes over the room's card before the avatar settles.
+    auto newer = incomingText(QStringLiteral("newer"));
+    newer.eventId = QStringLiteral("$newer:example.org");
+    manager.processEvent(newer, context);
+    failed = true;
+    QTRY_COMPARE_WITH_TIMEOUT(manager.avatarWaitCountForTest(), 0, 10000);
+    QCOMPARE(manager.droppedReplacementsForTest(), 1);
+}
+
 void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
 {
     NotificationManager manager;
@@ -2194,6 +2353,47 @@ TimelineEvent decrypted(const QString &eventId = QStringLiteral("$utd:x"),
 }
 } // namespace
 
+// Finding 2: the Set the bridge reports BEFORE a late decryption must not
+// replace an "Encrypted message" card, and a known Quiet verdict withdraws.
+void NotificationManagerTest::aSetNeverOverridesAKnownQuietVerdictOrAUtdTransition()
+{
+    using Verdict = TimelineEvent::PushVerdict;
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    NotificationManager manager;
+    manager.setUndecryptableHoldMsForTest(0);
+    manager.processEvent(undecryptable(), context);
+    QCOMPARE(manager.trayAttemptsForTest(), 1);
+    // The daemon raised it: a shown card.
+    manager.notifyReplyForTest(QString(), manager.deliveryGenerationForTest(QString()),
+                               77, manager.firstGroupPayloadForTest());
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    const QString group =
+        manager.firstGroupPayloadForTest().value(QStringLiteral("group")).toString();
+    const QString utdBody = manager.groupBodyForTest(group);
+    QCOMPARE(utdBody, QCoreApplication::translate("Notifications", "Encrypted message"));
+    // Production order: eventChangedAt (processUpdated) then eventDecrypted.
+    const TimelineEvent quiet = withVerdict(decrypted(), Verdict::Quiet);
+    manager.processUpdated(quiet, context);
+    QCOMPARE(manager.groupBodyForTest(group), utdBody);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+    manager.processDecrypted(quiet, context);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    QCOMPARE(manager.groupTableSizeForTest(), 0);
+
+    // An ordinary card: Unknown keeps its Notify, a known Quiet withdraws it.
+    NotificationManager plain;
+    auto notified = withVerdict(incomingText(), Verdict::Notify);
+    plain.processEvent(notified, context);
+    plain.notifyReplyForTest(QString(), plain.deliveryGenerationForTest(QString()),
+                             78, plain.firstGroupPayloadForTest());
+    auto unknown = incomingText(QStringLiteral("edited"));
+    plain.processUpdated(unknown, context);
+    QCOMPARE(plain.pendingPayloadCountForTest(), 1);
+    plain.processUpdated(withVerdict(unknown, Verdict::Quiet), context);
+    QCOMPARE(plain.pendingPayloadCountForTest(), 0);
+}
+
 // Findings 46/124/32: a message whose key arrived a moment late notified as
 // "Encrypted message" and was never looked at again.
 void NotificationManagerTest::anUndecryptableMessageWaitsBrieflyForItsKey()
@@ -2378,6 +2578,10 @@ void NotificationManagerTest::withoutRulesEditsAndNoticesStayQuiet()
     ruled.editNewBody.clear();
     QCOMPARE(NotificationManager::decide(ruled, context).body,
              QStringLiteral("fixed typo"));
+    // An absent legacy field may use the fallback, but an explicitly empty
+    // m.new_content.body must never resurrect its text.
+    ruled.editNewBodyAvailable = true;
+    QVERIFY(NotificationManager::decide(ruled, context).body.isEmpty());
 }
 
 // Finding 153: "/me is running late" read "is running late".

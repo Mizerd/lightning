@@ -229,6 +229,10 @@ public:
     /// seen live are ignored, so a history backfill raises nothing.
     void processDecrypted(const TimelineEvent &event, const Context &context);
 
+    /// Refresh an existing card from an SDK-aggregated row, silently. Never
+    /// raises a card for an event this manager has not already announced.
+    void processUpdated(const TimelineEvent &event, const Context &context);
+
     /// The event was redacted (or otherwise must disappear): withdraw a card
     /// showing it, and drop one not delivered yet.
     void withdrawEvent(const QString &eventId);
@@ -407,6 +411,29 @@ public:
         const Card *card = foregroundAvatarWait(index);
         return card ? card->body : QString();
     }
+    /// Replacements dropped because their card was gone or superseded.
+    int droppedReplacementsForTest() const { return m_droppedReplacements; }
+    /// Cards parked behind the capability query, and the message count and
+    /// body a group shows (the foreground account's).
+    int capabilityWaitCountForTest() const { return m_capabilityWaits.size(); }
+    int groupCountForTest(const QString &groupKey) const
+    { return m_tables.value(QString()).groups.value(groupKey).count; }
+    QString groupBodyForTest(const QString &groupKey) const
+    { return m_tables.value(QString()).groups.value(groupKey).body; }
+    QVariantMap firstGroupPayloadForTest() const
+    {
+        const auto &groups = m_tables.value(QString()).groups;
+        return groups.isEmpty() ? QVariantMap{} : groups.cbegin()->payload;
+    }
+    int groupTableSizeForTest() const
+    { return m_tables.value(QString()).groups.size(); }
+    /// Whether a parked "" delivery has an avatar or a fallback image.
+    bool avatarWaitHasImageForTest(int index) const
+    {
+        const Card *card = foregroundAvatarWait(index);
+        return card && (!card->avatarMxc.isEmpty() || !card->fallback.isNull()
+                        || !card->avatar.isNull());
+    }
     /// Messages held for their decryption key, and the hold.
     int heldUndecryptableCountForTest() const { return m_heldUtds.size(); }
     void setUndecryptableHoldMsForTest(int ms) { m_utdHoldMs = ms; }
@@ -508,6 +535,9 @@ private:
     // `fallback` is shown when the avatar is absent or cannot be fetched;
     // an empty image reverts to the daemon's own generic icon.
     void deliver(Card card);
+    /// A replacement is still wanted: its group shows (or is raising) its
+    /// event for its account. See deliverNow().
+    bool replacementStillOwned(const Card &card) const;
     void deliverNow(Card card);
     // Builds a message card from a decision and delivers it.
     void deliverDecision(const TimelineEvent &event, const Context &context,
@@ -662,6 +692,7 @@ private:
     // and card group (room, thread or keyed notice), oldest first.
     QList<Balloon> m_balloonQueue;
     bool m_trayShowsForTest = false;
+    int m_droppedReplacements = 0;
     int m_trayAttempts = 0;
     bool m_lastTrayPlatformSound = false;
     QString m_lastTrayTitle;
@@ -688,6 +719,8 @@ private:
         // The newest card's payload: what a withdrawal matches before (or
         // while) the daemon answers.
         QVariantMap payload;
+        QString title;
+        QString body;
         std::optional<Card> next;
     };
     // One account's cards. "" is the foreground account, which is the only

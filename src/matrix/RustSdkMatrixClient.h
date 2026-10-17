@@ -1423,10 +1423,12 @@ private:
     unsigned m_indexAllHold = 0;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
-    // Edits and poll starts already forwarded from sync. They never enter
-    // m_timelines, so its de-dup scan cannot see a second delivery of one.
-    // Bounded; same lifetime as the mirror.
-    QSet<QString> m_forwardedEditIds;
+    // Events already forwarded from sync for a closed room (mirrored or not).
+    // Independent of m_timelines on purpose: an edit, a late decryption or a
+    // redaction INVALIDATES that mirror, and its de-dup scan then cannot see a
+    // replayed original, which would be announced again and restore the
+    // unedited body. Oldest id evicted first. Same lifetime as the mirror.
+    matrix::notification_producer::BoundedIdMap m_forwardedEditIds{512};
     // Events this session saw arrive undecryptable (any room, any producer),
     // with whether that sighting was history. A late decryption is announced
     // (eventDecrypted) only for an id taken from here, so it fires once and

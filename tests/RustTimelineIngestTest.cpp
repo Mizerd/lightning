@@ -1237,11 +1237,25 @@ void RustTimelineIngestTest::setReplacesInPlace()
     diff.insert(QStringLiteral("item"),
                 itemJson(QStringLiteral("item2"), QStringLiteral("$ev2"),
                          QStringLiteral("edited body")));
+    auto item = diff.value(QStringLiteral("item")).toObject();
+    item.insert(QStringLiteral("edited"), true);
+    item.insert(QStringLiteral("formatted_body"), QStringLiteral("<b>edited body</b>"));
+    diff.insert(QStringLiteral("item"), item);
     const auto outcome = applyTimelineDiff(mirror, diff, kRoom);
     QCOMPARE(outcome.kind, DiffOutcome::Changed);
     QCOMPARE(outcome.index, 2);
     QCOMPARE(mirror.size(), 3);
+    QCOMPARE(mirror.at(2).eventId, QStringLiteral("$ev2"));
+    QCOMPARE(mirror.at(2).itemId, QStringLiteral("item2"));
     QCOMPARE(mirror.at(2).body, QStringLiteral("edited body"));
+    QCOMPARE(mirror.at(2).formattedBody, QStringLiteral("<b>edited body</b>"));
+    QVERIFY(mirror.at(2).edited);
+    item.insert(QStringLiteral("body"), QStringLiteral("second edit"));
+    item.remove(QStringLiteral("formatted_body"));
+    diff.insert(QStringLiteral("item"), item);
+    applyTimelineDiff(mirror, diff, kRoom);
+    QCOMPARE(mirror.at(2).body, QStringLiteral("second edit"));
+    QVERIFY(mirror.at(2).formattedBody.isEmpty());
 }
 
 void RustTimelineIngestTest::removeAtIndex()
@@ -1827,6 +1841,14 @@ void RustTimelineIngestTest::aSyncPayloadCarriesBacklogReplyAndEditFacts()
     QVERIFY(e.isEdit);
     QCOMPARE(e.replacesEventId, QStringLiteral("$orig"));
     QCOMPARE(e.editNewBody, QStringLiteral("fixed"));
+    QVERIFY(e.editNewBodyAvailable);
+    auto emptyEdit = obj;
+    emptyEdit.insert(QStringLiteral("new_body"), QStringLiteral(""));
+    const auto empty = matrix::rust_timeline::syncEventFromPayload(emptyEdit, kRoom);
+    QVERIFY(empty.editNewBodyAvailable);
+    QVERIFY(empty.editNewBody.isEmpty());
+    emptyEdit.remove(QStringLiteral("new_body"));
+    QVERIFY(!matrix::rust_timeline::syncEventFromPayload(emptyEdit, kRoom).editNewBodyAvailable);
     // The fallback stays the body; consumers choose.
     QCOMPARE(e.body, QStringLiteral("* fixed"));
     QCOMPARE(e.pushVerdict, TimelineEvent::PushVerdict::Notify);

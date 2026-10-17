@@ -7637,6 +7637,12 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         return;
     }
 
+    // This lightweight mirror does not aggregate relations. Once an edit
+    // arrives, only the next SDK snapshot can supply current messages, quotes
+    // and thread summaries. Do not flash the old copy while that snapshot loads.
+    if (isEdit)
+        m_timelines.remove(roomId);
+
     // Mirror for an unopened room, bounded by kBackgroundMirrorCap, which
     // bounds this de-dup scan too. The scan stays here so a duplicate does not
     // re-emit eventAppended or raise the room's activity.
@@ -7645,19 +7651,18 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         if (existing.eventId == eventId)
             return;
     }
-    // An unmirrored row (edit, poll start; a thread reply is in neither the
-    // scan nor this set, see below) cannot be found by the scan again: a
-    // second delivery (a sliding-sync reset, a room re-entering the window)
-    // would notify twice.
+    // Remember every non-thread event forwarded from here, mirrored or not.
+    // The scan above only sees what the mirror still holds; an edit, a late
+    // decryption or a redaction drops the mirror, and a second delivery (a
+    // sliding-sync reset, a room re-entering the window) of the ORIGINAL would
+    // then be announced again and restore its pre-edit body. A thread reply is
+    // de-duplicated by its consumers, see below.
     const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
         && timelineEvent.threadRootId != eventId;
-    if (route == SyncRoute::AppendUnmirrored && !threadedReply) {
+    if (!threadedReply) {
         if (m_forwardedEditIds.contains(eventId))
             return;
-        // Only needs to outlive a redelivery.
-        if (m_forwardedEditIds.size() >= 512)
-            m_forwardedEditIds.clear();
-        m_forwardedEditIds.insert(eventId);
+        m_forwardedEditIds.insert(eventId, false);
     }
 
     // The replied-to sender, when the mirror holds the target: lets the
@@ -7789,6 +7794,8 @@ void RustSdkMatrixClient::handleEventDecrypted(const QJsonObject &event)
     // owned by its own diffs.
     const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
         || m_timelineTracker.requestedRoom() == roomId;
+    if (!liveTimeline && decrypted.isEdit)
+        m_timelines.remove(roomId);
     if (!liveTimeline) {
         auto mirrorIt = m_timelines.find(roomId);
         if (mirrorIt != m_timelines.end()) {
@@ -7829,8 +7836,10 @@ void RustSdkMatrixClient::handleEventRedacted(const QJsonObject &event)
             }
         }
     } else {
-        // The background mirror must not show the deleted content on the next
-        // open either.
+        // A known message can be redacted locally. An unknown target may be
+        // an edit of a message, quote or thread summary held here; the SDK's
+        // next snapshot must restore that projection.
+        bool found = false;
         auto mirrorIt = m_timelines.find(roomId);
         if (mirrorIt != m_timelines.end()) {
             for (auto &row : *mirrorIt) {
@@ -7838,10 +7847,13 @@ void RustSdkMatrixClient::handleEventRedacted(const QJsonObject &event)
                     row.redacted = true;
                     row.body.clear();
                     row.formattedBody.clear();
+                    found = true;
                     break;
                 }
             }
         }
+        if (!found)
+            m_timelines.remove(roomId);
     }
     Q_EMIT eventRedacted(roomId, redacts);
 }
@@ -7880,6 +7892,13 @@ void RustSdkMatrixClient::emitDiffNotificationFacts(
     case DiffOutcome::Changed:
         if (outcome.items.isEmpty())
             break;
+        if (outcome.items.first().edited && qEnvironmentVariableIsSet("LIGHTNING_EDIT_TRACE")) {
+            qCInfo(lcRust) << "edit-trace stage=bridge-set"
+                          << "room=" << matrix::e2ee::redactId(roomId)
+                          << "event=" << matrix::e2ee::redactId(outcome.items.first().eventId)
+                          << "thread=" << !threadRootId.isEmpty()
+                          << "index=" << outcome.index;
+        }
         if (outcome.becameRedacted) {
             m_undecryptableSeen.take(outcome.items.first().eventId);
             Q_EMIT eventRedacted(roomId, outcome.items.first().eventId);

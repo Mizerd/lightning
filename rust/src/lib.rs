@@ -2289,6 +2289,10 @@ async fn run_crypto_bootstrap_observer(
                                 else {
                                     continue;
                                 };
+                                trace_remote_edit(
+                                    "late-decrypted", event_id.as_str(),
+                                    event["replaces_event_id"].as_str().unwrap_or_default(), true,
+                                );
                                 enqueue(&events, json!({
                                     "type": "event_decrypted",
                                     "lifecycle": lifecycle,
@@ -11754,6 +11758,7 @@ fn room_message_event_json(
         ),
         _ => (String::new(), String::new()),
     };
+    trace_remote_edit("readable", event_id.as_str(), &replaces_event_id, is_encrypted);
     Some(json!({
         "event_id": event_id.to_string(),
         "sender": sender.to_string(),
@@ -11774,6 +11779,15 @@ fn room_message_event_json(
         // Legacy field for C++ builds that still read `decrypted`.
         "decrypted": is_encrypted,
     }))
+}
+
+/// Opt-in correlation across sync, late decryption and the aggregated Set.
+/// Same hashed IDs as C++; never content, ciphertext or key material.
+fn trace_remote_edit(stage: &str, event_id: &str, target: &str, encrypted: bool) {
+    if !target.is_empty() && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some() {
+        eprintln!("edit-trace stage={stage} edit={} target={} encrypted={encrypted}",
+            redact_matrix_id(event_id), redact_matrix_id(target));
+    }
 }
 
 /// What a poll-start row needs, from either the stable or the unstable type.
@@ -12479,6 +12493,7 @@ fn install_event_handlers(
                 // same field in timeline.rs `cleartext_thread_root`).
                 let (replaces_event_id, thread_root_id) = encrypted_relation_ids(
                     ev.content.relates_to.as_ref());
+                trace_remote_edit("undecryptable", ev.event_id.as_str(), &replaces_event_id, true);
                 let mut event = json!({
                     "event_id": ev.event_id.to_string(),
                     "sender": ev.sender.to_string(),

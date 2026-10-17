@@ -225,7 +225,8 @@ QString messageText(const TimelineEvent &event)
         text = spoilerSafeText(
             event.formattedBody,
             QCoreApplication::translate("Notifications", "(spoiler)"));
-    } else if (event.isEdit && !event.editNewBody.isEmpty()) {
+    } else if (event.isEdit
+               && (event.editNewBodyAvailable || !event.editNewBody.isEmpty())) {
         return event.editNewBody;
     } else {
         text = event.body;
@@ -865,6 +866,134 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
     deliverDecision(event, context, decision, false, /*replacement=*/true);
 }
 
+namespace {
+// One card per room stands for every message in it: past the first, the body
+// says how many (or, with the text shown, stays the latest line). Shared by
+// every path that writes a card's body so a refresh cannot erase the count.
+QString bodyForCount(const NotificationManager::Decision &decision,
+                     const TimelineEvent &event,
+                     const NotificationManager::Context &context, int count)
+{
+    if (count <= 1)
+        return decision.body;
+    if (context.previewMode == NotificationManager::SenderOnly
+        && !event.mentionsMe) {
+        return QCoreApplication::translate("Notifications", "%n new messages",
+                                           nullptr, count);
+    }
+    if (context.previewMode == NotificationManager::Private) {
+        return QCoreApplication::translate(
+            "Notifications", "%n new Matrix notifications", nullptr, count);
+    }
+    return decision.body;
+}
+} // namespace
+
+void NotificationManager::processUpdated(const TimelineEvent &event,
+                                         const Context &context)
+{
+    // Raw m.replace events have not been validated against their target here.
+    // Only the SDK's aggregated row is authoritative, including edit removal.
+    if (event.eventId.isEmpty() || event.isEdit || event.undecryptable)
+        return;
+    const QString accountKey = context.accountUserId;
+    const QString groupKey = messageGroupKey(
+        routableRoomId(event.roomId),
+        routableThreadRootId(event.roomId, event.threadRootId));
+    auto group = table(accountKey).groups.find(groupKey);
+    if (group == table(accountKey).groups.end()
+        || group->withdrawn
+        || group->payload.value(QStringLiteral("eventId")).toString() != event.eventId)
+        return; // absent, dismissed, or already replaced by a newer message
+    // An "Encrypted message" card changes only through processDecrypted(),
+    // which owns the UTD transition (hold, count, replace-or-withdraw). The
+    // bridge reports the Set before the decryption, so without this the Set
+    // would replace the card first and processDecrypted() would then find a
+    // replacement in flight and stop, whatever the plaintext's verdict.
+    if (group->payload.value(QStringLiteral("utd")).toBool())
+        return;
+    // The existing card already passed the account's push rules. SDK Set
+    // diffs often omit that verdict (e.g. profile/receipt updates), so an
+    // UNKNOWN verdict keeps the one that raised the card. A known verdict is
+    // authoritative, Quiet included: it withdraws the card below.
+    TimelineEvent current = event;
+    if (current.pushVerdict == TimelineEvent::PushVerdict::Unknown) {
+        current.pushVerdict = TimelineEvent::PushVerdict::Notify;
+        current.pushHighlight =
+            group->payload.value(QStringLiteral("mention")).toBool();
+    }
+    current.backlog = false;
+    Decision decision = decide(current, context);
+    if (!decision.notify) {
+        const QString owner = accountKey.isEmpty() ? m_accountUserId : accountKey;
+        withdrawEverywhere([&](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("eventId")).toString() == event.eventId
+                && payload.value(QStringLiteral("accountUserId")).toString() == owner;
+        });
+        return;
+    }
+    // The card the group shows stands for `count` messages: format with that
+    // before comparing, or an unchanged Set turns "2 new ..." back into one.
+    decision.body = bodyForCount(decision, current, context, group->count);
+    if (group->title == decision.title && group->body == decision.body)
+        return; // receipts, reactions and profile-only Set diffs
+    group->title = decision.title;
+    group->body = decision.body;
+    // Presentation follows the CURRENT privacy policy, not the one the card
+    // was queued under: a Private card carries no room avatar or initials.
+    const bool privateMode = context.previewMode == Private;
+    const auto matches = [&](const Card &card) {
+        return card.accountKey == accountKey
+            && card.payload.value(QStringLiteral("eventId")).toString() == event.eventId;
+    };
+    const auto refresh = [&](Card &card, bool avatarResolved) {
+        card.title = decision.title;
+        card.body = decision.body;
+        if (privateMode) {
+            card.avatarMxc.clear();
+            card.fallback = QImage();
+            card.avatar = QImage();
+            return;
+        }
+        card.fallback = lightning::notifications::fallbackAvatar(
+            context.roomName, context.avatarColorKey, kFallbackAvatarEdge,
+            context.themeId);
+        if (!avatarResolved)
+            card.avatarMxc = context.avatarMxc;
+        else if (card.avatar.isNull())
+            card.avatar = card.fallback;
+    };
+    bool waiting = false;
+    for (auto &card : m_avatarWaits) {
+        if (matches(card)) {
+            refresh(card, /*avatarResolved=*/false);
+            waiting = true;
+        }
+    }
+    for (auto &card : m_capabilityWaits) {
+        if (matches(card)) {
+            refresh(card, /*avatarResolved=*/true);
+            waiting = true;
+        }
+    }
+    if (group->next && matches(*group->next)) {
+        refresh(*group->next, /*avatarResolved=*/true);
+        waiting = true;
+    }
+    for (auto &balloon : m_balloonQueue) {
+        if (balloon.accountKey == accountKey
+            && balloon.payload.value(QStringLiteral("eventId")).toString() == event.eventId) {
+            balloon.title = decision.title;
+            balloon.body = decision.body;
+            if (privateMode)
+                balloon.avatar = QImage();
+            waiting = true;
+        }
+    }
+    if (!waiting && (group->id != 0 || group->inFlight))
+        deliverDecision(event, context, decision, false, /*replacement=*/true);
+}
+
 void NotificationManager::deliverDecision(const TimelineEvent &event,
                                           const Context &context,
                                           const Decision &decision,
@@ -886,21 +1015,9 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
             ++group.count;
         count = group.count;
     }
-    QString body = decision.body;
-    // One card per room: past the first message it stands for all of them.
-    // With the text shown, the latest line is the useful one; without it, the
-    // count is (a mention keeps its own line, which says more).
-    if (count > 1 && !replacement) {
-        if (context.previewMode == SenderOnly && !event.mentionsMe) {
-            body = QCoreApplication::translate("Notifications",
-                                               "%n new messages", nullptr,
-                                               count);
-        } else if (context.previewMode == Private) {
-            body = QCoreApplication::translate(
-                "Notifications", "%n new Matrix notifications", nullptr,
-                count);
-        }
-    }
+    // One card per room: past the first message it stands for all of them,
+    // a replacement included (it is the same card, not a new message).
+    const QString body = bodyForCount(decision, event, context, count);
     QVariantMap payload;
     // Normalised where the payload is built, so every consumer sees a real room
     // id.
@@ -918,7 +1035,10 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     // A card a late decryption may replace in place.
     if (undecryptable)
         payload.insert(QStringLiteral("utd"), true);
-    table(accountKey).groups[groupKey].payload = payload;
+    auto &currentGroup = table(accountKey).groups[groupKey];
+    currentGroup.payload = payload;
+    currentGroup.title = decision.title;
+    currentGroup.body = body;
 
     Card card;
     card.title = decision.title;
@@ -1348,6 +1468,23 @@ void NotificationManager::forgetPayload(quint32 id)
     const auto group = own->groups.find(groupKey);
     if (group == own->groups.end() || group->id != id)
         return;
+    // The card is gone, and so is any in-place update still waiting for its
+    // avatar or the capabilities: delivering it would raise a new popup.
+    QString ownerKey;
+    for (auto t = m_tables.cbegin(); t != m_tables.cend(); ++t) {
+        if (&t.value() == own)
+            ownerKey = t.key();
+    }
+    const auto isReplacementHere = [&groupKey, &ownerKey](const Card &card) {
+        return card.replacement && card.accountKey == ownerKey
+            && card.payload.value(QStringLiteral("group")).toString() == groupKey;
+    };
+    m_avatarWaits.removeIf(isReplacementHere);
+    m_capabilityWaits.removeIf(isReplacementHere);
+    if (m_avatarWaits.isEmpty())
+        m_avatarWaitTimer.stop();
+    if (group->next && group->next->replacement)
+        group->next.reset();
     // The card is gone; the next message raises a new one. One still on its
     // way keeps the group (and its count) for its answer.
     if (group->inFlight || group->next)
@@ -1679,8 +1816,32 @@ void NotificationManager::queryDesktopInhibition()
 #endif
 }
 
+bool NotificationManager::replacementStillOwned(const Card &card) const
+{
+    // A replacement updates a card in place and never raises one: it is valid
+    // only while the group it was made for still shows (or is raising) that
+    // very event, for the same account.
+    const auto own = m_tables.constFind(card.accountKey);
+    if (own == m_tables.cend())
+        return false;
+    const auto group = own->groups.constFind(
+        card.payload.value(QStringLiteral("group")).toString());
+    return group != own->groups.cend() && !group->withdrawn
+        && (group->id != 0 || group->inFlight)
+        && group->payload.value(QStringLiteral("eventId")).toString()
+            == card.payload.value(QStringLiteral("eventId")).toString();
+}
+
 void NotificationManager::deliverNow(Card card)
 {
+    // Replacements wait too (avatar, capabilities, a Notify in flight). The
+    // card may have been dismissed, withdrawn or superseded since: dropping
+    // is right, and delivering would raise a NEW popup with no replace id.
+    if (card.replacement && !replacementStillOwned(card)) {
+        ++m_droppedReplacements;
+        qCInfo(lcNotify) << "dropped a replacement for a card that is gone";
+        return;
+    }
     const bool mention = card.payload.value(QStringLiteral("mention")).toBool();
     const QString roomId =
         card.payload.value(QStringLiteral("roomId")).toString();

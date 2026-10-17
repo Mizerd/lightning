@@ -410,7 +410,9 @@ private slots:
         QCOMPARE(sink.rows.size(), 1);
         QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
         QCOMPARE(client.roomInfo(room).lastActivity, activity);
-        QCOMPARE(client.timeline(room).size(), 1);
+        // The mirror does not aggregate relations, so an edit drops it rather
+        // than keep showing the pre-edit copy until the SDK snapshot arrives.
+        QCOMPARE(client.timeline(room).size(), 0);
 
         // The same edit while the room is open (the preview-only branch).
         client.m_timelineTracker.request(room);
@@ -472,7 +474,9 @@ private slots:
             QVERIFY2(sink.rows.size() == 1,
                      qPrintable(QStringLiteral("%1 was forwarded %2 times")
                                     .arg(id).arg(sink.rows.size())));
-            QCOMPARE(client.timeline(room).size(), 1);
+            // An edit invalidates the mirror (see above), which is why the
+            // forwarded-id memory, not the mirror's scan, must stop the copy.
+            QCOMPARE(client.timeline(room).size(), 0);
             ++checked;
         }
         QCOMPARE(checked, 2);

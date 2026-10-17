@@ -4840,9 +4840,10 @@ fn event_item_to_json(
                         && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some()
                     {
                         eprintln!(
-                            "edit-trace event={} body_len={} formatted_len={} \
+                            "edit-trace stage=aggregated room={} event={} body_len={} formatted_len={} \
                              original_json={} latest_edit_json={} local_echo={}",
-                            out["event_id"].as_str().unwrap_or(""),
+                            crate::redact_matrix_id(room_id),
+                            crate::redact_matrix_id(out["event_id"].as_str().unwrap_or("")),
                             message.body().len(),
                             out["formatted_body"].as_str().map_or(0, str::len),
                             event.original_json().is_some(),
@@ -9618,3 +9619,7 @@ mod thread_auto_subscription_tests {
         assert_eq!(thread_root_of_content(&json!({ "body": "x" })), None);
     }
 }
+
+#[cfg(test)]
+#[path = "edit_regression_tests.rs"]
+mod edit_regression_tests;

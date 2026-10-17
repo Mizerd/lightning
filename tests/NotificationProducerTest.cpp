@@ -259,6 +259,67 @@ private slots:
 #endif
     }
 
+    void aBackgroundEditInvalidatesTheUnaggregatedMirror()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Sink sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+        listRoom(client, 0);
+        const auto original = message(QStringLiteral("$original"), QStringLiteral("old"));
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), original));
+        QCOMPARE(client.timeline(kRoom).size(), 1);
+        QCOMPARE(sink.appended.size(), 1);
+        auto edit = message(QStringLiteral("$edit"), QStringLiteral("* new"));
+        edit.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$original"));
+        edit.insert(QStringLiteral("new_body"), QStringLiteral("new"));
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), edit));
+        QVERIFY2(client.timeline(kRoom).isEmpty(), "cached original would flash on reopen");
+        const int announced = sink.appended.size();
+
+        // A replayed original (sliding-sync reset, room re-entering the
+        // window) must neither be announced again nor restore the unedited
+        // body. Old code: the invalidated mirror forgot it, so both happened.
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), original));
+        QCOMPARE(sink.appended.size(), announced);
+        QVERIFY2(client.timeline(kRoom).isEmpty(), "replayed original restored the unedited body");
+
+        // Some senders omit the cleartext relation on the encrypted wrapper.
+        // The relation discovered at late decryption must invalidate it too,
+        // and the same replay rule holds afterwards.
+        const auto second = message(QStringLiteral("$second"), QStringLiteral("old2"));
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), second));
+        QCOMPARE(client.timeline(kRoom).size(), 1);
+        auto lateEdit = edit;
+        lateEdit.insert(QStringLiteral("event_id"), QStringLiteral("$edit2"));
+        lateEdit.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$second"));
+        client.handleRustEventForTest(envelope(QStringLiteral("event_decrypted"), lateEdit));
+        QVERIFY(client.timeline(kRoom).isEmpty());
+        const int afterLate = sink.appended.size();
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), second));
+        QCOMPARE(sink.appended.size(), afterLate);
+        QVERIFY(client.timeline(kRoom).isEmpty());
+
+        // Redaction of an unknown target (an edit) invalidates likewise.
+        const auto third = message(QStringLiteral("$third"), QStringLiteral("old3"));
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), third));
+        QCOMPARE(client.timeline(kRoom).size(), 1);
+        QJsonObject redaction;
+        redaction.insert(QStringLiteral("type"), QStringLiteral("event_redacted"));
+        redaction.insert(QStringLiteral("room_id"), kRoom);
+        redaction.insert(QStringLiteral("redacts"), QStringLiteral("$edit"));
+        client.handleRustEventForTest(redaction);
+        QVERIFY2(client.timeline(kRoom).isEmpty(), "redacted edit left a stale cached version");
+        const int afterRedaction = sink.appended.size();
+        client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), third));
+        QCOMPARE(sink.appended.size(), afterRedaction);
+        QVERIFY(client.timeline(kRoom).isEmpty());
+#endif
+    }
+
     // Findings 9/52, 8, 44/120: the sync payload's facts ride on the row.
     void aSyncedEditCarriesItsFactsAndAReplyResolvesItsTarget()
     {

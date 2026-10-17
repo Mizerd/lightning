@@ -1,5 +1,24 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-17 — OPEN (SDK question, fixture-only mitigation): an edit synced right after the original can be lost when the event cache has not applied the first update
+
+`rust/src/edit_regression_tests.rs` waits, after every synthetic sync, until
+each event id is findable in the room's event cache (`cached()`). Without it
+`live_edits_keep_identity_and_use_new_content` and `an_edit_refreshes_a_reply_quote`
+failed about 3 runs in 25: `process_sliding_sync_test_helper` returns once the
+BASE client holds the response, and matrix-sdk 0.18.0 applies it to the event
+cache on a separate task (`event_cache::room_updates_task`, fed by a broadcast
+channel). A 300 ms sleep did not cure it, so it is not a plain timing gap.
+NOT established: whether production can lose an edit the same way. Production
+syncs are seconds apart and a timeline subscribes to the cache, which should
+deliver a later update; but we have NOT shown that a timeline built between the
+base-client write and the cache task (a room opened from a notification at
+startup) cannot miss it, and `room_updates_task` answers a lagged channel with
+`clear_all_rooms`. The wait stays in the fixture; do not read it as a
+production-safety proof. `a_late_megolm_key_reapplies_an_edit_in_place` timed
+out once in a loaded run and is unexplained. A real answer needs a test that
+builds the timeline between those two points on the real sync path.
+
 ## 2026-10-17 — KNOWN, ACCEPTED: the Windows native Save dialog stays white under a dark app theme until Windows itself is in dark mode
 
 Live test FAIL 5 of 2026-10-16 ("Save as" opened the Windows system dialog,

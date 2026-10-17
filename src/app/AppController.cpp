@@ -802,6 +802,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_notifications->processDecrypted(
             event, notificationContextFor(roomId, event, fromThread));
     });
+    // Aggregated edits (and removal of edits) arrive as an in-place SDK Set.
+    // Refresh a card already showing this event without announcing it again.
+    connect(m_client.get(), &MatrixClient::eventChangedAt, this,
+            [this](const QString &timelineId, int, TimelineEvent event) {
+        if (MatrixClient::isContextTimelineId(timelineId))
+            return;
+        const bool fromThread = MatrixClient::isThreadTimelineId(timelineId);
+        const QString roomId = MatrixClient::threadTimelineRoomId(timelineId);
+        event.roomId = roomId;
+        if (fromThread && event.threadRootId.isEmpty())
+            event.threadRootId = MatrixClient::threadTimelineRootId(timelineId);
+        m_notifications->processUpdated(
+            event, notificationContextFor(roomId, event, fromThread));
+    });
     // A redacted message's card goes; its text must not outlive it on the
     // desktop.
     connect(m_client.get(), &MatrixClient::eventRedacted, this,
