@@ -75,6 +75,7 @@ constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
 constexpr auto kSpacesRailDepthStyle = "shell/spacesRailDepthStyle";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
 constexpr auto kCloseToTray       = "shell/closeToTray";
+constexpr auto kGlobalShortcuts   = "shell/globalShortcuts";
 constexpr auto kWindowGeometry    = "shell/windowGeometry";
 constexpr auto kWindowMaximized   = "shell/windowMaximized";
 constexpr auto kStartInTray       = "shell/startInTray";
@@ -3164,6 +3165,19 @@ void SettingsManager::setSidePanelWidth(int px)
         return;
     m_store->setValue(kSidePanelWidth, clamped);
     Q_EMIT sidePanelWidthChanged();
+}
+
+bool SettingsManager::globalShortcutsEnabled() const
+{
+    return m_store->value(kGlobalShortcuts, false).toBool();
+}
+
+void SettingsManager::setGlobalShortcutsEnabled(bool v)
+{
+    if (globalShortcutsEnabled() == v)
+        return;
+    m_store->setValue(kGlobalShortcuts, v);
+    Q_EMIT globalShortcutsEnabledChanged();
 }
 
 bool SettingsManager::closeToTray() const

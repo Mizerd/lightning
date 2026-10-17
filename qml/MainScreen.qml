@@ -95,6 +95,39 @@ Item {
         onActivated: app.showSettingsSection("shortcuts")
     }
 
+    // The call keys' actions, shared by the in-window Shortcuts below and the
+    // desktop's GlobalShortcuts portal (GitHub #47), so a key pressed in
+    // another window does exactly what it does here.
+    function toggleMuteAction() {
+        if (app.groupCall.active)
+            app.groupCall.toggleMicrophoneMuted()
+        else if (app.calls.muteControlAvailable)
+            app.calls.toggleMicrophoneMuted()
+    }
+    function toggleDeafenAction() {
+        if (app.groupCall.active)
+            app.groupCall.toggleDeafened()
+        else if (app.calls.muteControlAvailable)
+            app.calls.toggleDeafened()
+    }
+    function leaveCallAction() {
+        if (app.groupCall.active)
+            app.groupCall.leave()
+        else if (app.calls.activeRoomId !== "")
+            app.calls.hangup()
+    }
+    Connections {
+        target: app.globalShortcuts
+        function onActivated(actionId) {
+            if (actionId === "call.toggleMute")
+                shellRoot.toggleMuteAction()
+            else if (actionId === "call.toggleDeafen")
+                shellRoot.toggleDeafenAction()
+            else if (actionId === "call.leave")
+                shellRoot.leaveCallAction()
+        }
+    }
+
     // Call audio keys, window-global so they work while doing something else.
     // They follow the call bar's lane selection: the SFU lane while a group
     // call is live, the legacy 1:1 lane otherwise. With no call they do
@@ -104,24 +137,14 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("call.toggleMute")]
         }
-        onActivated: {
-            if (app.groupCall.active)
-                app.groupCall.toggleMicrophoneMuted()
-            else if (app.calls.muteControlAvailable)
-                app.calls.toggleMicrophoneMuted()
-        }
+        onActivated: shellRoot.toggleMuteAction()
     }
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("call.toggleDeafen")]
         }
-        onActivated: {
-            if (app.groupCall.active)
-                app.groupCall.toggleDeafened()
-            else if (app.calls.muteControlAvailable)
-                app.calls.toggleDeafened()
-        }
+        onActivated: shellRoot.toggleDeafenAction()
     }
     // Camera: SFU lane only; the legacy 1:1 lane is audio-only.
     Shortcut {
@@ -180,12 +203,7 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("call.leave")]
         }
-        onActivated: {
-            if (app.groupCall.active)
-                app.groupCall.leave()
-            else if (app.calls.activeRoomId !== "")
-                app.calls.hangup()
-        }
+        onActivated: shellRoot.leaveCallAction()
     }
     // Screen share, SFU lane only. requestScreenShare() opens the picker; it
     // never starts sending on a key press.

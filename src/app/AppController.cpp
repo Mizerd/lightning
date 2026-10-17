@@ -208,6 +208,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // the stored language is applied, so rebuild them on every change.
     connect(m_localization.get(), &LocalizationManager::languageChanged,
             m_shortcuts.get(), &ShortcutRegistry::retranslate);
+    // Touches no bus until the user turns it on; the portal sits idle (Off)
+    // otherwise.
+    m_globalShortcuts =
+        std::make_unique<GlobalShortcutsPortal>(m_shortcuts.get(), this);
+    connect(m_settings.get(), &SettingsManager::globalShortcutsEnabledChanged,
+            this, [this] {
+                m_globalShortcuts->setEnabled(
+                    m_settings->globalShortcutsEnabled());
+            });
+    m_globalShortcuts->setEnabled(m_settings->globalShortcutsEnabled());
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);

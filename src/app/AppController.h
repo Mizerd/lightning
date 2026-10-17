@@ -21,6 +21,7 @@
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "i18n/LocalizationManager.h"
+#include "app/GlobalShortcutsPortal.h"
 #include "app/ShortcutRegistry.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
@@ -286,6 +287,8 @@ class AppController : public QObject
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     // Rebindable shortcuts; QML Shortcut bindings depend on `bindingRevision`.
     Q_PROPERTY(ShortcutRegistry* shortcuts READ shortcuts CONSTANT)
+    // Desktop-wide call keys through the GlobalShortcuts portal (GitHub #47).
+    Q_PROPERTY(GlobalShortcutsPortal* globalShortcuts READ globalShortcuts CONSTANT)
     // UI language; application-wide, not per-account.
     Q_PROPERTY(LocalizationManager* localization READ localization CONSTANT)
     // Per-account custom palette overrides.
@@ -629,6 +632,7 @@ public:
 
     SettingsManager *settings() const;
     ShortcutRegistry *shortcuts() const;
+    GlobalShortcutsPortal *globalShortcuts() const { return m_globalShortcuts.get(); }
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
     RailLayoutStore *railLayout() const;
@@ -1551,6 +1555,7 @@ private:
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<LocalizationManager> m_localization;
     std::unique_ptr<ShortcutRegistry> m_shortcuts;
+    std::unique_ptr<GlobalShortcutsPortal> m_globalShortcuts;
     std::unique_ptr<CustomThemeStore> m_customTheme;
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;

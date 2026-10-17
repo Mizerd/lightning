@@ -253,6 +253,12 @@ class SettingsManager : public QObject
     // default and gated on the platform having a tray.
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray
                    NOTIFY closeToTrayChanged)
+    // Call keys through the desktop's GlobalShortcuts portal, so they work
+    // while another window is focused (GitHub #47). Off by default: it is a
+    // system-wide grab and the first bind may ask the user.
+    Q_PROPERTY(bool globalShortcutsEnabled READ globalShortcutsEnabled
+                   WRITE setGlobalShortcutsEnabled
+                   NOTIFY globalShortcutsEnabledChanged)
     Q_PROPERTY(bool startInTray READ startInTray WRITE setStartInTray
                    NOTIFY startInTrayChanged)
     // Window size, position and maximized state from the previous launch.
@@ -786,6 +792,8 @@ public:
     void setSidePanelWidth(int px);
     bool closeToTray() const;
     void setCloseToTray(bool v);
+    bool globalShortcutsEnabled() const;
+    void setGlobalShortcutsEnabled(bool v);
     bool startInTray() const;
     void setStartInTray(bool v);
     QRect initialWindowGeometry() const { return m_initialWindowGeometry; }
@@ -1191,6 +1199,7 @@ Q_SIGNALS:
     void spacesRailDepthStyleChanged();
     void sidePanelWidthChanged();
     void closeToTrayChanged();
+    void globalShortcutsEnabledChanged();
     void startInTrayChanged();
     void verificationWarningDismissedChanged();
     void gifAutoplayChanged();

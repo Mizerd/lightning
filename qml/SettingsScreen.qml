@@ -4606,6 +4606,56 @@ Item {
                             font.pixelSize: AppTheme.textMeta
                         }
 
+                        // Desktop-wide call keys (GitHub #47). Linux only: the
+                        // portal is a freedesktop one. The status line says
+                        // why when the desktop cannot do it.
+                        SettingsCard {
+                            visible: Qt.platform.os === "linux"
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "globalShortcutsCheck"
+                                    text: qsTr("Use call keys from any window")
+                                    checked: app.settings.globalShortcutsEnabled
+                                    onToggled: app.settings.globalShortcutsEnabled = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Mute, deafen and leave the call while another "
+                                               + "window has the focus. Your desktop asks "
+                                               + "before it allows this.")
+                                }
+                                Label {
+                                    objectName: "globalShortcutsStatus"
+                                    visible: app.settings.globalShortcutsEnabled
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    textFormat: Text.PlainText
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: app.globalShortcuts.statusText
+                                }
+                                AppButton {
+                                    objectName: "globalShortcutsConfigure"
+                                    storm: true
+                                    visible: app.globalShortcuts.canConfigure
+                                    text: qsTr("Change the keys in your desktop's settings")
+                                    onClicked: app.globalShortcuts.configure()
+                                }
+                            }
+                        }
+
                         // Only when something is wrong. setBinding refuses to
                         // create a conflict, so a non-zero count means a
                         // hand-edited or newer settings file.

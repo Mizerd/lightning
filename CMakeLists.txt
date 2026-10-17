@@ -550,6 +550,8 @@ set(APP_SOURCES
     src/app/AsyncLogSink.cpp
     src/app/RepeatLogLimiter.h
     src/app/RepeatLogLimiter.cpp
+    src/app/GlobalShortcutsPortal.h
+    src/app/GlobalShortcutsPortal.cpp
     src/app/ShortcutRegistry.h
     src/app/ShortcutRegistry.cpp
     src/settings/SettingsPortable.h
@@ -6791,5 +6793,52 @@ if(BUILD_TESTING AND TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
     target_compile_definitions(notification-dbus-test PRIVATE HAVE_QT_DBUS=1)
     add_test(NAME notification-dbus COMMAND notification-dbus-test)
     set_tests_properties(notification-dbus PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# GlobalShortcutsPortal (GitHub #47) against a fake xdg-desktop-portal on a
+# private session bus, and the same class compiled without QtDBus.
+if(BUILD_TESTING AND TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+    qt_add_executable(global-shortcuts-portal-test
+        tests/GlobalShortcutsPortalTest.cpp
+        src/app/GlobalShortcutsPortal.h
+        src/app/GlobalShortcutsPortal.cpp
+        src/app/ShortcutRegistry.h
+        src/app/ShortcutRegistry.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/calls/PortalRequest.h
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(global-shortcuts-portal-test PRIVATE src)
+    target_link_libraries(global-shortcuts-portal-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::DBus Qt6::Test)
+    target_compile_definitions(global-shortcuts-portal-test PRIVATE
+        HAVE_QT_DBUS=1
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME global-shortcuts-portal COMMAND global-shortcuts-portal-test)
+    set_tests_properties(global-shortcuts-portal PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+if(BUILD_TESTING)
+    qt_add_executable(global-shortcuts-nodbus-test
+        tests/GlobalShortcutsPortalNoDbusTest.cpp
+        src/app/GlobalShortcutsPortal.h
+        src/app/GlobalShortcutsPortal.cpp
+        src/app/ShortcutRegistry.h
+        src/app/ShortcutRegistry.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(global-shortcuts-nodbus-test PRIVATE src)
+    target_link_libraries(global-shortcuts-nodbus-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME global-shortcuts-nodbus COMMAND global-shortcuts-nodbus-test)
+    set_tests_properties(global-shortcuts-nodbus PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
