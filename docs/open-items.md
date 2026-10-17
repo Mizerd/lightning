@@ -1,5 +1,22 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-17 — KNOWN, ACCEPTED: the Windows native Save dialog stays white under a dark app theme until Windows itself is in dark mode
+
+Live test FAIL 5 of 2026-10-16 ("Save as" opened the Windows system dialog,
+white under a dark Lightning theme) is a KNOWN CONSEQUENCE of a decision, not a
+new defect. Rokas chose native dialogs on Windows and macOS on 2026-10-17
+(`FileChooser::fallbackRoute`: Linux without a portal is Lightning's own themed
+`FileChooserDialog.qml`; Windows and macOS are `QFileDialog` through the
+system). A system dialog follows the SYSTEM's colour mode and none of the app's,
+so it is light while Windows is in light mode however dark the app theme is.
+It becomes dark when Windows' own "Choose your mode" is Dark. Nothing in
+Lightning can change that for a native dialog; the only way to a themed Windows
+dialog is the in-app chooser again (`LIGHTNING_FILE_DIALOG=app` selects it for
+anyone who wants it, kept on purpose). Do not report the white dialog as a
+regression, and do not "fix" it by re-routing Windows without a new decision.
+Live: the white dialog was observed 2026-10-16; the post-decision native dialog
+itself is NOT TESTED on Windows.
+
 ## 2026-10-16 — Open decisions (notification round, 2026-10-16)
 
 From commit `7e3635ed` (the notification sweep). Each needs a product call from

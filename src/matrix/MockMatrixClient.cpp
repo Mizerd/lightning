@@ -313,13 +313,16 @@ void MockMatrixClient::finalizeDemoMedia(DemoAccount &acct)
             const bool imageLike = e.type == TimelineEvent::Image
                 || e.type == TimelineEvent::Video
                 || e.type == TimelineEvent::Sticker;
-            if (!imageLike || e.mediaMxcUrl.isEmpty())
+            const QString key = e.mediaMxcUrl.section(QLatin1Char('/'), -1);
+            // The bundled release-notes fixture also exercises download/save
+            // dialogs on a real file card, without network or account data.
+            const bool fileFixture = e.type == TimelineEvent::File
+                                     && key == QLatin1String("relnotes");
+            if ((!imageLike && !fileFixture) || e.mediaMxcUrl.isEmpty())
                 continue;
-            // Image/video/GIF rows use the demo media bridge keyed by fixture
-            // name; file/audio rows stay metadata-only.
-            e.mediaKey = e.mediaMxcUrl.section(QLatin1Char('/'), -1);
+            e.mediaKey = key;
             e.mediaSourceAvailable = true;
-            e.mediaThumbAvailable = true;
+            e.mediaThumbAvailable = imageLike;
         }
     }
 }

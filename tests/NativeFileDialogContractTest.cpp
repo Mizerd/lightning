@@ -132,16 +132,45 @@ private Q_SLOTS:
         QVERIFY(card.contains(QStringLiteral("\"downloadRiskNotice\"")));
         QVERIFY(card.contains(QStringLiteral("app.downloads.showInFolder(")));
 
-        // It lives in the chat column's safe area, not in the window's
-        // bottom-left corner over the account and settings buttons.
-        const QString main = withoutComments(read(QStringLiteral(QML_DIR "/Main.qml")));
-        QVERIFY(!main.isEmpty());
-        QVERIFY2(!main.contains(QStringLiteral("activeDownloadsCard")),
-                 "the window-corner Downloading card is back");
+        // A download is shown in exactly one place: its file card's notice
+        // when that row claims it, else the pane-level fallback card.
         const QString pane =
             withoutComments(read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
         QVERIFY(pane.contains(QRegularExpression(
-            QStringLiteral("DownloadsCard\\s*\\{[^}]*safeArea:\\s*root\\.chatSafeArea"))));
+            QStringLiteral("PaneDownloadsCard\\s*\\{[^}]*safeArea:\\s*root\\.chatSafeArea"))));
+        QVERIFY(pane.contains(QStringLiteral("DownloadNotices.begin(")));
+        const QString fallback = withoutComments(
+            read(QStringLiteral(QML_DIR "/PaneDownloadsCard.qml")));
+        QVERIFY(fallback.contains(QStringLiteral("DownloadNotices.unclaimed(")));
+        const QString row =
+            withoutComments(read(QStringLiteral(QML_DIR "/MessageDelegate.qml")));
+        QVERIFY(row.contains(QStringLiteral("item.mediaKey === model.mediaKey")));
+        QVERIFY(row.contains(QStringLiteral("AttachmentDownloadNotice {")));
+        QVERIFY(row.contains(QStringLiteral("eligible: root.rowOnScreen")));
+        const QString notice = withoutComments(
+            read(QStringLiteral(QML_DIR "/AttachmentDownloadNotice.qml")));
+        QVERIFY(notice.contains(QStringLiteral("objectName: \"attachmentDownloadNotice\"")));
+        QVERIFY(notice.contains(QStringLiteral("DownloadNotices.owner(")));
+        // Only already-empty space is used: no permanent width reservation,
+        // no narrow-pane overlay, and no notice geometry fed into row height.
+        QVERIFY(!row.contains(QStringLiteral("downloadRailWidth")));
+        QVERIFY(!notice.contains(QStringLiteral("property bool beside")));
+        QVERIFY(notice.contains(QStringLiteral("eligible && fits")));
+        QVERIFY(row.contains(QStringLiteral(
+            "ownBubble: root.bubbleMode && model.isOwn === true")));
+        const int boxStart = row.indexOf(QStringLiteral("id: mediaBox"));
+        QVERIFY(boxStart > 0);
+        const QString box = row.mid(boxStart, row.indexOf(
+            QStringLiteral("id: mediaLoader"), boxStart) - boxStart);
+        QVERIFY2(!box.contains(QStringLiteral("attachmentNotice.height"))
+                     && !box.contains(QStringLiteral("attachmentNotice.y"))
+                     && !box.contains(QStringLiteral("attachmentNotice.items")),
+                 "the download notice feeds the row's height again");
+        // Every account change retires the previous account's notices, on a
+        // switch/add-account and on a plain sign-out.
+        const QString app = withoutComments(
+            read(QStringLiteral(SRC_DIR "/app/AppController.cpp")));
+        QVERIFY(app.count(QStringLiteral("m_downloads->clear()")) >= 2);
     }
 };
 

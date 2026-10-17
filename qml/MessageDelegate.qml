@@ -1023,6 +1023,49 @@ Item {
     readonly property color replyBodyInk:
         replyOnOwnBubble ? ownBubbleSecondaryInk : AppTheme.textSecondary
 
+    // A download belongs to this attachment, even after the row is rebuilt.
+    // Only a FILE CARD row shows its own notice (see AttachmentDownloadNotice
+    // and DownloadNotices); every other download, and a row that cannot show
+    // it (off screen, collapsed, another surface owns it), is on the pane's
+    // fallback card. The mirror of mediaLoader's component choice, so the two
+    // cannot drift apart silently.
+    readonly property bool fileCardRow:
+        !root.isGallery
+        && (root.svgWithoutThumbnail
+            || (!model.isImage && model.isSticker !== true
+                && model.isVideo !== true && model.isAudio !== true
+                && model.isFile === true))
+    readonly property var attachmentDownloads:
+        typeof app !== "undefined" && app && app.downloads
+        && (model.mediaKey || "") !== ""
+        ? app.downloads.items.filter(function(item) {
+            return item.mediaKey === model.mediaKey
+        }) : []
+    AttachmentDownloadNotice {
+        id: attachmentNotice
+        items: root.attachmentDownloads
+        mediaKey: model.mediaKey || ""
+        surface: root.timelineView && root.timelineView.downloadSurface
+                 ? root.timelineView.downloadSurface : "main"
+        eligible: root.rowOnScreen && mediaBox.visible && root.fileCardRow
+                  && mediaLoader.item !== null
+        row: root
+        attachment: mediaBox
+        ownBubble: root.bubbleMode && model.isOwn === true
+        contentItems: root.bubbleMode ? [bubble] : bubbleContent.children
+        collisionItems: {
+            // Metadata (thread summary/edited marker) and previews are also
+            // covered by contentItems. Reactions are separate layout siblings;
+            // test each chip so the Flow's empty trailing space stays usable.
+            var items = [metaRow, previewLoader]
+            for (var i = 0; i < reactionsFlow.children.length; ++i)
+                items.push(reactionsFlow.children[i])
+            return items
+        }
+        toolbar: messageActionBarLoader
+        receipts: receiptRow
+    }
+
     // Read-receipt rail clearance. The facepile paints upward from the row's
     // bottom at the row's right margin; on a narrow pane it would land on the
     // body's last line. Reserve exactly the overlap, only when there is one.
@@ -2701,6 +2744,7 @@ Item {
                             Layout.maximumWidth: item ? item.implicitWidth : 0
                             sourceComponent: ThreadSummaryCard {
                             id: threadSummaryCard
+                            objectName: "threadSummaryCard"
                             replyCount: model.threadReplyCount !== undefined
                                         ? model.threadReplyCount : -1
                             latestSender: model.threadLatestSenderDisplayName || ""

@@ -39,6 +39,7 @@
 #include <QTextTable>
 
 #include "app/AppController.h"
+#include "app/DownloadsController.h"
 #include "app/OpenRoomPermissions.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
@@ -294,6 +295,238 @@ private Q_SLOTS:
             QStringLiteral("MatrixClientTests"));
         QCoreApplication::setApplicationName(
             QStringLiteral("message-rail-collision-test"));
+    }
+
+    void downloadNoticeFollowsItsFileCard_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::addColumn<bool>("own");
+        QTest::addColumn<int>("width");
+        QTest::addColumn<QString>("caption");
+        for (int layout : {0, 1, 2})
+            for (bool own : {false, true})
+                for (int width : {1000, 520})
+                    for (const QString &caption : {QStringLiteral("tall"),
+                              QStringLiteral("wide"), QStringLiteral("none")})
+                        QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3-%4")
+                                           .arg(layout).arg(own).arg(width).arg(caption)))
+                            << layout << own << width << caption;
+        for (int layout : {0, 2}) {
+            QTest::newRow(qPrintable(QStringLiteral("%1-wrapping-reactions").arg(layout)))
+                << layout << false << 1000 << QStringLiteral("reactions");
+            QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited").arg(layout)))
+                << layout << false << 1000 << QStringLiteral("thread-edited");
+            // A one-line caption puts the summary card and "edited" marker at
+            // the SAME HEIGHT as the band beside the card (measured: band y
+            // 34-118, summary y 88-124), so only their horizontal clearance
+            // keeps the notice off them.
+            QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited-short").arg(layout)))
+                << layout << false << 1000 << QStringLiteral("thread-edited-short");
+        }
+    }
+
+    void downloadNoticeFollowsItsFileCard()
+    {
+        QFETCH(int, layout);
+        QFETCH(bool, own);
+        QFETCH(int, width);
+        QFETCH(QString, caption);
+        QTemporaryDir downloads;
+        QVERIFY(downloads.isValid());
+        AppController app(AppController::MockBackend);
+        app.settings()->setTheme(SettingsManager::DarkTheme);
+        app.settings()->setMessageLayout(layout);
+        app.settings()->setAlwaysAskWhereToSave(false);
+        app.settings()->setDownloadFolder(downloads.path());
+        auto f = baseFixture();
+        f[QStringLiteral("timestamp")] = QDateTime::fromString(
+            QStringLiteral("2026-10-17T12:00:00Z"), Qt::ISODate);
+        f[QStringLiteral("isOwn")] = own;
+        f[QStringLiteral("showSenderIdentity")] = false;
+        f[QStringLiteral("isFile")] = true;
+        f[QStringLiteral("mediaFilename")] = QStringLiteral("original-name.exe");
+        const bool threadEdited = caption.startsWith(QLatin1String("thread-edited"));
+        f[QStringLiteral("body")] = caption == QLatin1String("thread-edited-short")
+            ? QStringLiteral("Caption line\n").repeated(2)
+            : (caption == QLatin1String("tall")
+                                   || caption == QLatin1String("thread-edited"))
+            ? QStringLiteral("Caption line\n").repeated(12)
+            : caption == QLatin1String("wide") ? QString(2000, QLatin1Char('W'))
+                                              : QStringLiteral("original-name.exe");
+        if (caption == QLatin1String("reactions"))
+            f[QStringLiteral("reactions")] = reactions(120);
+        if (threadEdited) {
+            f[QStringLiteral("edited")] = true;
+            f[QStringLiteral("isThreadRoot")] = true;
+            f[QStringLiteral("threadReplyCount")] = 3;
+            f[QStringLiteral("threadLatestPreview")] = QStringLiteral("A thread reply");
+        }
+        f[QStringLiteral("readReceipts")] = receipts(5);
+        f[QStringLiteral("readReceiptsTotal")] = 5;
+        // An otherwise identical row without a download key must have the
+        // same geometry. The previous permanent 312px rail fails this check
+        // even before any download starts (and moves own bubbles left).
+        Delegate reference;
+        QVERIFY(build(app, f, reference, width, layout == 1));
+        f[QStringLiteral("mediaKey")] = QStringLiteral("rail-file");
+        Delegate d;
+        QVERIFY(build(app, f, d, width, layout == 1));
+        for (auto *root : {reference.root, d.root}) {
+            QQmlExpression pins(qmlContext(root), root, QStringLiteral(
+                "AppTheme.mode = 2; AppTheme.textScale = 1"));
+            pins.evaluate();
+            QVERIFY2(!pins.hasError(), qPrintable(pins.error().toString()));
+        }
+        QQmlComponent scene(d.engine.get());
+        scene.setData("import QtQuick\nFlickable { width: 1100; height: 650; "
+                      "contentWidth: width; contentHeight: 3000; clip: true }", QUrl());
+        std::unique_ptr<QObject> owner(scene.create());
+        auto *view = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(view);
+        view->setParentItem(d.window->contentItem());
+        auto *content = view->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        d.root->setParentItem(content);
+        d.root->setY(120);
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view));
+        QQmlComponent fallback(d.engine.get());
+        fallback.setData("import QtQuick\nimport MatrixClient\n"
+                         "PaneDownloadsCard { allItems: app.downloads.items }", QUrl());
+        std::unique_ptr<QObject> paneOwner(fallback.create());
+        auto *pane = qobject_cast<QQuickItem *>(paneOwner.get());
+        QVERIFY(pane);
+        pane->setParentItem(d.window->contentItem());
+        const auto paneCount = [&] {
+            QQmlExpression count(qmlContext(pane), pane, QStringLiteral("items.length"));
+            return count.evaluate().toInt();
+        };
+        auto *card = findVisual(d.root, QStringLiteral("fileCard"));
+        auto *referenceCard = findVisual(reference.root, QStringLiteral("fileCard"));
+        auto *notice = findVisual(d.root, QStringLiteral("attachmentDownloadNotice"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *referenceBody = findVisual(reference.root, QStringLiteral("messageBody"));
+        auto *bar = forceActionBar(d.root);
+        auto *pile = findVisual(d.root, QStringLiteral("readReceiptRow"));
+        QVERIFY(card && referenceCard && notice && body && referenceBody && bar && pile);
+        auto rect = [](QQuickItem *item, QQuickItem *in) {
+            return item->mapRectToItem(in, item->boundingRect());
+        };
+        QVERIFY(!notice->isVisible());
+        QCOMPARE(d.root->height(), reference.root->height());
+        QCOMPARE(body->width(), referenceBody->width());
+        QCOMPARE(rect(body, d.root), rect(referenceBody, reference.root));
+        QCOMPARE(rect(card, d.root), rect(referenceCard, reference.root));
+        const qreal heightBefore = d.root->height();
+        const qreal implicitBefore = d.root->implicitHeight();
+        const qreal widthBefore = d.root->width();
+        const QPointF positionBefore = d.root->position();
+        const qreal captionBefore = body->width();
+        const QRectF captionRectBefore = rect(body, d.root);
+        const QRectF cardBefore = rect(card, d.root);
+        QVERIFY(heightBefore > 0);
+        app.downloads()->download(QStringLiteral("rail-file"),
+                                  QStringLiteral("original-name.exe"), {});
+        QVERIFY(!app.downloads()->items().isEmpty());
+        // Thread-and-edited rows: the summary card and "edited" marker sit
+        // below the band in the tall row (y >= 275) and beside it, at the
+        // same height, in the short one (y 88-124 against band 34-118). The
+        // notice fits in both because it starts right of the content column
+        // that holds them (measured x >= 360, summary right edge x 260); the
+        // `occupied` loop asserts no overlap, and the short row's proof below
+        // asserts that clearance. (The notice's height changes with the
+        // download's state, 84 while active and 16 once settled, so the
+        // vertical overlap is not asserted.)
+        const bool fits = width == 1000
+            && (caption == QLatin1String("tall") || threadEdited);
+        QTRY_COMPARE(notice->isVisible(), fits);
+        QTRY_COMPARE(paneCount(), fits ? 0 : 1);
+        QCOMPARE(int(notice->isVisible()) + paneCount(), 1);
+        QCOMPARE(d.root->height(), heightBefore);
+        QCOMPARE(d.root->implicitHeight(), implicitBefore);
+        QCOMPARE(d.root->width(), widthBefore);
+        QCOMPARE(d.root->position(), positionBefore);
+        QCOMPARE(body->width(), captionBefore);
+        QCOMPARE(rect(body, d.root), captionRectBefore);
+        QCOMPARE(rect(card, d.root), cardBefore);
+        QList<QQuickItem *> occupied;
+        auto *flow = findVisual(d.root, QStringLiteral("reactionsFlow"));
+        QVERIFY(flow);
+        for (auto *chip : flow->childItems()) {
+            if (chip->isVisible() && (chip->objectName() == QLatin1String("reactionChip")
+                                    || chip->objectName() == QLatin1String("reactionAddChip")))
+                occupied.append(chip);
+        }
+        if (caption == QLatin1String("reactions")) {
+            QVERIFY(!body->isVisible()); // the reproducer is file-only
+            QCOMPARE(occupied.size(), 121); // every reaction plus the Add chip
+            const QRectF candidate = rect(notice, d.root);
+            // Prove that row bounds/toolbar/receipts alone would accept this
+            // band, and that an actual chip occupies it after wrapping.
+            QVERIFY(d.root->boundingRect().adjusted(4, 4, -4, -4).contains(candidate));
+            QVERIFY(!rect(bar, d.root).intersects(candidate));
+            QVERIFY(!rect(pile, d.root).adjusted(-8, -8, 8, 8).intersects(candidate));
+            QVERIFY(occupied.last()->y() > occupied.first()->y() + 2 * occupied.first()->height());
+            QVERIFY(std::any_of(occupied.cbegin(), occupied.cend(), [&](QQuickItem *chip) {
+                return rect(chip, d.root).intersects(candidate);
+            }));
+            QVERIFY(!notice->property("fits").toBool());
+        }
+        if (threadEdited) {
+            auto *summary = findVisual(d.root, QStringLiteral("threadSummaryCard"));
+            auto *edited = findVisual(d.root, QStringLiteral("messageStatusText"));
+            QVERIFY(summary && summary->isVisible());
+            QVERIFY(edited && edited->isVisible());
+            occupied << summary << edited;
+            if (caption == QLatin1String("thread-edited-short")) {
+                // The metadata is level with the band (y ~105 against the
+                // notice's 34 down), so only x separates them.
+                const QRectF candidate = rect(notice, d.root);
+                const QRectF meta = rect(summary, d.root).united(rect(edited, d.root));
+                QVERIFY(meta.right() < candidate.left());
+            }
+        }
+        for (auto *item : occupied)
+            QVERIFY(!notice->isVisible() || !rect(item, d.root).intersects(rect(notice, d.root)));
+        if (fits) {
+            const QRectF band = rect(notice, d.root);
+            QVERIFY(d.root->boundingRect().contains(band));
+            if (layout == 1 && own)
+                QVERIFY(band.right() < cardBefore.left());
+            else
+                QVERIFY(band.left() > cardBefore.right());
+            QVERIFY(band.top() >= cardBefore.top());
+            QVERIFY(!rect(bar, d.root).intersects(band));
+            QVERIFY(!rect(pile, d.root).intersects(band));
+            QVERIFY(!rect(body, d.root).intersects(band));
+            const QRectF beforeScroll = rect(notice, view);
+            view->setProperty("contentY", 70);
+            QCoreApplication::processEvents();
+            QCOMPARE(rect(notice, view).top(), beforeScroll.top() - 70);
+            QCOMPARE(rect(notice, view).left(), beforeScroll.left());
+        }
+        // Scroll the whole row away: exactly the pane owns the item. No
+        // height/width/anchor adjustment is needed when ownership changes.
+        view->setProperty("contentY", 2500);
+        QTRY_VERIFY(!notice->isVisible());
+        QTRY_COMPARE(paneCount(), 1);
+        QCOMPARE(d.root->height(), heightBefore);
+        view->setProperty("contentY", 0);
+        QTRY_COMPARE(notice->isVisible(), fits);
+        QTRY_COMPARE(paneCount(), fits ? 0 : 1);
+        const int id = app.downloads()->items().value(0).toMap()
+                           .value(QStringLiteral("id")).toInt();
+        app.downloads()->dismiss(id);
+        QTRY_VERIFY(!notice->isVisible());
+        QTRY_COMPARE(paneCount(), 0);
+        QCOMPARE(d.root->height(), heightBefore);
+        QCOMPARE(d.root->implicitHeight(), implicitBefore);
+        QCOMPARE(d.root->width(), widthBefore);
+        QCOMPARE(d.root->position(), positionBefore);
+        QCOMPARE(body->width(), captionBefore);
+        QCOMPARE(rect(body, d.root), captionRectBefore);
+        QCOMPARE(rect(card, d.root), cardBefore);
+        d.root->setParentItem(d.window->contentItem());
     }
 
     // Settings > Appearance > Message spacing: Compact, Cozy and Roomy move the

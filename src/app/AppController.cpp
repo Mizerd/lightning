@@ -2700,6 +2700,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::loggedOut, this, [this] {
         m_mediaVisibility->resetForSession();
     });
+    // A plain sign-out bypasses clearCrossAccountCaches(): the download
+    // notices (some with a risky-file warning) are the old account's.
+    connect(m_client.get(), &MatrixClient::loggedOut, this, [this] {
+        if (m_downloads)
+            m_downloads->clear();
+    });
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
     // The server confirmed we are out of a room (left elsewhere, kicked,
@@ -6994,6 +7000,9 @@ void AppController::clearCrossAccountCaches()
     m_playback->stopAll();
     resetVoicePrefetch();
     m_mediaBridge->clear();
+    // Finished and failed download notices belong to the previous account.
+    if (m_downloads)
+        m_downloads->clear();
     // MediaBridge::clear() drops in-flight requests without a terminal
     // emission, so the claim sets would otherwise strand their keys.
     m_pendingStarKeys.clear();

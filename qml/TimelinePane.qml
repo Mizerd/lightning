@@ -12,9 +12,15 @@ Rectangle {
     // the user asked to always choose (app.downloads decides). The name and
     // type are the sender's; app.downloads sanitizes them and fixes the
     // extension from the type.
-    function startDownload(mediaKey, filename, mime, ask) {
+    // `surface` names where the click happened ("main", "thread", "context");
+    // empty from the image viewer and Room Information. The same event can be
+    // on screen in two surfaces, and its notice is shown once, in this one
+    // (DownloadNotices); an item no on-screen file card claims is shown by the
+    // pane-level fallback card instead.
+    function startDownload(mediaKey, filename, mime, ask, surface) {
         if (!mediaKey || mediaKey.length === 0 || !app.downloads)
             return
+        DownloadNotices.begin(mediaKey, surface || "")
         if (ask === true)
             app.downloads.saveAs(mediaKey, filename || "", mime || "")
         else
@@ -3399,8 +3405,9 @@ Rectangle {
                                  ? details.threadRootId : eventId
                     app.thread.openThread(app.currentRoomId, rootId)
                 }
+                property string downloadSurface: "main"
                 property var saveMedia: function(mediaKey, filename, mime, ask) {
-                    root.startDownload(mediaKey, filename, mime, ask)
+                    root.startDownload(mediaKey, filename, mime, ask, "main")
                 }
                 // Per-card save feedback: the last finished key for a brief
                 // flash (the bridge's savingKeys say what is in flight). Keyed,
@@ -5549,7 +5556,7 @@ Rectangle {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
                 saveMedia: function(mediaKey, filename, mime, ask) {
-                    root.startDownload(mediaKey, filename, mime, ask)
+                    root.startDownload(mediaKey, filename, mime, ask, "context")
                 }
             }
         }
@@ -5762,7 +5769,7 @@ Rectangle {
             imageViewer.openFor(mediaKey || "", httpUrl)
         }
         saveMedia: function(mediaKey, filename, mime, ask) {
-            root.startDownload(mediaKey, filename, mime, ask)
+            root.startDownload(mediaKey, filename, mime, ask, "thread")
         }
     }
 
@@ -7191,11 +7198,14 @@ Rectangle {
         z: 300
         safeArea: root.chatSafeArea
     }
-    // Downloads (app.downloads owns them, so they survive a room switch):
-    // bottom-left of the same safe area, the corner opposite the mini-player's
-    // default, so never over the Spaces rail, the account and settings
-    // buttons, the header or the composer.
-    DownloadsCard {
+    // Downloads no timeline row shows (app.downloads owns them, so they
+    // survive a room switch): the image viewer's and media history's saves, a
+    // non-primary gallery item, a collapsed or off-screen row, any failure
+    // or risky-file warning without a card on screen. Bottom-left of the same
+    // safe area, the corner opposite the mini-player's default, so never over
+    // the Spaces rail, the account and settings buttons, the header or the
+    // composer. A download a file card shows is not repeated here.
+    PaneDownloadsCard {
         id: downloadsCard
         z: 299
         safeArea: root.chatSafeArea

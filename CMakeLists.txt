@@ -1111,6 +1111,9 @@ set(APP_QML_FILES
     qml/AudioPlayerCard.qml
     qml/VoiceMiniPlayer.qml
     qml/DownloadsCard.qml
+    qml/AttachmentDownloadNotice.qml
+    qml/PaneDownloadsCard.qml
+    qml/DownloadNotices.qml
     qml/NativeFileDialog.qml
     qml/FileChooserDialog.qml
     qml/MediaVolumeControl.qml
@@ -1255,6 +1258,9 @@ endforeach()
 # AppTheme is a singleton; mark it so `pragma Singleton` is honored across
 # the module import boundary.
 set_source_files_properties(qml/AppTheme.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# DownloadNotices arbitrates which surface shows a download's notice.
+set_source_files_properties(qml/DownloadNotices.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Development-only demo media fixtures (scripts/generate-demo-media.sh),
@@ -5884,7 +5890,8 @@ if(BUILD_TESTING)
         tests/NativeFileDialogContractTest.cpp
     )
     target_compile_definitions(native-file-dialog-contract-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(native-file-dialog-contract-test
         PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME native-file-dialog-contract
@@ -5902,6 +5909,31 @@ if(BUILD_TESTING)
         target_link_libraries(file-chooser-test
             PRIVATE lightning-app-testlib Qt6::DBus Qt6::Test)
         add_test(NAME file-chooser COMMAND file-chooser-test)
+    endif()
+
+    # The real QFileDialog configuration of the Qt route (default suffix,
+    # modes), on an offscreen, never-shown widget dialog.
+    qt_add_executable(file-chooser-dialog-config-test
+        tests/FileChooserDialogConfigTest.cpp
+    )
+    target_include_directories(file-chooser-dialog-config-test PRIVATE src)
+    target_link_libraries(file-chooser-dialog-config-test
+        PRIVATE lightning-app-testlib Qt6::Widgets Qt6::Test)
+    add_test(NAME file-chooser-dialog-config COMMAND file-chooser-dialog-config-test)
+    set_tests_properties(file-chooser-dialog-config PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The download notice's geometry and ownership, in pure QML against the
+    # production sources (scripts/test-download-notice.sh). Needs Qt's
+    # qmltestrunner; absent, the test is skipped (exit 77), not failed.
+    find_program(LIGHTNING_QMLTESTRUNNER NAMES qmltestrunner qmltestrunner6
+        HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_BINS}" "${QT6_INSTALL_PREFIX}/bin")
+    if(UNIX AND LIGHTNING_QMLTESTRUNNER)
+        add_test(NAME download-notice-qml
+            COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-download-notice.sh)
+        set_tests_properties(download-notice-qml PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
     endif()
 
     # Lightning's own file chooser (Linux without a portal): the folder

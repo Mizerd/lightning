@@ -136,6 +136,10 @@ public:
     Q_INVOKABLE void retry(int id);
     /// Removes a finished item from the list.
     Q_INVOKABLE void dismiss(int id);
+    /// Account switch / sign-out: the previous account's items (finished,
+    /// failed and in-flight alike) must not be shown to the next one.
+    /// MediaBridge::clear() drops the saves themselves.
+    void clear();
     /// Settings: pick another downloads folder (native folder chooser).
     Q_INVOKABLE void chooseFolder();
     /// Settings: back to the system's Downloads folder.

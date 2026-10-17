@@ -711,6 +711,14 @@ void DownloadsController::dismiss(int id)
         Q_EMIT itemsChanged();
 }
 
+void DownloadsController::clear()
+{
+    if (m_items.isEmpty())
+        return;
+    m_items.clear();
+    Q_EMIT itemsChanged();
+}
+
 void DownloadsController::chooseFolder()
 {
     if (!m_chooser || !m_settings)

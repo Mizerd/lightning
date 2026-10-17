@@ -100,6 +100,14 @@ private Q_SLOTS:
         QTest::newRow("windows reserved chars") << "a<b>c:d|e?f*.txt" << ""
                                                 << "a_b_c_d_e_f_.txt";
         QTest::newRow("device name") << "con.txt" << "" << "file-con.txt";
+        // Win32 drops the spaces before a stem reaches the device lookup.
+        QTest::newRow("device name, trailing-space stem") << "CON .txt" << ""
+                                                          << "file-CON .txt";
+        QTest::newRow("device name, several spaces") << "nul   .txt" << ""
+                                                     << "file-nul   .txt";
+        QTest::newRow("device name, no extension") << "COM1 " << "" << "file-COM1";
+        QTest::newRow("not a device: longer stem") << "console.txt" << ""
+                                                   << "console.txt";
     }
     void theSuggestedNameKeepsTheNameAndAddsTheMissingExtension()
     {

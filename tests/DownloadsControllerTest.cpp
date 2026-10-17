@@ -919,6 +919,36 @@ private Q_SLOTS:
         QVERIFY(QDir(dir.path()).entryList(QDir::Files).isEmpty());
     }
 
+    // An account switch or sign-out retires the previous account's notices:
+    // finished and failed ones too (a finished risky file carries a warning),
+    // not only the in-flight saves MediaBridge::clear() drops. Run on the old
+    // code, there is no clear() and the finished item below survives.
+    void clearingRetiresEveryItemOfThePreviousAccount()
+    {
+        QTemporaryDir dir;
+        Fixture f(dir.path());
+        QSignalSpy changed(f.downloads.get(), &DownloadsController::itemsChanged);
+        f.downloads->download(QStringLiteral("$done"), QStringLiteral("a.zip"),
+                              QStringLiteral("application/zip"));
+        f.downloads->download(QStringLiteral("$busy"), QStringLiteral("b.zip"),
+                              QStringLiteral("application/zip"));
+        QCOMPARE(f.client.fetches.size(), 2);
+        f.client.succeed(f.client.fetches.at(0).opId, QByteArray("bytes"));
+        QCoreApplication::processEvents();
+        QCOMPARE(f.downloads->items().size(), 2);
+        changed.clear();
+        f.downloads->clear();
+        QVERIFY(f.downloads->items().isEmpty());
+        QCOMPARE(changed.count(), 1);
+        // Nothing to clear: no spurious change.
+        f.downloads->clear();
+        QCOMPARE(changed.count(), 1);
+        // A late answer for the dropped save does not resurrect it.
+        f.client.succeed(f.client.fetches.at(1).opId, QByteArray("late"));
+        QCoreApplication::processEvents();
+        QVERIFY(f.downloads->items().isEmpty());
+    }
+
     // ── Always ask / Save as: the dialog is prefilled ──
 
     void alwaysAskOpensASaveDialogPrefilledWithTheNameAndType()

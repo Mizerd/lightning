@@ -776,6 +776,9 @@ Rectangle {
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage
                 property var saveMedia: panel.saveMedia
+                // Which surface a download started here belongs to; the notice
+                // is shown once, on the surface the click came from.
+                property string downloadSurface: "thread"
                 // Shared reaction picker / sender profile entry points; event
                 // id captured at open.
                 property var openReactionPicker: function(eventId, point, expanded) {

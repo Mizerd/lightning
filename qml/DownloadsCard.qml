@@ -16,55 +16,23 @@ import MatrixClient
 // "Saved" under the file's name, never the id.
 //
 // The list is app.downloads.items, owned by C++, so it survives a room
-// switch. The card rests in the bottom-left corner of `safeArea`, which the
-// host sets to the chat column between the room header and the composer (the
-// area the voice mini-player uses), so it never covers the Spaces rail, the
-// account and settings buttons, the header or the composer. When the
-// mini-player rests in the same corner (`avoid`), the card stands above it.
+// switch. The attachment delegate owns placement and viewport visibility.
 Rectangle {
     id: card
-
     objectName: "downloadsCard"
-
-    // Where the card may sit, in the parent's coordinates.
-    property rect safeArea: Qt.rect(0, 0, parent ? parent.width : 0,
-                                    parent ? parent.height : 0)
-    // Another floating card in the parent's coordinates, or null.
-    property Item avoid: null
-    // [{id, fileName, folderName, state, message, risky, canOpen,
-    //   revealFailed}]
-    property var items: app && app.downloads ? app.downloads.items : []
-    readonly property int margin: AppTheme.spacing12
-
-    readonly property rect avoidRect: card.avoid && card.avoid.visible
-                                      && card.avoid.opacity > 0
-        ? Qt.rect(card.avoid.x, card.avoid.y, card.avoid.width,
-                  card.avoid.height)
-        : Qt.rect(0, 0, 0, 0)
-    readonly property real restY: card.safeArea.y + card.safeArea.height
-                                  - card.height - card.margin
-    readonly property bool overlapsAvoid:
-        card.avoidRect.width > 0
-        && card.x < card.avoidRect.x + card.avoidRect.width
-        && card.avoidRect.x < card.x + card.width
-        && card.restY < card.avoidRect.y + card.avoidRect.height
-        && card.avoidRect.y < card.restY + card.height
-
-    visible: opacity > 0
-    opacity: card.items.length > 0 ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: 140 } }
-
+    // [{id, fileName, folderName, state, message, risky, canOpen, revealFailed}]
+    property var items: []
+    // How long a finished row stays; a property so a test need not wait ten
+    // seconds.
+    property int dismissAfterMs: 10000
+    visible: items.length > 0
     radius: AppTheme.radiusLg
     color: AppTheme.cardElevated
     border.width: 1
     border.color: AppTheme.borderSubtle
-    width: Math.max(0, Math.min(340, card.safeArea.width - card.margin * 2))
-    height: rows.implicitHeight + AppTheme.spacing8 * 2
-    x: card.safeArea.x + card.margin
-    y: Math.max(card.safeArea.y + card.margin,
-                card.overlapsAvoid
-                ? card.avoidRect.y - card.height - AppTheme.spacing8
-                : card.restY)
+    width: 300
+    implicitHeight: rows.implicitHeight + AppTheme.spacing8 * 2
+    height: implicitHeight
 
     // The pointer resting anywhere on the card holds every finished row.
     HoverHandler { id: cardHover }
@@ -103,10 +71,14 @@ Rectangle {
                 spacing: AppTheme.spacing6
 
                 // Element's toast expires after ten seconds; a finished row
-                // here too, held while the pointer is on the card.
+                // here too, held while the pointer is on the card. It counts
+                // only while the card is actually visible (effective
+                // visibility: a scrolled-away or hidden host stops it), so an
+                // outcome nobody saw is never dismissed unseen; it is shown
+                // once, for the full interval, when it next appears.
                 Timer {
-                    interval: 10000
-                    running: row.done && !cardHover.hovered
+                    interval: card.dismissAfterMs
+                    running: row.done && !cardHover.hovered && card.visible
                     onTriggered: app.downloads.dismiss(row.modelData.id)
                 }
 

@@ -276,7 +276,9 @@ QString sanitizeLeaf(const QString &raw)
         QStringLiteral("lpt9"), QStringLiteral("conin$"),
         QStringLiteral("conout$"),
     };
-    if (reserved.contains(out.section(QLatin1Char('.'), 0, 0).toLower()))
+    // A trailing-space stem ("CON .txt") is the device too: Win32 drops the
+    // spaces before the lookup.
+    if (reserved.contains(out.section(QLatin1Char('.'), 0, 0).trimmed().toLower()))
         out.prepend(QStringLiteral("file-"));
     if (out.size() > kMaxLeafChars) {
         const QString ext = extensionOf(out);

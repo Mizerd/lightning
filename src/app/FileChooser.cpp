@@ -156,6 +156,43 @@ FileChooser::FileChooser(const Environment &env, QObject *parent)
 
 FileChooser::~FileChooser() = default;
 
+void FileChooser::configureQtDialog(QFileDialog &dialog, const Request &request,
+                                    bool widgetOnly)
+{
+    if (widgetOnly)
+        dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    switch (request.mode) {
+    case Mode::OpenFile:
+        dialog.setFileMode(QFileDialog::ExistingFile);
+        dialog.setAcceptMode(QFileDialog::AcceptOpen);
+        break;
+    case Mode::OpenFiles:
+        dialog.setFileMode(QFileDialog::ExistingFiles);
+        dialog.setAcceptMode(QFileDialog::AcceptOpen);
+        break;
+    case Mode::SaveFile:
+        dialog.setFileMode(QFileDialog::AnyFile);
+        dialog.setAcceptMode(QFileDialog::AcceptSave);
+        break;
+    case Mode::Folder:
+        dialog.setFileMode(QFileDialog::Directory);
+        dialog.setOption(QFileDialog::ShowDirsOnly, true);
+        dialog.setAcceptMode(QFileDialog::AcceptOpen);
+        break;
+    }
+    if (!request.nameFilters.isEmpty() && request.mode != Mode::Folder) {
+        dialog.setNameFilters(request.nameFilters);
+        if (!request.selectedNameFilter.isEmpty())
+            dialog.selectNameFilter(request.selectedNameFilter);
+    }
+    if (request.mode == Mode::SaveFile) {
+        dialog.setDefaultSuffix(savenaming::extensionOf(request.currentName));
+        dialog.selectFile(request.currentName);
+    }
+    if (!request.acceptLabel.isEmpty())
+        dialog.setLabelText(QFileDialog::Accept, request.acceptLabel);
+}
+
 void FileChooser::initialise()
 {
 #ifdef HAVE_QT_DBUS
@@ -176,36 +213,7 @@ void FileChooser::initialise()
                                            : QString());
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->setWindowModality(Qt::ApplicationModal);
-        if (widgetOnly)
-            dialog->setOption(QFileDialog::DontUseNativeDialog, true);
-        switch (request.mode) {
-        case Mode::OpenFile:
-            dialog->setFileMode(QFileDialog::ExistingFile);
-            dialog->setAcceptMode(QFileDialog::AcceptOpen);
-            break;
-        case Mode::OpenFiles:
-            dialog->setFileMode(QFileDialog::ExistingFiles);
-            dialog->setAcceptMode(QFileDialog::AcceptOpen);
-            break;
-        case Mode::SaveFile:
-            dialog->setFileMode(QFileDialog::AnyFile);
-            dialog->setAcceptMode(QFileDialog::AcceptSave);
-            break;
-        case Mode::Folder:
-            dialog->setFileMode(QFileDialog::Directory);
-            dialog->setOption(QFileDialog::ShowDirsOnly, true);
-            dialog->setAcceptMode(QFileDialog::AcceptOpen);
-            break;
-        }
-        if (!request.nameFilters.isEmpty() && request.mode != Mode::Folder) {
-            dialog->setNameFilters(request.nameFilters);
-            if (!request.selectedNameFilter.isEmpty())
-                dialog->selectNameFilter(request.selectedNameFilter);
-        }
-        if (request.mode == Mode::SaveFile && !request.currentName.isEmpty())
-            dialog->selectFile(request.currentName);
-        if (!request.acceptLabel.isEmpty())
-            dialog->setLabelText(QFileDialog::Accept, request.acceptLabel);
+        configureQtDialog(*dialog, request, widgetOnly);
         // Keep the widget dialog above the window it was opened from.
         if (QWindow *parent = QGuiApplication::focusWindow()) {
             dialog->winId();
@@ -240,14 +248,9 @@ FileChooser::Route FileChooser::initialRoute(const Environment &env)
 
 FileChooser::Route FileChooser::fallbackRoute(const Environment &env)
 {
-    // On Linux without a portal, QFileDialog is Qt's widget dialog unless a
-    // desktop's Qt plugin happens to be loaded (never in the AppImage, the
-    // Flatpak or the Nix shell): the app's theme reaches it only as a
-    // palette. On Windows it is the system dialog, which follows the
-    // system's colours and none of the app's, so it stayed white under a
-    // dark theme (live test 2026-10-16). Lightning's own chooser is drawn
-    // like the rest of the app. macOS keeps its system panel.
-    return (env.linuxDesktop || env.windows) ? Route::InApp : Route::QtDialog;
+    // Linux's fallback is themed in-app; Windows and macOS use the native
+    // system dialog. An explicit override still wins in initialRoute().
+    return env.linuxDesktop ? Route::InApp : Route::QtDialog;
 }
 
 FileChooser::Environment FileChooser::hostEnvironment()
@@ -399,6 +402,10 @@ int FileChooser::open(const Request &in, Completion done)
 {
     Request request = in;
     request.id = m_nextId++;
+    // All callers and routes share the same nonempty, portable save leaf.
+    // In particular a new file need not exist for its name to be suggested.
+    if (request.mode == Mode::SaveFile)
+        request.currentName = savenaming::suggestedFileName(request.currentName, {});
     if (!request.purpose.isEmpty() && m_recall) {
         const QUrl remembered = m_recall(request.purpose);
         // A document-portal folder (remembered by an older build) is one

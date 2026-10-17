@@ -15,15 +15,8 @@
 //            shows Dolphin's dialog, GNOME's the GTK one, COSMIC its own,
 //            and it is the only chooser that can grant a Flatpak or Snap
 //            access to a file. Asynchronous by construction.
-//   Linux, no portal (or it fails), and Windows: Lightning's own chooser
-//            (FileChooserDialog.qml over FileBrowserModel), drawn in the
-//            app's theme. It replaced QFileDialog here, whose widget dialog
-//            ignores the theme. This object only asks for it
-//            (inAppRequested) and takes the answer (answerInApp); the one
-//            host lives in Main.qml. On Windows the system dialog stayed
-//            white under a dark app theme (live test 2026-10-16), so Windows
-//            takes this route for open and save alike.
-//   macOS:   QFileDialog, which is the system dialog there.
+//   Linux, no portal (or it fails): Lightning's themed FileChooserDialog.qml.
+//   Windows and macOS: QFileDialog, using the native system dialog.
 //
 // Never QtQuick.Dialogs: its non-native FileDialog fills the name field only
 // from a file that ALREADY EXISTS (QQuickFileDialogImplPrivate::
@@ -45,6 +38,8 @@
 #include <QVariantMap>
 
 #include <functional>
+
+class QFileDialog;
 
 class FileChooser : public QObject
 {
@@ -79,15 +74,21 @@ public:
     struct Environment
     {
         bool linuxDesktop = false; // Linux/BSD: a portal can exist
-        bool windows = false;      // Windows: Lightning's own chooser
+        bool windows = false;      // Windows: native system dialog
         bool sessionBus = false;   // a session bus is connected
         QString override;          // LIGHTNING_FILE_DIALOG
     };
     static Route initialRoute(const Environment &env);
     /// Where a request goes when the portal is absent or fails: Lightning's
-    /// own chooser on Linux and Windows, the system dialog on macOS.
+    /// own chooser on Linux, the system dialog on Windows and macOS.
     static Route fallbackRoute(const Environment &env);
     static Environment hostEnvironment();
+    /// Configures the QFileDialog the Qt route shows for `request`: mode,
+    /// filters, the default suffix (so a typed name without an extension
+    /// still gets the suggested one) and the prefilled name. Public so a test
+    /// can ask the real configuration of a real dialog.
+    static void configureQtDialog(QFileDialog &dialog, const Request &request,
+                                  bool widgetOnly);
 
     using Completion =
         std::function<void(bool accepted, const QList<QUrl> &urls,

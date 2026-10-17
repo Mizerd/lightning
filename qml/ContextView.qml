@@ -152,6 +152,9 @@ Rectangle {
                 function toggleStateGroup(groupId) {}
                 property var openImage: view.openImage
                 property var saveMedia: view.saveMedia
+                // Which surface a download started here belongs to; the notice
+                // is shown once, on the surface the click came from.
+                property string downloadSurface: "context"
                 property var openReactionPicker: function(eventId, point, expanded) {}
                 property var openSenderProfile: function(member) {}
                 property string navigationHighlightEventId: view.highlightEventId

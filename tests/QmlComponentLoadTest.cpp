@@ -122,6 +122,9 @@ constexpr const char *kComponents[] = {
     // The downloads card (app.downloads.items) and the native chooser
     // wrapper (app.files); both bind app objects at load.
     "DownloadsCard",
+    // The pane-level fallback for downloads no file card shows; reads
+    // app.downloads.items and DownloadNotices at load.
+    "PaneDownloadsCard",
     "NativeFileDialog",
     // Lightning's own file chooser (Linux without a portal); binds app.files
     // and a FileBrowserModel at load.
