@@ -112,6 +112,15 @@ private:
         QString eventId;
         qint64 timestampMs = 0;
     };
+    // The room's notification + mention count when a receipt for `eventId` was
+    // handed to the backend; see roomCountMovedSinceReceipt().
+    struct CountAtSend {
+        QString eventId;
+        int count = 0;
+    };
+    int roomCount(const QString &roomId) const;
+    bool roomCountMovedSinceReceipt(const QString &eventId) const;
+    void forgetClearedCounts();
     // The receipt handed to the backend for a room and not yet answered.
     struct InFlightReceipt {
         QString eventId;
@@ -160,6 +169,7 @@ private:
     // an in-flight receipt too, so it is not sent twice while unanswered; a
     // failure rolls it back to m_lastAccepted.
     QHash<QString, SentReceipt> m_lastSent;
+    QHash<QString, CountAtSend> m_countAtSend;
     QHash<QString, SentReceipt> m_lastAccepted;
     QHash<QString, InFlightReceipt> m_inFlight;
     QHash<QString, ReceiptFailure> m_failures;

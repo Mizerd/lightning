@@ -2743,13 +2743,27 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
                 .as_ref() != Some(&event_id) {
                 return;
             }
+            // Both answers name the event the READER was shown (see below); the
+            // receipt itself may sit on a reaction after it.
+            let answered = event_id.to_string();
+            let event_id = in_room_receipt_target(&room, event_id).await;
             let (receipt_type, thread, event_id) = automatic_receipt(event_id, mode);
             // Not retried: the serial lock is held across this call, and the next
             // receipt supersedes this one anyway.
             // Both answers name the event, so C++ can tell this receipt's
             // answer from an older one's (and from mark-as-read's).
-            let answered = event_id.to_string();
-            match room.send_single_receipt(receipt_type, thread, event_id).await {
+            let moved = event_id.as_str() != answered;
+            let mut sent = room
+                .send_single_receipt(receipt_type.clone(), thread.clone(), event_id)
+                .await;
+            if moved && sent.is_err() {
+                // The server refused the receipt on the reaction (one it cannot
+                // place): send the row the reader saw, once, as before #46.
+                if let Ok(original) = EventId::parse(&answered) {
+                    sent = room.send_single_receipt(receipt_type, thread, original).await;
+                }
+            }
+            match sent {
                 Ok(()) => enqueue(&events, json!({
                     "type": "read_marker_advanced", "room_id": room_id,
                     "event_id": answered
@@ -2953,6 +2967,91 @@ pub(crate) fn pick_receipt_target(
     fetched_newest: Option<OwnedEventId>,
 ) -> Option<OwnedEventId> {
     cache_newest.or(latest_event).or(fetched_newest)
+}
+
+/// One cached event, as far as choosing a receipt target needs it.
+pub(crate) struct TailEvent {
+    pub id: OwnedEventId,
+    /// `None` for an event the SDK could not decrypt.
+    pub kind: Option<String>,
+    /// What a reaction annotates / a redaction removes.
+    pub target: Option<OwnedEventId>,
+    /// Carries an `m.thread` relation: not a main-timeline event.
+    pub threaded: bool,
+}
+
+/// The event an in-room receipt should name. The reader was shown `chosen`
+/// (the newest TIMELINE row), but a reaction after it is not a row and still
+/// counts for the server: reactions notify once the user turns them on, and a
+/// receipt at the older event never covers them, so the count stayed for good
+/// (GitHub #46). `tail` is the cache's events, oldest first. The receipt moves
+/// to the last event after `chosen` only when EVERY event there is skippable:
+/// a reaction whose target is a known main-timeline event (a Main receipt must
+/// not cover a thread event, section 8), or a redaction of such a reaction. A
+/// real message, an edit, a poll, an undecryptable event, a reaction to a
+/// thread event or to an unknown event, or a `chosen` the cache does not hold,
+/// leaves it alone, so nothing the reader has not seen is marked read.
+pub(crate) fn receipt_target_past_relations(
+    chosen: &EventId,
+    tail: &[TailEvent],
+) -> OwnedEventId {
+    let Some(at) = tail.iter().rposition(|e| e.id.as_str() == chosen.as_str()) else {
+        return chosen.to_owned();
+    };
+    let known_main = |id: &OwnedEventId| {
+        tail.iter().any(|e| &e.id == id && !e.threaded && e.kind.is_some())
+    };
+    let skippable = |e: &TailEvent| match e.kind.as_deref() {
+        Some("m.reaction") => e.target.as_ref().is_some_and(known_main),
+        Some("m.room.redaction") => e.target.as_ref().is_some_and(|t| {
+            tail.iter().any(|x| &x.id == t && x.kind.as_deref() == Some("m.reaction"))
+        }),
+        _ => false,
+    };
+    let after = &tail[at + 1..];
+    if !after.is_empty() && after.iter().all(skippable) {
+        after[after.len() - 1].id.clone()
+    } else {
+        chosen.to_owned()
+    }
+}
+
+async fn in_room_receipt_target(room: &Room, chosen: OwnedEventId) -> OwnedEventId {
+    let Ok((cache, _drop_handles)) = room.event_cache().await else {
+        return chosen;
+    };
+    let Ok(events) = cache.events().await else {
+        return chosen;
+    };
+    let tail: Vec<TailEvent> = events
+        .iter()
+        .filter_map(|event| {
+            let id = event.event_id()?;
+            let raw = event.raw();
+            let kind = raw.get_field::<String>("type").ok().flatten();
+            let content = raw.get_field::<serde_json::Value>("content").ok().flatten();
+            let relates = content.as_ref().and_then(|c| c.get("m.relates_to"));
+            let target = relates
+                .and_then(|r| r.get("event_id"))
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    content.as_ref().and_then(|c| c.get("redacts")).and_then(|v| v.as_str())
+                })
+                .and_then(|t| EventId::parse(t).ok());
+            let target = target.or_else(|| {
+                raw.get_field::<String>("redacts")
+                    .ok()
+                    .flatten()
+                    .and_then(|t| EventId::parse(t).ok())
+            });
+            let threaded = relates
+                .and_then(|r| r.get("rel_type"))
+                .and_then(|v| v.as_str())
+                == Some("m.thread");
+            Some(TailEvent { id, kind, target, threaded })
+        })
+        .collect();
+    receipt_target_past_relations(&chosen, &tail)
 }
 
 async fn resolve_mark_read_target(room: &Room) -> Option<OwnedEventId> {
@@ -15691,6 +15790,72 @@ mod tests {
         // Unknown power levels or an uncached target: forwarded, as before.
         assert!(super::redaction_applies(Some(alice), mallory, None));
         assert!(super::redaction_applies(None, mallory, Some(false)));
+    }
+
+    #[test]
+    fn a_receipt_covers_the_reactions_after_the_newest_row() {
+        use super::TailEvent;
+        let id = |s: &str| super::EventId::parse(s).unwrap();
+        let ev = |s: &str, t: &str, target: Option<&str>, threaded: bool| TailEvent {
+            id: id(s),
+            kind: Some(t.to_owned()),
+            target: target.map(id),
+            threaded,
+        };
+        let msg = |s: &str| ev(s, "m.room.message", None, false);
+        let thread_reply = |s: &str| ev(s, "m.room.message", None, true);
+        let react = |s: &str, to: &str| ev(s, "m.reaction", Some(to), false);
+        let pick = |chosen: &str, tail: &[TailEvent]| {
+            super::receipt_target_past_relations(&id(chosen), tail)
+        };
+
+        let tail = vec![
+            msg("$m1:x"),
+            msg("$m2:x"),
+            react("$r1:x", "$m2:x"),
+            ev("$d1:x", "m.room.redaction", Some("$r1:x"), false),
+        ];
+        assert_eq!(pick("$m2:x", &tail), id("$d1:x"));
+        // A message after the chosen row is unseen: never marked read.
+        assert_eq!(pick("$m1:x", &tail), id("$m1:x"));
+        // Nothing after it and an unknown id stay put.
+        assert_eq!(pick("$d1:x", &tail), id("$d1:x"));
+        assert_eq!(pick("$zz:x", &tail), id("$zz:x"));
+        // An undecryptable tail stays put.
+        let utd = vec![
+            msg("$m2:x"),
+            TailEvent { id: id("$u:x"), kind: None, target: None, threaded: false },
+        ];
+        assert_eq!(pick("$m2:x", &utd), id("$m2:x"));
+
+        // A reaction to a THREAD reply, which sits before the row the reader
+        // saw, must not carry the Main receipt onto the reaction.
+        let thread = vec![thread_reply("$t1:x"), msg("$m2:x"), react("$r1:x", "$t1:x")];
+        assert_eq!(pick("$m2:x", &thread), id("$m2:x"));
+        // Nor one to an event the cache does not hold.
+        let unknown = vec![msg("$m2:x"), react("$r1:x", "$gone:x")];
+        assert_eq!(pick("$m2:x", &unknown), id("$m2:x"));
+        // One thread-annotating reaction among main ones blocks the move.
+        let mixed = vec![
+            thread_reply("$t1:x"),
+            msg("$m2:x"),
+            react("$r1:x", "$m2:x"),
+            react("$r2:x", "$t1:x"),
+        ];
+        assert_eq!(pick("$m2:x", &mixed), id("$m2:x"));
+
+        // An edit and a poll answer in the tail are content, not relations.
+        let edit = vec![msg("$m2:x"), ev("$e1:x", "m.room.message", Some("$m2:x"), false)];
+        assert_eq!(pick("$m2:x", &edit), id("$m2:x"));
+        let poll = vec![
+            msg("$m2:x"),
+            ev("$p1:x", "org.matrix.msc3381.poll.response", Some("$m2:x"), false),
+            react("$r1:x", "$m2:x"),
+        ];
+        assert_eq!(pick("$m2:x", &poll), id("$m2:x"));
+        // A redaction of something that is not a reaction does not skip either.
+        let redact_msg = vec![msg("$m1:x"), msg("$m2:x"), ev("$d:x", "m.room.redaction", Some("$m1:x"), false)];
+        assert_eq!(pick("$m2:x", &redact_msg), id("$m2:x"));
     }
 
     #[test]

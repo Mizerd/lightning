@@ -289,6 +289,100 @@ private Q_SLOTS:
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$2"));
     }
 
+    // GitHub #46: a reaction is not a timeline row, so the newest readable
+    // event stays the same while the server counts the reaction. The same
+    // event must be sent again once for each new count, and not in a loop when
+    // the server does not clear it.
+    void aReactionAfterTheNewestRowGetsItsReceiptResent()
+    {
+        Rig rig;
+        RoomInfo info;
+        info.id = kRoomA;
+        info.membership = RoomInfo::Joined;
+        rig.client.roomInfos = { info };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        rig.accept(kRoomA, QStringLiteral("$1"));
+
+        rig.client.roomInfos[0].unreadCount = 1; // the reaction
+        rig.coordinator.reevaluate();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$1"));
+        rig.accept(kRoomA, QStringLiteral("$1"));
+
+        // The server still says 1: no third receipt.
+        rig.coordinator.reevaluate();
+        QTest::qWait(20);
+        QCOMPARE(rig.client.receiptEvents.size(), 2);
+
+        rig.client.roomInfos[0].unreadCount = 2; // another reaction
+        rig.coordinator.reevaluate();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 3);
+    }
+
+    // The server clears the count after the receipt, and a new reaction raises
+    // it to the value it had when the receipt was sent: still a new count.
+    void aCountThatReturnsToTheSameValueIsResent()
+    {
+        Rig rig;
+        RoomInfo info;
+        info.id = kRoomA;
+        info.membership = RoomInfo::Joined;
+        info.unreadCount = 1; // opened with a count already on it
+        rig.client.roomInfos = { info };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        rig.accept(kRoomA, QStringLiteral("$1"));
+
+        rig.client.roomInfos[0].unreadCount = 0; // the server cleared it
+        Q_EMIT rig.client.roomsChanged();
+        QTest::qWait(20);
+        QCOMPARE(rig.client.receiptEvents.size(), 1);
+
+        rig.client.roomInfos[0].unreadCount = 1; // a new reaction
+        Q_EMIT rig.client.roomsChanged();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$1"));
+    }
+
+    // A count recorded for one room never decides for another, and coming back
+    // to a room whose count is unchanged does not send again.
+    void theRecordedCountBelongsToItsRoom()
+    {
+        Rig rig;
+        RoomInfo a;
+        a.id = kRoomA;
+        a.membership = RoomInfo::Joined;
+        a.unreadCount = 1;
+        RoomInfo b = a;
+        b.id = kRoomB;
+        rig.client.roomInfos = { a, b };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$a1"), 1000) };
+        rig.client.timelines[kRoomB] = { makeEvent(kRoomB, QStringLiteral("$b1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        rig.accept(kRoomA, QStringLiteral("$a1"));
+
+        rig.model.setRoomId(kRoomB);
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$b1"));
+        rig.accept(kRoomB, QStringLiteral("$b1"));
+
+        rig.model.setRoomId(kRoomA);
+        QTest::qWait(20);
+        QCOMPARE(rig.client.receiptEvents.size(), 2);
+
+        rig.client.roomInfos[0].unreadCount = 2; // a reaction in A only
+        Q_EMIT rig.client.roomsChanged();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 3);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$a1"));
+    }
+
     void localEchoesFailedSendsAndVirtualRowsAreIneligible()
     {
         Rig rig;

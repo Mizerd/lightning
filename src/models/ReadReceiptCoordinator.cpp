@@ -150,8 +150,10 @@ QString ReadReceiptCoordinator::eligibleEventId(qint64 *timestampMs) const
         } else if (ts > 0 && last->timestampMs > 0 && ts < last->timestampMs) {
             return {};
         }
-        if (last->eventId == eventId && !clearsMarkedUnread())
-            return {}; // same receipt already sent, no manual flag to clear
+        if (last->eventId == eventId && !clearsMarkedUnread()
+            && !roomCountMovedSinceReceipt(eventId)) {
+            return {}; // same receipt already sent, nothing left to clear
+        }
     }
     // A failed event waits for its backoff, and after the last retry for a
     // newer event, the window coming back, or the room being reopened.
@@ -167,6 +169,7 @@ QString ReadReceiptCoordinator::eligibleEventId(qint64 *timestampMs) const
 
 void ReadReceiptCoordinator::reevaluate()
 {
+    forgetClearedCounts();
     qint64 ts = 0;
     const QString eventId = eligibleEventId(&ts);
     if (eventId.isEmpty()) {
@@ -210,6 +213,46 @@ bool ReadReceiptCoordinator::clearsMarkedUnread() const
     return m_openedMarkedUnread && roomIsMarkedUnread();
 }
 
+int ReadReceiptCoordinator::roomCount(const QString &roomId) const
+{
+    for (const auto &room : m_client->rooms()) {
+        if (room.id == roomId)
+            return qMax(0, room.unreadCount) + qMax(0, room.highlightCount);
+    }
+    return 0;
+}
+
+// A reaction is not a timeline row, so the newest READABLE event does not move
+// when one arrives, yet the server counts it (reactions notify when the user
+// turned them on) and the receipt at that older event never covered it. The
+// same event is therefore sent again, once per distinct non-zero count; a
+// server that does not clear the count after the resend is not asked again.
+bool ReadReceiptCoordinator::roomCountMovedSinceReceipt(const QString &eventId) const
+{
+    const QString roomId = m_model->roomId();
+    const int now = roomCount(roomId);
+    if (now <= 0)
+        return false;
+    const auto at = m_countAtSend.constFind(roomId);
+    return at == m_countAtSend.constEnd() || at->eventId != eventId
+        || at->count != now;
+}
+
+// A room whose count the server has cleared starts over: the next reaction may
+// raise it to the very value it had when the receipt was sent, and comparing
+// that against the old record would call it "unchanged". Run on every
+// evaluation, not only while the room is open and eligible, so a 0 seen while
+// the window was unfocused is not lost.
+void ReadReceiptCoordinator::forgetClearedCounts()
+{
+    for (auto it = m_countAtSend.begin(); it != m_countAtSend.end();) {
+        if (roomCount(it.key()) <= 0)
+            it = m_countAtSend.erase(it);
+        else
+            ++it;
+    }
+}
+
 bool ReadReceiptCoordinator::roomIsMarkedUnread() const
 {
     for (const auto &room : m_client->rooms()) {
@@ -232,6 +275,7 @@ void ReadReceiptCoordinator::sendNow(const QString &eventId, qint64 timestampMs)
     // in-flight entry also keeps the same receipt from being sent twice while
     // it is unanswered. receiptSent waits for the server (onReceiptAccepted).
     m_lastSent.insert(roomId, { eventId, timestampMs });
+    m_countAtSend.insert(roomId, { eventId, roomCount(roomId) });
     m_inFlight.insert(roomId, { eventId, timestampMs, viaMarkRead });
     // The reader was shown this event: it is where m.fully_read goes when
     // they leave, whatever the receipt's own fate.
@@ -371,6 +415,7 @@ void ReadReceiptCoordinator::resetReceiptState()
     m_retry.stop();
     m_retryRoomId.clear();
     m_lastSent.clear();
+    m_countAtSend.clear();
     m_lastAccepted.clear();
     m_inFlight.clear();
     m_failures.clear();
