@@ -181,6 +181,15 @@ for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
 done
+# libpipewire loads the SPA converter when an audio stream creates its
+# adapter. Merely registering pipewiresrc or resolving its ELF dependencies
+# does not exercise it. This probe opens no devices or server connections.
+LD_LIBRARY_PATH="$tree/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    python3 "$SCRIPT_DIR/probe-appimage-spa.py" "$tree" \
+    > dist/appimage-spa-status.txt 2>&1 \
+    || { cat dist/appimage-spa-status.txt; die "bundled PipeWire SPA factories cannot load"; }
+cat dist/appimage-spa-status.txt
+
 # The LGPL text for the bundled gst-plugins-good binaries, checked on the
 # payload rather than the script.
 good_license="$tree/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"

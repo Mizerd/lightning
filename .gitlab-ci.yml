@@ -1090,7 +1090,7 @@ validate-appimage:
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
       libopengl0 libwayland-client0 libwayland-cursor0 libwayland-egl1
       libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
-      libxkbcommon0 libxtst6 zstd
+      libxkbcommon0 libxtst6 python3 zstd
   script: [./packaging-ci/scripts/validate-appimage.sh]
   artifacts:
     when: always

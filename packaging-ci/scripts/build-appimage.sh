@@ -201,12 +201,14 @@ printf 'Staged gst-plugin-scanner from %s\n' "$gst_scanner_src"
 # libpipewire dlopens its own SPA plugins and modules from build-time paths
 # and reads its module list from client.conf, so all three are staged and
 # pointed at by the AppRun hook; without them pipewiresrc fails with "can't
-# make support.system handle" (screen share only; audio and camera do not use
-# libpipewire). Only support/ and videoconvert/ (named by client.conf) are
-# staged: the other SPA directories need libraries that are not bundled.
+# make support.system handle". The adapter loads videoconvert for portal
+# video and audioconvert for raw audio (per-application share capture and
+# the direct PipeWire audio fallback). These are SPA modules, separate from
+# GStreamer's libgstaudioresample: neither ELF dependency walks nor an element
+# factory probe discover them. Other SPA directories are not needed here.
 SPA_SRC="/usr/lib/x86_64-linux-gnu/spa-0.2"
 PW_MODULE_SRC="/usr/lib/x86_64-linux-gnu/pipewire-0.3"
-for spa_subdir in support videoconvert; do
+for spa_subdir in support videoconvert audioconvert; do
     [[ -d "$SPA_SRC/$spa_subdir" ]] || \
         die "SPA plugin directory $SPA_SRC/$spa_subdir is missing (install libspa-0.2-modules)"
     mkdir -p "$APPDIR/usr/lib/spa-0.2/$spa_subdir"
@@ -244,7 +246,7 @@ done
 mkdir -p "$APPDIR/usr/share/pipewire"
 cp "$PW_CLIENT_CONF" "$APPDIR/usr/share/pipewire/client.conf"
 printf 'PipeWire client stack staged: %d SPA dirs, %d modules, client.conf from %s\n' \
-    2 "${#PW_REQUIRED_MODULES[@]}" "$PW_CLIENT_CONF"
+    3 "${#PW_REQUIRED_MODULES[@]}" "$PW_CLIENT_CONF"
 
 # --- Qt image-format plugins --------------------------------------------------
 #

@@ -1505,10 +1505,16 @@ for fmt in ("appimage", "snap"):
 # modules from build-time paths and needs client.conf, or pipewiresrc fails at
 # `pw_loop_new` and screen sharing is dead.
 _appimage_src = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
-for _spa_dir in ("support", "videoconvert"):
+for _spa_dir in ("support", "videoconvert", "audioconvert"):
     check(_spa_dir in _appimage_src.split("for spa_subdir in ")[1].split(";")[0]
           if "for spa_subdir in " in _appimage_src else False,
           f"the AppImage stages the spa-0.2/{_spa_dir} plugin directory")
+check('probe-appimage-spa.py' in _strip_shell_comments(
+          _read("scripts", "validate-appimage.sh")),
+      "validate-appimage loads SPA audio factories from the extracted payload")
+check("python3" in " ".join(resolve_extends("validate-appimage").get(
+          "before_script", [])),
+      "validate-appimage installs Python for the headless SPA factory probe")
 # Match the list itself, not comments naming it.
 _pw_loop = re.search(r"PW_REQUIRED_MODULES=\((.*?)\)", _appimage_src, re.S)
 check(_pw_loop is not None,
