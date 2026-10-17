@@ -18,6 +18,12 @@
 
 ## Planned (to do, not started)
 
+- **German translation (`de`).** Requested by Rokas, 2026-10-17. Add
+  `i18n/lightning_de.ts` to the catalogue set and the language picker,
+  translate it through the existing i18n tool with a native-quality pass
+  (German users are already testing), and add it to the `localization`
+  suite's language list.
+
 - **"Playing X" game activity (Discord-style), opt-in.** Idea from Rokas,
   2026-10-17. Show the game you are playing next to your name.
   - Publish: the presence `status_msg` ("Playing Hades II"), so every
