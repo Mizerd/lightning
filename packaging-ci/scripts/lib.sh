@@ -54,6 +54,41 @@ assert_call_media_engine() {
         "$label: the engine is compiled in but cannot run -- see the missing_element or gstreamer line above. The package does not carry (or cannot find) the GStreamer plugins the call engine needs."
     [[ "$status" == 0 ]] || die \
         "$label: --call-media-status reported success but exited $status"
+    assert_share_audio_exclusion "$label" "$log"
+}
+
+# --- screen-share sound must leave the call out (GitHub #26) ----------------
+#
+# Missing plugins once selected a monitor including call playback. Capture now
+# fails closed; keep packages capable of capturing other applications, too.
+# This checks plugins only, never connects to the package runner's audio server.
+# The 0.10.1 AppImage lacked audiomixer; snap inherited that same AppDir.
+#
+# Hard in a release pipeline (PUBLISH_PACKAGES=true; Rokas, 2026-10-07: a
+# release cannot pass with warnings); a warning in a build-only pipeline, so a
+# format that cannot say it yet shows up before release day.
+#
+#   $1  format label for the message
+#   $2  path to the captured --call-media-status output
+SHARE_AUDIO_EXCLUSION_PASS='screen-share sound exclusion capability: available'
+assert_share_audio_exclusion() {
+    local label="$1" log="$2" line problem
+    line="$(tr -d '\r' <"$log" | grep -m1 '^screen-share sound exclusion capability: ' || true)"
+    if [[ "$line" == "$SHARE_AUDIO_EXCLUSION_PASS"* ]]; then
+        echo "$label: $line"
+        return 0
+    fi
+    if [[ -z "$line" ]]; then
+        problem="--call-media-status does not say whether a screen share's sound leaves this call out (an older build, or the line was lost)"
+    else
+        problem="the package cannot capture shared sound while excluding this call: $line"
+    fi
+    if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+        die "$label: $problem. A release must carry the excluding capture plugins (GitHub #26)."
+    fi
+    echo "WARNING: $label: $problem." >&2
+    echo "WARNING: not a hard gate in a build-only pipeline; a release fails on it -- see assert_share_audio_exclusion in lib.sh." >&2
+    return 0
 }
 
 # --- a time bound that exists on macOS too -----------------------------------

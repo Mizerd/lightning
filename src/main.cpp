@@ -6,6 +6,7 @@
 #include "calls/ShareSourceImageProvider.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/SfuMediaEngine.h"
+#include "calls/ShareAudioSources.h"
 #include "calls/noise/MicProcessing.h"
 #endif
 #include "i18n/LocalizationManager.h"
@@ -1823,6 +1824,12 @@ static int printCallMediaStatus()
                                  "the desktop's portal"))
         << "\n";
 #endif
+
+    // Plugin capability, without connecting to a sound server. Runtime
+    // availability additionally requires a reachable PipeWire daemon on Linux.
+    out << lightning::shareaudio::systemExclusionStatusLine(
+               lightning::shareaudio::systemExclusion())
+        << "\n";
 
     // Only the SFU engine decides the exit code; every MatrixRTC call uses it.
     out << "\nRESULT: "

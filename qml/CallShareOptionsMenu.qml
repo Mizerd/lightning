@@ -34,25 +34,36 @@ AppMenu {
 
     readonly property bool _soundSupported:
         !!app.groupCall && app.groupCall.shareAudioSupported
+    // The section stays while a call exists, even where nothing can capture:
+    // the line at its foot then says why, and the two choices that remain are
+    // disabled. Absent would leave a user with no sound and no reason.
+    readonly property bool _soundShown: !!app.groupCall
+    // An earlier probe may have been inconclusive (the audio daemon was not
+    // up yet): ask again as the menu opens. Bounded in the controller.
+    onAboutToShow: {
+        if (app.groupCall)
+            app.groupCall.refreshShareAudioCapability();
+    }
     readonly property int _soundMode:
         app.groupCall ? app.groupCall.shareAudioMode : 0
 
     // ── Sound ──
-    // Three choices, not a toggle: no sound, the whole system (Lightning left
-    // out where the system allows; the line below says when it cannot be),
-    // or only chosen apps. Absent rather than disabled where nothing can
-    // capture: a disabled control gets no hover to explain itself. Short
-    // labels: the label column is 200px
-    // (theShareOptionsMenuShowsItsLabelsWithoutEliding).
+    // Three choices, not a toggle: no sound, the whole system (Lightning is
+    // always left out; share sound is off where it cannot be), or only chosen
+    // apps. Where nothing can capture, "No sound" and "Entire system" stay
+    // but are disabled, and the status line below gives the reason in words
+    // (a disabled control gets no hover to explain itself). Short labels: the
+    // label column is 200px (theShareOptionsMenuShowsItsLabelsWithoutEliding).
     MenuSectionLabel {
-        visible: root._soundSupported
-        height: root._soundSupported ? implicitHeight : 0
+        visible: root._soundShown
+        height: root._soundShown ? implicitHeight : 0
         text: qsTr("Screen share sound")
     }
 
     AppMenuItem {
         objectName: "shareAudioOffItem"
-        visible: root._soundSupported
+        visible: root._soundShown
+        enabled: root._soundSupported
         height: visible ? implicitHeight : 0
         radio: true
         radioSelected: root._soundMode === 0
@@ -65,7 +76,8 @@ AppMenu {
 
     AppMenuItem {
         objectName: "shareAudioMenuItem"
-        visible: root._soundSupported
+        visible: root._soundShown
+        enabled: root._soundSupported
         height: visible ? implicitHeight : 0
         radio: true
         radioSelected: root._soundMode === 1
@@ -122,8 +134,8 @@ AppMenu {
     // not vote in AppMenu's width fit.
     Label {
         objectName: "shareAudioStatusLabel"
-        visible: root._soundSupported
-        height: root._soundSupported ? implicitHeight : 0
+        visible: root._soundShown
+        height: root._soundShown ? implicitHeight : 0
         width: root.width - root.leftPadding - root.rightPadding
         leftPadding: AppTheme.menuItemPadding
         rightPadding: AppTheme.menuItemPadding
@@ -138,7 +150,7 @@ AppMenu {
     }
 
     AppMenuSeparator {
-        visible: root._soundSupported
+        visible: root._soundShown
         height: visible ? implicitHeight : 0
     }
 

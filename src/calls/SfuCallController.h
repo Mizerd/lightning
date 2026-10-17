@@ -88,13 +88,15 @@ class SfuCallController : public QObject
     /// that cannot honour it.
     Q_PROPERTY(bool shareAudioEnabled READ shareAudioEnabled
                    WRITE setShareAudioEnabled NOTIFY mediaStateChanged)
-    Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported CONSTANT)
+    Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported
+                   NOTIFY shareAudioCapabilityChanged)
     /// Whether share audio excludes this call's own playback: true with
     /// per-application capture (Linux with PipeWire) or Windows process-tree
     /// exclusion, false where only the output mix is available. The picker
     /// tells the user which they get.
     Q_PROPERTY(bool shareAudioExcludesOwnPlayback
-                   READ shareAudioExcludesOwnPlayback CONSTANT)
+                   READ shareAudioExcludesOwnPlayback
+                   NOTIFY shareAudioCapabilityChanged)
     /// What a share's sound carries (shareaudio::Mode): 0 no sound, 1 the whole
     /// system (minus Lightning where shareAudioExcludesOwnPlayback), 2 only
     /// the applications in shareAudioApps. Changing it during a share applies
@@ -107,7 +109,7 @@ class SfuCallController : public QObject
     /// Whether single applications can be chosen here: PipeWire reachable on
     /// Linux, process loopback on Windows (10 2004+).
     Q_PROPERTY(bool shareAudioCanChooseApps READ shareAudioCanChooseApps
-                   CONSTANT)
+                   NOTIFY shareAudioCapabilityChanged)
     /// The applications that can be chosen, live while something watches
     /// (watchShareAudioApplications) or a share is running. Each entry:
     /// {key, label, iconName, playing, chosen, carried}; `carried` is true
@@ -289,14 +291,26 @@ public:
     /// so every `true` needs its `false`.
     Q_INVOKABLE void watchShareAudioApplications(bool on);
 
+    /// Asks the machine again whether share sound can be offered, when an
+    /// earlier probe was inconclusive (the audio daemon was not up yet, or the
+    /// probe timed out). Called as the share menu and picker open; bounded,
+    /// so it cannot hold the GUI thread past the probe's own limit. Emits
+    /// shareAudioCapabilityChanged when the answer moved.
+    Q_INVOKABLE void refreshShareAudioCapability();
+
+    /// Why share sound is off (shareAudioStatusText when !supported).
+    enum class ShareAudioUnavailable {
+        NoCapture,     // macOS, or a build without the media engine
+        MissingPlugin, // the package lacks a plugin the capture needs
+        NoPipeWire,    // Linux: no PipeWire daemon (PulseAudio alone)
+        OldWindows     // Windows before process loopback (build 20348)
+    };
+
     /// What shareAudioStatus says, as a pure function for tests.
     struct ShareAudioStatusInput {
         bool supported = false;
+        ShareAudioUnavailable why = ShareAudioUnavailable::NoCapture;
         int mode = 1;
-        /// Before a share: what "the whole system" would do here. During one:
-        /// what the running track ACTUALLY does (it can have fallen back to
-        /// the output monitor).
-        bool systemExcludesUs = false;
         QStringList chosenLabels;
         bool trackLive = false;      // a share is running with a sound track
         bool perApplication = false; // that track captures per application
@@ -669,6 +683,15 @@ public:
     {
         m_shareAudioCanChooseForTest = on ? 1 : 0;
     }
+    /// Pretend share sound is unavailable for `why`, whatever this machine
+    /// can do, so the explanation surfaces can be tested anywhere.
+    void setShareAudioUnavailableForTest(ShareAudioUnavailable why)
+    {
+        m_shareAudioSupportedForTest = 0;
+        m_shareAudioWhyForTest = why;
+        Q_EMIT shareAudioCapabilityChanged();
+        Q_EMIT shareAudioStatusChanged();
+    }
     /// Share-audio rebuilds granted this share (see onShareAudioRebuildWanted).
     int shareAudioRebuildsForTest() const { return m_shareAudioRebuilds; }
     /// Pretend a screen share is running (or not), so the call bar's share
@@ -843,6 +866,9 @@ Q_SIGNALS:
     void screenShareSourcesChanged();
     void shareAudioApplicationsChanged();
     void shareAudioStatusChanged();
+    /// shareAudioSupported / shareAudioCanChooseApps /
+    /// shareAudioExcludesOwnPlayback may have changed (a later probe).
+    void shareAudioCapabilityChanged();
     void screenShareSourcesAvailable();
     /// A user-facing failure in plain wording. An empty message withdraws the
     /// previous one (a later attempt got past the gate that refused), the same
@@ -1294,6 +1320,12 @@ private:
     QTimer m_shareAudioAppsTimer;
     int m_shareAudioAppsWatchers = 0;
     int m_shareAudioCanChooseForTest = -1;   // -1: ask the machine
+    int m_shareAudioSupportedForTest = -1;   // -1: ask the machine
+    ShareAudioUnavailable m_shareAudioWhyForTest =
+        ShareAudioUnavailable::NoCapture;
+    /// What refreshShareAudioCapability() last saw, to emit on a change only.
+    bool m_lastShareAudioSupported = false;
+    bool m_lastShareAudioCanChoose = false;
     /// One enumeration at a time (it runs on a worker), and the streams it
     /// last returned, so a refresh that only changes marks needs no new pass.
     bool m_shareAudioListInFlight = false;

@@ -57,6 +57,25 @@ QString propString(const QVariantMap &props, const char *key)
 /// enumerate(), which must never be the thing that starts the probe (a
 /// worker that hung inside it would hold its once-flag for good).
 std::atomic<int> g_probeState{0};
+
+/// The per-application probe's cache. A definite answer stays; Unknown is
+/// asked again (perApplicationCaptureAvailable()). All guarded by the mutex.
+struct ProbeCache {
+    std::mutex mutex;
+    bool have = false;
+    lightning::shareaudio::ProbeOutcome result =
+        lightning::shareaudio::ProbeOutcome::Unknown;
+    bool inFlight = false;
+    std::chrono::steady_clock::time_point at;
+    std::function<lightning::shareaudio::ProbeOutcome()> hook;
+    int timeoutMs = 2500;
+};
+
+ProbeCache &probeCache()
+{
+    static ProbeCache cache;
+    return cache;
+}
 } // namespace
 
 namespace lightning::shareaudio {
@@ -191,6 +210,73 @@ QString mixerElementName()
 QString levelElementName()
 {
     return QStringLiteral("sharelevel");
+}
+
+SystemExclusion systemExclusionFor(Platform platform,
+                                   const ExclusionElements &elements)
+{
+    SystemExclusion verdict;
+    switch (platform) {
+    case Platform::Linux:
+        // Exactly what probePipeWire() requires before it asks the daemon:
+        // one pipewiresrc per application, found by the PipeWire provider,
+        // summed by an audiomixer. A sink monitor cannot leave a contributor
+        // out, so all three are required for an excluding capture.
+        if (!elements.audiomixer)
+            verdict.missing << QStringLiteral("element audiomixer");
+        if (!elements.pipewireTargetObject)
+            verdict.missing << QStringLiteral(
+                "pipewiresrc with target-object (PipeWire 0.3.64 or newer)");
+        if (!elements.pipewireDeviceProvider)
+            verdict.missing << QStringLiteral("PipeWire device provider");
+        verdict.how = QStringLiteral("per-application capture");
+        break;
+    case Platform::Windows:
+        // "The whole system" is one exclude-process-tree loopback; the mixer
+        // is only for chosen applications.
+        if (!elements.wasapiProcessLoopback)
+            verdict.missing << QStringLiteral(
+                "wasapi2src with process loopback (Windows build 20348 or "
+                "newer)");
+        verdict.how = QStringLiteral("process loopback");
+        break;
+    case Platform::Other:
+        verdict.missing << QStringLiteral("a capture of what this computer "
+                                          "plays");
+        break;
+    }
+    verdict.possible = verdict.missing.isEmpty();
+    if (!verdict.possible)
+        verdict.how.clear();
+    return verdict;
+}
+
+QString systemExclusionStatusLine(const SystemExclusion &verdict)
+{
+    if (verdict.possible) {
+        return QStringLiteral("screen-share sound exclusion capability: available "
+                              "(%1; audio server required)")
+            .arg(verdict.how);
+    }
+    return QStringLiteral("screen-share sound exclusion capability: unavailable "
+                          "(share audio disabled; missing: %1)")
+        .arg(verdict.missing.join(QStringLiteral("; ")));
+}
+
+SystemCapture systemCaptureFor(Platform platform, bool perApplicationAvailable,
+                               bool processLoopbackAvailable, qint64 ourPid)
+{
+    if (platform == Platform::Linux && perApplicationAvailable)
+        return { SystemCapture::Kind::PerApplication, {}, true };
+    if (platform == Platform::Windows && processLoopbackAvailable
+        && ourPid > 0 && quint64(ourPid) <= 0xffffffffULL) {
+        return { SystemCapture::Kind::ProcessLoopback,
+                 QStringLiteral("wasapi2src name=sharesrc "
+                                "loopback-mode=exclude-process-tree "
+                                "loopback-target-pid=%1 low-latency=true")
+                     .arg(ourPid), true };
+    }
+    return {};
 }
 
 QString branchVolumeName(int index)
@@ -750,6 +836,36 @@ bool elementHasProperty(const char *element, const char *property)
     return has;
 }
 
+/// What the registry offers towards leaving ourselves out of a share.
+ExclusionElements loadedExclusionElements()
+{
+    ExclusionElements e;
+    e.audiomixer = elementExists("audiomixer");
+#if defined(Q_OS_WIN)
+    // The properties are installed only on Windows build 20348+.
+    e.wasapiSource = elementExists("wasapi2src");
+    e.wasapiProcessLoopback =
+        elementHasProperty("wasapi2src", "loopback-target-pid")
+        && elementHasProperty("wasapi2src", "loopback-mode");
+#else
+    // `target-object` arrived in 0.3.6x; 0.3.48 (Ubuntu 22.04, Mint 21) has
+    // only `path`, which cannot name a stream by serial. `on-disconnect` is
+    // used where present and not required: it exists only from PipeWire 1.6,
+    // and requiring it switched per-application capture off in every package
+    // and on every distribution older than that.
+    e.pipewireTargetObject = elementHasProperty("pipewiresrc", "target-object");
+    // The PipeWire provider alone, not an unfiltered GstDeviceMonitor: that
+    // started every provider on the machine, and stream nodes are only ever
+    // PipeWire's.
+    if (GstDeviceProviderFactory *provider =
+            gst_device_provider_factory_find("pipewiredeviceprovider")) {
+        e.pipewireDeviceProvider = true;
+        gst_object_unref(provider);
+    }
+#endif
+    return e;
+}
+
 #if !defined(Q_OS_WIN)
 QVariantMap propertiesOf(GstDevice *device)
 {
@@ -844,31 +960,20 @@ QList<QVariantMap> pipewireDevicePassLocked(bool *reached)
 }
 
 /// The probe's work on Linux: checks, then one pass that reached a daemon.
-bool probePipeWire()
+/// Missing plugins are definite; no daemon answering is not (it may be
+/// starting, or this may be PulseAudio alone, and nothing here can tell).
+ProbeOutcome probePipeWire()
 {
-    if (!elementExists("audiomixer")) {
-        qCInfo(lcShareAudio) << "per-application share audio unavailable: no "
-                                "audiomixer element";
-        return false;
-    }
-    // `target-object` arrived in 0.3.6x; 0.3.48 (Ubuntu 22.04, Mint 21) has
-    // only `path`, which cannot name a stream by serial. `on-disconnect` is
-    // used where present and not required: it exists only from PipeWire 1.6,
-    // and requiring it switched per-application capture off in every package
-    // and on every distribution older than that.
-    if (!elementHasProperty("pipewiresrc", "target-object")) {
-        qCInfo(lcShareAudio) << "per-application share audio unavailable: "
-                                "pipewiresrc has no target-object property "
-                                "(PipeWire older than 0.3.64)";
-        return false;
-    }
-    // The PipeWire provider alone, not an unfiltered GstDeviceMonitor: that
-    // started every provider on the machine, and stream nodes are only ever
-    // PipeWire's.
-    if (!gst_device_provider_factory_find("pipewiredeviceprovider")) {
-        qCInfo(lcShareAudio) << "per-application share audio unavailable: no "
-                                "PipeWire device provider in this build";
-        return false;
+    // The element half is the very verdict `--call-media-status` reports
+    // (systemExclusionFor()), so the package check and this gate cannot
+    // disagree about what is required.
+    const SystemExclusion elements =
+        systemExclusionFor(Platform::Linux, loadedExclusionElements());
+    if (!elements.possible) {
+        qCInfo(lcShareAudio).noquote()
+            << "per-application share audio unavailable: missing"
+            << elements.missing.join(QStringLiteral(", "));
+        return ProbeOutcome::Unavailable;
     }
     // start() answers TRUE when it could not connect at all ("failed: return
     // TRUE" in every version through 1.6), so a PulseAudio-only system looked
@@ -879,10 +984,11 @@ bool probePipeWire()
     if (!reached) {
         qCInfo(lcShareAudio)
             << "per-application share audio unavailable: no PipeWire daemon "
-               "answered (a PulseAudio-only system, or PipeWire not running)";
-        return false;
+               "answered (a PulseAudio-only system, or PipeWire not running "
+               "yet); asking again when share options open";
+        return ProbeOutcome::Unknown;
     }
-    return true;
+    return ProbeOutcome::Available;
 }
 #endif // !Q_OS_WIN
 
@@ -1022,6 +1128,74 @@ QList<Stream> windowsSessions(qint64 ourPid,
 
 #endif // HAVE_LIGHTNING_WEBRTC
 
+SystemExclusion systemExclusion()
+{
+#if defined(HAVE_LIGHTNING_WEBRTC) && (defined(Q_OS_WIN) || defined(Q_OS_LINUX))
+    if (!lightning::gst::ensureInitialised())
+        return systemExclusionFor(Platform::Other, {});
+#if defined(Q_OS_WIN)
+    return systemExclusionFor(Platform::Windows, loadedExclusionElements());
+#else
+    return systemExclusionFor(Platform::Linux, loadedExclusionElements());
+#endif
+#else
+    // macOS has no loopback capture; without the engine nothing captures.
+    return systemExclusionFor(Platform::Other, {});
+#endif
+}
+
+SystemCapture systemCapture(qint64 ourPid)
+{
+#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
+    static const bool available = systemExclusion().possible;
+    return systemCaptureFor(Platform::Windows, false, available, ourPid);
+#elif defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_LINUX)
+    return systemCaptureFor(Platform::Linux,
+                            perApplicationCaptureAvailable(), false, ourPid);
+#else
+    Q_UNUSED(ourPid);
+    return {};
+#endif
+}
+
+Unavailability unavailabilityFor(Platform platform,
+                                 const ExclusionElements &elements,
+                                 bool daemonReached)
+{
+    switch (platform) {
+    case Platform::Linux:
+        if (!elements.audiomixer || !elements.pipewireTargetObject
+            || !elements.pipewireDeviceProvider) {
+            return Unavailability::MissingPlugin;
+        }
+        return daemonReached ? Unavailability::None : Unavailability::NoPipeWire;
+    case Platform::Windows:
+        if (!elements.wasapiSource)
+            return Unavailability::MissingPlugin;
+        return elements.wasapiProcessLoopback ? Unavailability::None
+                                              : Unavailability::OldWindows;
+    case Platform::Other:
+        break;
+    }
+    return Unavailability::NoCapture;
+}
+
+Unavailability systemUnavailability()
+{
+#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
+    if (!lightning::gst::ensureInitialised())
+        return Unavailability::NoCapture;
+    return unavailabilityFor(Platform::Windows, loadedExclusionElements(), false);
+#elif defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_LINUX)
+    if (!lightning::gst::ensureInitialised())
+        return Unavailability::NoCapture;
+    return unavailabilityFor(Platform::Linux, loadedExclusionElements(),
+                             perApplicationCaptureAvailable());
+#else
+    return Unavailability::NoCapture;
+#endif
+}
+
 QHash<qint64, qint64> processParents()
 {
     QHash<qint64, qint64> parents;
@@ -1122,85 +1296,142 @@ void enumerateAsync(QObject *context, qint64 ourPid,
     }).detach();
 }
 
-bool perApplicationCaptureAvailable()
+#ifdef HAVE_LIGHTNING_WEBRTC
+/// The probe body for this platform.
+static ProbeOutcome runProbe()
 {
-    // Cached (the answer depends only on loaded plugins and the audio
-    // daemon) and bounded, because it runs on the GUI thread at call join:
-    // starting the PipeWire provider waits for the daemon's first answer,
-    // synchronously and without a timeout. Timing out answers false, the
-    // existing "no per-application capture" state, and nothing touches the
-    // provider again (an abandoned start holds its start lock). A blocked
-    // probe cannot be cancelled, so the worker is abandoned, at most once.
+#if defined(Q_OS_WIN)
+    // GStreamer installs the loopback properties only where the OS has
+    // process loopback (Windows build 20348+). Each missing piece is named: a
+    // package without the audiomixer plugin and an old Windows look identical
+    // otherwise. Both are facts about the install, so the answer is definite.
+    const bool haveMixer = elementExists("audiomixer");
+    const bool haveSource = elementExists("wasapi2src");
+    const bool haveLoopback = haveSource
+        && loadedExclusionElements().wasapiProcessLoopback;
+    const bool ok = haveMixer && haveLoopback;
+    if (!ok) {
+        QStringList missing;
+        if (!haveMixer)
+            missing << QStringLiteral("element audiomixer");
+        if (!haveSource)
+            missing << QStringLiteral("element wasapi2src");
+        else if (!haveLoopback)
+            missing << QStringLiteral(
+                "wasapi2src property loopback-target-pid (needs Windows "
+                "build 20348 or newer)");
+        qCInfo(lcShareAudio).noquote()
+            << "per-application share audio unavailable: missing"
+            << missing.join(QStringLiteral(", "));
+    }
+    return ok ? ProbeOutcome::Available : ProbeOutcome::Unavailable;
+#else
+    return probePipeWire();
+#endif
+}
+#endif // HAVE_LIGHTNING_WEBRTC
+
+bool perApplicationCaptureAvailable(bool reprobe)
+{
+    // Bounded, because it runs on the GUI thread: starting the PipeWire
+    // provider waits for the daemon's first answer, synchronously and without
+    // a timeout. Only a DEFINITE answer is cached for the run. A timeout or a
+    // daemon that is not up yet answers false for now and is asked again (at
+    // most every five seconds, or at once on `reprobe`), because a one-off
+    // slow first probe used to switch share sound off until the restart. A
+    // blocked probe cannot be cancelled, so its worker is abandoned, and
+    // never joined by a second: it stores its own answer when it ends.
 #ifndef HAVE_LIGHTNING_WEBRTC
+    Q_UNUSED(reprobe);
     return false;
 #else
-    static const bool available = [] {
-        // Initialise on the caller's thread: ensureInitialised() is a
-        // call_once, and if an abandoned worker were the first caller and
-        // hung inside gst_init_check, every later caller would block on the
-        // once_flag forever.
-        if (!lightning::gst::ensureInitialised()) {
-            g_probeState.store(2);
+    ProbeCache &cache = probeCache();
+    std::function<ProbeOutcome()> body;
+    int timeoutMs = 2500;
+    {
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        if (cache.have && cache.result != ProbeOutcome::Unknown)
+            return cache.result == ProbeOutcome::Available;
+        if (cache.inFlight)
+            return false;
+        if (!reprobe && cache.have
+            && std::chrono::steady_clock::now() - cache.at
+                   < std::chrono::seconds(5)) {
             return false;
         }
-        auto slot = std::make_shared<std::promise<bool>>();
-        auto answer = slot->get_future();
-        std::thread([slot] {
-            // set_value inside the try: an exception escaping a detached
-            // thread terminates, and a broken promise rethrows on the GUI
-            // thread.
-            try {
-#if defined(Q_OS_WIN)
-                // GStreamer installs the loopback properties only where the
-                // OS has process loopback (Windows 10 2004, build 19041+).
-                // Each missing piece is named: a package without the
-                // audiomixer plugin and an old Windows look identical
-                // otherwise.
-                const bool haveMixer = elementExists("audiomixer");
-                const bool haveSource = elementExists("wasapi2src");
-                const bool haveLoopback = haveSource
-                    && elementHasProperty("wasapi2src", "loopback-target-pid");
-                const bool ok = haveMixer && haveLoopback;
-                if (!ok) {
-                    QStringList missing;
-                    if (!haveMixer)
-                        missing << QStringLiteral("element audiomixer");
-                    if (!haveSource)
-                        missing << QStringLiteral("element wasapi2src");
-                    else if (!haveLoopback)
-                        missing << QStringLiteral(
-                            "wasapi2src property loopback-target-pid (needs "
-                            "Windows 10 2004 or newer)");
-                    qCInfo(lcShareAudio).noquote()
-                        << "per-application share audio unavailable: missing"
-                        << missing.join(QStringLiteral(", "));
-                }
-#else
-                const bool ok = probePipeWire();
-#endif
-                slot->set_value(ok);
-            } catch (...) {
-                try {
-                    slot->set_value(false);
-                } catch (...) {
-                }
-            }
-        }).detach();
-        if (answer.wait_for(std::chrono::milliseconds(2500))
-            != std::future_status::ready) {
-            qCWarning(lcShareAudio)
-                << "the audio session probe did not answer within 2500 ms;"
-                << "per-application share audio is unavailable for this run";
-            g_probeState.store(2);
+        body = cache.hook;
+        timeoutMs = cache.timeoutMs;
+    }
+    // Initialise on the caller's thread: ensureInitialised() is a call_once,
+    // and if an abandoned worker were the first caller and hung inside
+    // gst_init_check, every later caller would block on the once_flag
+    // forever. A failure is not remembered: nothing was learned about audio.
+    if (!body && !lightning::gst::ensureInitialised())
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        if (cache.inFlight)
             return false;
+        cache.inFlight = true;
+    }
+    auto slot = std::make_shared<std::promise<ProbeOutcome>>();
+    auto answer = slot->get_future();
+    std::thread([slot, body] {
+        ProbeOutcome outcome = ProbeOutcome::Unknown;
+        // An exception escaping a detached thread terminates.
+        try {
+            outcome = body ? body() : runProbe();
+        } catch (...) {
         }
-        const bool ok = answer.get();
-        g_probeState.store(ok ? 1 : 2);
-        qCInfo(lcShareAudio) << "per-application share audio available=" << ok;
-        return ok;
-    }();
-    return available;
+        {
+            ProbeCache &c = probeCache();
+            std::lock_guard<std::mutex> lock(c.mutex);
+            c.have = true;
+            c.result = outcome;
+            c.inFlight = false;
+            c.at = std::chrono::steady_clock::now();
+            g_probeState.store(outcome == ProbeOutcome::Available ? 1 : 2);
+        }
+        try {
+            slot->set_value(outcome);
+        } catch (...) {
+        }
+    }).detach();
+    if (answer.wait_for(std::chrono::milliseconds(timeoutMs))
+        != std::future_status::ready) {
+        qCWarning(lcShareAudio)
+            << "the audio session probe did not answer within" << timeoutMs
+            << "ms; per-application share audio is unavailable until it does";
+        return false;
+    }
+    const ProbeOutcome outcome = answer.get();
+    qCInfo(lcShareAudio) << "per-application share audio available="
+                         << (outcome == ProbeOutcome::Available)
+                         << (outcome == ProbeOutcome::Unknown
+                                 ? "(not final: asked again later)" : "");
+    return outcome == ProbeOutcome::Available;
 #endif
+}
+
+void setPerApplicationProbeForTest(std::function<ProbeOutcome()> probe,
+                                   int timeoutMs)
+{
+    ProbeCache &cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.hook = std::move(probe);
+    cache.timeoutMs = timeoutMs;
+}
+
+void resetPerApplicationProbeForTest()
+{
+    ProbeCache &cache = probeCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.have = false;
+    cache.result = ProbeOutcome::Unknown;
+    cache.inFlight = false;
+    cache.hook = nullptr;
+    cache.timeoutMs = 2500;
+    g_probeState.store(0);
 }
 
 BranchOptions branchOptions()

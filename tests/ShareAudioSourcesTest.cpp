@@ -791,6 +791,198 @@ private slots:
         QVERIFY(!streamIsForeign(p, 4242,
                                  { QStringLiteral("lightning-matrix") }));
     }
+
+    // Missing capture plugins must be visible to artifact validation.
+    void theWholeSystemLeavesUsOutOnlyWithEveryPieceItNeeds()
+    {
+        ExclusionElements pipewire;
+        pipewire.audiomixer = true;
+        pipewire.pipewireTargetObject = true;
+        pipewire.pipewireDeviceProvider = true;
+        SystemExclusion v = systemExclusionFor(Platform::Linux, pipewire);
+        QVERIFY(v.possible);
+        QCOMPARE(v.how, QStringLiteral("per-application capture"));
+        QVERIFY(v.missing.isEmpty());
+
+        // The 0.10.1 AppImage's plugin set (listed from the released
+        // squashfs): PipeWire 1.4.2's pipewiresrc and provider, no mixer.
+        ExclusionElements appImage0101 = pipewire;
+        appImage0101.audiomixer = false;
+        v = systemExclusionFor(Platform::Linux, appImage0101);
+        QVERIFY2(!v.possible,
+                 "a package without audiomixer cannot build the capture that "
+                 "leaves us out, and must not be reported as if it could");
+        QCOMPARE(v.missing, QStringList{ QStringLiteral("element audiomixer") });
+
+        // Each piece on its own is required, and named.
+        const struct {
+            bool ExclusionElements::*field;
+            const char *named;
+        } pieces[] = {
+            { &ExclusionElements::audiomixer, "audiomixer" },
+            { &ExclusionElements::pipewireTargetObject, "target-object" },
+            { &ExclusionElements::pipewireDeviceProvider, "device provider" },
+        };
+        for (const auto &piece : pieces) {
+            ExclusionElements without = pipewire;
+            without.*piece.field = false;
+            const SystemExclusion missing =
+                systemExclusionFor(Platform::Linux, without);
+            QVERIFY2(!missing.possible, piece.named);
+            QCOMPARE(missing.missing.size(), 1);
+            QVERIFY2(missing.missing.first().contains(
+                         QLatin1String(piece.named)),
+                     qPrintable(missing.missing.first()));
+            QVERIFY(missing.how.isEmpty());
+        }
+        // Windows process loopback is not a Linux capture.
+        ExclusionElements onlyWasapi;
+        onlyWasapi.wasapiProcessLoopback = true;
+        QVERIFY(!systemExclusionFor(Platform::Linux, onlyWasapi).possible);
+    }
+
+    void windowsLeavesUsOutWithProcessLoopbackAlone()
+    {
+        // "The whole system" on Windows is one exclude-process-tree loopback;
+        // the mixer is for chosen applications only, so it is not required.
+        ExclusionElements windows;
+        windows.wasapiProcessLoopback = true;
+        SystemExclusion v = systemExclusionFor(Platform::Windows, windows);
+        QVERIFY(v.possible);
+        QCOMPARE(v.how, QStringLiteral("process loopback"));
+
+        // Below Windows build 20348 the property does not exist and the share
+        // takes the endpoint mix, which carries the call.
+        v = systemExclusionFor(Platform::Windows, {});
+        QVERIFY(!v.possible);
+        QVERIFY(v.missing.join(QString()).contains(
+            QLatin1String("process loopback")));
+        // PipeWire pieces do not stand in for it.
+        ExclusionElements linuxOnly;
+        linuxOnly.audiomixer = true;
+        linuxOnly.pipewireTargetObject = true;
+        linuxOnly.pipewireDeviceProvider = true;
+        QVERIFY(!systemExclusionFor(Platform::Windows, linuxOnly).possible);
+
+        // macOS has no loopback capture at all.
+        ExclusionElements everything = linuxOnly;
+        everything.wasapiProcessLoopback = true;
+        QVERIFY(!systemExclusionFor(Platform::Other, everything).possible);
+    }
+
+    // The exact words package validation matches (packaging-ci/scripts/
+    // lib.sh, assert_share_audio_exclusion). An echoing package must never
+    // print the passing prefix.
+    void theStatusLineSaysWhichWayItWent()
+    {
+        const QString pass = QStringLiteral(
+            "screen-share sound exclusion capability: available");
+        ExclusionElements pipewire;
+        pipewire.audiomixer = true;
+        pipewire.pipewireTargetObject = true;
+        pipewire.pipewireDeviceProvider = true;
+        const QString good = systemExclusionStatusLine(
+            systemExclusionFor(Platform::Linux, pipewire));
+        QVERIFY2(good.startsWith(pass), qPrintable(good));
+        QVERIFY(good.contains(QLatin1String("per-application capture")));
+
+        pipewire.audiomixer = false;
+        const QString bad = systemExclusionStatusLine(
+            systemExclusionFor(Platform::Linux, pipewire));
+        QVERIFY2(!bad.contains(pass), qPrintable(bad));
+        QVERIFY2(bad.startsWith(QLatin1String(
+                     "screen-share sound exclusion capability: unavailable")),
+                 qPrintable(bad));
+        QVERIFY2(bad.contains(QLatin1String("audiomixer")), qPrintable(bad));
+        QVERIFY(!bad.contains(QLatin1Char('\n')));
+    }
+
+    // The reason share sound is off follows what is actually missing, so the
+    // sentence beside the disabled control names a remedy that applies.
+    void theUnavailableReasonNamesWhatIsMissing()
+    {
+        ExclusionElements full;
+        full.audiomixer = full.pipewireTargetObject
+            = full.pipewireDeviceProvider = true;
+        QCOMPARE(unavailabilityFor(Platform::Linux, full, true),
+                 Unavailability::None);
+        // Plugins present, no daemon: PulseAudio alone or PipeWire not up.
+        QCOMPARE(unavailabilityFor(Platform::Linux, full, false),
+                 Unavailability::NoPipeWire);
+        // The 0.10.1 AppImage: no audiomixer, whatever the daemon says.
+        ExclusionElements noMixer = full;
+        noMixer.audiomixer = false;
+        QCOMPARE(unavailabilityFor(Platform::Linux, noMixer, true),
+                 Unavailability::MissingPlugin);
+        ExclusionElements win;
+        QCOMPARE(unavailabilityFor(Platform::Windows, win, false),
+                 Unavailability::MissingPlugin);
+        win.wasapiSource = true;
+        QCOMPARE(unavailabilityFor(Platform::Windows, win, false),
+                 Unavailability::OldWindows);
+        win.wasapiProcessLoopback = true;
+        QCOMPARE(unavailabilityFor(Platform::Windows, win, false),
+                 Unavailability::None);
+        QCOMPARE(unavailabilityFor(Platform::Other, full, true),
+                 Unavailability::NoCapture);
+    }
+
+    void systemCaptureNeverFallsBackToTheEndpointMix()
+    {
+        const auto linuxPlan = systemCaptureFor(Platform::Linux, true, false, 4242);
+        QCOMPARE(linuxPlan.kind, SystemCapture::Kind::PerApplication);
+        QVERIFY(linuxPlan.excludesUs);
+        QVERIFY(linuxPlan.description.isEmpty()); // dynamic application branches
+
+        // PulseAudio-only, missing mixer/target-object, or a timed-out probe.
+        // A sink monitor would contain every other participant's voice.
+        for (const auto platform : { Platform::Linux, Platform::Windows,
+                                     Platform::Other }) {
+            const auto unavailable = systemCaptureFor(platform, false, false, 4242);
+            QCOMPARE(unavailable.kind, SystemCapture::Kind::Unavailable);
+            QVERIFY(unavailable.description.isEmpty());
+            QVERIFY(!unavailable.excludesUs);
+        }
+        const auto windows = systemCaptureFor(Platform::Windows, false, true, 4242);
+        QCOMPARE(windows.kind, SystemCapture::Kind::ProcessLoopback);
+        QVERIFY(windows.excludesUs);
+        QVERIFY(windows.description.contains(
+            QStringLiteral("loopback-mode=exclude-process-tree")));
+        QVERIFY(windows.description.contains(QStringLiteral("loopback-target-pid=4242")));
+        QVERIFY(!windows.description.contains(QStringLiteral("loopback=true")));
+        for (qint64 pid : { qint64(-1), qint64(0), qint64(0x100000000ULL) }) {
+            const auto invalid = systemCaptureFor(Platform::Windows, false, true, pid);
+            QCOMPARE(invalid.kind, SystemCapture::Kind::Unavailable);
+            QVERIFY(invalid.description.isEmpty());
+        }
+    }
+
+    // Our own call playback, as PipeWire 1.6.9's pipewire-pulse records it
+    // (pw-dump of a pulsesink stream on a private graph, 2026-10-16): it
+    // carries the client's pid, so it is left out by pid, and the same
+    // stream from another process is captured.
+    void ourPulsePlaybackStreamIsLeftOutByPid()
+    {
+        QVariantMap p;
+        p.insert(QStringLiteral("media.class"),
+                 QStringLiteral("Stream/Output/Audio"));
+        p.insert(QStringLiteral("object.serial"), QStringLiteral("73"));
+        p.insert(QStringLiteral("client.api"), QStringLiteral("pipewire-pulse"));
+        p.insert(QStringLiteral("application.name"), QStringLiteral("Lightning"));
+        p.insert(QStringLiteral("node.name"), QStringLiteral("Lightning"));
+        p.insert(QStringLiteral("application.process.binary"),
+                 QStringLiteral("lightning-matrix"));
+        p.insert(QStringLiteral("application.process.id"),
+                 QStringLiteral("2740077"));
+        QVERIFY(!streamIsForeign(p, 2740077, {}));
+        // Not by name alone: another process under another name is foreign.
+        p.insert(QStringLiteral("application.name"), QStringLiteral("Player"));
+        p.insert(QStringLiteral("node.name"), QStringLiteral("Player"));
+        p.insert(QStringLiteral("application.process.binary"),
+                 QStringLiteral("player"));
+        QVERIFY(streamIsForeign(p, 4242,
+                                { QStringLiteral("lightning-matrix") }));
+    }
 };
 
 QTEST_APPLESS_MAIN(ShareAudioSourcesTest)

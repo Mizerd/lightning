@@ -158,6 +158,9 @@ config-tests:
     - ./packaging-ci/tests/test-gif-key-injection.sh
     - ./packaging-ci/tests/test-windows-version-resources.sh
     - ./packaging-ci/tests/test-portable-qt-abi.sh
+    # A release must not publish a package whose screen shares send the call
+    # back (GitHub #26): judged from --call-media-status.
+    - ./packaging-ci/tests/test-share-audio-exclusion.sh
     - python3 ./packaging-ci/tests/test-pipeline-config.py
     - python3 ./packaging-ci/tests/test-windows-metadata.py
     # The Flathub submission manifest in the repository root.

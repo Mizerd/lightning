@@ -4363,6 +4363,20 @@ if(BUILD_TESTING)
             set_tests_properties(call-live-diagnostic PROPERTIES TIMEOUT 240)
         endif()
 
+        # Opt-in headless measurement on a supplied private audio graph.
+        option(LIGHTNING_BUILD_SHARE_AUDIO_PROBE "Build the private-graph share-audio probe" OFF)
+        if(LIGHTNING_BUILD_SHARE_AUDIO_PROBE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            get_target_property(_share_probe_sources sfu-media-engine-test SOURCES)
+            list(REMOVE_ITEM _share_probe_sources tests/SfuMediaEngineTest.cpp)
+            qt_add_executable(share-audio-capture-probe
+                tests/ShareAudioCaptureProbe.cpp ${_share_probe_sources})
+            target_include_directories(share-audio-capture-probe PRIVATE src)
+            target_compile_definitions(share-audio-capture-probe PRIVATE HAVE_LIGHTNING_WEBRTC)
+            target_link_libraries(share-audio-capture-probe PRIVATE
+                Qt6::Core Qt6::Multimedia PkgConfig::GSTWEBRTC OpenSSL::Crypto
+                ${LIGHTNING_NOISE_LIBRARIES})
+        endif()
+
         add_test(NAME sfu-media-engine COMMAND sfu-media-engine-test)
         set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 300)
 

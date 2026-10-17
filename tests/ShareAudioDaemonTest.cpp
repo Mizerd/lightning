@@ -14,6 +14,8 @@
 #include <cerrno>
 #include <atomic>
 #include <chrono>
+#include <future>
+#include <memory>
 #include <thread>
 #include <cstring>
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
@@ -62,10 +64,92 @@ private slots:
                  "per-application capture reported available with no PipeWire "
                  "daemon to capture from — the share would carry silence");
         QVERIFY(streams.isEmpty());
+        const auto capture = lightning::shareaudio::systemCapture(
+            QCoreApplication::applicationPid());
+        QCOMPARE(capture.kind,
+                 lightning::shareaudio::SystemCapture::Kind::Unavailable);
+        QVERIFY(capture.description.isEmpty());
         // And the cached, bounded answer the UI binds to agrees.
         QVERIFY2(!lightning::shareaudio::perApplicationCaptureAvailable(),
                  "the UI would offer to choose applications that cannot be "
                  "captured");
+    }
+
+    // The probe's answer is cached only when it is DEFINITE. A first probe
+    // that ran before the audio daemon was up (or timed out) used to be kept
+    // for the whole session through a function-local static, switching share
+    // sound off until restart with nothing to say why. Driven through the
+    // probe seam, so no daemon is involved and the three outcomes are exact.
+    void anInconclusiveProbeIsAskedAgainWhenTheShareOptionsOpen()
+    {
+        using namespace lightning::shareaudio;
+        struct State {
+            std::atomic<int> calls{0};
+            std::atomic<int> outcome{int(ProbeOutcome::Unknown)};
+        };
+        auto state = std::make_shared<State>();
+        resetPerApplicationProbeForTest();
+        setPerApplicationProbeForTest([state] {
+            ++state->calls;
+            return ProbeOutcome(state->outcome.load());
+        });
+
+        // No daemon yet: off for now, and not remembered.
+        QVERIFY(!perApplicationCaptureAvailable());
+        QCOMPARE(state->calls.load(), 1);
+        // The daemon comes up. An ordinary read does not hammer the probe...
+        state->outcome = int(ProbeOutcome::Available);
+        QVERIFY(!perApplicationCaptureAvailable());
+        QCOMPARE(state->calls.load(), 1);
+        // ...but the share menu opening asks at once and gets the new answer.
+        QVERIFY(perApplicationCaptureAvailable(true));
+        QCOMPARE(state->calls.load(), 2);
+        // A definite answer is kept: a later flap is not believed.
+        state->outcome = int(ProbeOutcome::Unavailable);
+        QVERIFY(perApplicationCaptureAvailable(true));
+        QCOMPARE(state->calls.load(), 2);
+        resetPerApplicationProbeForTest();
+    }
+
+    // A plugin that is missing does not appear later: that "no" is final, so
+    // the probe is not repeated for it.
+    void aDefiniteNoIsKeptForTheRun()
+    {
+        using namespace lightning::shareaudio;
+        auto calls = std::make_shared<std::atomic<int>>(0);
+        resetPerApplicationProbeForTest();
+        setPerApplicationProbeForTest([calls] {
+            ++*calls;
+            return ProbeOutcome::Unavailable;
+        });
+        QVERIFY(!perApplicationCaptureAvailable(true));
+        QVERIFY(!perApplicationCaptureAvailable(true));
+        QCOMPARE(calls->load(), 1);
+        resetPerApplicationProbeForTest();
+    }
+
+    // A probe that does not answer in time answers false to its caller, is not
+    // cached, is not joined by a second worker while it is stuck, and its own
+    // late answer is the one that counts.
+    void aTimedOutProbeIsNeitherCachedNorDuplicated()
+    {
+        using namespace lightning::shareaudio;
+        auto calls = std::make_shared<std::atomic<int>>(0);
+        auto release = std::make_shared<std::promise<void>>();
+        auto released = release->get_future().share();
+        resetPerApplicationProbeForTest();
+        setPerApplicationProbeForTest([calls, released] {
+            ++*calls;
+            released.wait();
+            return ProbeOutcome::Available;
+        }, /*timeoutMs=*/50);
+        QVERIFY(!perApplicationCaptureAvailable(true));
+        QVERIFY(!perApplicationCaptureAvailable(true));
+        QCOMPARE(calls->load(), 1);
+        release->set_value();
+        QTRY_VERIFY_WITH_TIMEOUT(perApplicationCaptureAvailable(true), 3000);
+        QCOMPARE(calls->load(), 1);
+        resetPerApplicationProbeForTest();
     }
 
     // Every enumeration and every capture branch gets a PipeWire connection
@@ -284,6 +368,87 @@ private slots:
         gst_object_unref(pipeline);
         QVERIFY2(::fcntl(fd, F_GETFD) == -1 && errno == EBADF,
                  "the fd outlived its element");
+#endif
+    }
+
+    // Parse the production share track and emulate a package lacking its
+    // mixer. Availability must then refuse capture, rather than use a monitor.
+    void theReportedVerdictIsWhatTheShareTrackCanBeBuiltFrom()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("per-application capture is the Linux path");
+#else
+        using namespace lightning::shareaudio;
+        QVERIFY(lightning::gst::ensureInitialised());
+        GstRegistry *registry = gst_registry_get();
+        GstPluginFeature *mixer =
+            gst_registry_lookup_feature(registry, "audiomixer");
+        GstPluginFeature *capture =
+            gst_registry_lookup_feature(registry, "pipewiresrc");
+        GstPluginFeature *provider =
+            gst_registry_lookup_feature(registry, "pipewiredeviceprovider");
+        const bool complete = mixer && capture && provider;
+        if (capture)
+            gst_object_unref(capture);
+        if (provider)
+            gst_object_unref(provider);
+        if (!complete) {
+            if (mixer)
+                gst_object_unref(mixer);
+            QSKIP("this build lacks audiomixer or the PipeWire plugin");
+        }
+
+        Stream app;
+        app.serial = QStringLiteral("4242");
+        app.appKey = QStringLiteral("player");
+        const auto trackParses = [&app] {
+            const QString description =
+                encodedTrackDescription(
+                    mixedSourceDescription({ app }, branchOptions()), 1234)
+                + QStringLiteral(" ! fakesink");
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_launch(
+                description.toUtf8().constData(), &error);
+            const bool ok = bin && !error;
+            if (error)
+                g_error_free(error);
+            if (bin)
+                gst_object_unref(bin);
+            return ok;
+        };
+
+        const SystemExclusion full = systemExclusion();
+        QVERIFY2(full.possible, qPrintable(full.missing.join(u';')));
+        QVERIFY2(trackParses(),
+                 "reported as leaving Lightning out, but the track that does "
+                 "it does not even parse");
+        QVERIFY(systemExclusionStatusLine(full).startsWith(QLatin1String(
+            "screen-share sound exclusion capability: available")));
+
+        // The 0.10.1 AppImage's plugin set.
+        gst_registry_remove_feature(registry, mixer);
+        const SystemExclusion without = systemExclusion();
+        const bool parsedWithout = trackParses();
+        // A fresh process is needed for the cached runtime probe, but the
+        // decision after a failed probe must never choose an output monitor.
+        const auto disabled = systemCaptureFor(Platform::Linux, false, false,
+                                               QCoreApplication::applicationPid());
+        gst_registry_add_feature(registry, mixer);
+        gst_object_unref(mixer);
+
+        QCOMPARE(disabled.kind, SystemCapture::Kind::Unavailable);
+        QVERIFY(disabled.description.isEmpty());
+        QVERIFY2(!parsedWithout, "the registry edit did not take");
+        QVERIFY2(!without.possible,
+                 "a package that cannot build the capture leaving Lightning "
+                 "out was reported as if it could: its shares carry the call");
+        QVERIFY2(without.missing.join(u';').contains(
+                     QLatin1String("audiomixer")),
+                 qPrintable(without.missing.join(u';')));
+        QVERIFY(systemExclusionStatusLine(without).startsWith(QLatin1String(
+            "screen-share sound exclusion capability: unavailable")));
+        // Put back for anything after this case.
+        QVERIFY(systemExclusion().possible);
 #endif
     }
 };

@@ -3227,6 +3227,119 @@ ApplicationWindow {
         QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
     }
 
+    // Where nothing can capture the sound, the surfaces keep the sound section
+    // and say why in one plain-text line, with the choice disabled. They used
+    // to hide the whole section, so the explanation the controller wrote was
+    // reachable from nowhere and a user saw neither a control nor a reason.
+    // Forced through the controller's test seam so it holds on any machine.
+    void theShareOptionsMenuExplainsWhyShareSoundIsOff()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        call->setShareAudioUnavailableForTest(
+            SfuCallController::ShareAudioUnavailable::NoPipeWire);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 800
+    height: 600
+    property alias menu: m
+    CallShareOptionsMenu { id: m }
+}
+)"), QUrl(QStringLiteral("qrc:/sharesoundoffmenutest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        QMetaObject::invokeMethod(menu, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+
+        QVERIFY(!call->shareAudioSupported());
+        auto *status = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioStatusLabel"));
+        auto *system = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioMenuItem"));
+        auto *apps = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioAppsItem"));
+        QVERIFY(status && system && apps);
+        QVERIFY2(status->isVisible(),
+                 "share sound is off and the menu does not say why");
+        QVERIFY(status->height() > 0);
+        QCOMPARE(status->property("text").toString(), call->shareAudioStatus());
+        QVERIFY2(status->property("text").toString().contains(
+                     QStringLiteral("PipeWire")),
+                 qPrintable(status->property("text").toString()));
+        // Plain text: the sentence may one day carry an application name.
+        QCOMPARE(status->property("textFormat").toInt(),
+                 int(Qt::PlainText));
+        QVERIFY2(system->isVisible() && !system->isEnabled(),
+                 "the choice is hidden or still usable where nothing can "
+                 "capture");
+        QVERIFY2(!apps->isVisible(), "chosen apps offered with no capture");
+    }
+
+    void theSharePickerExplainsWhyShareSoundIsOff()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        call->setShareAudioUnavailableForTest(
+            SfuCallController::ShareAudioUnavailable::MissingPlugin);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 900
+    height: 700
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/shareaudiooffpickertest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        QCoreApplication::processEvents();
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+        QMetaObject::invokeMethod(picker, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
+
+        QVERIFY(!call->shareAudioSupported());
+        auto *section = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioSection"));
+        auto *combo = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioCombo"));
+        auto *status = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioStatus"));
+        QVERIFY(section && combo && status);
+        QVERIFY2(section->isVisible() && status->isVisible(),
+                 "share sound is off and the picker says nothing about it");
+        QVERIFY2(!combo->isEnabled(),
+                 "the sound choice is usable where nothing can capture");
+        QCOMPARE(status->property("text").toString(), call->shareAudioStatus());
+        QVERIFY2(status->property("text").toString().contains(
+                     QStringLiteral("plugins")),
+                 qPrintable(status->property("text").toString()));
+        QCOMPARE(status->property("textFormat").toInt(), int(Qt::PlainText));
+    }
+
     void theShareSoundChoiceKeepsFollowingTheControllerAfterAPick()
     {
         // The picker's sound combo and the call bar's menu set the same
@@ -3265,9 +3378,9 @@ ApplicationWindow {
         auto *section = picker->findChild<QQuickItem *>(
             QStringLiteral("shareAudioSection"));
         QVERIFY(section != nullptr);
-        if (!section->isVisible())
-            QSKIP("no loopback capture element here, so the sound choice is "
-                  "absent");
+        if (!combo->isEnabled())
+            QSKIP("no excluding capture here, so the sound choice is "
+                  "disabled (theSharePickerExplainsWhyShareSoundIsOff)");
 
         SfuCallController *call = controller.groupCall();
         QVERIFY(call);
@@ -3342,9 +3455,9 @@ ApplicationWindow {
             QStringLiteral("shareAudioStatusLabel"));
         QVERIFY2(off && system && apps && status,
                  "a sound row or the status line is gone from the menu");
-        if (!system->isVisible())
-            QSKIP("no loopback capture element here, so the sound rows are "
-                  "absent");
+        if (!call->shareAudioSupported())
+            QSKIP("no excluding capture here, so the sound choices are "
+                  "disabled (theShareOptionsMenuExplainsWhyShareSoundIsOff)");
         QVERIFY(off->isVisible());
         QCOMPARE(apps->isVisible(), call->shareAudioCanChooseApps());
 
@@ -3959,7 +4072,8 @@ ApplicationWindow {
         QVERIFY2(section != nullptr && combo != nullptr,
                  "the share-sound choice is gone");
 
-        // Absent, not disabled, where there is no loopback element. Asserted
+        // Enabled exactly where something can capture; where nothing can, the
+        // section stays (with its reason) and the choice is disabled. Asserted
         // against the controller's answer so it holds on any machine.
         const bool supported =
             controller.groupCall()

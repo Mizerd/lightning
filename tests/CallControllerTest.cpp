@@ -8000,7 +8000,6 @@ private Q_SLOTS:
         In in;
         in.supported = true;
         in.mode = 1;
-        in.systemExcludesUs = true;
         in.muted = true;
         QVERIFY2(!SfuCallController::shareAudioStatusText(in).contains(
                      QStringLiteral("Muted")),
@@ -8048,9 +8047,27 @@ private Q_SLOTS:
     {
         using In = SfuCallController::ShareAudioStatusInput;
         In in;
+        // Off, and the reason is one plain line per cause: never the old
+        // "can't exclude Lightning's own playback", which names nothing a
+        // person can act on, and never the wrong platform's remedy.
         in.supported = false;
-        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
-            QStringLiteral("can't capture")));
+        using Why = SfuCallController::ShareAudioUnavailable;
+        const QList<QPair<Why, QString>> reasons = {
+            { Why::NoCapture, QStringLiteral("isn't available on this system") },
+            { Why::MissingPlugin, QStringLiteral("lacks the audio capture "
+                                                 "plugins") },
+            { Why::NoPipeWire, QStringLiteral("needs PipeWire") },
+            { Why::OldWindows, QStringLiteral("build 20348") },
+        };
+        QSet<QString> sentences;
+        for (const auto &reason : reasons) {
+            in.why = reason.first;
+            const QString text = SfuCallController::shareAudioStatusText(in);
+            QVERIFY2(text.contains(reason.second), qPrintable(text));
+            QVERIFY2(!text.contains(QLatin1Char('\n')), qPrintable(text));
+            sentences.insert(text);
+        }
+        QCOMPARE(sentences.size(), reasons.size());
 
         in.supported = true;
         in.mode = 0;
@@ -8059,14 +8076,13 @@ private Q_SLOTS:
 
         // The whole system: whether this call is in it must be said.
         in.mode = 1;
-        in.systemExcludesUs = true;
+        // Supported always means Lightning is left out (#26): no sentence
+        // says the call may be heard again.
         const QString excluded = SfuCallController::shareAudioStatusText(in);
         QVERIFY2(excluded.contains(QStringLiteral("except Lightning")),
                  qPrintable(excluded));
-        in.systemExcludesUs = false;
-        const QString echoing = SfuCallController::shareAudioStatusText(in);
-        QVERIFY2(echoing.contains(QStringLiteral("including this call")),
-                 qPrintable(echoing));
+        QVERIFY2(!excluded.contains(QStringLiteral("including this call")),
+                 qPrintable(excluded));
 
         // Chosen applications, named; none chosen means no sound.
         in.mode = 2;
@@ -8100,13 +8116,7 @@ private Q_SLOTS:
         QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
             QStringLiteral("Nothing is being heard")));
 
-        // M4: during a share the sentence follows what the track ACTUALLY
-        // is: a share that fell back to the output monitor says it carries
-        // the call, whatever the machine could otherwise do.
         in.heard = true;
-        in.systemExcludesUs = false;
-        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
-            QStringLiteral("including this call")));
 
         // A failed application and the branch limit are said, not silent.
         in.mode = 2;

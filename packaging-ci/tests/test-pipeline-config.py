@@ -1246,6 +1246,24 @@ check("call media engine built in: yes" in lib_src,
 check("RESULT: calls can be placed and answered." in lib_src,
       "the shared assertion requires the engine to be runnable")
 
+# GitHub #26: whether a screen share's "Entire system" sound leaves the call
+# out depends on the plugins a package ships (the 0.10.1 AppImage lacked
+# audiomixer and sent every caller's voice back). Every Linux format judges
+# the shipped binary's own answer through the shared engine assertion.
+check("assert_share_audio_exclusion()" in lib_src,
+      "lib.sh defines the share-audio exclusion assertion")
+_engine_body = lib_src.split("assert_call_media_engine()", 1)[1].split("\n}", 1)[0]
+check('assert_share_audio_exclusion "$label" "$log"' in _engine_body,
+      "the shared call-engine assertion judges share-audio exclusion for every Linux format")
+_pass_prefix = re.search(r"^SHARE_AUDIO_EXCLUSION_PASS='([^']+)'$", lib_src, re.M)
+with open(os.path.join(HERE, "..", "..", "src", "calls", "ShareAudioSources.cpp"),
+          encoding="utf-8") as handle:
+    # Adjacent C++ string literals joined, as the compiler joins them.
+    _share_audio_cpp = re.sub(r'"\s*\n\s*"', "", handle.read())
+check(_pass_prefix is not None
+      and _pass_prefix.group(1) in _share_audio_cpp,
+      "the passing prefix lib.sh matches is the one ShareAudioSources.cpp prints")
+
 # --call-media-status reports whether the compressed camera chain works by
 # asking the registry, not by listing libgstjpeg. Reported, not required: a
 # camera without it falls back to the slower raw chain.
@@ -1256,6 +1274,9 @@ check("camera compressed (MJPG) chain: " in _main_cpp,
       "--call-media-status reports whether the compressed camera chain works")
 check("jpegCameraChainAvailable()" in _main_cpp,
       "it asks the engine's own probe rather than listing a file")
+check("systemExclusionStatusLine(" in _main_cpp
+      and "systemExclusion())" in _main_cpp,
+      "--call-media-status prints the share-audio exclusion verdict from the shared function")
 
 # The queue self-test: no verdict is a hard failure, while `fail` only warns
 # until the check has passed everywhere (see TO PROMOTE IT in lib.sh).

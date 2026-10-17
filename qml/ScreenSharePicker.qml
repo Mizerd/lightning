@@ -340,6 +340,10 @@ AppDialog {
     }
 
     onAboutToShow: {
+        // A probe that ran before the audio daemon was up said "no"; ask
+        // again before the sound section and canChooseApps are read.
+        if (app.groupCall)
+            app.groupCall.refreshShareAudioCapability();
         root.accepting = false;
         root.confirmed = false;
         root.soundTouched = false;
@@ -670,16 +674,17 @@ AppDialog {
         // ── Sound ──
         // What the share's sound carries: nothing, the whole system (minus
         // Lightning where the system allows), or chosen apps, listed live
-        // below. Absent, not disabled, where the build cannot capture
-        // playback (answered by GStreamer at runtime, since the plugins
-        // shipped are a packaging fact). The status line says in words what
-        // will be sent, including when Lightning cannot leave itself out.
+        // below. Whether anything can capture playback is answered by
+        // GStreamer at runtime (the plugins shipped are a packaging fact), and
+        // asked again as the picker opens. Where nothing can capture, the
+        // section stays with its choice disabled and the status line says why
+        // in one sentence; otherwise it says what will be sent.
         ColumnLayout {
             id: soundSection
             objectName: "shareAudioSection"
             Layout.fillWidth: true
             spacing: AppTheme.spacing6
-            visible: !!app.groupCall && app.groupCall.shareAudioSupported
+            visible: !!app.groupCall
 
             RowLayout {
                 Layout.fillWidth: true
@@ -692,6 +697,7 @@ AppDialog {
                 AppComboBox {
                     id: shareAudioCombo
                     objectName: "shareAudioCombo"
+                    enabled: !!app.groupCall && app.groupCall.shareAudioSupported
                     // Which rows exist follows canChooseApps, a capability,
                     // not a retranslation (AppComboBox).
                     restoreAfterModelReset: false

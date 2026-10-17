@@ -313,8 +313,8 @@ public:
     static bool shareAudioAvailable();
     /// Whether "everything except Lightning" really leaves Lightning out
     /// here: per-application capture, or Windows process-tree exclusion.
-    /// False means the only whole-system capture is the output monitor, which
-    /// carries this call back to the call.
+    /// False means share audio is unavailable; an output monitor would
+    /// carry this call back to the call.
     static bool shareAudioSystemExcludesUs();
     /// Every name an audio server may record this process under: PipeWire
     /// uses the binary name, which differs from applicationName().
@@ -732,6 +732,14 @@ public:
         std::function<lightning::shareaudio::Enumeration(
             const QList<lightning::shareaudio::Stream> &)> enumerate,
         const lightning::shareaudio::BranchOptions &options);
+    /// Decide the share capture as `capture` instead of asking this machine
+    /// (publishShareAudio then follows exactly the production branches), so
+    /// "nothing here can exclude us" is testable on a machine that can.
+    void setShareAudioCaptureForTest(
+        const lightning::shareaudio::SystemCapture &capture)
+    {
+        m_shareAudioCaptureForTest = capture;
+    }
     void rescanShareAudioSourcesForTest() { rescanShareAudioSources(); }
     /// Shortens the gap between two share-audio rebuild requests.
     void setShareAudioRebuildGapMsForTest(qint64 ms)
@@ -1838,6 +1846,8 @@ private:
         const QList<lightning::shareaudio::Stream> &)>
         m_shareAudioEnumerateForTest;
     lightning::shareaudio::BranchOptions m_shareAudioOptionsForTest;
+    std::optional<lightning::shareaudio::SystemCapture>
+        m_shareAudioCaptureForTest;
 
     QStringList m_iceUris;
     QString m_iceUsername;

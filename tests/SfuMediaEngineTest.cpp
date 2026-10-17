@@ -5868,21 +5868,17 @@ private slots:
 
         // Recomputed from the factories rather than copied from the
         // implementation, so the two can disagree.
-        const char *const kCandidates[] = {
-#if defined(Q_OS_WIN)
-            "wasapi2src", "wasapisrc",
-#elif defined(Q_OS_LINUX)
-            "pulsesrc",
-#endif
-            nullptr,
-        };
+        // A full endpoint mix is deliberately not an available capture.
         bool anyPresent = false;
-        for (const char *const *c = kCandidates; *c; ++c) {
-            if (GstElementFactory *f = gst_element_factory_find(*c)) {
-                gst_object_unref(f);
-                anyPresent = true;
-            }
+#if defined(Q_OS_WIN)
+        if (GstElement *probe = gst_element_factory_make("wasapi2src", nullptr)) {
+            anyPresent = g_object_class_find_property(
+                             G_OBJECT_GET_CLASS(probe), "loopback-target-pid")
+                && g_object_class_find_property(
+                             G_OBJECT_GET_CLASS(probe), "loopback-mode");
+            gst_object_unref(probe);
         }
+#endif
         // Per-application capture does not use a loopback element, so a
         // PipeWire machine without `pulsesrc` is also a yes.
         const bool perApplication =
@@ -5933,7 +5929,7 @@ private slots:
                      "PipeWire daemon it reaches, audiomixer and pipewiresrc "
                      "target-object, so per-application share audio must be "
                      "available — if it is not, every share is silently "
-                     "taking the sink-monitor path and sending the call back "
+                     "unable to capture other applications while leaving us out "
                      "to the call");
         }
         if (haveProvider && !reached) {
@@ -6023,39 +6019,67 @@ private slots:
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
     }
 
-    // Windows share audio prefers `wasapi2src` with
-    // `loopback-mode=exclude-process-tree` and our pid, so participants do not
-    // hear themselves back. The mode is ignored unless the pid is non-zero.
-    // Source contract: wasapi2src is not available on CI.
+    // publishShareAudio itself, not a pipeline the test composed: when no
+    // capture can leave Lightning out, "the whole system" fails with
+    // share_audio_unavailable and registers no bin, and "chosen apps" fails
+    // with share_audio_apps_unavailable -- neither falls back to a monitor or
+    // endpoint mix, which carries the call's own playback back to it (#26).
+    // The decision is handed in through the seam so the case holds on a
+    // machine that does have PipeWire.
+    void publishShareAudioWithNoExcludingCaptureFailsAndAddsNoBin()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.start();
+        engine.setShareAudioCaptureForTest({});
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-sys"), system);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.takeFirst().at(0).toString(),
+                 QStringLiteral("share_audio_unavailable"));
+        QVERIFY(!engine.hasPublishedBinForTest(QStringLiteral("cid-sys")));
+
+        lightning::shareaudio::Selection apps;
+        apps.mode = Mode::Apps;
+        apps.keys = { QStringLiteral("firefox") };
+        engine.publishShareAudio(QStringLiteral("cid-apps"), apps);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.takeFirst().at(0).toString(),
+                 QStringLiteral("share_audio_apps_unavailable"));
+        QVERIFY(!engine.hasPublishedBinForTest(QStringLiteral("cid-apps")));
+    }
+
+    // Exercise the real builder; unsupported Windows must not capture the
+    // endpoint mix, and the exclude enum without a positive PID is a no-op.
     void windowsShareAudioPrefersExcludingOurOwnProcess()
     {
-        const QByteArray src = SOURCE_UNDER_TEST;
-        QVERIFY2(!src.isEmpty(), "engine source unreadable");
-
-        // Keyed on the table entries themselves, not on prose a comment could
-        // also contain.
-        const int excluding = src.indexOf("{ \"wasapi2src\", \"loopback-target-pid\"");
-        const int plain = src.indexOf("{ \"wasapi2src\", \"loopback\",");
-        QVERIFY2(excluding >= 0,
-                 "Windows share audio no longer asks WASAPI to exclude this "
-                 "process, so a shared screen sends the call back to itself");
-        QVERIFY2(plain >= 0,
-                 "the older-Windows fallback is gone; a machine below build "
-                 "20348 has no share audio at all now");
-        QVERIFY2(excluding < plain,
-                 "the plain endpoint-mix capture is offered before the one "
-                 "that excludes us, so every Windows share takes the echoing "
-                 "path");
-
-        // The enum without the pid is a no-op, so the pid must be interpolated.
-        const int pidProp = src.indexOf("loopback-target-pid=%1", excluding);
-        QVERIFY2(pidProp > excluding && pidProp < plain,
-                 "exclude-process-tree is set without a target pid, which the "
-                 "element ignores outright");
-        QVERIFY2(src.indexOf("loopback-mode=exclude-process-tree", excluding)
-                     < plain,
-                 "the excluding candidate does not actually ask for the "
-                 "exclude mode");
+        using namespace lightning::shareaudio;
+        const auto source = systemCaptureFor(Platform::Windows, false, true, 4242);
+        QVERIFY(source.excludesUs);
+        QVERIFY(source.description.contains(
+            QStringLiteral("loopback-mode=exclude-process-tree")));
+        QVERIFY(source.description.contains(QStringLiteral("loopback-target-pid=4242")));
+        QVERIFY(source.description.contains(QStringLiteral("name=sharesrc")));
+        QVERIFY(systemCaptureFor(Platform::Windows, false, false, 4242).description.isEmpty());
+        QVERIFY(systemCaptureFor(Platform::Windows, false, true, 0).description.isEmpty());
+#if defined(Q_OS_WIN)
+        // Parse with the installed plugin as well, where the OS supports it.
+        if (systemExclusion().possible) {
+            const QString description = encodedTrackDescription(source.description, 1234);
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_bin_from_description(
+                description.toUtf8().constData(), TRUE, &error);
+            const bool parsed = bin && !error;
+            if (error)
+                g_error_free(error);
+            if (bin)
+                gst_object_unref(bin);
+            QVERIFY(parsed);
+        }
+#endif
     }
 
     // A share-audio branch parses on its own, as rescanShareAudioSources()
@@ -6182,20 +6206,16 @@ private slots:
         QVERIFY2(parseFailure(single).isEmpty(),
                  qPrintable(parseFailure(single)));
 
-        // Each capture candidate names itself `sharesrc`: handleBusMessage
-        // recognises a device that will not open by that name.
-        const QByteArray src = SOURCE_UNDER_TEST;
-        QVERIFY2(!src.isEmpty(), "engine source unreadable");
-        for (const char *element :
-             { "wasapi2src name=sharesrc loopback-mode=exclude-process-tree",
-               "wasapi2src name=sharesrc loopback=true",
-               "wasapisrc name=sharesrc loopback=true",
-               "pulsesrc name=sharesrc device=@DEFAULT_MONITOR@" }) {
-            QVERIFY2(src.contains(element),
-                     qPrintable(QStringLiteral(
-                         "a share-audio capture candidate no longer names "
-                         "itself `sharesrc`: %1").arg(element)));
-        }
+        // The real single-source builder must name its capture for error
+        // handling, and must never choose an endpoint mix on older Windows.
+        const auto windows = lightning::shareaudio::systemCaptureFor(
+            lightning::shareaudio::Platform::Windows, false, true, 4242);
+        QVERIFY(windows.description.contains(QStringLiteral("name=sharesrc")));
+        QVERIFY(windows.description.contains(
+            QStringLiteral("loopback-mode=exclude-process-tree")));
+        const auto unsupported = lightning::shareaudio::systemCaptureFor(
+            lightning::shareaudio::Platform::Linux, false, false, 4242);
+        QVERIFY(unsupported.description.isEmpty());
     }
 
     // The per-application track in every shape production now composes:

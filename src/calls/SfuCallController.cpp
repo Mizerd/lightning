@@ -5211,6 +5211,8 @@ void SfuCallController::restoreShareAudioChoice(int mode,
 
 bool SfuCallController::shareAudioSupported() const
 {
+    if (m_shareAudioSupportedForTest >= 0)
+        return m_shareAudioSupportedForTest == 1;
 #ifdef HAVE_LIGHTNING_WEBRTC
     return SfuMediaEngine::shareAudioAvailable();
 #else
@@ -5218,8 +5220,31 @@ bool SfuCallController::shareAudioSupported() const
 #endif
 }
 
+void SfuCallController::refreshShareAudioCapability()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_shareAudioSupportedForTest < 0) {
+        // A definite answer is cached and returns at once; an inconclusive
+        // one (daemon not up yet, a timeout) is asked again, bounded.
+        lightning::shareaudio::perApplicationCaptureAvailable(true);
+    }
+#endif
+    const bool supported = shareAudioSupported();
+    const bool canChoose = shareAudioCanChooseApps();
+    if (supported == m_lastShareAudioSupported
+        && canChoose == m_lastShareAudioCanChoose) {
+        return;
+    }
+    m_lastShareAudioSupported = supported;
+    m_lastShareAudioCanChoose = canChoose;
+    Q_EMIT shareAudioCapabilityChanged();
+    Q_EMIT shareAudioStatusChanged();
+}
+
 bool SfuCallController::shareAudioExcludesOwnPlayback() const
 {
+    if (m_shareAudioSupportedForTest == 0)
+        return false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Guarded: without the media engine ShareAudioSources.cpp is not built.
     // Windows excludes our process tree with a single loopback; it used to
@@ -5235,6 +5260,8 @@ bool SfuCallController::shareAudioCanChooseApps() const
 {
     if (m_shareAudioCanChooseForTest >= 0)
         return m_shareAudioCanChooseForTest == 1;
+    if (m_shareAudioSupportedForTest == 0)
+        return false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     return lightning::shareaudio::perApplicationCaptureAvailable();
 #else
@@ -5376,16 +5403,36 @@ QString SfuCallController::shareAudioStatus() const
 {
     ShareAudioStatusInput in;
     in.supported = shareAudioSupported();
+    if (!in.supported) {
+        if (m_shareAudioSupportedForTest == 0) {
+            in.why = m_shareAudioWhyForTest;
+        } else {
+#ifdef HAVE_LIGHTNING_WEBRTC
+            using lightning::shareaudio::Unavailability;
+            switch (lightning::shareaudio::systemUnavailability()) {
+            case Unavailability::MissingPlugin:
+                in.why = ShareAudioUnavailable::MissingPlugin;
+                break;
+            case Unavailability::NoPipeWire:
+                in.why = ShareAudioUnavailable::NoPipeWire;
+                break;
+            case Unavailability::OldWindows:
+                in.why = ShareAudioUnavailable::OldWindows;
+                break;
+            default:
+                in.why = ShareAudioUnavailable::NoCapture;
+                break;
+            }
+#endif
+        }
+    }
     in.mode = m_shareAudioMode;
     for (const QString &key : m_shareAudioApps)
         in.chosenLabels.append(m_shareAudioAppLabels.value(key, key));
     // During a share, what the running track ACTUALLY does: it can have
-    // fallen back to the output monitor (the echo) while the capability says
-    // otherwise. Before one, what the whole system would do here.
+    // lost an application branch while the capability stays available.
     in.trackLive = m_screenSharing && !m_shareAudioCid.isEmpty()
         && m_shareAudioReportLive;
-    in.systemExcludesUs = in.trackLive ? m_shareAudioReportExcludesUs
-                                       : shareAudioExcludesOwnPlayback();
     in.perApplication = in.trackLive && m_shareAudioReportPerApp;
     in.carriedAny = !m_shareAudioCarried.isEmpty();
     in.levelKnown = m_shareAudioLevelKnown;
@@ -5399,15 +5446,29 @@ QString SfuCallController::shareAudioStatus() const
 
 QString SfuCallController::shareAudioStatusText(const ShareAudioStatusInput &in)
 {
-    if (!in.supported)
-        return tr("This system can't capture the sound it plays.");
+    if (!in.supported) {
+        // Never a capture that would send the call back to its speakers, so
+        // the reason is the one thing left to say. Short: one line.
+        switch (in.why) {
+        case ShareAudioUnavailable::MissingPlugin:
+            return tr("Screen-share sound is off: this package lacks the audio "
+                      "capture plugins it needs.");
+        case ShareAudioUnavailable::NoPipeWire:
+            return tr("Screen-share sound needs PipeWire; this system has only "
+                      "PulseAudio, or PipeWire isn't running.");
+        case ShareAudioUnavailable::OldWindows:
+            return tr("Screen-share sound needs Windows build 20348 or newer.");
+        case ShareAudioUnavailable::NoCapture:
+            break;
+        }
+        return tr("Screen-share sound isn't available on this system.");
+    }
     QString what;
     switch (in.mode) {
     case 1:
-        what = in.systemExcludesUs
-            ? tr("Sound: everything this computer plays, except Lightning.")
-            : tr("Sound: everything this computer plays, including this call, "
-                 "so others may hear themselves.");
+        // Supported means Lightning is left out: no capture that includes the
+        // call is ever offered.
+        what = tr("Sound: everything this computer plays, except Lightning.");
         break;
     case 2:
         if (in.chosenLabels.isEmpty())

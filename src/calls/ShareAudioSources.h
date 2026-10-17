@@ -31,16 +31,16 @@ class QObject;
 //    reports `Stream/Output/Audio` nodes with `object.serial`,
 //    `application.process.id`, `application.name` and `node.name`.
 //
-// On Windows (10 2004+, where wasapi2src has `loopback-target-pid`) the same
+// On Windows (build 20348+, where wasapi2src has `loopback-target-pid`) the same
 // shape is built from one `wasapi2src loopback-mode=include-process-tree` per
 // chosen application's audio session; "the whole system except us" stays the
-// single exclude-process-tree capture in SfuMediaEngine.cpp.
+// single exclude-process-tree capture.
 //
 // Which streams a share carries, and what a running share does as streams come
 // and go, are pure functions here (streamIsForeign, Selection::wants,
 // planScan), unit-tested without PipeWire, WASAPI or GStreamer. Linux without
-// a reachable PipeWire falls back to the echoing sink monitor, and the UI says
-// so; macOS has no loopback capture.
+// a reachable PipeWire has no share audio: a sink monitor would echo the call.
+// macOS has no loopback capture.
 
 struct _GObject;   // GLib's GObject, without pulling GLib into this header
 
@@ -313,15 +313,112 @@ void enumerateAsync(QObject *context, qint64 ourPid,
                     const QList<Stream> &checkRunning,
                     std::function<void(const Enumeration &)> done);
 
-/// Can this machine capture per application? Answered once, on a worker
-/// bounded at 2.5 s, and cached. The GUI thread never connects to PipeWire:
-/// the probe does it on its worker, and every enumeration on its own worker
-/// with a FRESH, PRIVATE connection (privatePipeWireConnection()). If the
-/// probe times out, nothing touches the provider again (a start abandoned
-/// mid-way holds its start lock). False means "the whole system" falls back
-/// to the output monitor, which includes this call's audio, and applications
-/// cannot be chosen; the UI says so.
-bool perApplicationCaptureAvailable();
+// Entire-system capture must exclude our call playback. Missing plugins or
+// process-loopback support disable share audio, rather than capture a mix
+// containing the other participants' voices.
+
+/// What the loaded plugins offer towards excluding ourselves.
+struct ExclusionElements {
+    bool audiomixer = false;
+    /// `pipewiresrc` with `target-object` (PipeWire 0.3.64 and newer).
+    bool pipewireTargetObject = false;
+    bool pipewireDeviceProvider = false;
+    /// `wasapi2src` with process-loopback properties (Windows build 20348+).
+    bool wasapiProcessLoopback = false;
+    /// `wasapi2src` itself, to tell a package without it from an old Windows.
+    bool wasapiSource = false;
+};
+
+enum class Platform { Linux, Windows, Other };
+
+/// Whether a share of "the whole system" can leave Lightning out.
+struct SystemExclusion {
+    bool possible = false;
+    /// How, when possible: "per-application capture" or "process loopback".
+    QString how;
+    /// What is missing (element and property names) when it is not.
+    QStringList missing;
+};
+
+/// Pure: the verdict for `platform` given what its plugins offer. On Linux
+/// this is the element half of the per-application probe; whether a PipeWire
+/// daemon answers is the runtime half perApplicationCaptureAvailable() adds (a
+/// PulseAudio-only machine has no way to leave us out).
+SystemExclusion systemExclusionFor(Platform platform,
+                                   const ExclusionElements &elements);
+
+/// The verdict for this build's platform and its loaded plugins. Asks the
+/// GStreamer registry (it may instantiate an element, it connects nothing);
+/// never possible without the media engine.
+SystemExclusion systemExclusion();
+
+/// Plugin capability only; a reachable audio server is also needed at runtime.
+QString systemExclusionStatusLine(const SystemExclusion &verdict);
+
+/// The source decision used by the engine. An unavailable capture has no
+/// description: a monitor/endpoint mix cannot exclude our own playback.
+struct SystemCapture {
+    enum class Kind { Unavailable, PerApplication, ProcessLoopback };
+    Kind kind = Kind::Unavailable;
+    QString description;
+    bool excludesUs = false;
+};
+
+/// Pure platform decision, also used by pipeline and missing-plugin tests.
+SystemCapture systemCaptureFor(Platform platform, bool perApplicationAvailable,
+                               bool processLoopbackAvailable, qint64 ourPid);
+/// Runtime decision: uses the bounded PipeWire probe or loaded WASAPI plugin.
+SystemCapture systemCapture(qint64 ourPid);
+
+/// Why share sound is off, for the sentence the picker and the call bar show.
+enum class Unavailability {
+    None,
+    /// A build without the media engine, or macOS: nothing captures playback.
+    NoCapture,
+    /// A package without the plugins an excluding capture needs.
+    MissingPlugin,
+    /// Linux with the plugins but no PipeWire daemon answering (PulseAudio
+    /// alone, or PipeWire not running yet).
+    NoPipeWire,
+    /// Windows whose wasapi2src has no process loopback (before build 20348).
+    OldWindows
+};
+
+/// Pure: the reason for `platform` given the loaded plugins and whether a
+/// PipeWire daemon answered (`daemonReached`, Linux only). None when an
+/// excluding capture is possible.
+Unavailability unavailabilityFor(Platform platform,
+                                 const ExclusionElements &elements,
+                                 bool daemonReached);
+
+/// The reason on this machine now; consults the (cached, bounded) probe.
+Unavailability systemUnavailability();
+
+/// What one run of the per-application probe concluded. Only the first two
+/// are DEFINITE and cached for the run: a missing plugin does not appear
+/// later. "Unknown" (no daemon answered yet, a timeout) is a state a daemon
+/// that is still starting grows out of, so it is never cached for good.
+enum class ProbeOutcome { Unavailable, Available, Unknown };
+
+/// Can this machine capture per application? A definite answer is cached for
+/// the run. An Unknown one (no daemon yet, or the probe timed out) is not:
+/// the call asks again, at most every five seconds, or at once with
+/// `reprobe` (the share menu and picker pass true as they open). The probe
+/// runs on a worker the caller waits for at most 2.5 s, so the GUI thread
+/// never blocks longer; a worker that has not finished is never joined by a
+/// second one (a start abandoned mid-way holds its start lock), it just
+/// answers false until it stores its own result. The GUI thread never
+/// connects to PipeWire: every enumeration uses its own worker with a FRESH,
+/// PRIVATE connection (privatePipeWireConnection()). Without an excluding
+/// capture, share audio is unavailable; a full monitor mix would echo the
+/// call.
+bool perApplicationCaptureAvailable(bool reprobe = false);
+
+/// Test seams for the probe's caching: replaces the probe body and its
+/// timeout, and forgets every cached answer and in-flight worker record.
+void setPerApplicationProbeForTest(std::function<ProbeOutcome()> probe,
+                                   int timeoutMs = 2500);
+void resetPerApplicationProbeForTest();
 
 /// A new connection of our own to the PipeWire daemon (a connected socket),
 /// or -1 when the socket cannot be found or reached. Linux only (-1

@@ -645,6 +645,40 @@ the cryptor refuses, and the receive-ring cap.
 
 ### Screen-share audio
 
+**GitHub #26: current capture policy.** Entire-system share audio requires a
+capture that excludes Lightning's own call playback. On PipeWire this reuses
+per-application capture for every foreign output stream. On Windows it uses
+`wasapi2src loopback-mode=exclude-process-tree loopback-target-pid=<our pid>`
+(GStreamer 1.22+, Windows build 20348+). Both properties are checked at runtime.
+A PulseAudio-only system, an older Windows version, or a package missing the
+required plugins has no share audio; the call and video share continue. There
+is no fallback to a full speaker mix, because that would echo participants.
+The share menu and picker keep their sound section in that state, with the
+choice disabled and one plain-text line giving the reason (PulseAudio only, a
+Windows before build 20348, a package without the plugins, or no capture at all
+on macOS and in builds without the media engine). A probe that finds no PipeWire
+daemon, or times out, is not final: it is asked again each time the menu or
+picker opens, and only a definite answer is cached for the run.
+`--call-media-status` reports the **plugin capability**, while runtime Linux
+availability also requires a reachable PipeWire daemon. Package validation
+checks the capability independently of the runner's audio server.
+
+The 2026-10-08 source-build measurement exercised the working excluding path
+with host plugins. The released 0.10.1 AppImage omitted `audiomixer`, which
+selected the echoing monitor fallback; snap inherited that AppDir. AppImage
+bundling was corrected in `2abae300`. The private-graph probe
+`share-audio-capture-probe` plays a far-end tone through `buildReceiveBin()`
+and parses the production share track. Its monitor control must contain both
+the far-end and external-app tones; the excluding capture must contain only
+the external app. Build it with `LIGHTNING_BUILD_SHARE_AUDIO_PROBE=ON`, then run
+`python3 tests/run-share-audio-private-graph.py <build-dir>` in the dev shell.
+The runner creates a hardware-free graph, disables the session bus, and stops
+only its own child processes. This is capture-path validation; live Matrix
+calls and Windows audio behavior still require separate validation.
+
+The following paragraphs retain the historical investigation and its limits.
+
+
 **This section described the pre-0.8.3 position and was left stale when the
 feature shipped.** It said share audio was not captured on any platform, and
 gave as the reason the exact defect the shipped implementation has. The
