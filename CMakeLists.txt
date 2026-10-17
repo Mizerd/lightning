@@ -362,7 +362,7 @@ endif()
 # ---------------------------------------------------------------------------
 # `en` needs a catalog for its plural forms: without one Qt renders the "(s)"
 # of `%n room(s)` literally.
-set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id lt)
+set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id lt de)
 set(LIGHTNING_TS_FILES "")
 foreach(_lang IN LISTS LIGHTNING_LANGUAGE_CODES)
     list(APPEND LIGHTNING_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/lightning_${_lang}.ts")

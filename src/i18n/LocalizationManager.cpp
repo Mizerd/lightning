@@ -38,6 +38,7 @@ constexpr Language kLanguages[] = {
     { "ru",    "Russian",                    "Русский", false },
     { "id",    "Indonesian",                 "Bahasa Indonesia", false },
     { "lt",    "Lithuanian",                 "Lietuvių",        false },
+    { "de",    "German",                     "Deutsch",         false },
 };
 
 const Language *lookup(const QString &code)

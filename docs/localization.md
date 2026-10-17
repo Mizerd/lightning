@@ -22,6 +22,7 @@ English at its call site, and the catalogs translate away from it.
 | `ru` | Russian | Русский |
 | `id` | Indonesian | Bahasa Indonesia |
 | `lt` | Lithuanian | Lietuvių |
+| `de` | German | Deutsch |
 
 The table lives in exactly one place in code — `kLanguages` in
 `src/i18n/LocalizationManager.cpp`. `tests/LocalizationTest.cpp` asserts that
@@ -128,11 +129,11 @@ the catalogs no longer match the strings currently extracted from the source.
 
 **Every round that adds a `qsTr()` owes a catalog refresh.** That gate
 (`catalogsMatchTheCurrentSource`) runs `lupdate` over `src` and `qml` at test
-time and compares the result against all eleven catalogs in both directions,
+time and compares the result against all twelve catalogs in both directions,
 so a new user-visible string breaks CTest until the catalogs carry it:
 
 ```sh
-for c in en zh_CN hi es ar fr bn pt ru id lt; do
+for c in en zh_CN hi es ar fr bn pt ru id lt de; do
   nix develop -c lupdate -silent -locations relative -no-obsolete \
       src qml -ts i18n/lightning_$c.ts
 done

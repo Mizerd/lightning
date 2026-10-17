@@ -157,6 +157,9 @@ private Q_SLOTS:
                  QStringLiteral("bn"));
         QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("lt_LT")),
                  QStringLiteral("lt"));
+        for (const char *tag : { "de_DE", "de_AT", "de_CH", "de-DE", "de" })
+            QCOMPARE(LocalizationManager::matchLanguageTag(QLatin1String(tag)),
+                     QStringLiteral("de"));
     }
 
     // For Chinese the script decides: only Simplified ships, so a Traditional
@@ -179,11 +182,11 @@ private Q_SLOTS:
 
     void unsupportedLanguagesFallBackToEnglish()
     {
-        for (const char *tag : { "de_DE", "ja", "sw", "", "!!", "xx_YY" })
+        for (const char *tag : { "it_IT", "ja", "sw", "", "!!", "xx_YY" })
             QVERIFY2(LocalizationManager::matchLanguageTag(QLatin1String(tag)).isEmpty(),
                      tag);
         QCOMPARE(LocalizationManager::matchPreferenceList(
-                     { QStringLiteral("de_DE"), QStringLiteral("ja") }),
+                     { QStringLiteral("it_IT"), QStringLiteral("ja") }),
                  QStringLiteral("en"));
         QCOMPARE(LocalizationManager::matchPreferenceList({}),
                  QStringLiteral("en"));
@@ -212,6 +215,7 @@ private Q_SLOTS:
         }
         // An unknown code must not claim a direction.
         QVERIFY(!LocalizationManager::isRightToLeft(QStringLiteral("he")));
+        QVERIFY(!LocalizationManager::isRightToLeft(QStringLiteral("de")));
     }
 
     void everySupportedCodeNamesItself()
@@ -223,6 +227,10 @@ private Q_SLOTS:
                      qPrintable(code));
         }
         QVERIFY(LocalizationManager::endonym(QStringLiteral("nope")).isEmpty());
+        QCOMPARE(LocalizationManager::endonym(QStringLiteral("de")),
+                 QStringLiteral("Deutsch"));
+        QCOMPARE(LocalizationManager::englishName(QStringLiteral("de")),
+                 QStringLiteral("German"));
     }
 
     // Sizes and numbers read the default QLocale. An English UI on a desktop
