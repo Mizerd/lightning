@@ -22,6 +22,7 @@ class WindowFrameThemeTest : public QObject
 private Q_SLOTS:
     void darkAndLightColoursAreTold();
     void everyPaletteGetsTheFrameItsTextNeeds();
+    void theRequestAlwaysFollowsQtsOwn();
 };
 
 void WindowFrameThemeTest::darkAndLightColoursAreTold()
@@ -101,6 +102,52 @@ void WindowFrameThemeTest::everyPaletteGetsTheFrameItsTextNeeds()
                             .arg(dark)
                             .arg(checked)));
 #endif
+}
+
+// Live FAIL on pipeline 326: the request was made inside an application event
+// filter, which runs before Qt's Windows plugin answers the same event with the
+// SYSTEM scheme (QWindowsWindow::windowEvent on ApplicationPaletteChange), so a
+// light system under a dark theme kept a light caption. The cure is that every
+// event after which Qt may rewrite the caption schedules the request AFTER Qt.
+// DWM cannot run here; the decision table is what can be checked.
+void WindowFrameThemeTest::theRequestAlwaysFollowsQtsOwn()
+{
+    using lightning::windowframe::Reapply;
+    using lightning::windowframe::reapplyFor;
+    const QList<QEvent::Type> afterQt{
+        QEvent::ApplicationPaletteChange, // Qt sets the frame from the system
+        QEvent::ThemeChange,              // ... and when the system changes
+        QEvent::PlatformSurface,          // ... and at native creation
+        QEvent::Show,
+        QEvent::WindowStateChange,
+    };
+    for (const QEvent::Type type : afterQt)
+        QVERIFY2(reapplyFor(type) == Reapply::AfterQt,
+                 qPrintable(QStringLiteral("event %1 does not reapply")
+                                .arg(int(type))));
+    // The decision is deliberately narrow: pointer, paint and timer traffic
+    // must not each cost a DWM call.
+    for (const QEvent::Type type : { QEvent::MouseMove, QEvent::Paint,
+                                     QEvent::Timer, QEvent::Expose,
+                                     QEvent::Resize })
+        QVERIFY(reapplyFor(type) == Reapply::Ignore);
+    QCOMPARE(QLatin1String(lightning::windowframe::frameModeName(true)),
+             QLatin1String("dark"));
+    QCOMPARE(QLatin1String(lightning::windowframe::frameModeName(false)),
+             QLatin1String("light"));
+
+    // The Windows branch must not apply inline from the event filter: the
+    // only application of the request outside SurfaceCreated is the timer.
+    QFile src(QStringLiteral(WINDOWFRAME_SOURCE_PATH));
+    QVERIFY2(src.open(QIODevice::ReadOnly), "WindowFrameTheme.cpp unreadable");
+    const QString text = QString::fromUtf8(src.readAll());
+    QVERIFY2(text.contains(QStringLiteral("QTimer::singleShot(0, this")),
+             "the request is no longer deferred past Qt's own");
+    QVERIFY2(text.contains(QStringLiteral("\"lightning.window\"")),
+             "the caption log category is gone");
+    QVERIFY2(!text.contains(QStringLiteral("case QEvent::ApplicationPaletteChange:\n"
+                                           "            // Sent to the application")),
+             "the palette change is applied inline again");
 }
 
 QTEST_GUILESS_MAIN(WindowFrameThemeTest)

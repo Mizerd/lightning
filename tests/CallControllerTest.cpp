@@ -7826,6 +7826,138 @@ private Q_SLOTS:
                                QStringLiteral("mpv.exe") }));
     }
 
+    // GitHub #43: the share sound choice was in memory only and every start
+    // reset it to "Entire system". A choice made by the user outlives the
+    // controller; the picker's one-share preselection does not become one.
+    void theShareSoundChoiceSurvivesARestart()
+    {
+        SettingsManager settings;
+        settings.setCallShareAudioMode(1);   // known start
+        {
+            SfuCallController call;
+            call.setSettings(&settings);
+            QCOMPARE(call.shareAudioMode(), 1);
+            call.setShareAudioMode(0);
+        }
+        QCOMPARE(settings.callShareAudioMode(), 0);
+        {
+            // "A restart": a fresh controller reads the device choice.
+            SfuCallController call;
+            call.setSettings(&settings);
+            QCOMPARE(call.shareAudioMode(), 0);
+            QVERIFY(!call.shareAudioEnabled());
+            call.setShareAudioMode(1);
+        }
+        SfuCallController back;
+        back.setSettings(&settings);
+        QCOMPARE(back.shareAudioMode(), 1);
+
+        // "Only chosen apps" comes back with its apps.
+        {
+            SfuCallController call;
+            call.setShareAudioCanChooseAppsForTest(true);
+            call.setSettings(&settings);
+            call.setShareAudioAppChosen(QStringLiteral("Firefox"),
+                                        QStringLiteral("Firefox"), true);
+            QCOMPARE(call.shareAudioMode(), 2);
+        }
+        SfuCallController withApps;
+        withApps.setShareAudioCanChooseAppsForTest(true);
+        withApps.setSettings(&settings);
+        QCOMPARE(withApps.shareAudioMode(), 2);
+        QCOMPARE(withApps.shareAudioApps(),
+                 QStringList{ QStringLiteral("firefox") });
+        // An unreadable stored value is the default, not the nearest end.
+        QSettings().setValue(QStringLiteral("calls/shareAudioMode"), 7);
+        QCOMPARE(settings.callShareAudioMode(), 1);
+    }
+
+    void uncheckingTheLastShareAudioAppSurvivesARestart()
+    {
+        {
+            SettingsManager settings;
+            settings.setCallShareAudioMode(1);
+            settings.setCallShareAudioApps({});
+            SfuCallController call;
+            call.setShareAudioCanChooseAppsForTest(true);
+            call.setSettings(&settings);
+            call.setShareAudioAppChosen(QStringLiteral("firefox"),
+                                        QStringLiteral("Firefox"), true);
+            call.setShareAudioAppChosen(QStringLiteral("firefox"),
+                                        QStringLiteral("Firefox"), false);
+            QCOMPARE(call.shareAudioMode(), 2);
+            QVERIFY(call.shareAudioApps().isEmpty());
+            QCOMPARE(settings.callShareAudioMode(), 2);
+            QVERIFY(settings.callShareAudioApps().isEmpty());
+        }
+        SettingsManager settings;
+        SfuCallController restarted;
+        restarted.setShareAudioCanChooseAppsForTest(true);
+        restarted.setSettings(&settings);
+        QCOMPARE(restarted.shareAudioMode(), 2);
+        QVERIFY(restarted.shareAudioApps().isEmpty());
+        QCOMPARE(settings.callShareAudioMode(), 2);
+        QVERIFY(settings.callShareAudioApps().isEmpty());
+    }
+
+    void unavailablePerAppCaptureKeepsTheChoiceAcrossRestarts()
+    {
+        const QStringList apps{ QStringLiteral("firefox") };
+        {
+            SettingsManager settings;
+            settings.setCallShareAudioMode(1);
+            settings.setCallShareAudioApps({});
+            SfuCallController call;
+            call.setShareAudioCanChooseAppsForTest(true);
+            call.setSettings(&settings);
+            call.setShareAudioAppChosen(apps.first(),
+                                        QStringLiteral("Firefox"), true);
+        }
+        {
+            SettingsManager settings;
+            SfuCallController restarted;
+            restarted.setShareAudioCanChooseAppsForTest(false);
+            restarted.setSettings(&settings);
+            QCOMPARE(restarted.shareAudioMode(), 2);
+            QCOMPARE(restarted.shareAudioApps(), apps);
+            QCOMPARE(settings.callShareAudioMode(), 2);
+            QCOMPARE(settings.callShareAudioApps(), apps);
+            // Cancelling a picker's temporary choice must also preserve the
+            // unavailable preference, rather than restoring Entire system.
+            restarted.restoreShareAudioChoice(0, {});
+            restarted.restoreShareAudioChoice(2, apps);
+            QCOMPARE(restarted.shareAudioMode(), 2);
+            QCOMPARE(restarted.shareAudioApps(), apps);
+        }
+        SettingsManager settings;
+        SfuCallController availableAgain;
+        availableAgain.setShareAudioCanChooseAppsForTest(true);
+        availableAgain.setSettings(&settings);
+        QCOMPARE(availableAgain.shareAudioMode(), 2);
+        QCOMPARE(availableAgain.shareAudioApps(), apps);
+    }
+
+    // The picker's window preselection and its restore are NOT a preference:
+    // they must never reach the store.
+    void thePickersOneSharePreselectionIsNeverPersisted()
+    {
+        SettingsManager settings;
+        settings.setCallShareAudioMode(1);
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setSettings(&settings);
+        call.setShareAudioCanChooseAppsForTest(true);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
+                                     QStringLiteral("VLC"));
+        QCOMPARE(call.shareAudioMode(), 2);
+        QCOMPARE(settings.callShareAudioMode(), 1);
+        QVERIFY(settings.callShareAudioApps().isEmpty());
+        call.restoreShareAudioChoice(1, {});
+        QCOMPARE(settings.callShareAudioMode(), 1);
+    }
+
     // The share's sound has its own mute (its `sharevalve`, 2026-09-14 seam):
     // a control, a status line that says so while it is in force, and a
     // lifetime of one share.

@@ -160,7 +160,10 @@ Rectangle {
                     Layout.alignment: Qt.AlignVCenter
                     Layout.maximumWidth: Math.max(0, root.width
                         - AppTheme.spacing12 * 2 - headerRow.spacing
-                        - wordmarkBolt.implicitWidth)
+                        - wordmarkBolt.implicitWidth
+                        - (railHiddenActions.visible
+                           ? railHiddenActions.implicitWidth
+                             + AppTheme.spacing8 : 0))
                     // In Channels the header names the current view (Home,
                     // Direct Messages or the Space); Classic keeps the wordmark
                     // at Home.
@@ -226,6 +229,17 @@ Rectangle {
                     color: AppTheme.wordmarkBolt
                     // Decorative: announce the workspace name only.
                     Accessible.ignored: true
+                }
+            }
+
+            // Settings and the account menu, only while the Spaces rail (their
+            // usual home) is hidden.
+            RailHiddenActions {
+                id: railHiddenActions
+                anchors {
+                    right: parent.right
+                    verticalCenter: parent.verticalCenter
+                    rightMargin: AppTheme.spacing12
                 }
             }
         }

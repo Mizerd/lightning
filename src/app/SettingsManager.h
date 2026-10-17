@@ -547,6 +547,16 @@ public:
     QString noiseSuppressionMode() const;
     /// Refuses anything but the four keys; the stored value is unchanged.
     void setNoiseSuppressionMode(const QString &mode);
+    /// What a screen share's sound carries (GitHub #43): 0 no sound, 1 the
+    /// whole system, 2 only chosen applications. Machine-wide, like the other
+    /// call device choices. An enum, so anything unreadable (a newer build's
+    /// mode, a hand edit) reads as the default, 1, never as the nearest end.
+    int callShareAudioMode() const;
+    /// Refuses anything but 0, 1 and 2; the stored value is unchanged.
+    void setCallShareAudioMode(int mode);
+    /// The applications "only chosen apps" carried (lower-case keys).
+    QStringList callShareAudioApps() const;
+    void setCallShareAudioApps(const QStringList &keys);
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
     bool keepMediaOnDevice() const;

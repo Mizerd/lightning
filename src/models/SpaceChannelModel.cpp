@@ -168,14 +168,33 @@ void SpaceChannelModel::setOrderHeld(bool held)
     Q_EMIT orderHeldChanged();
 }
 
+void SpaceChannelModel::setCallRoomId(const QString &roomId)
+{
+    if (roomId == m_callRoomId)
+        return;
+    m_callRoomId = roomId;
+    // Applied at once, like the classic list: a call's room is not a stamp
+    // that a held order may defer.
+    rebuild();
+}
+
 void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
 {
+    // The ongoing call's room leads its own group, whatever the sort mode, so
+    // activity elsewhere never moves it (GitHub #44). Stable partition first;
+    // the sorts below keep it first through the `isCall` term.
+    const QString call = m_callRoomId;
+    const auto isCall = [&call](const Row &r) {
+        return !call.isEmpty() && r.id == call;
+    };
     if (m_sortMode == conversation::SortByName) {
         // Favourites still lead their group; only the order inside it moves.
         // Nothing depends on activity, so there is nothing held or pending.
         const QCollator collator = conversation::makeNameCollator();
         std::sort(rooms.begin(), rooms.end(),
-                  [favouritesFirst, &collator](const Row &a, const Row &b) {
+                  [favouritesFirst, &collator, &isCall](const Row &a, const Row &b) {
+                      if (isCall(a) != isCall(b))
+                          return isCall(a);
                       if (favouritesFirst && a.favourite != b.favourite)
                           return a.favourite;
                       return conversation::byName(collator, a.name, a.id,
@@ -187,7 +206,9 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
     // lead (hasUnread already honours the room's mute), then by activity.
     const bool unreadFirst = m_sortMode == conversation::SortByUnread;
     std::sort(rooms.begin(), rooms.end(),
-              [favouritesFirst, unreadFirst](const Row &a, const Row &b) {
+              [favouritesFirst, unreadFirst, &isCall](const Row &a, const Row &b) {
+                  if (isCall(a) != isCall(b))
+                      return isCall(a);
                   if (favouritesFirst && a.favourite != b.favourite)
                       return a.favourite;
                   if (unreadFirst && a.hasUnread != b.hasUnread)
@@ -196,7 +217,9 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
               });
     if (m_sortPending)
         return;
-    const auto byTarget = [favouritesFirst, unreadFirst](const Row &a, const Row &b) {
+    const auto byTarget = [favouritesFirst, unreadFirst, &isCall](const Row &a, const Row &b) {
+        if (isCall(a) != isCall(b))
+            return isCall(a);
         if (favouritesFirst && a.favourite != b.favourite)
             return a.favourite;
         if (unreadFirst && a.hasUnread != b.hasUnread)
@@ -218,7 +241,13 @@ void SpaceChannelModel::sortSpaceChannels(QVector<Row> &rooms)
     // lobby's order survives within the favourite split. Nothing depends on
     // activity, so nothing is held or pending.
     std::stable_sort(rooms.begin(), rooms.end(),
-                     [](const Row &a, const Row &b) {
+                     [this](const Row &a, const Row &b) {
+                         const bool aCall = !m_callRoomId.isEmpty()
+                                            && a.id == m_callRoomId;
+                         const bool bCall = !m_callRoomId.isEmpty()
+                                            && b.id == m_callRoomId;
+                         if (aCall != bCall)
+                             return aCall;
                          return a.favourite && !b.favourite;
                      });
 }

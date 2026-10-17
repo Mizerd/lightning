@@ -95,7 +95,9 @@ Item {
                 // DMs and rooms interleaved, so splitting by kind would repeat
                 // headers constantly. The conversation section is named after
                 // the active filter chip ("Conversations" under All).
-                text: section === "invite"
+                text: section === "call"
+                      ? qsTr("In a call")
+                      : section === "invite"
                       ? qsTr("Invites")
                       : (section === "favourite"
                          ? qsTr("Favourites")

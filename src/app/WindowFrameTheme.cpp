@@ -1,6 +1,7 @@
 #include "app/WindowFrameTheme.h"
 
 #include <QCoreApplication>
+#include <QLoggingCategory>
 
 #include <cmath>
 
@@ -32,10 +33,45 @@ bool prefersDarkFrame(const QColor &window)
     return y < 0.1842;
 }
 
+Reapply reapplyFor(QEvent::Type type)
+{
+    switch (type) {
+    case QEvent::ApplicationPaletteChange:
+    case QEvent::ThemeChange:
+    case QEvent::PlatformSurface:
+    case QEvent::Show:
+    case QEvent::WindowStateChange:
+        return Reapply::AfterQt;
+    default:
+        return Reapply::Ignore;
+    }
+}
+
+const char *frameModeName(bool dark)
+{
+    return dark ? "dark" : "light";
+}
+
 #ifdef Q_OS_WIN
+Q_LOGGING_CATEGORY(lcWindowFrame, "lightning.window")
+
 namespace {
 
 using DwmSetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
+
+using DwmGetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, PVOID, DWORD);
+
+DwmGetWindowAttributeFn dwmGetWindowAttribute()
+{
+    static const DwmGetWindowAttributeFn fn = [] {
+        HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+        return dwm ? reinterpret_cast<DwmGetWindowAttributeFn>(
+                         reinterpret_cast<void *>(
+                             GetProcAddress(dwm, "DwmGetWindowAttribute")))
+                   : nullptr;
+    }();
+    return fn;
+}
 
 DwmSetWindowAttributeFn dwmSetWindowAttribute()
 {
@@ -72,6 +108,19 @@ void applyTo(QWindow *window, bool dark)
         return;
     const HWND hwnd = reinterpret_cast<HWND>(window->winId());
     const BOOL value = dark ? TRUE : FALSE;
+    // What DWM holds for the window, asked rather than assumed: after Qt's own
+    // request the answer is the system scheme's, not ours.
+    const DwmGetWindowAttributeFn get = dwmGetWindowAttribute();
+    const auto heldNow = [&]() -> int {
+        BOOL held = FALSE;
+        if (get
+            && (SUCCEEDED(get(hwnd, kDarkModeAttribute, &held, sizeof(held)))
+                || SUCCEEDED(get(hwnd, kDarkModeAttributeBefore20H1, &held,
+                                 sizeof(held)))))
+            return held != FALSE ? 1 : 0;
+        return -1;
+    };
+    const int before = heldNow();
     // Set every time, not only on a change: Qt sets the same attribute from
     // the SYSTEM's scheme when it creates a window and when that scheme
     // changes, which would otherwise win.
@@ -81,9 +130,21 @@ void applyTo(QWindow *window, bool dark)
         return; // Windows before 1809: the frame stays as it is
     const QVariant previous = window->property(kAppliedProperty);
     window->setProperty(kAppliedProperty, dark);
+    const int after = heldNow();
+    const bool overridden = before >= 0 && (before != 0) != dark;
+    // Logged when the answer changes, or when Qt had put the other one back
+    // since our last pass (the case this exists to expose), not on every
+    // deferral.
+    if (!previous.isValid() || previous.toBool() != dark || overridden)
+        qCInfo(lcWindowFrame).nospace()
+            << "caption requested=" << frameModeName(dark) << " applied="
+            << (after < 0 ? "unknown" : frameModeName(after != 0))
+            << " found=" << (before < 0 ? "unknown" : frameModeName(before != 0))
+            << " window=" << window->objectName();
     // Windows 10 repaints a visible caption only on its next activation; a
     // frame change repaints it now.
-    if (window->isVisible() && (!previous.isValid() || previous.toBool() != dark))
+    if (window->isVisible()
+        && (!previous.isValid() || previous.toBool() != dark || overridden))
         SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
                          | SWP_FRAMECHANGED);
@@ -105,34 +166,40 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
-        switch (event->type()) {
-        case QEvent::ApplicationPaletteChange:
-            // Sent to the application and to every window; once is enough.
-            if (watched == QCoreApplication::instance())
-                applyToAll();
-            break;
-        case QEvent::PlatformSurface:
+        const bool isApp = watched == QCoreApplication::instance();
+        const bool isWindow = qobject_cast<QWindow *>(watched) != nullptr;
+        if (!isApp && !isWindow)
+            return false;
+        if (event->type() == QEvent::PlatformSurface) {
+            // The window was just created: Qt's creation-time request (system
+            // scheme) is already in, so ours can go in now as well as after.
             if (static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType()
-                == QPlatformSurfaceEvent::SurfaceCreated) {
-                if (auto *window = qobject_cast<QWindow *>(watched))
-                    applyTo(window, paletteIsDark());
-            }
-            break;
-        case QEvent::ThemeChange:
-            // The system scheme changed and Qt re-set this window's frame
-            // from it; ours again, after Qt has finished.
-            if (auto *window = qobject_cast<QWindow *>(watched)) {
-                QTimer::singleShot(0, window, [w = QPointer<QWindow>(window)] {
-                    if (w)
-                        applyTo(w, paletteIsDark());
-                });
-            }
-            break;
-        default:
-            break;
+                    != QPlatformSurfaceEvent::SurfaceCreated)
+                return false;
+            if (auto *window = qobject_cast<QWindow *>(watched))
+                applyTo(window, paletteIsDark());
         }
+        if (reapplyFor(event->type()) == Reapply::AfterQt)
+            scheduleAfterQt();
         return false;
     }
+
+private:
+    // This runs BEFORE the event reaches the window, where Qt's plugin
+    // answers it with the system scheme; a zero-delay timer is delivered
+    // after that whole dispatch. One pending pass covers a burst (a palette
+    // change reaches the application and every window).
+    void scheduleAfterQt()
+    {
+        if (m_pending)
+            return;
+        m_pending = true;
+        QTimer::singleShot(0, this, [this] {
+            m_pending = false;
+            applyToAll();
+        });
+    }
+    bool m_pending = false;
 };
 
 } // namespace

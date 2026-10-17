@@ -185,6 +185,9 @@ public:
     bool deferReordering() const { return m_hold.enabled(); }
     void setDeferReordering(bool defer);
     bool orderHeld() const { return m_orderHeld; }
+    /// The ongoing call's room leads its group; "" when no call (GitHub #44).
+    void setCallRoomId(const QString &roomId);
+    QString callRoomId() const { return m_callRoomId; }
     int sortMode() const { return m_sortMode; }
     /// Applies at once and drops any held order, as on the Classic list.
     void setSortMode(int mode);
@@ -361,6 +364,7 @@ private:
     /// records what it hands out.
     mutable conversation::RecencyHold m_hold;
     bool m_orderHeld = false;
+    QString m_callRoomId;
     int m_sortMode = conversation::SortByActivity;
     /// Set by sortGroup() during one rebuild.
     bool m_sortPending = false;

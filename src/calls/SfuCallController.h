@@ -1314,6 +1314,11 @@ private:
     bool m_shareAudioRestorePending = false;
     int m_shareAudioRestoreMode = 1;
     QStringList m_shareAudioRestoreApps;
+    /// Starting state from the stored device choice (GitHub #43).
+    void restoreStoredShareAudioChoice();
+    /// Writes the user's own choice; NOT called for the picker's one-share
+    /// preselection (restoreShareAudioChoice), which is not a preference.
+    void persistShareAudioChoice();
     void refreshShareAudioApplications();
     /// Rebuilds the list from the last enumeration plus the choice.
     void rebuildShareAudioApplications();

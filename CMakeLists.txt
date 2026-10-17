@@ -1060,6 +1060,7 @@ set(APP_QML_FILES
     qml/SpacesRail.qml
     qml/FolderTile.qml
     qml/RoomsPanel.qml
+    qml/RailHiddenActions.qml
     # The one leave-room confirmation, shared by the room list and the info panel.
     qml/LeaveRoomConfirmDialog.qml
     qml/TimelinePane.qml
@@ -2586,6 +2587,20 @@ if(BUILD_TESTING)
     set_tests_properties(rail-drag-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # GitHub #45: Settings and the account menu in the room list header while
+    # the Spaces rail is hidden, and absent while it is shown.
+    qt_add_executable(rail-hidden-actions-test
+        tests/RailHiddenActionsTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(rail-hidden-actions-test)
+    target_compile_definitions(rail-hidden-actions-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(rail-hidden-actions-test PRIVATE Qt6::Test)
+    add_test(NAME rail-hidden-actions COMMAND rail-hidden-actions-test)
+    set_tests_properties(rail-hidden-actions PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A Space's name, topic and avatar as the real Space settings dialog renders
     # them; catches bindings that never re-evaluate, which text scans cannot.
     qt_add_executable(space-identity-qml-test
@@ -3053,6 +3068,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(window-frame-theme-test PRIVATE
         APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
+        WINDOWFRAME_SOURCE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/app/WindowFrameTheme.cpp"
     )
     target_link_libraries(window-frame-theme-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME window-frame-theme COMMAND window-frame-theme-test)
@@ -6447,7 +6463,8 @@ if(BUILD_TESTING)
     )
     target_include_directories(room-order-defer-test PRIVATE src)
     target_compile_definitions(room-order-defer-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(room-order-defer-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME room-order-defer COMMAND room-order-defer-test)

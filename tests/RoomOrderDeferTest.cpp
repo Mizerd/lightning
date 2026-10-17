@@ -499,6 +499,73 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
     }
 
+    // -- The ongoing call's room (GitHub #44) -------------------------------
+
+    // Old code: there is no call room, so the message lifts r2 over r3 and the
+    // list reads {r2, r1, r3}; the call's row has no section of its own.
+    void classicTheCallRoomLeadsAndStaysPutWhileOthersGetActivity()
+    {
+        Classic c;
+        c.build(false);
+        c.model.setCallRoomId(kR3);
+        QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+        QCOMPARE(c.model.data(c.model.index(0), RoomListModel::CategoryRole)
+                     .toString(), QStringLiteral("call"));
+        QCOMPARE(c.model.data(c.model.index(1), RoomListModel::CategoryRole)
+                     .toString(), QStringLiteral("conversation"));
+
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR2, kR1 }));
+
+        // The call ends: normal ordering resumes, and the section goes.
+        c.model.setCallRoomId(QString());
+        QCOMPARE(idsOf(c.model), (QStringList{ kR2, kR1, kR3 }));
+        QCOMPARE(c.model.data(c.model.index(2), RoomListModel::CategoryRole)
+                     .toString(), QStringLiteral("conversation"));
+    }
+
+    void classicTheCallRoomLeadsEvenOverFavouritesAndUnderAZ()
+    {
+        Classic c;
+        QList<RoomInfo> rs = sortRooms();
+        c.build(false, rs);
+        c.model.setCallRoomId(kR3);
+        QCOMPARE(idsOf(c.model).first(), kR3);
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(idsOf(c.model).first(), kR3);
+        c.model.setCallRoomId(QString());
+        QCOMPARE(idsOf(c.model), kSortByName);
+    }
+
+    void channelsTheCallRoomLeadsItsGroupAndStaysPut()
+    {
+        Channels c;
+        c.build(false);
+        c.model.setCallRoomId(kR3);
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR3, kR2, kR1 }));
+
+        c.model.setCallRoomId(QString());
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR2, kR1, kR3 }));
+    }
+
+    // Both lanes feed the models, and the Classic presenter names the section.
+    void theAppControllerFeedsBothModelsAndThePresenterLabelsTheSection()
+    {
+        const QString app = readFile(QStringLiteral(SRC_DIR "/app/AppController.cpp"));
+        QVERIFY(app.contains(QStringLiteral("m_roomList->setCallRoomId(room)")));
+        QVERIFY(app.contains(QStringLiteral("m_spaceChannels->setCallRoomId(room)")));
+        const QString pres = readFile(QStringLiteral(QML_DIR "/RoomListClassicPresenter.qml"));
+        QVERIFY(pres.contains(QStringLiteral("section === \"call\"")));
+    }
+
     // -- Channels ---------------------------------------------------------
 
     void channelsAHeldOrderKeepsRowsStillWhileTheRowUpdatesInPlace()

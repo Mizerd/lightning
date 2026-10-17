@@ -1313,6 +1313,31 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     break;
                 }
             });
+    // The room of an ongoing call (either lane) leads both room-list layouts,
+    // so it does not move as other rooms get activity (GitHub #44). Both models
+    // are declared before the call controllers, so they outlive the
+    // teardown signal the controllers emit from their destructors.
+    {
+        const auto applyCallRoom = [this] {
+            QString room;
+            if (m_groupCall->active()) {
+                room = m_groupCall->roomId();
+            } else {
+                const CallController::State legacy = m_calls->state();
+                // Ringing is an offer not yet taken, not an ongoing call.
+                if (legacy == CallController::State::Inviting
+                    || legacy == CallController::State::Connecting
+                    || legacy == CallController::State::Active)
+                    room = m_calls->activeRoomId();
+            }
+            m_roomList->setCallRoomId(room);
+            m_spaceChannels->setCallRoomId(room);
+        };
+        connect(m_groupCall.get(), &SfuCallController::stateChanged,
+                m_roomList.get(), applyCallRoom);
+        connect(m_calls.get(), &CallController::stateChanged,
+                m_roomList.get(), applyCallRoom);
+    }
     m_callDevices->setSettings(m_settings.get());
     // The device test opens the chosen devices with the chosen gain, and
     // never while a call (either lane) is ringing, starting or live: the call

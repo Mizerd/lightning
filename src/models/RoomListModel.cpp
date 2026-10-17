@@ -209,7 +209,8 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case EncryptedRole:          return r.encrypted;
     case IsSpaceRole:            return r.isSpace;
     case MemberCountRole:        return static_cast<int>(r.members.size());
-    case CategoryRole:           return categoryOf(r);
+    case CategoryRole:           return sortRankOf(r) < 0
+                                        ? QStringLiteral("call") : categoryOf(r);
     case HighlightCountRole:     return r.highlightCount;
     case MarkedUnreadRole:       return r.markedUnread;
     case HasUnreadRole:          return r.hasUnreadMessages;
@@ -636,9 +637,9 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             const QCollator collator = conversation::makeNameCollator();
             std::stable_sort(
                 desired.begin(), desired.end(),
-                [&superseded, &collator](const RoomInfo &a, const RoomInfo &b) {
-                    const int aRank = orderRankOf(a);
-                    const int bRank = orderRankOf(b);
+                [this, &superseded, &collator](const RoomInfo &a, const RoomInfo &b) {
+                    const int aRank = sortRankOf(a);
+                    const int bRank = sortRankOf(b);
                     if (aRank != bRank)
                         return aRank < bRank;
                     const bool aOld = superseded.contains(a.id);
@@ -688,10 +689,10 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             }
         }
         const bool unreadFirst = m_sortMode == conversation::SortByUnread;
-        const auto order = [&superseded, &spaceOrder, &unreadIds, unreadFirst](const QHash<QString, QDateTime> &stamps) {
-            return [&superseded, &spaceOrder, &unreadIds, unreadFirst, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
-                const int aRank = orderRankOf(a);
-                const int bRank = orderRankOf(b);
+        const auto order = [this, &superseded, &spaceOrder, &unreadIds, unreadFirst](const QHash<QString, QDateTime> &stamps) {
+            return [this, &superseded, &spaceOrder, &unreadIds, unreadFirst, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
+                const int aRank = sortRankOf(a);
+                const int bRank = sortRankOf(b);
                 if (aRank != bRank)
                     return aRank < bRank;
                 const bool aOld = superseded.contains(a.id);
@@ -1005,6 +1006,40 @@ int RoomListModel::orderRankOf(const RoomInfo &room)
     if (room.lowPriority)
         return 3;
     return 2;
+}
+
+bool RoomListModel::isCallRoom(const QString &roomId) const
+{
+    return !m_callRoomId.isEmpty() && roomId == m_callRoomId;
+}
+
+// The rank the list is sorted by: the room of the ongoing call leads every
+// other rank (it is its own "call" section), so activity elsewhere never moves
+// it. Everything else keeps orderRankOf().
+int RoomListModel::sortRankOf(const RoomInfo &room) const
+{
+    if (isCallRoom(room.id) && room.membership == RoomInfo::Joined)
+        return -1;
+    return orderRankOf(room);
+}
+
+void RoomListModel::setCallRoomId(const QString &roomId)
+{
+    if (roomId == m_callRoomId)
+        return;
+    const QString previous = m_callRoomId;
+    m_callRoomId = roomId;
+    reconcileRooms();
+    // The section header is derived from the id, so a row that did not move
+    // (already first) still needs its category re-read.
+    for (int i = 0; i < m_rooms.size(); ++i) {
+        const QString &id = m_rooms.at(i).id;
+        if (id == previous || id == roomId) {
+            const QModelIndex idx = index(i, 0);
+            Q_EMIT dataChanged(idx, idx, { CategoryRole });
+        }
+    }
+    Q_EMIT callRoomIdChanged();
 }
 
 QString RoomListModel::categoryOf(const RoomInfo &room)

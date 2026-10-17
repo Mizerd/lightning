@@ -174,6 +174,10 @@ public:
     // The open room, kept visible in Unreads mode. Set by AppController on room
     // switch.
     void setPinnedRoomId(const QString &roomId);
+    /// The room of the ongoing call: it leads the list, in its own "call"
+    /// section, however busy the others get (GitHub #44). "" when no call.
+    void setCallRoomId(const QString &roomId);
+    QString callRoomId() const { return m_callRoomId; }
 
     bool deferReordering() const { return m_hold.enabled(); }
     void setDeferReordering(bool defer);
@@ -201,6 +205,9 @@ public:
     // The one classification: the section string and the sort read the same
     // function, so a category is never split across two runs.
     static int orderRankOf(const RoomInfo &room);
+    /// orderRankOf(), except the ongoing call's room is -1 (first of all).
+    int sortRankOf(const RoomInfo &room) const;
+    bool isCallRoom(const QString &roomId) const;
     static QString categoryOf(const RoomInfo &room);
 
     void resetRooms(const QList<RoomInfo> &rooms);
@@ -262,6 +269,8 @@ private:
     QString m_pendingSearchQuery;
     int m_filterMode = 0;
     QString m_pinnedRoomId;
+    /// The room of the ongoing call (either lane), "" when none.
+    QString m_callRoomId;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
@@ -296,4 +305,5 @@ Q_SIGNALS:
     void deferReorderingChanged();
     void orderHeldChanged();
     void sortModeChanged();
+    void callRoomIdChanged();
 };

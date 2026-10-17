@@ -632,6 +632,7 @@ void SfuCallController::setSettings(SettingsManager *settings)
     m_settings = settings;
     if (!m_settings)
         return;
+    restoreStoredShareAudioChoice();
     // Volumes may change from other surfaces; keep the engine in sync.
     connect(m_settings, &SettingsManager::callParticipantVolumeChanged, this,
             [this](const QString &, int) { applyStoredVolumes(); });
@@ -644,6 +645,39 @@ void SfuCallController::setSettings(SettingsManager *settings)
     // Noise suppression switches live, through the same path.
     connect(m_settings, &SettingsManager::noiseSuppressionModeChanged, this,
             [this] { applyAudioState(); });
+}
+
+void SfuCallController::restoreStoredShareAudioChoice()
+{
+    if (!m_settings)
+        return;
+    // The user's own choice from a previous run (GitHub #43). Written straight
+    // to the members: this is the starting state, not a change, and must not
+    // be persisted again or disturb a running share.
+    const int mode = m_settings->callShareAudioMode();
+    const QStringList apps = m_settings->callShareAudioApps();
+    // Keep Applications even with no selection or no per-app capture here.
+    // Either means no sound, never permission to capture the whole system.
+    if (m_screenSharing)
+        return;
+    m_shareAudioMode = mode;
+    m_shareAudioLastOnMode = mode != 0 ? mode : 1;
+    m_shareAudioApps = mode == 2 ? apps : QStringList();
+    Q_EMIT mediaStateChanged();
+    Q_EMIT shareAudioStatusChanged();
+    rebuildShareAudioApplications();
+}
+
+void SfuCallController::persistShareAudioChoice()
+{
+    if (!m_settings)
+        return;
+    m_settings->setCallShareAudioMode(m_shareAudioMode);
+    // The applications only belong to the preference while it is "only chosen
+    // apps"; a window preselected for one share must not be kept under
+    // another mode.
+    if (m_shareAudioMode == 2)
+        m_settings->setCallShareAudioApps(m_shareAudioApps);
 }
 
 void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
@@ -4943,6 +4977,8 @@ void SfuCallController::publishShareAudioTrack()
         return;
     if (m_shareAudioMode == 0 || !SfuMediaEngine::shareAudioAvailable())
         return;
+    if (m_shareAudioMode == 2 && !shareAudioCanChooseApps())
+        return;
     lightning::shareaudio::Selection selection;
     selection.mode = lightning::shareaudio::modeFromInt(m_shareAudioMode);
     selection.keys = m_shareAudioApps;
@@ -4989,6 +5025,7 @@ void SfuCallController::applyShareAudioToRunningShare()
     selection.mode = lightning::shareaudio::modeFromInt(m_shareAudioMode);
     selection.keys = m_shareAudioApps;
     if (!selection.capturesAnything()
+        || (m_shareAudioMode == 2 && !shareAudioCanChooseApps())
         || !SfuMediaEngine::shareAudioAvailable()) {
         if (!m_shareAudioCid.isEmpty()) {
             qCInfo(lcSfuCall) << "screen share audio withdrawn mid-share";
@@ -5098,6 +5135,7 @@ void SfuCallController::setShareAudioMode(int mode)
     // own: ending the share must not put the earlier one back (a "No sound"
     // picked mid-share would otherwise become "Entire system" again).
     m_shareAudioRestorePending = false;
+    persistShareAudioChoice();
     applyShareAudioToRunningShare();
     updateShareAudioAppsPolling();
     Q_EMIT mediaStateChanged();
@@ -5128,6 +5166,7 @@ void SfuCallController::setShareAudioAppChosen(const QString &key,
     }
     // The user's own choice; see setShareAudioMode().
     m_shareAudioRestorePending = false;
+    persistShareAudioChoice();
     applyShareAudioToRunningShare();
     updateShareAudioAppsPolling();
     Q_EMIT mediaStateChanged();
@@ -5151,8 +5190,6 @@ void SfuCallController::restoreShareAudioChoice(int mode,
 {
     if (mode != 0 && mode != 1 && mode != 2)
         mode = 0;
-    if (mode == 2 && !shareAudioCanChooseApps())
-        mode = 1;
     QStringList normalised;
     for (const QString &key : keys) {
         const QString k = key.trimmed().toLower();

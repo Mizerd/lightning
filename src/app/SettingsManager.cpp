@@ -1802,6 +1802,49 @@ void SettingsManager::setNoiseSuppressionMode(const QString &mode)
     Q_EMIT noiseSuppressionModeChanged();
 }
 
+int SettingsManager::callShareAudioMode() const
+{
+    bool ok = false;
+    const int stored =
+        m_store->value(QStringLiteral("calls/shareAudioMode"), 1).toInt(&ok);
+    // A fallback, never a clamp (2 is not "the nearest" of 7).
+    return (ok && stored >= 0 && stored <= 2) ? stored : 1;
+}
+
+void SettingsManager::setCallShareAudioMode(int mode)
+{
+    if (mode < 0 || mode > 2)
+        return;
+    if (callShareAudioMode() == mode)
+        return;
+    m_store->setValue(QStringLiteral("calls/shareAudioMode"), mode);
+}
+
+QStringList SettingsManager::callShareAudioApps() const
+{
+    QStringList out;
+    for (const QString &key :
+         m_store->value(QStringLiteral("calls/shareAudioApps")).toStringList()) {
+        const QString k = key.trimmed().toLower();
+        if (!k.isEmpty() && !out.contains(k))
+            out.append(k);
+    }
+    return out;
+}
+
+void SettingsManager::setCallShareAudioApps(const QStringList &keys)
+{
+    QStringList clean;
+    for (const QString &key : keys) {
+        const QString k = key.trimmed().toLower();
+        if (!k.isEmpty() && !clean.contains(k))
+            clean.append(k);
+    }
+    if (callShareAudioApps() == clean)
+        return;
+    m_store->setValue(QStringLiteral("calls/shareAudioApps"), clean);
+}
+
 bool SettingsManager::strictDeviceTrust() const
 {
     return m_store->value(QStringLiteral("privacy/strictDeviceTrust"), false)
