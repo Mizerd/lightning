@@ -16,31 +16,21 @@
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
-## Planned (to do, not started)
+## Planned (2026-10-17) — BOTH BUILT for 0.10.2
 
-- **German translation (`de`).** Requested by Rokas, 2026-10-17. Add
-  `i18n/lightning_de.ts` to the catalogue set and the language picker,
-  translate it through the existing i18n tool with a native-quality pass
-  (German users are already testing), and add it to the `localization`
-  suite's language list.
+- **German translation (`de`).** Requested by Rokas, 2026-10-17. BUILT in
+  `759f211b`: the full catalogue, in the language picker and the
+  `localization` suite. A native speaker's review of the longer explanatory
+  strings is still welcome. Not live-checked in the app.
 
 - **"Playing X" game activity (Discord-style), opt-in.** Idea from Rokas,
-  2026-10-17. Show the game you are playing next to your name.
-  - Publish: the presence `status_msg` ("Playing Hades II"), so every
-    client shows it as text; the previous status comes back when the game
-    exits. Matrix has no merged rich-presence field yet, so nothing beyond
-    status text.
-  - Detect, Linux: the process list. A Steam game is found through its
-    launcher's app id; other games come from a small built-in list plus
-    user-added entries.
-  - Detect, Windows: the same process scan, plus a foreground-and-fullscreen
-    check (roughly what Discord's detectable-games list does).
-  - Limit: in the Flatpak and the Snap the sandbox cannot see host
-    processes, so detection there is weak or needs an extra permission.
-    The AppImage, .deb, .rpm and Windows builds work fully.
-  - Privacy: off by default; a per-game hide list; only the game's name is
-    ever sent, never the process list; shown only while online.
-  - After 0.10.2.
+  2026-10-17. BUILT in `d46520b3` as a Labs feature, off by default: while a
+  game runs its name replaces the presence `status_msg`, and the user's own
+  status returns when it stops. Detection reads the process table and knows
+  Steam libraries, a built-in list and user-added entries, and on Windows
+  prefers the foreground full-screen game; a per-game hide list; only the
+  name is ever sent. Flatpak and Snap cannot see host processes, and macOS
+  has no detection in this build. NOT live-tested.
 
 ## Next: identified gaps (2026-09-03) — ALL FOUR BUILT the same day
 
