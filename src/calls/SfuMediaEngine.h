@@ -47,6 +47,7 @@
 #include "calls/WebrtcRetirer.h"
 
 typedef struct _GstElement GstElement;
+typedef struct _GstObject GstObject;
 typedef struct _GstStructure GstStructure;
 typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
@@ -132,7 +133,24 @@ public:
     ///
     /// `jpegdec`, not `decodebin`: decodebin's pads appear only once data
     /// flows, so linking fails ("Delayed linking failed").
-    static QString cameraJpegEntry();
+    static QString cameraJpegEntry(const GstCaps *sourceCaps = nullptr);
+    /// Preferred source ceiling when the advertised modes include a fit.
+    static constexpr int kCameraSourceMaxWidth = 1920;
+    static constexpr int kCameraSourceMaxHeight = 1080;
+    /// The raw counterpart of cameraJpegEntry() for a device with no MJPG.
+    static QString directCameraRawEntry(const GstCaps *sourceCaps = nullptr);
+    /// Prefer rates reaching 30 fps, then bounded capture and JPEG. Retain
+    /// compatible sizes in preference order. Caller owns the returned caps;
+    /// nullptr means the formats are unknown.
+    static GstCaps *preferredCameraCaps(const GstCaps *advertised,
+                                         bool jpegAvailable);
+    static QString cameraIoMode(quint32 capabilities);
+    static bool isDirectCameraSource(GstObject *source);
+    /// The category a publish that errored before its first buffer is
+    /// reported as: `camera_busy` for a direct V4L2 source's resource error on a
+    /// camera, else `camera_failed` (`screen_share_failed` for a share).
+    static QString cameraPublishErrorCategory(bool screenShare,
+                                              bool resourceError);
     /// Whether the GPU share path should be attempted (default yes;
     /// `LIGHTNING_SHARE_GPU=0` forces the CPU). Intent only; availability is
     /// checked separately so the log can tell them apart.
@@ -169,12 +187,12 @@ public:
     static bool jpegCameraChainAvailable();
     /// Whether caps a camera reported admit MJPG. Unknown (null, ANY or
     /// empty) counts as yes, which keeps the MJPG attempt.
-    static bool capsOfferJpeg(const GstCaps *caps);
-    /// Opens `capsrc` in `bin` (READY) and asks whether the device can
-    /// produce MJPG, then puts it back to NULL. Needed because v4l2src's
-    /// template lists image/jpeg for every camera, so a raw-only camera
-    /// parses behind the MJPG filter and only fails to negotiate.
-    static bool captureOffersJpeg(GstElement *bin);
+    static bool capsOfferJpeg(const GstCaps *caps,
+                              const GstCaps *selectedEntryCaps = nullptr);
+    /// Probe the bound source in READY, then close it. Returns an entry
+    /// selected from its advertised caps and the supported V4L2 I/O mode.
+    static QString captureCameraEntry(GstElement *bin, bool jpegAvailable,
+                                      QString *ioMode);
     static QString shareEncoderStage(int maxHeight, int fps,
                                      int bitrateCapKbps = 0);
     int shareMaxHeight() const { return m_shareMaxHeight; }
@@ -1141,7 +1159,10 @@ public Q_SLOTS:
     /// Reported only when the bin is still registered (so not a teardown),
     /// its capture delivered zero buffers (never prerolled), and it has not
     /// been reported yet.
-    void handlePublishError(const QString &cid);
+    ///
+    /// `resourceError`: the failing element was the direct V4L2 source and the
+    /// error was in GST_RESOURCE_ERROR (busy, open, allocation, settings).
+    void handlePublishError(const QString &cid, bool resourceError = false);
     /// The camera first-frame watchdog, armed by publishVideo(). Reports
     /// `camera_no_frames` once when the publish `cid` of this engine run is
     /// still registered, unreported, and its capture has delivered zero

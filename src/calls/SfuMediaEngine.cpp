@@ -7,6 +7,10 @@
 #include <memory>
 
 #include <unistd.h>
+#ifdef Q_OS_LINUX
+#include <linux/videodev2.h>
+#include <sys/ioctl.h>
+#endif
 
 #include "calls/CallFrameCryptor.h"
 #include "calls/CaptureClock.h"
@@ -1350,6 +1354,14 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                            << "code=" << (error ? error->code : 0)
                            << "reason=" << reason;
     }
+    // Read before the error is freed: a direct v4l2 source's RESOURCE error is a
+    // device that would not open or allocate, which the user is told as
+    // "may be in use by another app" (and which retries on the portal).
+    const bool captureResourceError =
+        type == GST_MESSAGE_ERROR && error
+        && error->domain == GST_RESOURCE_ERROR
+        && element.startsWith(QLatin1String("capsrc"))
+        && SfuMediaEngine::isDirectCameraSource(GST_MESSAGE_SRC(message));
     if (error)
         g_error_free(error);
     if (debug)
@@ -1412,10 +1424,11 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 if (up)
                     gst_object_unref(up);
             }
-            marshal(engine, [engine, publishCid, captureSource, front] {
+            marshal(engine, [engine, publishCid, captureSource, front,
+                             captureResourceError] {
                 if (captureSource)
                     engine->handleCaptureError(publishCid, front);
-                engine->handlePublishError(publishCid);
+                engine->handlePublishError(publishCid, captureResourceError);
             });
         }
     }
@@ -4251,50 +4264,205 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
                          "pixel-aspect-ratio=(fraction)1/1\"");
 }
 
-bool SfuMediaEngine::capsOfferJpeg(const GstCaps *caps)
+bool SfuMediaEngine::isDirectCameraSource(GstObject *source)
+{
+    if (!source || !GST_IS_ELEMENT(source))
+        return false;
+    GstElementFactory *factory = gst_element_get_factory(GST_ELEMENT(source));
+    return factory && QByteArray(gst_plugin_feature_get_name(
+                          GST_PLUGIN_FEATURE(factory))) == "v4l2src";
+}
+
+QString SfuMediaEngine::cameraIoMode(quint32 capabilities)
+{
+#ifdef Q_OS_LINUX
+    return capabilities & V4L2_CAP_STREAMING ? QStringLiteral("mmap")
+                                            : QStringLiteral("auto");
+#else
+    Q_UNUSED(capabilities);
+    return QStringLiteral("auto");
+#endif
+}
+
+bool SfuMediaEngine::capsOfferJpeg(const GstCaps *caps,
+                                  const GstCaps *selectedEntryCaps)
 {
     if (!caps || gst_caps_is_any(caps) || gst_caps_is_empty(caps))
         return true;
     GstCaps *jpeg = gst_caps_new_empty_simple("image/jpeg");
-    const bool offers = gst_caps_can_intersect(caps, jpeg);
+    GstCaps *compatible = selectedEntryCaps
+        ? gst_caps_intersect(jpeg, const_cast<GstCaps *>(selectedEntryCaps))
+        : gst_caps_ref(jpeg);
+    const bool offers = gst_caps_can_intersect(caps, compatible);
+    gst_caps_unref(compatible);
     gst_caps_unref(jpeg);
     return offers;
 }
 
-bool SfuMediaEngine::captureOffersJpeg(GstElement *bin)
+GstCaps *SfuMediaEngine::preferredCameraCaps(const GstCaps *advertised,
+                                           bool jpegAvailable)
+{
+    // Motion first: videorate can drop 60 fps to the published 30 fps, but
+    // duplicating 5 fps cannot restore motion. Among modes reaching 30 fps,
+    // prefer bounded capture, then JPEG (USB bandwidth), then area. If none
+    // reaches 30 fps, keep the advertised rates instead of requiring 30.
+    if (!advertised || gst_caps_is_any(advertised)
+        || gst_caps_is_empty(advertised))
+        return nullptr;
+    for (const bool reachesPublishRate : {true, false}) {
+        for (const bool bounded : {true, false}) {
+            for (const char *type : {"image/jpeg", "video/x-raw"}) {
+                if (!jpegAvailable && QByteArray(type) == "image/jpeg")
+                    continue;
+                GstCaps *filter = bounded
+                    ? gst_caps_new_simple(type, "width", GST_TYPE_INT_RANGE, 1,
+                                          kCameraSourceMaxWidth, "height",
+                                          GST_TYPE_INT_RANGE, 1,
+                                          kCameraSourceMaxHeight, nullptr)
+                    : gst_caps_new_empty_simple(type);
+                if (reachesPublishRate)
+                    gst_caps_set_simple(filter, "framerate", GST_TYPE_FRACTION_RANGE,
+                                        30, 1, G_MAXINT, 1, nullptr);
+                GstCaps *modes = gst_caps_intersect_full(
+                    const_cast<GstCaps *>(advertised), filter,
+                    GST_CAPS_INTERSECT_FIRST);
+                gst_caps_unref(filter);
+                struct Mode {
+                    GstCaps *caps;
+                    qint64 area;
+                    int rateNumerator = 0;
+                    int rateDenominator = 1;
+                };
+                QList<Mode> ordered;
+                for (guint i = 0; i < gst_caps_get_size(modes); ++i) {
+                    GstCaps *mode = gst_caps_copy_nth(modes, i);
+                    GstStructure *st = gst_caps_get_structure(mode, 0);
+                    gst_structure_fixate_field_nearest_int(
+                        st, "width", kCameraSourceMaxWidth);
+                    gst_structure_fixate_field_nearest_int(
+                        st, "height", kCameraSourceMaxHeight);
+                    int width = 0, height = 0;
+                    gst_structure_get_int(st, "width", &width);
+                    gst_structure_get_int(st, "height", &height);
+                    Mode candidate{mode, qint64(width) * height};
+                    GstStructure *rate = gst_structure_copy(st);
+                    gst_structure_fixate_field_nearest_fraction(rate, "framerate", 30, 1);
+                    gst_structure_get_fraction(rate, "framerate",
+                                               &candidate.rateNumerator,
+                                               &candidate.rateDenominator);
+                    gst_structure_free(rate);
+                    if (!reachesPublishRate)
+                        gst_structure_fixate_field_nearest_fraction(
+                            st, "framerate", 30, 1);
+                    ordered.append(candidate);
+                }
+                gst_caps_unref(modes);
+                std::stable_sort(ordered.begin(), ordered.end(),
+                    [bounded, reachesPublishRate](const Mode &a, const Mode &b) {
+                        if (!reachesPublishRate) {
+                            const int rateOrder = gst_util_fraction_compare(
+                                a.rateNumerator, a.rateDenominator,
+                                b.rateNumerator, b.rateDenominator);
+                            if (rateOrder != 0)
+                                return rateOrder > 0;
+                        }
+                        return bounded ? a.area > b.area : a.area < b.area;
+                    });
+                // Keep alternatives in preference order. Pinning just one size
+                // can discard a usable rate during downstream negotiation.
+                if (!ordered.isEmpty()) {
+                    GstCaps *preferred = gst_caps_new_empty();
+                    for (const Mode &mode : ordered)
+                        gst_caps_append(preferred, mode.caps);
+                    return preferred;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+QString SfuMediaEngine::cameraJpegEntry(const GstCaps *sourceCaps)
+{
+    gchar *text = sourceCaps ? gst_caps_to_string(sourceCaps) : nullptr;
+    QString caps = text ? QString::fromUtf8(text) : QStringLiteral("image/jpeg");
+    g_free(text);
+    caps.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    caps.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QStringLiteral(
+        "capsfilter caps=\"%1\" ! jpegdec ! videoconvert "
+        "! capsfilter caps=\"video/x-raw,pixel-aspect-ratio=(fraction)1/1\"")
+        .arg(caps);
+}
+
+QString SfuMediaEngine::directCameraRawEntry(const GstCaps *sourceCaps)
+{
+    if (!sourceCaps)
+        return captureEntryFilter(false);
+    gchar *text = gst_caps_to_string(sourceCaps);
+    QString caps = QString::fromUtf8(text);
+    g_free(text);
+    caps.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    caps.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QStringLiteral("capsfilter caps=\"%1\" ! %2")
+        .arg(caps, captureEntryFilter(false));
+}
+
+QString SfuMediaEngine::captureCameraEntry(GstElement *bin, bool jpegAvailable,
+                                          QString *ioMode)
 {
     GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
-    if (!source)
-        return true;
-    // READY opens the device (v4l2src enumerates its formats there); nothing
-    // streams, so no frame is captured.
-    bool offers = true;
-    if (gst_element_set_state(source, GST_STATE_READY)
-        != GST_STATE_CHANGE_FAILURE) {
+    GstCaps *selected = nullptr;
+    if (source && gst_element_set_state(source, GST_STATE_READY)
+                      != GST_STATE_CHANGE_FAILURE) {
         if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
             GstCaps *caps = gst_pad_query_caps(pad, nullptr);
-            offers = capsOfferJpeg(caps);
+            selected = preferredCameraCaps(caps, jpegAvailable);
+            // Check the COMPLETE chosen entry, not unrestricted image/jpeg.
+            if (selected && capsOfferJpeg(selected)
+                && !capsOfferJpeg(caps, selected)) {
+                gst_caps_unref(selected);
+                selected = preferredCameraCaps(caps, false);
+            }
             if (caps)
                 gst_caps_unref(caps);
             gst_object_unref(pad);
         }
+#ifdef Q_OS_LINUX
+        if (isDirectCameraSource(GST_OBJECT(source))
+            && g_object_class_find_property(G_OBJECT_GET_CLASS(source),
+                                             "device-fd")) {
+            int fd = -1;
+            g_object_get(source, "device-fd", &fd, nullptr);
+            v4l2_capability capability{};
+            if (fd >= 0 && ::ioctl(fd, VIDIOC_QUERYCAP, &capability) == 0) {
+                const quint32 caps = capability.capabilities & V4L2_CAP_DEVICE_CAPS
+                    ? capability.device_caps : capability.capabilities;
+                *ioMode = cameraIoMode(caps);
+            }
+        }
+#endif
     }
-    gst_element_set_state(source, GST_STATE_NULL);
-    gst_object_unref(source);
-    return offers;
+    if (source) {
+        gst_element_set_state(source, GST_STATE_NULL);
+        gst_object_unref(source);
+    }
+    const QString entry = selected
+        ? (capsOfferJpeg(selected) ? cameraJpegEntry(selected)
+                                   : directCameraRawEntry(selected))
+        : (jpegAvailable ? cameraJpegEntry() : directCameraRawEntry());
+    if (selected)
+        gst_caps_unref(selected);
+    return entry;
 }
 
-QString SfuMediaEngine::cameraJpegEntry()
+QString SfuMediaEngine::cameraPublishErrorCategory(bool screenShare,
+                                                   bool resourceError)
 {
-    // Decode MJPG, then apply the same PAR pin as the raw entry (an
-    // unfixated PAR overflows videoscale). videoconvert because jpegdec's
-    // output layout varies.
-    return QStringLiteral(
-        "capsfilter caps=\"image/jpeg\" "
-        "! jpegdec "
-        "! videoconvert "
-        "! capsfilter caps=\"video/x-raw,"
-        "pixel-aspect-ratio=(fraction)1/1\"");
+    if (screenShare)
+        return QStringLiteral("screen_share_failed");
+    return resourceError ? QStringLiteral("camera_busy")
+                         : QStringLiteral("camera_failed");
 }
 
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
@@ -4976,6 +5144,9 @@ QString SfuMediaEngine::cameraSource(int pipewireFd)
 #else
     // `v4l2src`, not `autovideosrc`: on a PipeWire desktop autodetect picks
     // pipewiresrc by rank, with no target, and the camera never delivers.
+    //
+    // Probe the bound device in READY before preferring MMAP. Auto retains
+    // read/write-only devices and drivers whose capabilities cannot be read.
     return QStringLiteral("v4l2src");
 #endif
 }
@@ -5062,7 +5233,10 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             bool listed = false;
             const auto candidates = monitorCandidates("Video/Source", &listed);
             cameraBinding = lightning::calls::resolveDeviceBinding(
-                lightning::calls::CaptureKind::Camera, source, camera.id,
+                // The element NAME: `source` carries pinned properties
+                // the profile lookup cannot match.
+                lightning::calls::CaptureKind::Camera,
+                source.section(QLatin1Char(' '), 0, 0), camera.id,
                 camera.description, candidates);
             if (cameraBinding.refused) {
                 qCWarning(lcSfuMedia)
@@ -5145,6 +5319,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
     QString entryInUse = tryJpeg      ? cameraJpegEntry()
                          : portalCamera ? portalCameraEntry()
+                         : !screenShare ? directCameraRawEntry()
                                         : captureEntryFilter(useGpu);
     if (!screenShare) {
         // Log which chain the camera is on; the negotiated caps line alone
@@ -5177,7 +5352,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             gst_object_unref(bin);
             bin = nullptr;
         }
-        entryInUse = captureEntryFilter(useGpu);
+        entryInUse = screenShare ? captureEntryFilter(useGpu)
+                                 : directCameraRawEntry();
         description = videoPipelineDescription(
             source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
@@ -5235,22 +5411,23 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             Qt::QueuedConnection);
         return;
     }
-    // The MJPG description parses for every v4l2 camera (the template lists
-    // image/jpeg), so a raw-only one would only fail to negotiate. Ask the
-    // opened device, after the binding so it is the chosen one. Linux only:
-    // on Windows the probe would open ksvideosrc once more before every
-    // publish, and nothing has run that on a Windows camera yet.
+    // Select advertised modes only after binding the chosen device. READY
+    // enumerates caps without streaming. Windows/macOS retain their existing
+    // unrestricted entries: an extra device open has not been validated there.
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     constexpr bool kProbeCameraFormats = false;
 #else
     constexpr bool kProbeCameraFormats = true;
 #endif
-    if (kProbeCameraFormats && tryJpeg && entryInUse == cameraJpegEntry()
-        && !captureOffersJpeg(bin)) {
-        qCInfo(lcSfuMedia)
-            << "camera chain= raw (the device offers no MJPG)";
+    QString ioMode = QStringLiteral("auto");
+    const QString selectedEntry = kProbeCameraFormats && !screenShare && !portalCamera
+        ? captureCameraEntry(bin, tryJpeg && entryInUse == cameraJpegEntry(), &ioMode)
+        : entryInUse;
+    if (selectedEntry != entryInUse || ioMode != QLatin1String("auto")) {
         gst_object_unref(bin);
-        entryInUse = captureEntryFilter(useGpu);
+        entryInUse = selectedEntry;
+        if (source.section(QLatin1Char(' '), 0, 0) == QLatin1String("v4l2src"))
+            source += QStringLiteral(" io-mode=%1").arg(ioMode);
         description = videoPipelineDescription(
             source, cameraRateStage(portalCamera), limits, encoder, selfView,
             nextPublishSsrc(), scaleStageInUse, entryInUse);
@@ -8147,7 +8324,8 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
                            sourceRestartFree);
 }
 
-void SfuMediaEngine::handlePublishError(const QString &cid)
+void SfuMediaEngine::handlePublishError(const QString &cid,
+                                        bool resourceError)
 {
     // Runs on the GUI thread, where the state is safe to read.
     if (!m_active)
@@ -8169,9 +8347,8 @@ void SfuMediaEngine::handlePublishError(const QString &cid)
     qCWarning(lcSfuMedia)
         << "publish produced no capture buffers and errored; reporting it"
         << "screenShare=" << screenShare;
-    Q_EMIT publishFailed(cid, screenShare
-                                  ? QStringLiteral("screen_share_failed")
-                                  : QStringLiteral("camera_failed"));
+    Q_EMIT publishFailed(cid,
+                         cameraPublishErrorCategory(screenShare, resourceError));
 }
 
 void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,

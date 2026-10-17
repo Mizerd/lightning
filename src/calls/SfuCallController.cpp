@@ -796,7 +796,8 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
                 if (m_cameraAwaitingPortal && active()
                     && cameraFailureStep(category, /*viaPortal=*/true,
                                          cameraDeviceNodeVisible(),
-                                         m_cameraFellBack)
+                                         m_cameraFellBack
+                                             || m_cameraFellBackToPortal)
                         == CameraFailureStep::OpenDeviceNode) {
                     m_cameraAwaitingPortal = false;
                     fallBackToDeviceCamera(category);
@@ -812,8 +813,13 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
 }
 
 SfuCallController::LinuxCameraRoute SfuCallController::linuxCameraRoute(
-    bool sandboxed, bool portalUsable, bool directDeviceVisible)
+    bool sandboxed, bool portalUsable, bool directDeviceVisible,
+    bool cameraChosen)
 {
+    // A chosen host device can only be bound directly. This includes a
+    // missing choice: let the engine refuse it, never substitute a portal camera.
+    if (cameraChosen)
+        return LinuxCameraRoute::Direct;
     // 1. A sandbox with a visible device node AND no usable portal camera:
     //    the user granted device access themselves (Flatseal's "Webcam",
     //    `flatpak override --device=all`, a connected snap camera interface)
@@ -830,14 +836,30 @@ SfuCallController::LinuxCameraRoute SfuCallController::linuxCameraRoute(
     //    actionable).
     if (sandboxed)
         return LinuxCameraRoute::Portal;
-    // 3. A visible device node: the direct path, as on any normal desktop.
+    // 3. A usable portal camera and no camera chosen: PipeWire shares the
+    //    device with whatever else has it open, which `v4l2src` cannot
+    //    (REQBUFS fails while another process streams; reported 2026-10-17,
+    //    MX Brio held by Element Desktop). A chosen camera is a host device
+    //    id the portal route cannot bind, so it keeps the direct path.
+    if (portalUsable && !cameraChosen)
+        return LinuxCameraRoute::Portal;
+    // 4. A visible device node: the direct path.
     if (directDeviceVisible)
         return LinuxCameraRoute::Direct;
-    // 4. Nothing to open directly, but the portal has a camera.
+    // 5. Nothing to open directly, but the portal has a camera.
     if (portalUsable)
         return LinuxCameraRoute::Portal;
-    // 5. Direct, including its honest failure.
+    // 6. Direct, including its honest failure.
     return LinuxCameraRoute::Direct;
+}
+
+bool SfuCallController::directCameraFallsBackToPortal(const QString &category,
+                                                      bool viaPortal,
+                                                      bool portalWired,
+                                                      bool alreadyFellBack)
+{
+    return !viaPortal && portalWired && !alreadyFellBack
+        && category == QLatin1String("camera_busy");
 }
 
 SfuCallController::CameraFailureStep SfuCallController::cameraFailureStep(
@@ -986,6 +1008,37 @@ void SfuCallController::fallBackToDeviceCamera(const QString &category)
     m_cameraViaPortal = false;
     publishCameraTrack(/*pipewireFd=*/-1);
     Q_EMIT mediaStateChanged();
+}
+
+void SfuCallController::fallBackToPortalCamera(const QString &category)
+{
+    m_cameraFellBackToPortal = true;
+    qCWarning(lcSfuCall) << "camera device could not be opened; trying the "
+                            "camera portal, which shares the device "
+                            "category=" << category;
+    // The failed direct track is already unpublished by the caller. Tell the
+    // SFU before the replacement is declared, as the device fallback does.
+    m_cameraOn = false;
+    applyVideoState();
+    m_cameraOn = true;
+    m_cameraViaPortal = true;
+    m_cameraPortalReportedCamera = cameraPortalUsable();
+    m_cameraAwaitingPortal = true;
+    Q_EMIT mediaStateChanged();
+    requestCameraAccess();
+}
+
+bool SfuCallController::cameraChosen() const
+{
+    if (m_cameraChosenForTest >= 0)
+        return m_cameraChosenForTest == 1;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull()) {
+        const SfuMediaEngine::DeviceChoice choice = m_engine->cameraChoice();
+        return !choice.id.isEmpty() || choice.preferredMissing;
+    }
+#endif
+    return false;
 }
 
 SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
@@ -1744,6 +1797,12 @@ QString SfuCallController::userFacingError(const QString &category) const
     }
     if (category == QLatin1String("camera_failed"))
         return tr("Your camera isn't available.");
+    // The capture element's resource error: the device exists but would not
+    // open or allocate, which is what another app streaming from it looks
+    // like. Said as a cause the user can act on.
+    if (category == QLatin1String("camera_busy"))
+        return tr("Lightning couldn't open the camera. It may be in use by "
+                  "another app.");
     // Opened and never sent a frame: a virtual camera with nothing feeding
     // it, or a device node that is not a capture device.
     if (category == QLatin1String("camera_no_frames"))
@@ -1936,6 +1995,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_cameraOn = withVideo;
     // A new call tries the preferred camera route again.
     m_cameraFellBack = false;
+    m_cameraFellBackToPortal = false;
     m_screenSharing = false;
     m_handRaised = false;
     m_handReactionId.clear();
@@ -3170,11 +3230,23 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
         clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
 #endif
         // A portal camera that gave nothing gets one retry on the device
-        // node the user granted; see cameraFailureStep().
+        // node the user granted; see cameraFailureStep(). Either hop is one
+        // per press, so the two together are bounded at two attempts.
+        const bool hopped = m_cameraFellBack || m_cameraFellBackToPortal;
         if (cameraFailureStep(category, viaPortal, cameraDeviceNodeVisible(),
-                              m_cameraFellBack)
+                              hopped)
             == CameraFailureStep::OpenDeviceNode) {
             fallBackToDeviceCamera(category);
+            return;
+        }
+        // A device node held by another app: the portal shares it.
+        // Never for a camera the user CHOSE: the portal cannot honour the
+        // choice and would open another camera in its place.
+        if (!cameraChosen()
+            && directCameraFallsBackToPortal(category, viaPortal,
+                                             !m_cameraPortal.isNull(),
+                                             hopped)) {
+            fallBackToPortalCamera(category);
             return;
         }
         noticeCategory = cameraNoticeCategory(category, viaPortal,
@@ -4561,6 +4633,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_cameraOn = false;
     // Per call: the next call must not skip the portal on this one's account.
     m_cameraFellBack = false;
+    m_cameraFellBackToPortal = false;
     m_screenSharing = false;
     shareAudioShareEnded();
     m_handRaised = false;
@@ -4738,7 +4811,7 @@ void SfuCallController::startCameraCapture()
     const bool portalWired = !m_cameraPortal.isNull();
     const bool portalUsable = cameraPortalUsable();
     LinuxCameraRoute route =
-        linuxCameraRoute(sandboxed, portalUsable, deviceNode);
+        linuxCameraRoute(sandboxed, portalUsable, deviceNode, cameraChosen());
     // The portal already gave this camera nothing (see
     // fallBackToDeviceCamera()): a rejoin goes straight to the device node
     // rather than making the user wait for the same silence again.
@@ -4746,6 +4819,13 @@ void SfuCallController::startCameraCapture()
         qCInfo(lcSfuCall) << "camera portal gave no picture earlier in this "
                              "call; using the device node";
         route = LinuxCameraRoute::Direct;
+    }
+    // ...and the reverse: the device node was busy earlier in this call.
+    if (route == LinuxCameraRoute::Direct && m_cameraFellBackToPortal
+        && portalWired && !cameraChosen()) {
+        qCInfo(lcSfuCall) << "camera device node was busy earlier in this "
+                             "call; using the portal";
+        route = LinuxCameraRoute::Portal;
     }
     // The portal route needs a wired portal object, or a sandboxed build would
     // wait forever on a signal nothing can emit.
@@ -4870,6 +4950,7 @@ void SfuCallController::setCameraOn(bool on)
     if (on) {
         // A fresh press tries the preferred route again.
         m_cameraFellBack = false;
+        m_cameraFellBackToPortal = false;
         // May publish now (direct) or after a portal dialog; `m_cameraOn` is
         // already true so the control responds immediately.
         startCameraCapture();

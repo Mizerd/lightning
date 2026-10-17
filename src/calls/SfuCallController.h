@@ -482,22 +482,41 @@ public:
 
     /// Choose the camera route. Pure, every input passed in. In order:
     ///
+    ///  A chosen host camera always stays direct, including a missing one.
+    ///  Otherwise:
     ///  1. Sandboxed with a visible device node and NO usable portal camera
     ///     (the user granted device access, e.g. Flatseal's Webcam toggle):
     ///     direct.
     ///  2. Otherwise sandboxed takes the portal, even if it looks unusable:
     ///     Flathub allows no device access, and a portal error is actionable.
     ///     A usable portal wins over visible nodes (MIPI/IPU6 laptops).
-    ///  3. A visible device node keeps the direct route.
-    ///  4. No device node and a usable portal: the portal.
-    ///  5. Otherwise direct, including its honest failure.
+    ///  3. Not sandboxed, a usable portal camera and NO camera chosen in
+    ///     Settings: the portal, as browsers and Element do on a PipeWire
+    ///     desktop. PipeWire shares the device, where `v4l2src` takes it
+    ///     exclusively and fails when another app (Element Desktop, a
+    ///     browser tab) already streams from it (2026-10-17 report). A
+    ///     CHOSEN camera names a host device the portal route cannot honour,
+    ///     so it stays direct.
+    ///  4. A visible device node keeps the direct route.
+    ///  5. No device node and a usable portal: the portal.
+    ///  6. Otherwise direct, including its honest failure.
     ///
     /// `portalUsable` folds `CameraPortal::available()` and
     /// `CameraPortal::cameraPresent()`: a permission dialog for a camera that
     /// does not exist is worse than the failure it replaces. Both are logged
     /// at the call site.
     static LinuxCameraRoute linuxCameraRoute(bool sandboxed, bool portalUsable,
-                                             bool directDeviceVisible);
+                                             bool directDeviceVisible,
+                                             bool cameraChosen = false);
+
+    /// A DIRECT camera that could not open its device (`camera_busy`: the
+    /// capture element's resource error, e.g. another app holds the camera)
+    /// retries ONCE through the camera portal, which shares the device. Never
+    /// from a portal camera, never twice, and only with a portal wired.
+    static bool directCameraFallsBackToPortal(const QString &category,
+                                              bool viaPortal,
+                                              bool portalWired,
+                                              bool alreadyFellBack);
 
     /// What a camera that failed should do next. Pure, every input passed in.
     enum class CameraFailureStep {
@@ -797,6 +816,7 @@ public:
         m_cameraViaPortal = viaPortal;
         m_cameraPortalReportedCamera = portalReportedCamera;
         m_cameraFellBack = false;
+        m_cameraFellBackToPortal = false;
         m_deviceNodeVisibleForTest = deviceNodeVisible ? 1 : 0;
     }
     /// Test-only: the camera is on and waiting for the portal's answer, as
@@ -829,6 +849,25 @@ public:
     int cameraPublishesForTest() const { return m_cameraPublishesForTest; }
     /// Test-only: the camera fell back from the portal to the device node.
     bool cameraFellBackForTest() const { return m_cameraFellBack; }
+    /// Test-only: the cid of the running camera track.
+    QString cameraCidForTest() const { return m_cameraCid; }
+    /// Test-only: the camera fell back from the device node to the portal.
+    bool cameraFellBackToPortalForTest() const
+    {
+        return m_cameraFellBackToPortal;
+    }
+    /// Test-only: replay the capture restart used by publishTracks() after
+    /// reconnect, retaining the fallback history.
+    void restartCameraCaptureForTest(bool deviceNodeVisible)
+    {
+        m_deviceNodeVisibleForTest = deviceNodeVisible ? 1 : 0;
+        startCameraCapture();
+    }
+    /// Test-only: whether a camera is chosen in Settings (-1: ask the engine).
+    void setCameraChosenForTest(bool chosen)
+    {
+        m_cameraChosenForTest = chosen ? 1 : 0;
+    }
     /// Test-only: the route the running (or pending) camera uses.
     bool cameraViaPortalForTest() const { return m_cameraViaPortal; }
     /// Shorten the reconnect timing (the first backoff, which doubles to 8x;
@@ -1209,6 +1248,10 @@ private:
     bool cameraPortalUsable() const;
     /// Ask the wired portal for the camera (or the test stand-in).
     void requestCameraAccess();
+    /// Whether the user chose a specific camera in Settings.
+    bool cameraChosen() const;
+    /// A direct camera that could not open: retry through the portal.
+    void fallBackToPortalCamera(const QString &category);
     /// The portal camera produced nothing and the device node is reachable:
     /// retire the portal track and publish the camera directly. See
     /// cameraFailureStep().
@@ -1240,6 +1283,11 @@ private:
     /// The camera already fell back from the portal to the device node since
     /// it was turned on; one retry, never a loop.
     bool m_cameraFellBack = false;
+    /// The reverse hop: a direct camera that could not open fell back to the
+    /// portal once. Cleared wherever m_cameraFellBack is.
+    bool m_cameraFellBackToPortal = false;
+    /// setCameraChosenForTest(): -1 asks the engine.
+    int m_cameraChosenForTest = -1;
     /// -1: scan /dev; 0/1: setCameraRouteForTest()'s answer.
     int m_deviceNodeVisibleForTest = -1;
     /// setCameraPathForTest(): -1 asks the environment / the bus.

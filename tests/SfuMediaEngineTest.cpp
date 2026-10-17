@@ -38,6 +38,9 @@
 #include <fcntl.h>
 #include <memory>
 #include <unistd.h>
+#ifdef Q_OS_LINUX
+#include <linux/videodev2.h>
+#endif
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -2166,7 +2169,7 @@ private slots:
         QVERIFY2(screen.contains(QStringLiteral("device-index=")),
                  "the macOS screen source takes a display index");
 #else
-        QCOMPARE(camera, QStringLiteral("v4l2src"));
+        QVERIFY(camera.startsWith(QStringLiteral("v4l2src")));
         QVERIFY(screen.startsWith(QStringLiteral("pipewiresrc")));
 #endif
         // Never a Linux element off Linux, nor a Windows one on Linux.
@@ -2254,7 +2257,7 @@ private slots:
         // No portal on these platforms: an fd must change nothing.
         QCOMPARE(portal, direct);
 #else
-        QCOMPARE(direct, QStringLiteral("v4l2src"));
+        QVERIFY(direct.startsWith(QStringLiteral("v4l2src")));
         QVERIFY2(portal.startsWith(QStringLiteral("pipewiresrc")),
                  qPrintable(QStringLiteral("not a PipeWire capture: %1")
                                 .arg(portal)));
@@ -7452,6 +7455,352 @@ private slots:
         QCOMPARE(state, GST_STATE_PLAYING);
     }
 
+    void cameraModesPreferAnAdvertisedBoundedSize()
+    {
+        for (const char *type : {"video/x-raw", "image/jpeg"}) {
+            const QByteArray advertised = QByteArray(type)
+                + ",width=3840,height=2160,framerate=60/1;" + type
+                + ",width=1280,height=720,framerate=60/1;" + type
+                + ",width=1920,height=1080,framerate=60/1";
+            GstCaps *caps = gst_caps_from_string(advertised.constData());
+            GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(caps, true);
+            QVERIFY(chosen);
+            int width = 0, height = 0;
+            gst_structure_get_int(gst_caps_get_structure(chosen, 0), "width", &width);
+            gst_structure_get_int(gst_caps_get_structure(chosen, 0), "height", &height);
+            QCOMPARE(width, 1920);
+            QCOMPARE(height, 1080);
+            QVERIFY(gst_caps_is_subset(chosen, caps));
+            gst_caps_unref(chosen);
+            gst_caps_unref(caps);
+        }
+        GstCaps *mixed = gst_caps_from_string(
+            "image/jpeg,width=3840,height=2160;"
+            "video/x-raw,width=1280,height=720");
+        GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(mixed, true);
+        QVERIFY(chosen);
+        QVERIFY(!SfuMediaEngine::capsOfferJpeg(chosen));
+        GstCaps *jpeg1080 = gst_caps_from_string(
+            "image/jpeg,width=1920,height=1080");
+        QVERIFY(SfuMediaEngine::capsOfferJpeg(mixed));
+        QVERIFY(!SfuMediaEngine::capsOfferJpeg(mixed, jpeg1080));
+        gst_caps_unref(jpeg1080);
+        gst_caps_unref(chosen);
+        gst_caps_unref(mixed);
+    }
+
+    void cameraModesPreferPublishRate_data()
+    {
+        QTest::addColumn<QString>("modes");
+        QTest::addColumn<QString>("preferred");
+        QTest::addColumn<int>("alternatives");
+        QTest::addColumn<bool>("reachesPublishRate");
+        const auto add = [](const char *name, const char *modes,
+                            const char *preferred, int alternatives, bool reaches) {
+            QTest::newRow(name) << QString::fromLatin1(modes)
+                               << QString::fromLatin1(preferred)
+                               << alternatives << reaches;
+        };
+        add("mixed-5-and-30",
+            "width=1920,height=1080,framerate=5/1;"
+               "width=1280,height=720,framerate=30/1",
+            "width=1280,height=720,framerate=30/1", 1, true);
+        add("mixed-5-and-60",
+            "width=1920,height=1080,framerate=5/1;"
+               "width=1280,height=720,framerate=60/1",
+            "width=1280,height=720,framerate=60/1", 1, true);
+        add("area-breaks-rate-tie-and-keeps-alternative",
+            "width=1280,height=720,framerate=60/1;"
+               "width=1920,height=1080,framerate=30/1",
+            "width=1920,height=1080,framerate=30/1", 2, true);
+        add("fraction-list-excludes-slow-rate",
+            "width=1920,height=1080,framerate=(fraction){5/1,30/1};"
+               "width=1280,height=720,framerate=60/1",
+            "width=1920,height=1080,framerate=30/1", 2, true);
+        add("fraction-range-excludes-slow-rates",
+            "width=1920,height=1080,framerate=(fraction)[5/1,60/1];"
+               "width=1280,height=720,framerate=30/1",
+            "width=1920,height=1080,framerate=30/1", 2, true);
+        add("slow-only-prefers-motion",
+            "width=1920,height=1080,framerate=5/1;"
+               "width=1280,height=720,framerate=(fraction)[5/1,25/1]",
+            "width=1280,height=720,framerate=25/1", 2, false);
+        add("above-1080p-only",
+            "width=3840,height=2160,framerate=5/1;"
+               "width=2560,height=1440,framerate=30/1",
+            "width=2560,height=1440,framerate=30/1", 1, true);
+        add("60-only",
+            "width=1920,height=1080,framerate=60/1",
+            "width=1920,height=1080,framerate=60/1", 1, true);
+    }
+    void cameraModesPreferPublishRate()
+    {
+        QFETCH(QString, modes);
+        QFETCH(QString, preferred);
+        QFETCH(int, alternatives);
+        QFETCH(bool, reachesPublishRate);
+        for (const QString &type : {QStringLiteral("video/x-raw"),
+                                    QStringLiteral("image/jpeg")}) {
+            QString advertised = type + QLatin1Char(',') + modes;
+            advertised.replace(QLatin1Char(';'), QLatin1Char(';') + type + QLatin1Char(','));
+            GstCaps *caps = gst_caps_from_string(advertised.toUtf8().constData());
+            QVERIFY(caps);
+            GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(caps, true);
+            QVERIFY(chosen);
+            QCOMPARE(gst_caps_get_size(chosen), guint(alternatives));
+            QVERIFY(gst_caps_is_subset(chosen, caps));
+            GstCaps *first = gst_caps_copy_nth(chosen, 0);
+            GstCaps *expected = gst_caps_from_string(
+                (type + QLatin1Char(',') + preferred).toUtf8().constData());
+            QVERIFY(gst_caps_is_subset(expected, first));
+            if (reachesPublishRate) {
+                GstCaps *slow = gst_caps_from_string(
+                    (type + QStringLiteral(",framerate=(fraction)[0/1,29999/1000]"))
+                        .toUtf8().constData());
+                QVERIFY(!gst_caps_can_intersect(chosen, slow));
+                gst_caps_unref(slow);
+            }
+            gst_caps_unref(expected);
+            gst_caps_unref(first);
+            gst_caps_unref(chosen);
+            gst_caps_unref(caps);
+        }
+    }
+
+    void cameraMotionWinsOverFormatAndBounds()
+    {
+        for (const char *advertised : {
+                 "image/jpeg,width=1920,height=1080,framerate=5/1;"
+                 "video/x-raw,width=1280,height=720,framerate=30/1",
+                 "image/jpeg,width=1280,height=720,framerate=5/1;"
+                 "video/x-raw,width=3840,height=2160,framerate=60/1"}) {
+            GstCaps *caps = gst_caps_from_string(advertised);
+            GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(caps, true);
+            QVERIFY(chosen);
+            QVERIFY(gst_caps_is_subset(chosen, caps));
+            QVERIFY(!SfuMediaEngine::capsOfferJpeg(chosen));
+            gst_caps_unref(chosen);
+            gst_caps_unref(caps);
+        }
+    }
+
+    // Exercise actual fixed-mode negotiation through the production entry
+    // and composition. The former ceiling fails raw linking and JPEG playback.
+    void fixedCameraModesNegotiateAndScale_data()
+    {
+        QTest::addColumn<bool>("jpeg");
+        QTest::addColumn<int>("width");
+        QTest::addColumn<int>("height");
+        QTest::addColumn<bool>("probeFormats");
+        QTest::addColumn<int>("captureFps");
+        QTest::addColumn<QString>("otherModes");
+        QTest::newRow("raw-4k-only") << false << 3840 << 2160 << true << 60 << QString();
+        QTest::newRow("jpeg-4k-only") << true << 3840 << 2160 << true << 60 << QString();
+        QTest::newRow("raw-1080p60") << false << 1920 << 1080 << true << 60 << QString();
+        QTest::newRow("jpeg-1080p60") << true << 1920 << 1080 << true << 60 << QString();
+        // Windows/macOS keep the entries without a device-format probe.
+        QTest::newRow("unprobed-raw-4k") << false << 3840 << 2160 << false << 60 << QString();
+        QTest::newRow("unprobed-jpeg-4k") << true << 3840 << 2160 << false << 60 << QString();
+        for (const bool jpeg : {false, true}) {
+            const QByteArray prefix = jpeg ? "jpeg-" : "raw-";
+            QTest::newRow((prefix + "mixed-rate").constData())
+                << jpeg << 1280 << 720 << true << 30
+                << QStringLiteral("width=1920,height=1080,framerate=5/1");
+            QTest::newRow((prefix + "mixed-60-only").constData())
+                << jpeg << 1280 << 720 << true << 60
+                << QStringLiteral("width=1920,height=1080,framerate=5/1");
+            QTest::newRow((prefix + "rate-list").constData())
+                << jpeg << 1920 << 1080 << true << 30
+                << QStringLiteral("width=1920,height=1080,framerate=(fraction){5/1,30/1};"
+                                  "width=1280,height=720,framerate=30/1");
+        }
+    }
+    void fixedCameraModesNegotiateAndScale()
+    {
+        lightning::rtp::registerVp8Payloader();
+        QFETCH(bool, jpeg);
+        if (jpeg && !SfuMediaEngine::jpegCameraChainAvailable())
+            QSKIP("no JPEG camera decoder here");
+        QFETCH(int, width);
+        QFETCH(int, height);
+        QFETCH(bool, probeFormats);
+        QFETCH(int, captureFps);
+        QFETCH(QString, otherModes);
+        QString modes = QStringLiteral("width=%1,height=%2,framerate=%3/1")
+                            .arg(width).arg(height).arg(captureFps);
+        // Advertise the slow large mode FIRST, as a real device can do.
+        if (!otherModes.isEmpty())
+            modes = otherModes + QLatin1Char(';') + modes;
+        const QString rawPrefix = QStringLiteral(
+            "video/x-raw,format=I420,pixel-aspect-ratio=1/1,");
+        QString raw = rawPrefix + modes;
+        raw.replace(QLatin1Char(';'), QLatin1Char(';') + rawPrefix);
+        QString advertised = QStringLiteral("image/jpeg,") + modes;
+        advertised.replace(QLatin1Char(';'), QStringLiteral(";image/jpeg,"));
+        if (!jpeg)
+            advertised = raw;
+        GstCaps *caps = gst_caps_from_string(advertised.toUtf8().constData());
+        GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(caps, true);
+        QVERIFY(chosen);
+        QVERIFY(gst_caps_is_subset(chosen, caps));
+        const GstCaps *entryCaps = probeFormats ? chosen : nullptr;
+        const QString entry = jpeg ? SfuMediaEngine::cameraJpegEntry(entryCaps)
+                                   : SfuMediaEngine::directCameraRawEntry(entryCaps);
+        gst_caps_unref(chosen);
+        gst_caps_unref(caps);
+        // Source caps precede the production entry. For mixed modes, inspect
+        // capture itself: a 30 fps output can just be duplicated 5 fps input.
+        const QString source = QStringLiteral("videotestsrc num-buffers=3");
+        const QString fixedEntry = QStringLiteral("capsfilter name=syntheticmodes caps=\"%1\"").arg(raw)
+            + (jpeg ? QStringLiteral(" ! jpegenc ! capsfilter caps=\"%1\"")
+                          .arg(advertised) : QString())
+            + QStringLiteral(" ! ") + entry;
+        QString description = SfuMediaEngine::videoPipelineDescription(
+            source, SfuMediaEngine::cameraRateStage(false),
+            SfuMediaEngine::cameraLimitsCaps(false, 720),
+            SfuMediaEngine::cameraEncoderStage(720), QString(), 1u,
+            QStringLiteral("videoconvert ! videoscale"), fixedEntry);
+        description += QStringLiteral(" ! fakesink sync=false");
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(description.toUtf8().constData(), &error);
+        const QString parseError = QString::fromUtf8(error ? error->message : "");
+        g_clear_error(&error);
+        QVERIFY2(pipeline, qPrintable(parseError));
+        GstBus *bus = gst_element_get_bus(pipeline);
+        const GstStateChangeReturn state = gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        GstMessage *message = gst_bus_timed_pop_filtered(
+            bus, 10 * GST_SECOND, GstMessageType(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+        const bool eos = message && GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS;
+        QString detail;
+        if (message && GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
+            gst_message_parse_error(message, &error, nullptr);
+            detail = QString::fromUtf8(error->message);
+            g_clear_error(&error);
+        }
+        GstElement *capture = gst_bin_get_by_name(GST_BIN(pipeline), "syntheticmodes");
+        GstPad *capturePad = gst_element_get_static_pad(capture, "src");
+        GstCaps *negotiated = gst_pad_get_current_caps(capturePad);
+        int actualWidth = 0, actualHeight = 0, numerator = 0, denominator = 1;
+        if (negotiated) {
+            const GstStructure *st = gst_caps_get_structure(negotiated, 0);
+            gst_structure_get_int(st, "width", &actualWidth);
+            gst_structure_get_int(st, "height", &actualHeight);
+            gst_structure_get_fraction(st, "framerate", &numerator, &denominator);
+            gst_caps_unref(negotiated);
+        }
+        gst_object_unref(capturePad);
+        gst_object_unref(capture);
+        if (message)
+            gst_message_unref(message);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        QVERIFY2(parseError.isEmpty(), qPrintable(parseError));
+        QVERIFY(state != GST_STATE_CHANGE_FAILURE);
+        QVERIFY2(eos, qPrintable(detail.isEmpty() ? description : detail));
+        QCOMPARE(actualWidth, width);
+        QCOMPARE(actualHeight, height);
+        QCOMPARE(numerator, captureFps * denominator);
+    }
+
+    void aMissingChosenCameraIsRefusedBeforeAnyCaptureOpens()
+    {
+        SfuMediaEngine engine;
+        engine.setPreferredDevices({QString(), QString(), true}, {}, {});
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        engine.publishVideo(QStringLiteral("missing"), false, -1, -1);
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("camera_unavailable"));
+        QVERIFY(!engine.hasPublishedBinForTest(QStringLiteral("missing")));
+        engine.stop();
+    }
+
+    void cameraMmapRequiresStreamingCapabilities()
+    {
+#ifdef Q_OS_LINUX
+        QCOMPARE(SfuMediaEngine::cameraIoMode(V4L2_CAP_VIDEO_CAPTURE
+                                                | V4L2_CAP_STREAMING),
+                 QStringLiteral("mmap"));
+        QCOMPARE(SfuMediaEngine::cameraIoMode(V4L2_CAP_VIDEO_CAPTURE
+                                                | V4L2_CAP_STREAMING
+                                                | V4L2_CAP_READWRITE),
+                 QStringLiteral("mmap"));
+        QCOMPARE(SfuMediaEngine::cameraIoMode(V4L2_CAP_VIDEO_CAPTURE
+                                                | V4L2_CAP_READWRITE),
+                 QStringLiteral("auto"));
+        QCOMPARE(SfuMediaEngine::cameraIoMode(0), QStringLiteral("auto"));
+        QVERIFY(!SfuMediaEngine::cameraSource().contains(QStringLiteral("io-mode=mmap")));
+#endif
+    }
+
+    void onlyV4l2ResourceErrorsAreBusy()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("V4L2 and PipeWire camera sources are Linux only");
+#else
+        for (const char *factory : {"v4l2src", "pipewiresrc"}) {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setVideoSourceForTest(QStringLiteral("appsrc is-live=true format=time"));
+            engine.start();
+            QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+            engine.publishVideo(QStringLiteral("cam"), false, -1, -1);
+            GstElement *bin = engine.publishedBinForTest(QStringLiteral("cam"));
+            QVERIFY(bin);
+            GstElement *source = gst_element_factory_make(factory, "capsrcerror");
+            QVERIFY2(source, factory);
+            // Never open a camera or a PipeWire connection. The real source
+            // stays NULL while its synthetic RESOURCE message uses the bus.
+            gst_element_set_locked_state(source, TRUE);
+            QVERIFY(gst_bin_add(GST_BIN(bin), source));
+            GError *error = g_error_new_literal(
+                GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED, "synthetic failure");
+            gst_element_post_message(source, gst_message_new_error(
+                GST_OBJECT(source), error, "synthetic"));
+            g_error_free(error);
+            QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+            QCOMPARE(failed.at(0).at(1).toString(),
+                     QByteArray(factory) == "v4l2src" ? QStringLiteral("camera_busy")
+                                                     : QStringLiteral("camera_failed"));
+            engine.stop();
+        }
+#endif
+    }
+
+    // The category a camera that errored before its first buffer is reported
+    // as: a capture source's resource error is `camera_busy`, everything else
+    // stays `camera_failed`, and a share keeps its own.
+    void aCameraResourceErrorIsReportedAsBusy()
+    {
+        QCOMPARE(SfuMediaEngine::cameraPublishErrorCategory(false, true),
+                 QStringLiteral("camera_busy"));
+        QCOMPARE(SfuMediaEngine::cameraPublishErrorCategory(false, false),
+                 QStringLiteral("camera_failed"));
+        QCOMPARE(SfuMediaEngine::cameraPublishErrorCategory(true, true),
+                 QStringLiteral("screen_share_failed"));
+
+        // Through the engine's real handler, on a camera that never
+        // delivered: the flag picks the category.
+        for (const bool resource : { true, false }) {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setVideoSourceForTest(
+                QStringLiteral("appsrc is-live=true format=time"));
+            QSignalSpy trackFailed(&engine, &SfuMediaEngine::publishFailed);
+            engine.start();
+            engine.publishVideo(QStringLiteral("cid-camera"),
+                                /*screenShare=*/false, -1, -1);
+            QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-camera")));
+            engine.handlePublishError(QStringLiteral("cid-camera"), resource);
+            QCOMPARE(trackFailed.count(), 1);
+            QCOMPARE(trackFailed.at(0).at(1).toString(),
+                     resource ? QStringLiteral("camera_busy")
+                              : QStringLiteral("camera_failed"));
+            engine.stop();
+        }
+    }
+
     // 2026-10-07 report (Debian 12 Flatpak): "my camera registers, but
     // there's no feed". A camera whose capture opens and never delivers a
     // buffer (a portal PipeWire remote with no camera node linked to it)
@@ -8309,6 +8658,7 @@ private slots:
             gst_object_unref(camera);
         }
         QTRY_COMPARE_WITH_TIMEOUT(trackFailed.count(), 1, 10000);
+        // This synthetic appsrc is not a direct V4L2 device.
         QCOMPARE(trackFailed.at(0).at(1).toString(),
                  QStringLiteral("camera_failed"));
         // The next video publish must reach the far end, even while the

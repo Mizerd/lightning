@@ -4225,9 +4225,9 @@ void AppController::enableCallMediaEngine()
             qCInfo(lcApp) << "screen-share portal unavailable";
         }
         // The camera portal is registered whenever it answers.
-        // SfuCallController::linuxCameraRoute() prefers a visible direct
-        // device, so this changes nothing on a desktop; inside a Flatpak it is
-        // the only camera.
+        // SfuCallController::linuxCameraRoute() prefers a usable portal camera
+        // unless a camera was chosen in Settings (PipeWire shares the device
+        // with other apps); inside a Flatpak it is the only camera.
         if (CameraPortal::available()) {
             m_groupCall->setCameraPortal(new CameraPortal(this));
             qCInfo(lcApp) << "camera portal available present="

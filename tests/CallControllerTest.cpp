@@ -5926,15 +5926,32 @@ private Q_SLOTS:
                  Route::Portal);
     }
 
-    // A visible device node keeps `v4l2src`, the live-validated path; the
-    // portal must not take over where nothing is wrong.
-    void aVisibleDeviceNodeKeepsTheDirectCamera()
+    // 2026-10-17 report (Arch, KDE Wayland, PipeWire 1.6, MX Brio, Element
+    // Desktop running): the direct `v4l2src` route takes the device
+    // exclusively and failed with "Failed to allocate required memory" while
+    // OBS and Element, which go through PipeWire, worked. A usable portal
+    // camera now wins over a visible device node. Fails on the old rule 3
+    // (visible node -> Direct).
+    void aUsablePortalCameraWinsOverAVisibleDeviceNode()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
                      /*sandboxed=*/false, /*portalUsable=*/true,
                      /*directDeviceVisible=*/true),
+                 Route::Portal);
+        // A camera CHOSEN in Settings names a host device the portal route
+        // cannot bind: it stays direct.
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/false, /*portalUsable=*/true,
+                     /*directDeviceVisible=*/true, /*cameraChosen=*/true),
                  Route::Direct);
+    }
+
+    // Where the portal has no usable camera, a visible device node keeps
+    // `v4l2src`.
+    void aVisibleDeviceNodeKeepsTheDirectCameraWithoutAUsablePortal()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
                      /*sandboxed=*/false, /*portalUsable=*/false,
                      /*directDeviceVisible=*/true),
@@ -6079,6 +6096,221 @@ private Q_SLOTS:
             QCOMPARE(SfuCallController::cameraFailureStep(
                          QString::fromLatin1(category), true, true, false),
                      Step::Notice);
+        }
+    }
+
+    // The whole press, not just the predicate: on a desktop with a visible
+    // device node and a usable portal the camera asks the PORTAL and declares
+    // nothing until it grants; a chosen camera is opened directly. Fails on
+    // the old controller, which published -1 (direct) at once.
+    void aDesktopWithAUsablePortalAsksThePortalForTheCamera()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraPathForTest(
+            [&c](int fd) { c.published.append(fd); },
+            [&c] { ++c.requests; }, /*sandboxed=*/false,
+            /*portalUsable=*/true);
+        c.call.setCameraRouteForTest(false, false, /*deviceNodeVisible=*/true);
+        c.call.setCameraChosenForTest(false);
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 1);
+        QVERIFY(c.call.cameraAwaitingPortalForTest());
+        QVERIFY2(c.published.isEmpty(),
+                 "the camera was opened on the device node while a usable "
+                 "portal camera existed");
+        c.call.setCameraOn(false);
+
+        c.call.setCameraChosenForTest(true);
+        c.call.setCameraOn(true);
+        QCOMPARE(c.requests, 1);
+        QCOMPARE(c.published, QList<int>{ -1 });
+    }
+
+    // A direct camera whose device would not open (`camera_busy`) retries
+    // ONCE through the portal, which shares the device, and tells the user
+    // nothing while it does. Reached when the portal looked unusable at the
+    // press (IsCameraPresent false) but is wired. A second failure, or a
+    // chosen camera, or no portal, is a notice that says WHY. Fails on the old
+    // controller: no such category and no such hop.
+    void aBusyDirectCameraRetriesOnceThroughThePortal()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraPathForTest(
+            [&c](int fd) { c.published.append(fd); },
+            [&c] { ++c.requests; }, /*sandboxed=*/false,
+            /*portalUsable=*/false);
+        c.call.setCameraRouteForTest(false, false, /*deviceNodeVisible=*/true);
+        c.call.setCameraChosenForTest(false);
+        QSignalSpy failed(&c.call, &SfuCallController::callFailed);
+        c.call.setCameraOn(true);
+        QCOMPARE(c.published, QList<int>{ -1 });
+        QCOMPARE(c.requests, 0);
+
+        QVERIFY(QMetaObject::invokeMethod(
+            &c.call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, c.call.cameraCidForTest()),
+            Q_ARG(QString, QStringLiteral("camera_busy"))));
+        QVERIFY2(failed.isEmpty(), "told the user before trying the portal");
+        QCOMPARE(c.requests, 1);
+        QVERIFY(c.call.cameraFellBackToPortalForTest());
+        QVERIFY(c.call.cameraAwaitingPortalForTest());
+        QVERIFY(c.call.cameraOn());
+
+        // The grant publishes through the portal.
+        const int fd = CameraPortalCall::portalFd();
+        QVERIFY(fd >= 0);
+        Q_EMIT c.portal.ready(fd);
+        QCOMPARE(c.published, (QList<int>{ -1, fd }));
+        QVERIFY(c.call.cameraViaPortalForTest());
+
+        // The latch is per call.
+        c.call.leave();
+        QVERIFY(!c.call.cameraFellBackToPortalForTest());
+
+        // A camera the user CHOSE is never swapped for whatever the portal
+        // offers: the failure is a notice, and the portal is not asked.
+        CameraPortalCall chosen;
+        chosen.call.setCameraPathForTest(
+            [&chosen](int fd) { chosen.published.append(fd); },
+            [&chosen] { ++chosen.requests; }, /*sandboxed=*/false,
+            /*portalUsable=*/false);
+        chosen.call.setCameraRouteForTest(false, false, true);
+        chosen.call.setCameraChosenForTest(true);
+        QSignalSpy chosenFailed(&chosen.call, &SfuCallController::callFailed);
+        chosen.call.setCameraOn(true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &chosen.call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, chosen.call.cameraCidForTest()),
+            Q_ARG(QString, QStringLiteral("camera_busy"))));
+        QCOMPARE(chosen.requests, 0);
+        QCOMPARE(chosenFailed.count(), 1);
+        QVERIFY(!chosen.call.cameraOn());
+    }
+
+    void aChosenCameraIsNeverSubstitutedEvenWhenItsNodeIsMissing()
+    {
+        for (const bool sandboxed : {false, true}) {
+            QCOMPARE(SfuCallController::linuxCameraRoute(
+                         sandboxed, true, false, true),
+                     SfuCallController::LinuxCameraRoute::Direct);
+        }
+    }
+
+    void aPortalCaptureErrorStillRetriesTheDeviceNode()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        CameraPortalCall c;
+        c.call.setCameraRouteForTest(true, true, true);
+        c.call.setCameraChosenForTest(false);
+        c.call.setCameraOn(true);
+        const int fd = CameraPortalCall::portalFd();
+        QVERIFY(fd >= 0);
+        Q_EMIT c.portal.ready(fd);
+        // CameraPortalCall's default publisher closes the granted descriptor.
+        QSignalSpy failed(&c.call, &SfuCallController::callFailed);
+        QVERIFY(QMetaObject::invokeMethod(
+            &c.call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, c.call.cameraCidForTest()),
+            Q_ARG(QString, QStringLiteral("camera_failed"))));
+        QCOMPARE(c.requests, 1);
+        QCOMPARE(c.published.last(), -1);
+        QVERIFY(c.call.cameraFellBackForTest());
+        QVERIFY(!c.call.cameraViaPortalForTest());
+        QVERIFY(c.call.cameraOn());
+        QVERIFY(failed.isEmpty());
+    }
+
+    // A Settings change after fallback must take precedence when reconnect
+    // restarts capture. preferredMissing is also an explicit camera choice:
+    // the engine must receive the direct request and refuse that device.
+    void aRememberedPortalFallbackCannotReplaceANewCameraChoice()
+    {
+#ifndef Q_OS_UNIX
+        QSKIP("portal descriptors exist on Unix only");
+#endif
+        for (const bool preferredMissing : {false, true}) {
+            CameraPortalCall c;
+            c.call.setCameraPathForTest(
+                [&c](int fd) { c.published.append(fd); },
+                [&c] { ++c.requests; }, false, false);
+            c.call.setCameraRouteForTest(false, false, true);
+            c.call.setCameraChosenForTest(false);
+            c.call.setCameraOn(true);
+            QVERIFY(QMetaObject::invokeMethod(
+                &c.call, "onEnginePublishFailed", Qt::DirectConnection,
+                Q_ARG(QString, c.call.cameraCidForTest()),
+                Q_ARG(QString, QStringLiteral("camera_busy"))));
+            const int fd = CameraPortalCall::portalFd();
+            QVERIFY(fd >= 0);
+            Q_EMIT c.portal.ready(fd);
+#ifdef Q_OS_UNIX
+            ::close(fd);
+#endif
+            QVERIFY(c.call.cameraFellBackToPortalForTest());
+            QCOMPARE(c.requests, 1);
+            // cameraChosen() treats both an id and preferredMissing as chosen.
+            c.call.setCameraChosenForTest(true);
+            c.call.setCallStateForTest(SfuCallController::State::Reconnecting);
+            c.call.setCallStateForTest(SfuCallController::State::Connected);
+            c.call.restartCameraCaptureForTest(!preferredMissing);
+            QCOMPARE(c.requests, 1);
+            QCOMPARE(c.published.last(), -1);
+            QVERIFY(!c.call.cameraViaPortalForTest());
+            if (preferredMissing) {
+                QSignalSpy failed(&c.call, &SfuCallController::callFailed);
+                QVERIFY(QMetaObject::invokeMethod(
+                    &c.call, "onEnginePublishFailed", Qt::DirectConnection,
+                    Q_ARG(QString, c.call.cameraCidForTest()),
+                    Q_ARG(QString, QStringLiteral("camera_unavailable"))));
+                QCOMPARE(failed.count(), 1);
+                QVERIFY(!c.call.cameraOn());
+                QCOMPARE(c.requests, 1);
+            }
+        }
+    }
+
+    void aBusyCameraTheUserChoseOrWithNoPortalIsNamedNotRetried()
+    {
+        using C = SfuCallController;
+        QVERIFY(C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_busy"), false, true, false));
+        QVERIFY(!C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_busy"), true, true, false));
+        QVERIFY(!C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_busy"), false, false, false));
+        QVERIFY(!C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_busy"), false, true, true));
+        QVERIFY(!C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_failed"), false, true, false));
+
+        // No portal wired: the notice names the cause.
+        for (const bool chosen : { false, true }) {
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setClient(&client);
+            call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+            call.setCallStateForTest(SfuCallController::State::Connected);
+            call.setCameraChosenForTest(chosen);
+            QSignalSpy failed(&call, &SfuCallController::callFailed);
+            call.setCameraCidForTest(QStringLiteral("cam-d"));
+            call.setCameraRouteForTest(false, false, true);
+            QVERIFY(QMetaObject::invokeMethod(
+                &call, "onEnginePublishFailed", Qt::DirectConnection,
+                Q_ARG(QString, QStringLiteral("cam-d")),
+                Q_ARG(QString, QStringLiteral("camera_busy"))));
+            QCOMPARE(failed.count(), 1);
+            QVERIFY2(failed.at(0).at(0).toString().contains(
+                         QStringLiteral("may be in use by another app")),
+                     qPrintable(failed.at(0).at(0).toString()));
+            QVERIFY(!call.cameraOn());
         }
     }
 
