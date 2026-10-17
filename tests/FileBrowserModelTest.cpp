@@ -7,6 +7,7 @@
 #include "models/FileBrowserModel.h"
 
 #include <QDir>
+#include <QLocale>
 #include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QFile>
@@ -65,8 +66,19 @@ private:
     }
 
 private Q_SLOTS:
+    void foldersComeFirstInNaturalOrderAndHiddenFilesWaitForTheToggle_data()
+    {
+        QTest::addColumn<QLocale>("locale");
+        QTest::newRow("C.UTF-8") << QLocale::c();
+        QTest::newRow("en_US.UTF-8") << QLocale(QLocale::English, QLocale::UnitedStates);
+    }
+
     void foldersComeFirstInNaturalOrderAndHiddenFilesWaitForTheToggle()
     {
+        QFETCH(QLocale, locale);
+        const QLocale previous;
+        const auto restoreLocale = qScopeGuard([previous] { QLocale::setDefault(previous); });
+        QLocale::setDefault(locale);
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         populate(dir.path());

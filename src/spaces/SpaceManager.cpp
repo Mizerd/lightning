@@ -36,6 +36,16 @@ void SpaceManager::setClient(MatrixClient *client)
             dropSpaceRosters();
             rebuild();
         });
+        connect(m_client, &MatrixClient::roomMemberEventSeen, this,
+                [this](const QString &roomId) {
+            if (!m_permissionTracked.contains(roomId))
+                return;
+            // A power-level change can revoke placement while the dialog is open.
+            m_manageChildren.remove(roomId);
+            Q_EMIT spacePermissionsChanged();
+            m_rosterRequested.remove(roomId);
+            ensureSpaceRoster(roomId);
+        });
         connect(m_client, &MatrixClient::roomMembersReceived,
                 this, &SpaceManager::onRoomMembersReceived);
         connect(m_client, &MatrixClient::spaceChildFinished,
@@ -89,6 +99,7 @@ void SpaceManager::setActiveSpaceId(const QString &spaceId)
     // session, nothing waits for it.
     ensureSpaceRoster(m_activeSpaceId);
     Q_EMIT activeSpaceIdChanged();
+    Q_EMIT spacePermissionsChanged();
 }
 
 bool SpaceManager::isRealSpaceId(const QString &spaceId)
@@ -103,6 +114,10 @@ void SpaceManager::dropSpaceRosters()
     const QStringList had = m_spaceMembers.keys();
     m_spaceMembers.clear();
     m_rosterRequested.clear();
+    m_permissionTracked.clear();
+    m_manageChildren.clear();
+    m_permissionRequests.clear();
+    Q_EMIT spacePermissionsChanged();
     for (const QString &spaceId : had)
         Q_EMIT spaceRosterChanged(spaceId);
 }
@@ -119,12 +134,27 @@ void SpaceManager::ensureSpaceRoster(const QString &spaceId)
     if (opId == 0)
         return;
     m_rosterRequested.insert(spaceId);
+    m_permissionTracked.insert(spaceId);
+    m_permissionRequests.insert(spaceId, opId);
 }
 
 void SpaceManager::onRoomMembersReceived(quint64 opId, const QString &roomId,
                                          const QVariantMap &snapshot)
 {
-    Q_UNUSED(opId);
+    const bool currentRequest =
+        opId != 0 && m_permissionRequests.value(roomId) == opId;
+    // Only our current request can fail our roster. Another surface's failure
+    // or a superseded request says nothing about the current snapshot.
+    if (!snapshot.value(QStringLiteral("ok")).toBool() && !currentRequest)
+        return;
+    if (currentRequest) {
+        m_manageChildren.insert(roomId,
+            snapshot.value(QStringLiteral("ok")).toBool()
+            && snapshot.value(QStringLiteral("canManageSpaceChildren")).toBool());
+        if (!snapshot.value(QStringLiteral("partial")).toBool())
+            m_permissionRequests.remove(roomId);
+        Q_EMIT spacePermissionsChanged();
+    }
     // Keyed on the room, not the op: a roster has one answer whoever asked,
     // so another surface fetching the same Space's members counts too. It
     // also avoids depending on the op id existing before the answer.
@@ -969,6 +999,7 @@ void SpaceManager::rebuild()
         && !selectionIsStillAJoinedSpace()) {
         m_activeSpaceId.clear();
         Q_EMIT activeSpaceIdChanged();
+        Q_EMIT spacePermissionsChanged();
     }
 
     recomputeOrphans();

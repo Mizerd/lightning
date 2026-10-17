@@ -333,6 +333,7 @@ public:
     // Stable-id action helpers; each re-resolves the event so a recycled
     // delegate cannot act on another row.
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    Q_INVOKABLE QString replyPreviewForEvent(const QString &eventId) const;
     // Media-bridge key for replying to an image event (empty otherwise), so the
     // composer banner shows the same thumbnail as the quote.
     Q_INVOKABLE QString mediaKeyForEvent(const QString &eventId) const;

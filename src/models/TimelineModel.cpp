@@ -7,6 +7,7 @@
 #include "models/UserLookup.h"
 #include "profile/UserProfileResolver.h"
 
+#include <QCoreApplication>
 #include <QRegularExpression>
 #include <QUrl>
 #include <QVariantMap>
@@ -1559,7 +1560,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
                           ? e.replyToSender
                           : QString())
                    : e.replyToSenderId;
-    case ReplyToPreviewRole:     return e.replyToPreview;
+    case ReplyToPreviewRole: {
+        const auto *target = eventForId(e.replyToEventId);
+        if (target && !target->redacted && target->type == TimelineEvent::Audio
+            && target->mediaIsVoice)
+            return replyPreviewForEvent(e.replyToEventId);
+        return e.replyToPreview;
+    }
     case ReplyToMediaKeyRole:    return e.replyToMediaKey;
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
     case MediaHttpUrlRole:       return mediaHttp(e.mediaMxcUrl);
@@ -2729,6 +2736,15 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
         || event->redacted)
         return {};
     return event->body;
+}
+
+QString TimelineModel::replyPreviewForEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (event && !event->redacted && event->type == TimelineEvent::Audio
+        && event->mediaIsVoice)
+        return QCoreApplication::translate("EventPreview", "Voice message");
+    return visibleTextForEvent(eventId);
 }
 
 QString TimelineModel::mediaKeyForEvent(const QString &eventId) const

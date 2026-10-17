@@ -7,6 +7,8 @@
 #include "models/TimelineModel.h"
 #include "profile/UserProfileResolver.h"
 
+#include <QScopeGuard>
+#include <QTranslator>
 #include <QtTest/QtTest>
 
 namespace {
@@ -158,6 +160,7 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
+    void voiceReplyPreviewsKeepCopyTextAsTheFileName();
     void realCountExcludesVirtualRows();
     // MSC4274 galleries and the reply target's kind.
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
@@ -2016,6 +2019,59 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
              QStringLiteral("AU"));
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
              QStringLiteral("mxc://example.org/new-avatar"));
+}
+
+void TimelineModelDiffTest::voiceReplyPreviewsKeepCopyTextAsTheFileName()
+{
+    auto voice = makeEvent(QStringLiteral("$voice"), QStringLiteral("voice-1.ogg"));
+    voice.type = TimelineEvent::Audio;
+    voice.mediaIsVoice = true;
+    auto audio = makeEvent(QStringLiteral("$audio"), QStringLiteral("song.ogg"));
+    audio.type = TimelineEvent::Audio;
+    auto quote = makeEvent(QStringLiteral("$quote"), QStringLiteral("reply"));
+    quote.replyToEventId = voice.eventId;
+    quote.replyToPreview = voice.body;
+    quote.replyToKind = QStringLiteral("audio");
+    m_client->mirror = { voice, audio, quote };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->replyPreviewForEvent(voice.eventId), QStringLiteral("Voice message"));
+    QCOMPARE(m_model->visibleTextForEvent(voice.eventId), voice.body);
+    QCOMPARE(m_model->replyPreviewForEvent(audio.eventId), audio.body);
+    QCOMPARE(m_model->replyPreviewForEvent(QStringLiteral("$missing")), QString());
+    int row = -1;
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        if (m_model->eventIdAt(i) == quote.eventId)
+            row = i;
+    }
+    QVERIFY(row >= 0);
+    QCOMPARE(m_model->data(m_model->index(row), TimelineModel::ReplyToPreviewRole).toString(),
+             QStringLiteral("Voice message"));
+
+    struct VoiceTranslator : QTranslator {
+        QString translate(const char *context, const char *source, const char *,
+                          int) const override
+        {
+            if (QByteArray(context) == "EventPreview"
+                && QByteArray(source) == "Voice message")
+                return QStringLiteral("Balso žinutė");
+            return {};
+        }
+        bool isEmpty() const override { return false; }
+    } translator;
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    const auto removeTranslator = qScopeGuard([&] {
+        QCoreApplication::removeTranslator(&translator);
+    });
+    QCOMPARE(m_model->replyPreviewForEvent(voice.eventId), QStringLiteral("Balso žinutė"));
+    QCOMPARE(m_model->data(m_model->index(row), TimelineModel::ReplyToPreviewRole).toString(),
+             QStringLiteral("Balso žinutė"));
+    QCOMPARE(m_model->visibleTextForEvent(voice.eventId), voice.body);
+    QCOMPARE(m_model->replyPreviewForEvent(audio.eventId), audio.body);
+
+    voice.redacted = true;
+    m_client->mirror = { voice, audio, quote };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QVERIFY(m_model->replyPreviewForEvent(voice.eventId).isEmpty());
 }
 
 void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallback()

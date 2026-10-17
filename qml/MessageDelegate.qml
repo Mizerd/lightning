@@ -786,7 +786,7 @@ Item {
             app.thread.beginReply(eventId)
             return
         }
-        var previewText = root.timelineModel.visibleTextForEvent(eventId)
+        var previewText = root.timelineModel.replyPreviewForEvent(eventId)
         app.composer.beginReply(eventId, details.senderName || details.senderId,
                                 (previewText || "").substring(0, 80),
                                 root.timelineModel.mediaKeyForEvent(eventId))

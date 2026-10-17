@@ -3386,7 +3386,7 @@ Rectangle {
                     if (!eventId || eventId.length === 0) return
                     var details = timelineModel.messageDetails(eventId)
                     if (!details.eventId) return
-                    var previewText = timelineModel.visibleTextForEvent(eventId)
+                    var previewText = timelineModel.replyPreviewForEvent(eventId)
                     app.composer.beginReply(eventId,
                         details.senderName || details.senderId,
                         (previewText || "").substring(0, 80),

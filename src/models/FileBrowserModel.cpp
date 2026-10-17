@@ -1,6 +1,7 @@
 #include "models/FileBrowserModel.h"
 
 #include <QCollator>
+#include <QLocale>
 #include <QDir>
 #include <QHash>
 #include <QFileInfo>
@@ -635,7 +636,8 @@ void FileBrowserModel::rebuild()
         }
         rows.append(e);
     }
-    QCollator collator;
+    // The C locale ignores numeric mode; keep file ordering independent of LANG.
+    QCollator collator(QLocale(QLocale::English, QLocale::UnitedStates));
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     const QString field = m_sortField;

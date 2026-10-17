@@ -68,6 +68,7 @@ Dialog {
     readonly property bool spacePlacementAvailable:
         app.spaces && app.spaces.activeSpaceId
         && app.spaces.activeSpaceId.startsWith("!")
+        && app.spaces.activeSpaceCanManageChildren
 
     // startMode ("dm" | "room" | "space") opens straight into a tab (default DM
     // search). options.addToSpace preselects placement in the active Space.

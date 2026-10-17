@@ -28,6 +28,8 @@ class SpaceManager : public QAbstractListModel
     Q_OBJECT
 
     Q_PROPERTY(QString activeSpaceId READ activeSpaceId WRITE setActiveSpaceId NOTIFY activeSpaceIdChanged)
+    Q_PROPERTY(bool activeSpaceCanManageChildren READ activeSpaceCanManageChildren
+               NOTIFY spacePermissionsChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY spacesChanged)
     Q_PROPERTY(bool hasSpaces READ hasSpaces NOTIFY spacesChanged)
     // Real joined Spaces only, excluding the pseudo rows.
@@ -84,6 +86,11 @@ public:
 
     QString activeSpaceId() const { return m_activeSpaceId; }
     void    setActiveSpaceId(const QString &spaceId);
+    bool activeSpaceCanManageChildren() const
+    {
+        return isRealSpaceId(m_activeSpaceId)
+            && m_manageChildren.value(m_activeSpaceId, false);
+    }
     bool    hasSpaces() const { return !m_spaces.isEmpty(); }
     int     spaceCount() const { return m_spaces.size(); }
 
@@ -246,6 +253,7 @@ public:
 
 Q_SIGNALS:
     void activeSpaceIdChanged();
+    void spacePermissionsChanged();
     void spacesChanged();
     void directMessagesHaveOwnTileChanged();
     // Outcome of one addRoomToSpace call (send result, not sync).
@@ -326,6 +334,10 @@ private:
     // guard. Both are cleared with the client.
     QHash<QString, QSet<QString>> m_spaceMembers;
     QSet<QString> m_rosterRequested;
+    // Tracked Spaces keep refreshing permissions after roster failures.
+    QSet<QString> m_permissionTracked;
+    QHash<QString, bool> m_manageChildren;
+    QHash<QString, quint64> m_permissionRequests;
     // Pending m.space.child sends, opId -> (spaceId, roomId).
     QHash<quint64, QPair<QString, QString>> m_pendingChildAdds;
     QHash<quint64, QPair<QString, QString>> m_pendingChildRemovals;

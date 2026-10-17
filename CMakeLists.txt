@@ -892,10 +892,6 @@ set(APP_SOURCES
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
     src/threads/ThreadController.cpp
-    src/media/ImageMetadata.h
-    src/media/ImageMetadata.cpp
-    src/media/ImageSendPrep.h
-    src/media/ImageSendPrep.cpp
     src/models/ContextController.h
     src/models/ContextController.cpp
     src/presence/PresenceManager.h

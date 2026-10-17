@@ -958,7 +958,7 @@ void ThreadController::beginReply(const QString &eventId)
     if (m_replyToSender.isEmpty())
         m_replyToSender =
             m_model.data(idx, TimelineModel::SenderRole).toString();
-    m_replyToPreview = m_model.visibleTextForEvent(eventId).left(80);
+    m_replyToPreview = m_model.replyPreviewForEvent(eventId).left(80);
     Q_EMIT replyStateChanged();
 }
 

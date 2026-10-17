@@ -110,6 +110,18 @@ public:
         Q_EMIT roomMembersReceived(op, roomId, snapshot);
     }
 
+    void deliverPermissions(quint64 op, const QString &roomId, bool allowed,
+                            bool ok = true, bool partial = false,
+                            bool truncated = false)
+    {
+        Q_EMIT roomMembersReceived(op, roomId, QVariantMap{
+            {QStringLiteral("ok"), ok},
+            {QStringLiteral("partial"), partial},
+            {QStringLiteral("truncated"), truncated},
+            {QStringLiteral("canManageSpaceChildren"), allowed},
+        });
+    }
+
     void announce() { Q_EMIT roomsChanged(); }
 
     void login(const QString &, const QString &, const QString &) override {}
@@ -230,6 +242,150 @@ private:
     };
 
 private Q_SLOTS:
+    void placementUsesTheParentSpacesOwnSdkPermission()
+    {
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        spaces.setActiveSpaceId(kWork);
+        const quint64 first = client.nextOp;
+        QSignalSpy changes(&spaces, &SpaceManager::spacePermissionsChanged);
+        QVERIFY(!spaces.activeSpaceCanManageChildren()); // unknown is denied
+        // The current child room is irrelevant.
+        client.deliverPermissions(first, kGeneral, true);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        client.deliverPermissions(first, kWork, false);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        Q_EMIT client.roomMemberEventSeen(kWork);
+        const quint64 second = client.nextOp;
+        QVERIFY(second > first);
+        // An older permission answer is ignored.
+        client.deliverPermissions(first, kWork, true);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        // The cache snapshot is authoritative too.
+        client.deliverPermissions(second, kWork, true, true, true);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        // Roster truncation does not hide a permission.
+        client.deliverPermissions(second, kWork, true, true, false, true);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        Q_EMIT client.roomMemberEventSeen(kWork);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        // Failed reads cannot grant permission.
+        client.deliverPermissions(client.nextOp, kWork, true, false);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        // A failed roster read permits another selection to retry.
+        spaces.setActiveSpaceId(QString());
+        spaces.setActiveSpaceId(kWork);
+        client.deliverPermissions(client.nextOp, kWork, true);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        spaces.setActiveSpaceId(SpaceManager::peopleId());
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        spaces.setActiveSpaceId(kWork);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        client.logout();
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        FakeClient replacement;
+        spaces.setClient(&replacement);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        QVERIFY(changes.count() > 0);
+    }
+
+    void placementPermissionRefreshSurvivesRosterFailure_data()
+    {
+        QTest::addColumn<bool>("unrelatedFailure");
+        QTest::addColumn<bool>("allowed");
+        QTest::newRow("current-failure-then-revocation") << false << false;
+        QTest::newRow("current-failure-then-grant") << false << true;
+        QTest::newRow("unrelated-failure-then-revocation") << true << false;
+        QTest::newRow("unrelated-failure-then-grant") << true << true;
+    }
+
+    void placementPermissionRefreshSurvivesRosterFailure()
+    {
+        QFETCH(bool, unrelatedFailure);
+        QFETCH(bool, allowed);
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        spaces.setActiveSpaceId(kWork);
+        const quint64 first = client.nextOp;
+        client.deliverPermissions(first, kWork, !allowed);
+        QCOMPARE(spaces.activeSpaceCanManageChildren(), !allowed);
+
+        if (unrelatedFailure) {
+            QSignalSpy permissions(&spaces, &SpaceManager::spacePermissionsChanged);
+            QSignalSpy rosters(&spaces, &SpaceManager::spaceRosterChanged);
+            client.deliverPermissions(first + 100, kWork, true, false);
+            QCOMPARE(spaces.activeSpaceCanManageChildren(), !allowed);
+            QVERIFY(spaces.spaceRosterKnown(kWork));
+            QCOMPARE(permissions.count(), 0);
+            QCOMPARE(rosters.count(), 0);
+            spaces.ensureSpaceRoster(kWork);
+            QCOMPARE(client.nextOp, first); // failure must not permit a retry
+        } else {
+            Q_EMIT client.roomMemberEventSeen(kWork);
+            QVERIFY(client.nextOp > first);
+            client.deliverPermissions(client.nextOp, kWork, true, false);
+            QVERIFY(!spaces.activeSpaceCanManageChildren());
+        }
+
+        // No reselection: a later power-level event must still ask the SDK.
+        const quint64 beforeRefresh = client.nextOp;
+        Q_EMIT client.roomMemberEventSeen(kWork);
+        QCOMPARE(client.nextOp, beforeRefresh + 1);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        client.deliverPermissions(client.nextOp, kWork, allowed);
+        QCOMPARE(spaces.activeSpaceCanManageChildren(), allowed);
+    }
+
+    void supersededPermissionFailureLeavesTheCurrentRequestAndRosterAlone()
+    {
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        spaces.setActiveSpaceId(kWork);
+        const quint64 first = client.nextOp;
+        client.deliverPermissions(first, kWork, true, true, true);
+        Q_EMIT client.roomMemberEventSeen(kWork);
+        const quint64 second = client.nextOp;
+        QVERIFY(second > first);
+        client.deliverPermissions(second, kWork, true, true, true);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        QVERIFY(!spaces.spaceRosterKnown(kWork));
+        QSignalSpy permissions(&spaces, &SpaceManager::spacePermissionsChanged);
+        QSignalSpy rosters(&spaces, &SpaceManager::spaceRosterChanged);
+
+        client.deliverPermissions(first, kWork, false, false);
+        client.deliverPermissions(second, kGeneral, false, false);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        QVERIFY(!spaces.spaceRosterKnown(kWork));
+        QCOMPARE(permissions.count(), 0);
+        QCOMPARE(rosters.count(), 0);
+        spaces.ensureSpaceRoster(kWork);
+        QCOMPARE(client.nextOp, second);
+
+        client.deliverPermissions(second, kWork, true);
+        QVERIFY(spaces.spaceRosterKnown(kWork));
+        permissions.clear();
+        rosters.clear();
+        client.deliverPermissions(first, kWork, false, false);
+        QVERIFY(spaces.activeSpaceCanManageChildren());
+        QVERIFY(spaces.spaceRosterKnown(kWork));
+        QCOMPARE(permissions.count(), 0);
+        QCOMPARE(rosters.count(), 0);
+        spaces.ensureSpaceRoster(kWork);
+        QCOMPARE(client.nextOp, second);
+
+        Q_EMIT client.roomMemberEventSeen(kWork);
+        QCOMPARE(client.nextOp, second + 1);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+        client.deliverPermissions(client.nextOp, kWork, false);
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
