@@ -566,6 +566,10 @@ Item {
                          + "webrtc rnnoise deepfilternet denoise"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "noiseSuppressionCard" },
+        { title: qsTr("Game activity"),
+          keywords: qsTr("playing game status steam presence activity"),
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "gameActivityCard" },
         { title: qsTr("Backend"), keywords: qsTr("backend rust http mock"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "labsBackendLine" },
@@ -9576,6 +9580,16 @@ Item {
                                             app.settings.noiseSuppressionMode = key
                                     }
                                 }
+                            }
+                        }
+                        SettingsGroupLabel {
+                            objectName: "gameActivityHeading"
+                            text: qsTr("Game activity")
+                        }
+                        SettingsCard {
+                            objectName: "gameActivityCard"
+                            GameActivitySettings {
+                                width: parent.width
                             }
                         }
                         SettingsCard {

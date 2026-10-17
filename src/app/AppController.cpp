@@ -386,6 +386,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
+    m_gameActivity = std::make_unique<GameActivity>(this);
+    m_gameActivity->setPresence(m_presence.get());
+    m_gameActivity->setSettings(m_settings.get());
     m_scheduledSends->setSettings(m_settings.get());
     // A muted room's rows are hidden from the bell and its badge (unmuting
     // brings them back), the same rule as the room list.
@@ -3557,6 +3560,13 @@ void AppController::prepareForShutdown()
         m_groupCall->leave();
     }
 
+    // Take the "Playing X" status back while the client can still send: the
+    // user's own status is republished by PresenceManager, and the poller never
+    // runs again. Best effort: the publish is handed to the backend and
+    // stopSync() below does not wait for the server's answer.
+    if (m_gameActivity)
+        m_gameActivity->shutdown();
+
     // Stop the sync loop so no further backend callback is scheduled during
     // teardown. Blocking: the Rust side joins its sync (and, on the first
     // account of a session, bootstrap) thread within a bounded budget
@@ -3975,6 +3985,7 @@ CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
+GameActivity *AppController::gameActivity() const { return m_gameActivity.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
 
 QString AppController::preferredCallLane(const QString &roomId) const

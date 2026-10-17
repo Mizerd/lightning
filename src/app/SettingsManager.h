@@ -194,6 +194,15 @@ class SettingsManager : public QObject
     // is passive and has no toggle.
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
+    // Labs: publish "Playing <game>" as the presence status while a game
+    // runs. Off by default. The hide list holds game names that are never
+    // published; the custom list holds user "exe=Name" detection entries.
+    Q_PROPERTY(bool gameActivityEnabled READ gameActivityEnabled
+                   WRITE setGameActivityEnabled NOTIFY gameActivityChanged)
+    Q_PROPERTY(QStringList gameActivityHidden READ gameActivityHidden
+                   WRITE setGameActivityHidden NOTIFY gameActivityChanged)
+    Q_PROPERTY(QStringList gameActivityCustom READ gameActivityCustom
+                   WRITE setGameActivityCustom NOTIFY gameActivityChanged)
     // Shell layout. Device-level: it describes this window on this screen, and
     // an account switch must not resize it.
     Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
@@ -755,6 +764,12 @@ public:
     Q_INVOKABLE bool shareQualityDemandingAt(int maxHeight, int fps) const;
 
     bool sharePresence() const;
+    bool gameActivityEnabled() const;
+    void setGameActivityEnabled(bool v);
+    QStringList gameActivityHidden() const;
+    void setGameActivityHidden(const QStringList &names);
+    QStringList gameActivityCustom() const;
+    void setGameActivityCustom(const QStringList &entries);
     bool spacesRailVisible() const;
     bool spaceBannersVisible() const;
     bool keepRoomListOrderStill() const;
@@ -1186,6 +1201,7 @@ Q_SIGNALS:
     void animateGifPreviewsChanged();
     void showLinkMediaInlineChanged();
     void sharePresenceChanged();
+    void gameActivityChanged();
     void spacesRailVisibleChanged();
     void spaceBannersVisibleChanged();
     void keepRoomListOrderStillChanged();

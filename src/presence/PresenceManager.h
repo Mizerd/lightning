@@ -94,6 +94,20 @@ public:
     Q_INVOKABLE void setOwnStatus(const QString &emoji, const QString &text,
                                   qint64 expiresAtMs);
     Q_INVOKABLE void clearOwnStatus();
+    // "Playing X" overlay (Labs). Not the user's status and never persisted:
+    // while a game name is set it is what gets published as status_msg, and
+    // clearing it republishes the user's own status, so the previous status
+    // comes back by construction. Only the name crosses; "" = no game. Rides
+    // the one publisher, so the rate-limit and retry policy still apply.
+    void setGameActivity(const QString &gameName);
+    QString gameActivity() const { return m_gameName; }
+    // True from the first Syncing edge of a session until it is torn down
+    // (logout, account switch). Blips of connectivity do not clear it. The
+    // game poller runs only while it holds.
+    bool sessionLive() const { return m_hasSession; }
+    // What is published and shown for the local user: the game when one is
+    // set, else ownStatusText().
+    QString effectiveStatusText() const;
 
     // Test/embedding seam; the ctor also tracks QGuiApplication state.
     void setApplicationActive(bool active);
@@ -128,6 +142,7 @@ Q_SIGNALS:
     void ownStatusChanged();
     void revisionChanged();
     void sessionEpochChanged();
+    void sessionLiveChanged();
 
 private:
     struct Entry {
@@ -223,6 +238,11 @@ private:
     bool m_statusTimerWired = false;
     QString m_ownStatusEmoji;
     QString m_ownStatusPlainText;
+    QString m_gameName;
+    bool m_hasSession = false;
+    // A status-only change must not be dropped by the duplicate-state window
+    // in publishTick; the server's rejection path still bounds the rate.
+    bool m_statusDirty = false;
     qint64 m_ownStatusExpiresAtMs = 0;
     QTimer m_statusExpiryTimer;
     // "online" / "unavailable" / "offline" for the local user, or "" when

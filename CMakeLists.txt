@@ -898,6 +898,10 @@ set(APP_SOURCES
     src/models/ContextController.cpp
     src/presence/PresenceManager.h
     src/presence/PresenceManager.cpp
+    src/presence/GameDetection.h
+    src/presence/GameDetection.cpp
+    src/presence/GameActivity.h
+    src/presence/GameActivity.cpp
 
     # Application updates. Free of Matrix dependencies: the updater is a
     # separate trust boundary with no access to accounts, tokens or stores.
@@ -1212,6 +1216,7 @@ set(APP_QML_FILES
     # Settings microphone test.
     qml/AudioLevelBar.qml
     qml/NoiseSuppressionSelector.qml
+    qml/GameActivitySettings.qml
     qml/CallPipWindow.qml
     qml/CallHeaderBar.qml
     qml/CallTileBadge.qml
@@ -5253,6 +5258,8 @@ if(BUILD_TESTING)
         tests/PresenceManagerTest.cpp
         src/presence/PresenceManager.h
         src/presence/PresenceManager.cpp
+        src/presence/GameDetection.h
+        src/presence/GameDetection.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
         src/matrix/MockMatrixClient.h
@@ -5270,6 +5277,36 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME presence-manager COMMAND presence-manager-test)
     set_tests_properties(presence-manager PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    # "Playing X" (Labs): /proc and appmanifest parsing against fixture
+    # directories, the mapping and hide list, the status overlay through the
+    # real PresenceManager, and the Labs-off gate (no timer, scan or publish).
+    qt_add_executable(game-activity-test
+        tests/GameActivityTest.cpp
+        src/presence/GameActivity.h
+        src/presence/GameActivity.cpp
+        src/presence/GameDetection.h
+        src/presence/GameDetection.cpp
+        src/presence/PresenceManager.h
+        src/presence/PresenceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(game-activity-test PRIVATE src)
+    target_link_libraries(game-activity-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME game-activity COMMAND game-activity-test)
+    set_tests_properties(game-activity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
     # Chat backgrounds: precedence and opt-outs, stale answers, the scrim's

@@ -98,6 +98,7 @@
 #include "calls/SfuCallController.h"
 #include "calls/CallSoundController.h"
 #include "presence/PresenceManager.h"
+#include "presence/GameActivity.h"
 #include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
 
@@ -394,6 +395,8 @@ class AppController : public QObject
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     Q_PROPERTY(PresenceManager* presence READ presence CONSTANT)
+    // Labs "Playing X"; inert unless settings.gameActivityEnabled.
+    Q_PROPERTY(GameActivity* gameActivity READ gameActivity CONSTANT)
     Q_PROPERTY(CallController* calls READ calls CONSTANT)
     // MatrixRTC observation/discovery (modern group calling).
     Q_PROPERTY(RtcController* rtc READ rtc CONSTANT)
@@ -695,6 +698,7 @@ public:
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     PresenceManager *presence() const;
+    GameActivity *gameActivity() const;
     CallController *calls() const;
     /// Start a call in `roomId`. MatrixRTC (SFU) is primary; the legacy 1:1
     /// lane is an audio-only, DM-only fallback. Returns false and emits
@@ -1649,6 +1653,7 @@ private:
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
+    std::unique_ptr<GameActivity> m_gameActivity;
     std::unique_ptr<CallController> m_calls;
     /// See the Q_PROPERTY: bumped from RtcController's own change signals.
     int m_callGateRevision = 0;

@@ -2906,6 +2906,70 @@ void SettingsManager::setSharePresence(bool v)
     Q_EMIT sharePresenceChanged();
 }
 
+namespace {
+// Trimmed, de-duplicated (case-insensitively), bounded: a list a human edits.
+QStringList cleanGameList(const QStringList &in)
+{
+    QStringList out;
+    for (const QString &raw : in) {
+        const QString v = raw.simplified().left(120);
+        if (v.isEmpty() || out.size() >= 200)
+            continue;
+        bool dup = false;
+        for (const QString &o : out)
+            dup = dup || o.compare(v, Qt::CaseInsensitive) == 0;
+        if (!dup)
+            out.append(v);
+    }
+    return out;
+}
+}   // namespace
+
+bool SettingsManager::gameActivityEnabled() const
+{
+    // Experimental and off: a game name is something the user must choose to
+    // tell other people.
+    return m_store->value(QStringLiteral("labs/gameActivity"), false).toBool();
+}
+
+void SettingsManager::setGameActivityEnabled(bool v)
+{
+    if (gameActivityEnabled() == v)
+        return;
+    m_store->setValue(QStringLiteral("labs/gameActivity"), v);
+    Q_EMIT gameActivityChanged();
+}
+
+QStringList SettingsManager::gameActivityHidden() const
+{
+    return cleanGameList(
+        m_store->value(QStringLiteral("labs/gameActivityHidden")).toStringList());
+}
+
+void SettingsManager::setGameActivityHidden(const QStringList &names)
+{
+    const QStringList clean = cleanGameList(names);
+    if (gameActivityHidden() == clean)
+        return;
+    m_store->setValue(QStringLiteral("labs/gameActivityHidden"), clean);
+    Q_EMIT gameActivityChanged();
+}
+
+QStringList SettingsManager::gameActivityCustom() const
+{
+    return cleanGameList(
+        m_store->value(QStringLiteral("labs/gameActivityCustom")).toStringList());
+}
+
+void SettingsManager::setGameActivityCustom(const QStringList &entries)
+{
+    const QStringList clean = cleanGameList(entries);
+    if (gameActivityCustom() == clean)
+        return;
+    m_store->setValue(QStringLiteral("labs/gameActivityCustom"), clean);
+    Q_EMIT gameActivityChanged();
+}
+
 bool SettingsManager::spacesRailVisible() const
 {
     return m_store->value(kSpacesRailVisible, true).toBool();

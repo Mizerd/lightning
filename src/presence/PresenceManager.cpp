@@ -9,6 +9,7 @@
 #include <QVariantList>
 
 #include "app/SettingsManager.h"
+#include "presence/GameDetection.h"
 
 namespace {
 // Status text is shown where Qt may auto-detect HTML, so markup-like text has
@@ -301,7 +302,7 @@ QVariantMap PresenceManager::infoFor(const QString &userId) const
                 { QStringLiteral("currentlyActive"), m_appActive },
                 // "Active now" is exactly what this client is publishing.
                 { QStringLiteral("lastActiveAgoMs"), qint64(0) },
-                { QStringLiteral("statusMsg"), ownStatusText() },
+                { QStringLiteral("statusMsg"), effectiveStatusText() },
             };
         }
     }
@@ -597,7 +598,7 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
     // window: the Syncing edge fires more than once during start-up, and the
     // duplicate PUT is what the server rate-limits. Not after a rejection,
     // where there is no accepted state to duplicate.
-    if (!afterRejection && force && desired == m_lastPublished
+    if (!afterRejection && force && !m_statusDirty && desired == m_lastPublished
         && m_lastPublishAtMs >= 0
         && m_clock.elapsed() - m_lastPublishAtMs < m_minPublishGapMs)
         return;
@@ -610,7 +611,8 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
         m_retryChain = 0;
     }
     ++m_publishAttempts;
-    m_client->publishPresence(desired, ownStatusText());
+    m_statusDirty = false;
+    m_client->publishPresence(desired, effectiveStatusText());
     // Log the offered rate. ~2.4 attempts/min is one healthy client; near 6
     // means the Syncing-edge path is firing at its 10 s gap.
     if (m_traceEnabled) {
@@ -700,6 +702,10 @@ void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
         // dot now.
         publishTick(true);
         scheduledPollRound();
+        if (!m_hasSession) {
+            m_hasSession = true;
+            Q_EMIT sessionLiveChanged();
+        }
     }
 }
 
@@ -729,6 +735,10 @@ void PresenceManager::clearSession()
     m_retryChain = 0;
     m_pendingFinalOffline = false;
     m_syncing = false;
+    // A game name belongs to the session it was published into.
+    m_gameName.clear();
+    const bool hadSession = m_hasSession;
+    m_hasSession = false;
     // The watched set names the previous account's contacts; polling it
     // against the next homeserver would leak them. Live PresenceDots
     // re-register on the epoch bump.
@@ -744,6 +754,8 @@ void PresenceManager::clearSession()
         Q_EMIT activeChanged();
         Q_EMIT unavailableChanged();
     }
+    if (hadSession)
+        Q_EMIT sessionLiveChanged();
 }
 
 int PresenceManager::desiredOwnState() const
@@ -777,9 +789,34 @@ QString PresenceManager::ownStatusText() const
 QString PresenceManager::statusMessageFor(const QString &userId) const
 {
     if (isOwnUser(userId))
-        return ownStatusText();
+        return effectiveStatusText();
     const auto it = m_cache.constFind(userId);
     return it == m_cache.constEnd() ? QString() : it->statusMsg;
+}
+
+QString PresenceManager::effectiveStatusText() const
+{
+    return m_gameName.isEmpty() ? ownStatusText()
+                                : gamedetect::statusTextFor(m_gameName);
+}
+
+void PresenceManager::setGameActivity(const QString &gameName)
+{
+    const QString name = displaySafeStatus(gameName.simplified().left(120));
+    if (name == m_gameName)
+        return;
+    m_gameName = name;
+    ++m_revision;
+    Q_EMIT revisionChanged();
+    Q_EMIT ownStatusChanged();
+    // Publish only into a live, enabled, non-offline session. Offline (the
+    // final offline for sharing-off) carries no status, and with sharing off
+    // nothing is sent at all.
+    if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
+        && m_lastPublished >= 0 && m_lastPublished != 2) {
+        m_statusDirty = true;
+        publishTick(true);
+    }
 }
 
 void PresenceManager::loadOwnStatusIfNeeded()
@@ -863,8 +900,8 @@ void PresenceManager::setOwnStatus(const QString &emoji, const QString &text,
     Q_EMIT ownStatusChanged();
     // Publish now: the status is part of the presence event.
     if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
-        && m_lastPublished >= 0)
-        m_client->publishPresence(m_lastPublished, ownStatusText());
+        && m_lastPublished >= 0 && m_lastPublished != 2)
+        m_client->publishPresence(m_lastPublished, effectiveStatusText());
     ++m_revision;
     Q_EMIT revisionChanged();
 }
@@ -880,8 +917,8 @@ void PresenceManager::clearOwnStatus()
     persistOwnStatus();
     Q_EMIT ownStatusChanged();
     if (had && m_client && m_client->supportsPresence() && m_syncing
-        && publishEnabled() && m_lastPublished >= 0)
-        m_client->publishPresence(m_lastPublished, QString());
+        && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2)
+        m_client->publishPresence(m_lastPublished, effectiveStatusText());
     ++m_revision;
     Q_EMIT revisionChanged();
 }
