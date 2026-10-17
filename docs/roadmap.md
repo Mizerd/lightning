@@ -16,6 +16,26 @@
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
+## Planned (to do, not started)
+
+- **"Playing X" game activity (Discord-style), opt-in.** Idea from Rokas,
+  2026-10-17. Show the game you are playing next to your name.
+  - Publish: the presence `status_msg` ("Playing Hades II"), so every
+    client shows it as text; the previous status comes back when the game
+    exits. Matrix has no merged rich-presence field yet, so nothing beyond
+    status text.
+  - Detect, Linux: the process list. A Steam game is found through its
+    launcher's app id; other games come from a small built-in list plus
+    user-added entries.
+  - Detect, Windows: the same process scan, plus a foreground-and-fullscreen
+    check (roughly what Discord's detectable-games list does).
+  - Limit: in the Flatpak and the Snap the sandbox cannot see host
+    processes, so detection there is weak or needs an extra permission.
+    The AppImage, .deb, .rpm and Windows builds work fully.
+  - Privacy: off by default; a per-game hide list; only the game's name is
+    ever sent, never the process list; shown only while online.
+  - After 0.10.2.
+
 ## Next: identified gaps (2026-09-03) — ALL FOUR BUILT the same day
 
 All four of the gaps below were implemented on 2026-09-03 at Rokas's
