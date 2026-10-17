@@ -433,9 +433,10 @@ private Q_SLOTS:
 
         // Anchored on the call, not a fixed window after a name. Every verb
         // that keys the store (dismiss, request, retry, lookup, restore) is
-        // checked.
+        // checked; the word boundary keeps an unrelated longer name such as
+        // replyPreviewForEvent( out of the sweep.
         static const QRegularExpression call(
-            QStringLiteral("(?:dismiss|restore|request|retry|)"
+            QStringLiteral("\\b(?:dismiss|restore|request|retry|)"
                            "[Pp]reviewForEvent\\s*\\(([^)]*)\\)"));
         auto it = call.globalMatch(src);
         int found = 0;
