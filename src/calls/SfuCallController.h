@@ -1667,10 +1667,11 @@ private:
     /// and the failure setState() announced.
     QString m_shownNotice;
     QString m_announcedFailure;
-    /// The camera's last failure notice, and the camera track that failed
-    /// (empty for a portal refusal). A camera track the SFU accepts later
-    /// withdraws it, if it is still the notice showing.
-    QString m_cameraNotice;
+    /// The category of the camera's last failure notice (empty: none), and the
+    /// camera track that failed (empty for a portal refusal). A camera track
+    /// the SFU accepts later withdraws it, if it is still the notice showing.
+    /// Keyed by category, not text; per call (reset on join and teardown).
+    QString m_cameraNoticeCategory;
     QString m_cameraNoticeCid;
     /// Show a camera failure notice and remember it as the camera's.
     void announceCameraNotice(const QString &category, const QString &cid);

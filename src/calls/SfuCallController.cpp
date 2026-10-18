@@ -393,12 +393,13 @@ void SfuCallController::setClient(MatrixClient *client)
                 // The SFU accepting a track is not a first frame; a camera
                 // that fails after it shows its own notice.
                 if (camera && cid != m_cameraNoticeCid
-                    && !m_cameraNotice.isEmpty()) {
-                    if (withdrawNotice(m_cameraNotice)) {
+                    && !m_cameraNoticeCategory.isEmpty()) {
+                    if (withdrawNotice(
+                            userFacingError(m_cameraNoticeCategory))) {
                         qCInfo(lcSfuCall)
                             << "a camera works again; its notice withdrawn";
                     }
-                    m_cameraNotice.clear();
+                    m_cameraNoticeCategory.clear();
                     m_cameraNoticeCid.clear();
                 }
             });
@@ -2052,6 +2053,10 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_mediaEncrypted = false;
     resetKeyLane();
     m_playbackLostAnnounced = false;
+    // A camera notice from an earlier call must neither be withdrawn by this
+    // call's camera nor outlive it.
+    m_cameraNoticeCategory.clear();
+    m_cameraNoticeCid.clear();
     m_candidatesSent = 0;
     m_lastPublishMs = 0;
     m_membershipAcceptedMs = 0;
@@ -3205,7 +3210,7 @@ void SfuCallController::announceCameraNotice(const QString &category,
 {
     const QString notice = userFacingError(category);
     Q_EMIT callFailed(notice);
-    m_cameraNotice = notice;
+    m_cameraNoticeCategory = category;
     m_cameraNoticeCid = cid;
 }
 
@@ -4544,10 +4549,11 @@ void SfuCallController::teardown(State finalState, const QString &error)
     // available" and a camera's notice described THIS call's devices, and
     // stayed on the status bar after leaving it (measured in the Flatpak).
     withdrawNotice(userFacingError(QStringLiteral("audio_source_failed")));
-    if (withdrawNotice(m_cameraNotice)) {
-        m_cameraNotice.clear();
-        m_cameraNoticeCid.clear();
-    }
+    if (!m_cameraNoticeCategory.isEmpty())
+        withdrawNotice(userFacingError(m_cameraNoticeCategory));
+    // Dropped whether or not it was still showing: it belongs to this call.
+    m_cameraNoticeCategory.clear();
+    m_cameraNoticeCid.clear();
 
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Media first: release devices before anything that can fail or block.

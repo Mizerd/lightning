@@ -525,6 +525,142 @@ private Q_SLOTS:
 #endif
     }
 
+    // A user rule reported BEFORE the first sync may be the SDK's fallback
+    // set, not this account's: it is not "what the server held", so a write
+    // that fails records an unknown base (-1: the retry sends again) instead
+    // of that rule. Fails on the old code, which recorded 1.
+    void aRuleReportedBeforeTheFirstSyncIsNotAFailedWritesBase()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 1, true);
+        app.setRoomNotificationMode(kRoomId, 2);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(app.settings()->roomNotificationModeUnsyncedBase(kRoomId),
+                 -1);
+#endif
+    }
+
+    // The user's latest choice wins. A is acknowledged, B then fails: the
+    // server holds A, which is this device's own earlier write and not a rule
+    // set elsewhere, so the retry sends B again. Fails on the old code, whose
+    // base stayed at what the server held before A and so adopted A.
+    void theRetryResendsTheLatestChoiceWhenAnEarlierOneWasAcknowledged()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("initial_sync_done")}});
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, true);
+        QSignalSpy sent(&app, &AppController::roomNotificationModeSent);
+        app.setRoomNotificationMode(kRoomId, 2);
+        app.setRoomNotificationMode(kRoomId, 1);
+        QCOMPARE(sent.count(), 2);
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(app.settings()->roomNotificationModeUnsyncedBase(kRoomId), 2);
+
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        // The retry's read: the server holds A.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        QCOMPARE(sent.count(), 3);
+        QCOMPARE(sent.last().at(1).toInt(), 1);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        // Its acknowledgement retires the failure.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 1, true);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+#endif
+    }
+
+    // The same two choices the other way round: A fails, B is acknowledged.
+    // The room ends synced with B and A is never sent again, whichever of the
+    // two outcomes reaches the controller first.
+    void anEarlierChoicesFailureDoesNotResendItAfterALaterOneIsAcknowledged()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("initial_sync_done")}});
+        QSignalSpy sent(&app, &AppController::roomNotificationModeSent);
+        QSignalSpy retried(&app, &AppController::roomNotificationModesRetried);
+
+        // The failure first.
+        app.setRoomNotificationMode(kRoomId, 2);
+        app.setRoomNotificationMode(kRoomId, 1);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 1, true);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        QCOMPARE(retried.count(), 0);
+        QCOMPARE(sent.count(), 2);
+
+        // The acknowledgement first: the late failure leaves the flag, and
+        // the retry's read finding B on the server retires it without a send.
+        app.setRoomNotificationMode(kRoomId, 0);
+        app.setRoomNotificationMode(kRoomId, 2);
+        QCOMPARE(sent.count(), 4);
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Offline);
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        QCOMPARE(retried.count(), 1);
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(sent.count(), 4);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
+#endif
+    }
+
+    // A choice made while a retry's read is pending supersedes the retry: the
+    // read may predate it, so neither a second send of C nor adopting
+    // the old rule may follow. Fails on the old code, which sent C again.
+    void aLaterChoiceSupersedesAPendingRetry()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("initial_sync_done")}});
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, true);
+        app.setRoomNotificationMode(kRoomId, 1);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QSignalSpy sent(&app, &AppController::roomNotificationModeSent);
+        QSignalSpy retried(&app, &AppController::roomNotificationModesRetried);
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        QCOMPARE(retried.count(), 1);
+
+        // C, while the read is on its way.
+        app.setRoomNotificationMode(kRoomId, 2);
+        QCOMPARE(sent.count(), 1);
+        // The read lands: the rule the failed write replaced.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, true);
+        QCOMPARE(sent.count(), 1);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        // C's acknowledgement retires the failure.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+#endif
+    }
+
     // The unsynced set is per account, like the modes themselves.
     void unsyncedRoomsArePerAccount()
     {

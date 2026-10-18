@@ -1990,6 +1990,49 @@ private Q_SLOTS:
                  "a camera that works withdrew somebody else's notice");
     }
 
+    // A camera notice belongs to the call it was shown in. One that was no
+    // longer showing when its call ended (another notice had replaced it)
+    // used to survive teardown and then withdraw an identical notice from the
+    // NEXT call when that call's camera was accepted. Fails on the old code:
+    // m_cameraNotice/m_cameraNoticeCid were never reset, so cam-2's
+    // confirmation withdrew the second call's notice.
+    void aCameraNoticeFromAnEarlierCallDoesNotReachANewOne()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        call.setCameraCidForTest(QStringLiteral("cam-1"));
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-1")),
+            Q_ARG(QString, QStringLiteral("camera_unavailable"))));
+        QCOMPARE(failed.count(), 1);
+        const QString cameraText = failed.at(0).at(0).toString();
+        QVERIFY(!cameraText.isEmpty());
+        // Another notice replaces it, so leaving does not withdraw it.
+        QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
+                                          Qt::DirectConnection,
+                                          Q_ARG(bool, true)));
+        call.leave();
+
+        // A new call shows the same wording from another source.
+        call.setMembershipForTest(QStringLiteral("!room:y"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        Q_EMIT call.callFailed(cameraText);
+        const int before = failed.count();
+        call.setCameraCidForTest(QStringLiteral("cam-2"));
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-2"),
+                                        QStringLiteral("TR_cam2"));
+        QVERIFY2(failed.count() == before,
+                 "a camera notice from an earlier call was withdrawn by a "
+                 "camera in the new call");
+        call.leave();
+    }
+
     // Isolate QSettings so this suite never writes the user's config, and so
     // no value survives between runs to mask a failure.
     void initTestCase()

@@ -1648,6 +1648,11 @@ private:
     // The mode the server last reported per room this session (3 = no rule),
     // the base a new write records.
     QHash<QString, int> m_notificationModeServerSeen;
+    // Per room, the modes this device sent that no acknowledgement or retry
+    // read has retired yet (bit n = mode n; 3 = rule removal). A failure
+    // carries only the room, so this is what tells this device's own earlier
+    // write's acknowledgement from somebody else's rule.
+    QHash<QString, int> m_notificationModeSentModes;
     // A retry arrived before the first sync; run it then.
     bool m_retryNotificationModesWhenSynced = false;
     std::unique_ptr<SpaceManager> m_spaces;
