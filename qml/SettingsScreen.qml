@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import MatrixClient
 
 // In-shell Settings pane: replaces only the timeline region; the spaces rail
-// and room list stay visible. A 60px header, a 260px navigation column and the
+// and room list stay visible. A 60px header, a 300px navigation column and the
 // per-category panes. Destructive reset lives in a separate Danger Zone; sign
 // out lives only in the account menu.
 //
@@ -287,6 +287,10 @@ Item {
           keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
           section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
           anchor: "shortcutsHeading" },
+        { title: qsTr("Use call keys from any window"),
+          keywords: qsTr("call keys global shortcuts mute deafen leave hotkey desktop portal"),
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
+          anchor: "globalShortcutsCheck", platform: "linux" },
         { title: qsTr("Reset all shortcuts"),
           keywords: qsTr("reset shortcuts default keys"),
           section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
@@ -611,6 +615,9 @@ Item {
                         .filter(function(w) { return w.length > 0 })
         if (words.length === 0) return []
         return root.searchIndex.filter(function(e) {
+            // `platform` marks a control that only exists on that OS.
+            if (e.platform !== undefined && e.platform !== Qt.platform.os)
+                return false
             var hay = (e.title + " " + e.keywords + " " + e.breadcrumb).toLowerCase()
             for (var i = 0; i < words.length; ++i) {
                 if (hay.indexOf(words[i]) === -1)
@@ -1607,11 +1614,11 @@ Item {
             Layout.fillHeight: true
             spacing: 0
 
-            // Left navigation: 260px, icon rows, About pinned at the bottom.
+            // Left navigation: 300px (German "Datenschutz & Sicherheit" needs it), icon rows, About pinned at the bottom.
             Rectangle {
                 objectName: "settingsNavColumn"
                 Layout.fillHeight: true
-                Layout.preferredWidth: 260
+                Layout.preferredWidth: 300
                 Layout.minimumWidth: 200
                 color: AppTheme.settingsNav
                 // Nothing in this column may paint across the divider into the

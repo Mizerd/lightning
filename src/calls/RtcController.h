@@ -279,6 +279,8 @@ private:
     /// Snapshot says no, or the server refused a publish here.
     bool publishRefused(const QString &roomId) const;
     void requestPermissionRead(const QString &roomId);
+    /// Forgets reads whose answer never came, so they stop blocking new ones.
+    void reapStalePermissionReads();
     void flushPokes();
     void reapStaleReads();
     /// Arm m_expiryTimer for the earliest membership expiry no read has

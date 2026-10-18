@@ -819,6 +819,23 @@ private slots:
         QVERIFY(auth.browserLoginInProgress());
     }
 
+    // The "has not answered the cancelled sign-in yet" line described a wait
+    // that ends at the bound; it stayed on the form for minutes after.
+    void theCancelledSignInWaitLineEndsWithTheWait()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.setAbandonedLoginBoundMsForTest(150);
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
+        auth.cancelLogin();
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
+        QVERIFY(auth.lastError().contains(QStringLiteral("has not answered")));
+        QTRY_VERIFY2(auth.lastError().isEmpty(), qPrintable(auth.lastError()));
+        // And the next start goes ahead.
+        auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
+        QCOMPARE(client.logins.size(), 2);
+    }
+
     // Cancel (and Escape) during a browser sign-in cancels it in the backend.
     void cancellingABrowserSignInCancelsItInTheBackend()
     {

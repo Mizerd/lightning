@@ -15,13 +15,6 @@
 namespace {
 Q_LOGGING_CATEGORY(lcAuth, "lightning.auth")
 Q_LOGGING_CATEGORY(lcAuthLogout, "lightning.auth.logout")
-
-// How long a new password sign-in waits for a cancelled one to answer. The
-// request itself gave up in under two minutes in the 2026-10-15 break-it run
-// (/login held for 130 s: "reason= timeout"); past the bound the new attempt
-// goes ahead and replaces the old handle, rather than locking sign-in for
-// the session.
-constexpr qint64 kAbandonedLoginBoundMs = 150 * 1000;
 } // namespace
 
 AuthManager::AuthManager(MatrixClient *client, QObject *parent)
@@ -29,6 +22,13 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     , m_client(client)
 {
     Q_ASSERT(m_client);
+
+    m_abandonedWaitNote.setSingleShot(true);
+    connect(&m_abandonedWaitNote, &QTimer::timeout, this, [this] {
+        // Only the refusal's own line; anything newer is not ours to clear.
+        if (!m_loggingIn && m_lastError == abandonedWaitText())
+            setLastError({});
+    });
 
     connect(m_client, &MatrixClient::loginSucceeded, this, [this](const QString &) {
         // Only a sign-in started through this manager was interactive; every
@@ -572,6 +572,12 @@ void AuthManager::cancelBrowserLogin()
     m_client->cancelSsoLogin();
 }
 
+QString AuthManager::abandonedWaitText()
+{
+    return tr("The server has not answered the cancelled sign-in yet. Try "
+              "again in a moment.");
+}
+
 bool AuthManager::refuseWhileAbandonedLoginRuns()
 {
     // A cancelled password sign-in's request still runs on the backend's
@@ -584,9 +590,13 @@ bool AuthManager::refuseWhileAbandonedLoginRuns()
     // reported as a failure for AppController to roll back.
     if (!m_abandonedLogin.isValid())
         return false;
-    if (!m_abandonedLogin.hasExpired(kAbandonedLoginBoundMs)) {
-        setLastError(tr("The server has not answered the cancelled sign-in "
-                        "yet. Try again in a moment."));
+    if (!m_abandonedLogin.hasExpired(m_abandonedLoginBoundMs)) {
+        setLastError(abandonedWaitText());
+        // After the bound the next start goes ahead, so the line must not
+        // stay on the form past it (it was seen for minutes).
+        const qint64 left =
+            m_abandonedLoginBoundMs - m_abandonedLogin.elapsed();
+        m_abandonedWaitNote.start(static_cast<int>(qMax<qint64>(left, 0) + 50));
         return true;
     }
     qCWarning(lcAuth) << "a cancelled password sign-in never answered; "

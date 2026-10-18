@@ -200,6 +200,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Installs no catalog until main.cpp calls applyStoredLanguage() before
     // the QML engine loads.
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
+    // The default QLocale follows the language, but QML timestamp bindings
+    // only re-run on a notify: clockTimeFormat reads the locale fresh, so
+    // announce it on a language change (the bindings that also call
+    // Qt.locale() then re-read that too).
+    connect(m_localization.get(), &LocalizationManager::languageChanged,
+            m_settings.get(), &SettingsManager::clockFormatChanged);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
     // Constructed before any QML exists so the first frame already carries
     // the user's bindings.

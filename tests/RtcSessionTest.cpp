@@ -188,6 +188,7 @@ private Q_SLOTS:
     void openingARoomReadsItsPermissionOnce();
     void aForbiddenRefusalBlocksTheLane();
     void aPokeClearsTheRefusalAndReReadsTheOpenRoom();
+    void anUnansweredPermissionReadDoesNotBlockTheReRead();
     void openingAnotherRoomDropsTheRefusal();
     void signOutForgetsPermissionAndRefusals();
     void onePermissionReadPerRoomAtATime();
@@ -1231,6 +1232,31 @@ void RtcSessionTest::aPokeClearsTheRefusalAndReReadsTheOpenRoom()
     QCOMPARE(controller.joinBlock(kRoom),
              RtcController::JoinBlock::NoPermission);
     Q_EMIT client.roomMemberEventSeen(kRoom);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+}
+
+void RtcSessionTest::anUnansweredPermissionReadDoesNotBlockTheReRead()
+{
+    // The Rust queue can drop the reply to a members read. The re-read that a
+    // raised power level asks for must still go out once that read times out,
+    // not wait on it until the room is reopened.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPermissionRereadMsForTest(5);
+    controller.setReadTimeoutMsForTest(30);
+    makeJoinable(controller, client);
+    controller.setCurrentRoom(kRoom, true);
+    Q_EMIT client.roomMembersReceived(95, kRoom, memberSnapshot(false));
+
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    QTRY_COMPARE(client.memberRequests.count(), 1);
+    // That read is never answered. A second poke (the power level changed
+    // again) finds it in flight and has to wait for it to time out.
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    QTRY_VERIFY(client.memberRequests.count() >= 2);
+    Q_EMIT client.roomMembersReceived(client.lastMembersOp, kRoom,
+                                      memberSnapshot(true));
     QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
 }
 

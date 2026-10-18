@@ -312,11 +312,9 @@ void RtcController::setCurrentRoom(const QString &roomId,
         requestPermissionRead(roomId);
 }
 
-void RtcController::requestPermissionRead(const QString &roomId)
+void RtcController::reapStalePermissionReads()
 {
-    if (!m_client || roomId.isEmpty())
-        return;
-    // Reap reads whose answer never came (the Rust queue can drop events).
+    // The Rust queue can drop events, so an answer may never come.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (auto it = m_permissionReads.begin(); it != m_permissionReads.end();) {
         if (m_readTimeoutMs > 0 && now - it->dispatchedAtMs > m_readTimeoutMs) {
@@ -326,8 +324,16 @@ void RtcController::requestPermissionRead(const QString &roomId)
             ++it;
         }
     }
+}
+
+void RtcController::requestPermissionRead(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty())
+        return;
+    reapStalePermissionReads();
     if (m_permissionRoomsBeingRead.contains(roomId))
         return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const quint64 opId = m_client->requestRoomMembers(roomId);
     if (opId == 0)
         return;
@@ -339,6 +345,10 @@ void RtcController::rereadCurrentRoomPermission()
 {
     if (m_currentRoom.isEmpty() || !supported())
         return;
+    // Without this a read whose answer was dropped would postpone the
+    // re-read for ever, and the gate would only clear when the room is
+    // reopened.
+    reapStalePermissionReads();
     if (m_permissionRoomsBeingRead.contains(m_currentRoom)) {
         // The answer in flight may predate the change; ask again after it.
         m_permissionRereadTimer.start(m_permissionRereadMs);

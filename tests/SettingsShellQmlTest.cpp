@@ -4936,6 +4936,82 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+    // "call keys" found nothing though the control is labelled "Use call keys
+    // from any window". Old code: no such index entry, so no hit. The entry
+    // is Linux-only (the card is `visible: Qt.platform.os === "linux"`), so
+    // elsewhere it must not be offered.
+    void callKeysIsFindableInSettingsSearch()
+    {
+        openSection(QStringLiteral("shortcuts"));
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(screen && search);
+        search->setProperty("text", QStringLiteral("call keys"));
+        QCoreApplication::processEvents();
+        bool found = false;
+        const QVariantList hits = screen->property("matchedSearchResults").toList();
+        for (const QVariant &hit : hits) {
+            found = found
+                || hit.toMap().value(QStringLiteral("anchor")).toString()
+                       == QStringLiteral("globalShortcutsCheck");
+        }
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+#ifdef Q_OS_LINUX
+        QVERIFY2(found, "searching Settings for \"call keys\" finds nothing");
+        // The hit must land on a real control.
+        QVERIFY2(item("globalShortcutsCheck"),
+                 "the call-keys search anchor is not a live control");
+#else
+        QVERIFY2(!found, "the Linux-only call-keys entry is offered elsewhere");
+#endif
+    }
+
+    // German "Datenschutz & Sicherheit" was cut to "Datenschutz & Sicherh…"
+    // in the 260 px nav column (live 0.10.2 capture). Old code: the label is
+    // wider than its slot at 260, so implicitWidth > width.
+    void theLongestGermanNavLabelFitsItsRow()
+    {
+        openSection(QStringLiteral("privacy"));
+        auto *column = item("settingsNavColumn");
+        auto *row = item("settingsNavRow_privacy");
+        QVERIFY(column && row);
+        QCOMPARE(column->width(), 300.0);
+        QQuickItem *label = nullptr;
+        const auto children =
+            row->property("contentItem").value<QQuickItem *>()->childItems();
+        for (QQuickItem *child : children) {
+            if (child->property("elide").isValid())
+                label = child;
+        }
+        QVERIFY2(label, "the nav row has no elided label");
+        const QString original = label->property("text").toString();
+        label->setProperty("text", QStringLiteral("Datenschutz & Sicherheit"));
+        QCoreApplication::processEvents();
+        const qreal need = label->property("implicitWidth").toReal();
+        const qreal have = label->width();
+        label->setProperty("text", original);
+        QVERIFY2(need <= have,
+                 qPrintable(QStringLiteral("label needs %1 px, row gives %2")
+                                .arg(need).arg(have)));
+    }
+
+    // Dates follow the chosen language: bindings re-run on clockFormatChanged,
+    // so a language switch must announce it. Old code: no connect, no signal.
+    void switchingLanguageAnnouncesTheClockFormat()
+    {
+        auto *loc = m_controller->localization();
+        const QString before = loc->language();
+        const QString other = before == QStringLiteral("es")
+            ? QStringLiteral("system") : QStringLiteral("es");
+        QSignalSpy clock(m_controller->settings(),
+                         &SettingsManager::clockFormatChanged);
+        loc->setLanguage(other);
+        const int count = clock.count();
+        loc->setLanguage(before);
+        QVERIFY2(count >= 1, "a language switch did not announce clockFormatChanged");
+    }
+
     void theNavIsGroupedUserInterfaceBehaviorAbout()
     {
         openSection(QStringLiteral("appearance"));

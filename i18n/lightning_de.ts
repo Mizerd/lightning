@@ -20238,7 +20238,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+22" />
         <source>Search settings…</source>
-        <translation>Einstellungen durchsuchen …</translation>
+        <translation>Einstellungen suchen …</translation>
     </message>
     <message>
         <location line="+1" />

@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 
 #include <functional>
@@ -199,6 +200,10 @@ Q_SIGNALS:
     /// current one; nothing was signed out.
     void logoutAbandoned();
 
+public:
+    // Test hook: shortens the abandoned-sign-in bound.
+    void setAbandonedLoginBoundMsForTest(qint64 ms) { m_abandonedLoginBoundMs = ms; }
+
 private:
     void setLoggingIn(bool v);
     void setLastError(const QString &err);
@@ -210,6 +215,7 @@ private:
     // True (and says so on the form) while a cancelled password sign-in's
     // request may still answer; every sign-in start asks it first.
     bool refuseWhileAbandonedLoginRuns();
+    static QString abandonedWaitText();
     // Runs a discovery asked for while a browser sign-in was in flight.
     void runDeferredDiscovery();
     // Refuses a sign-in whose server text is not an address, without asking
@@ -251,8 +257,16 @@ private:
     // still runs in the backend: a new password sign-in would open the same
     // store under it, and its answer would land in a browser sign-in started
     // meanwhile. So every start waits for any terminal answer (the abandoned
-    // one, or a restore that replaced it), at most kAbandonedLoginBoundMs.
+    // one, or a restore that replaced it), at most m_abandonedLoginBoundMs.
     QElapsedTimer m_abandonedLogin;
+    // Clears the "has not answered yet" line once the bound is over, so it
+    // does not outlive the wait it describes.
+    QTimer m_abandonedWaitNote;
+    // How long a new sign-in waits for a cancelled one to answer. The request
+    // gave up in under two minutes in the 2026-10-15 break-it run (/login held
+    // for 130 s: "reason= timeout"); past the bound the new attempt goes ahead
+    // and replaces the old handle, rather than locking sign-in for the session.
+    qint64 m_abandonedLoginBoundMs = 150 * 1000;
     // A discovery asked for during a browser sign-in, run when it ends.
     bool m_discoveryDeferred = false;
     QString m_deferredDiscovery;
