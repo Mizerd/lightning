@@ -58,8 +58,33 @@
 #include <limits>
 
 Q_LOGGING_CATEGORY(lcRust, "matrix.rust")
+// LIGHTNING_TOKEN_TRACE: session-token rotations, where and when each was
+// written, and why a session was declared signed out. Generations, outcomes,
+// backend names and milliseconds only, never a token or a digest of one.
+Q_LOGGING_CATEGORY(lcTokenTrace, "lightning.auth.tokentrace")
 
 namespace {
+
+// Read once, by the same rule as the other traces; rust/src/sessiontokens.rs
+// reads the same variable, so both halves switch on together.
+bool tokenTraceEnabled()
+{
+    static const bool enabled =
+        lightning::switchtrace::enabledFromEnvValue(qgetenv("LIGHTNING_TOKEN_TRACE"));
+    return enabled;
+}
+
+const char *liveWriteWord(lightning::accounts::custody::LiveWrite outcome)
+{
+    using lightning::accounts::custody::LiveWrite;
+    switch (outcome) {
+    case LiveWrite::Written: return "written";
+    case LiveWrite::WriteFailed: return "write_failed";
+    case LiveWrite::SkippedRotatedPast: return "skipped_rotated_past";
+    case LiveWrite::SkippedNoOwner: return "skipped_no_owner";
+    }
+    return "unknown";
+}
 
 QString takeRustString(char *raw)
 {
@@ -760,6 +785,8 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
         // shutdown above) is only here: lost, the next start presents a used
         // refresh token and an OAuth server refuses the whole sign-in.
         bool handedBack = false;
+        // SENSITIVE: never log `handedBackAccess`.
+        QString handedBackAccess;
         if (tracked) {
             // SENSITIVE: never log `json` or `tokens`.
             const QString json = takeRustString(mx_rust_final_session_tokens(handle));
@@ -771,8 +798,15 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                     signIn.userId, signIn.deviceId, signIn.accessDigest,
                     tokens.accessToken, tokens.refreshToken});
                 handedBack = true;
+                handedBackAccess = tokens.accessToken;
             }
         }
+        // matrix-sdk's own tasks (send queue, backup downloads, E2EE
+        // initialization) hold the Client and can still refresh until the
+        // destroy below shuts the runtime down; the token watcher is already
+        // gone. Every rotation is in the ledger (rust/src/sessiontokens.rs),
+        // which outlives the handle: read it once nothing can rotate.
+        void *ledger = tracked ? mx_rust_token_ledger_retain(handle) : nullptr;
         teardown.restart();
         // Drops the client inside its runtime, shuts the runtime down and
         // then waits, bounded, until every SQLite store the account opened
@@ -783,12 +817,53 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
         // runtime_shutdown=completed|timed_out|shared".
         const QString released = takeRustString(mx_rust_destroy_and_report(handle));
         const qint64 destroyMs = teardown.elapsed();
+        bool rotatedWhileClosing = false;
+        if (ledger) {
+            // SENSITIVE: never log `json` or `latest`.
+            const QString json = takeRustString(mx_rust_token_ledger_latest(ledger));
+            mx_rust_token_ledger_release(ledger);
+            const lightning::accounts::SessionTokenPair latest =
+                custody::parseFinalSessionTokens(json);
+            const QByteArray latestDigest = custody::accessTokenDigest(latest.accessToken);
+            if (!latest.accessToken.isEmpty()
+                && latestDigest != custody::accessTokenDigest(handedBackAccess)
+                && custody::needsHandback(latest.accessToken, signIn.accessDigest)) {
+                rotatedWhileClosing = true;
+                QMutexLocker lock(&retiredSignIns().mutex);
+                QList<RetiredSignIn> &waiting = retiredSignIns().waiting;
+                bool replaced = false;
+                for (RetiredSignIn &entry : waiting) {
+                    // The pair handed back above, still waiting: the newer
+                    // one takes its place, over the same keyring expectation.
+                    if (handedBack && entry.userId == signIn.userId
+                        && entry.deviceId == signIn.deviceId
+                        && entry.accessToken == handedBackAccess) {
+                        entry.accessToken = latest.accessToken;
+                        entry.refreshToken = latest.refreshToken;
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) {
+                    // Nothing waiting: the keyring holds what this handle last
+                    // wrote, or, if the pair above was already written back
+                    // (a quit that stopped waiting), that pair.
+                    waiting.append(RetiredSignIn{
+                        signIn.userId, signIn.deviceId,
+                        handedBack ? custody::accessTokenDigest(handedBackAccess)
+                                   : signIn.accessDigest,
+                        latest.accessToken, latest.refreshToken});
+                }
+                handedBack = true;
+            }
+        }
         qCInfo(lcRust) << "rust client retired off the GUI thread"
                        << shutdown
                        << "shutdown_ms=" << shutdownMs
                        << "destroy_ms=" << destroyMs
                        << "teardown_total_ms=" << (shutdownMs + destroyMs)
                        << "sign_in_rotated_since_last_write=" << handedBack
+                       << "rotated_while_closing=" << rotatedWhileClosing
                        << released;
         if (!released.startsWith(QLatin1String("store_closed=true")))
             qCWarning(lcRust) << "rust client retired without confirming its "
@@ -5905,8 +5980,37 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             currentAccess = custody::parseFinalSessionTokens(current).accessToken;
         }
         SettingsTokenStore settingsStore(m_settings);
-        switch (custody::writeLive(m_settings ? &settingsStore : nullptr, tokenOwner,
-                                   currentAccess, rotated)) {
+        QElapsedTimer writeTimer;
+        writeTimer.start();
+        const custody::LiveWrite outcome = custody::writeLive(
+            m_settings ? &settingsStore : nullptr, tokenOwner, currentAccess, rotated);
+        const qint64 writeMs = writeTimer.elapsed();
+        // The rotation's own number, from matrix-sdk's save callback: the
+        // answer releases the refresh, which holds the request it will retry
+        // with the new access token until now (rust/src/sessiontokens.rs).
+        // A refused write answers too: the retry machinery below takes over.
+        const qint64 generation = event.value(QStringLiteral("generation")).toInteger(0);
+        const custody::PersistAnswer answer = custody::persistAnswerFor(outcome);
+        if (generation > 0 && m_rustHandle && answer != custody::PersistAnswer::None) {
+            mx_rust_session_tokens_persisted(
+                m_rustHandle, static_cast<quint64>(generation),
+                answer == custody::PersistAnswer::Saved ? 1 : 0);
+        }
+        if (tokenTraceEnabled()) {
+            qCInfo(lcTokenTrace) << "rotation"
+                                 << "generation=" << generation
+                                 << "write=" << liveWriteWord(outcome)
+                                 << "write_ms=" << writeMs
+                                 << "store=" << (m_settings ? m_settings->secretBackendName()
+                                                            : QString())
+                                 << "recorded_backend="
+                                 << (m_settings && !tokenOwner.isEmpty()
+                                         ? m_settings->keyringBackendFor(tokenOwner)
+                                         : QString())
+                                 << "has_refresh_token=" << !rotated.refreshToken.isEmpty()
+                                 << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+        }
+        switch (outcome) {
         case custody::LiveWrite::SkippedRotatedPast:
             qCInfo(lcRust) << "skipped a rotation the session has already "
                               "rotated past"
@@ -5982,6 +6086,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // leave "Remove", which deletes it, as the only way on.
         const lightning::accounts::RevocationClassification classified =
             lightning::accounts::classifyRevocation(facts, keyringHoldsOrCannotTell);
+        // Why, in one word, for the log lines below (RevocationProofs.h).
+        lightning::accounts::SignOutFacts causeFacts;
+        causeFacts.hadRefreshToken = facts.hadRefreshToken;
+        if (event.value(QStringLiteral("rotations")).isDouble())
+            causeFacts.rotations = event.value(QStringLiteral("rotations")).toInteger();
+        if (event.value(QStringLiteral("unsaved_rotation")).isBool())
+            causeFacts.unsavedRotation = event.value(QStringLiteral("unsaved_rotation")).toBool();
+        const char *cause = lightning::accounts::signOutCause(causeFacts);
+        const qint64 sinceRotationMs =
+            event.value(QStringLiteral("since_rotation_ms")).toInteger(-1);
         const bool softLogoutReported = classified.softLogoutReported;
         if (classified.outcome
             == lightning::accounts::RevocationOutcome::KeyringHoldsOrCannotTell) {
@@ -5993,7 +6107,8 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             qCInfo(lcRust) << "session credential rejected and could not be renewed"
                            << "slug=" << matrix::app_data::safeUserSlug(user)
                            << "oauth=" << true << "had_refresh_token=false"
-                           << "keyring_holds_one_or_cannot_tell=" << true;
+                           << "keyring_holds_one_or_cannot_tell=" << true
+                           << "cause=" << cause;
             Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
                                        user, server);
             Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
@@ -6057,10 +6172,39 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                        << "had_refresh_token="
                        << (hadRefresh.isBool()
                                ? (hadRefresh.toBool() ? "true" : "false")
-                               : "unknown");
+                               : "unknown")
+                       << "cause=" << cause
+                       << "rotations=" << causeFacts.rotations.value_or(-1)
+                       << "since_rotation_ms=" << sinceRotationMs;
+        if (tokenTraceEnabled()) {
+            const QString owner = tokenOwnerForRunningSession();
+            qCInfo(lcTokenTrace) << "declared signed out"
+                                 << "cause=" << cause
+                                 << "outcome=" << (hardLogout ? "hard" : softLogout ? "soft"
+                                                                                    : "unproven")
+                                 << "unsaved_rotation="
+                                 << causeFacts.unsavedRotation.value_or(false)
+                                 << "persisted_digest_known=" << !m_persistedAccessDigest.isEmpty()
+                                 << "write_retry_pending=" << m_tokenWriteRetry.isActive()
+                                 << "store=" << (m_settings ? m_settings->secretBackendName()
+                                                            : QString())
+                                 << "recorded_backend="
+                                 << (m_settings && !owner.isEmpty()
+                                         ? m_settings->keyringBackendFor(owner) : QString())
+                                 << "slug=" << matrix::app_data::safeUserSlug(revokedUser);
+        }
         Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
                                    revokedUser, revokedServer);
         Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
+        return;
+    }
+
+    if (type == QLatin1String("token_trace")) {
+        // Rust's half of LIGHTNING_TOKEN_TRACE (sessiontokens.rs): words,
+        // counts and milliseconds by construction, never a token.
+        if (tokenTraceEnabled())
+            qCInfo(lcTokenTrace).noquote()
+                << "rust" << QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
         return;
     }
 

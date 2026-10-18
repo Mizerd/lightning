@@ -271,8 +271,9 @@ pub(crate) fn sdk_failure_reason(err: &matrix_sdk::Error) -> String {
 pub(crate) fn spawn_token_persistence(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    ledger: Option<Arc<crate::sessiontokens::TokenLedger>>,
 ) -> tokio::task::JoinHandle<()> {
-    spawn_token_persistence_with(client, client.subscribe_to_session_changes(), events)
+    spawn_token_persistence_with(client, client.subscribe_to_session_changes(), events, ledger)
 }
 
 /// `spawn_token_persistence` over a receiver subscribed EARLIER. A broadcast
@@ -282,17 +283,26 @@ pub(crate) fn spawn_token_persistence(
 /// access token, usually an expired one for OAuth, and so refresh. A receiver
 /// made after that misses the rotation, and the keyring keeps the consumed
 /// refresh token until the next one. Subscribe before restoring.
+///
+/// With `ledger` whose save callback is installed on this client
+/// (sessiontokens.rs), rotations are announced there, inside the refresh, and
+/// this watcher only reports revocations; it still announces them itself when
+/// the callback could not be installed, or for a client without a ledger.
 #[must_use]
 pub(crate) fn spawn_token_persistence_with(
     client: &Client,
     mut changes: tokio::sync::broadcast::Receiver<SessionChange>,
     events: Arc<Mutex<VecDeque<String>>>,
+    ledger: Option<Arc<crate::sessiontokens::TokenLedger>>,
 ) -> tokio::task::JoinHandle<()> {
     let client = client.clone();
     tokio::spawn(async move {
         loop {
             match changes.recv().await {
                 Ok(SessionChange::TokensRefreshed) => {
+                    if ledger.as_ref().is_some_and(|l| l.callbacks_active()) {
+                        continue;
+                    }
                     let Some(tokens) = client.session_tokens() else { continue };
                     enqueue(
                         &events,
@@ -315,14 +325,26 @@ pub(crate) fn spawn_token_persistence_with(
                     let had_refresh_token = client
                         .session_tokens()
                         .is_some_and(|tokens| tokens.refresh_token.is_some());
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "session_token_revoked",
-                            "soft_logout": data.soft_logout,
-                            "had_refresh_token": had_refresh_token,
-                        }),
-                    );
+                    let mut event = json!({
+                        "type": "session_token_revoked",
+                        "soft_logout": data.soft_logout,
+                        "had_refresh_token": had_refresh_token,
+                    });
+                    // Why the server may have refused: counts and a boolean,
+                    // never a token. `rotations` 0 means the refused refresh
+                    // token is the one this session was restored with (from
+                    // the keyring); `unsaved_rotation` that the session had
+                    // rotated past the last pair C++ confirmed in the keyring.
+                    if let Some(stats) = ledger.as_ref().map(|l| l.stats()) {
+                        if let Some(map) = event.as_object_mut() {
+                            map.insert("rotations".to_owned(), json!(stats.rotations));
+                            map.insert("unsaved_rotation".to_owned(),
+                                       json!(stats.unsaved_rotation));
+                            map.insert("since_rotation_ms".to_owned(),
+                                       json!(stats.since_rotation_ms));
+                        }
+                    }
+                    enqueue(&events, event);
                 }
                 // Lagged only means missed notifications; the next carries current tokens.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -754,8 +776,10 @@ pub(crate) async fn restore_oauth_client(
     store_path: &std::path::Path,
     session: OAuthSession,
     events: &Arc<Mutex<VecDeque<String>>>,
+    token_sink: Option<&crate::sessiontokens::Sink>,
 ) -> Result<(Client, tokio::sync::broadcast::Receiver<SessionChange>), String> {
-    restore_oauth_client_then(homeserver, store_path, session, events, |_| async {}).await
+    restore_oauth_client_then(homeserver, store_path, session, events, token_sink, |_| async {})
+        .await
 }
 
 /// `restore_oauth_client` with `after_restore` run right after
@@ -766,6 +790,7 @@ pub(crate) async fn restore_oauth_client_then<F, Fut>(
     store_path: &std::path::Path,
     session: OAuthSession,
     events: &Arc<Mutex<VecDeque<String>>>,
+    token_sink: Option<&crate::sessiontokens::Sink>,
     after_restore: F,
 ) -> Result<(Client, tokio::sync::broadcast::Receiver<SessionChange>), String>
 where
@@ -775,6 +800,12 @@ where
     // The offline-capable build, as for password restores (see
     // build_client_for_restore).
     let client = crate::build_client_for_restore(homeserver, store_path, events).await?;
+    // The SDK's save callback, before restore_session(): every rotation this
+    // client makes, the restore's own included, is recorded and announced
+    // inside the refresh, and held until C++ has written it.
+    if let Some(sink) = token_sink {
+        sink.install_on(&client);
+    }
     let changes = client.subscribe_to_session_changes();
     if let Err(err) = crate::switchtrace::timed(
         Some(crate::switchtrace::RestoreStep::Restore),
@@ -839,6 +870,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let store_path = bridge.store_path.clone();
         let client_slot = Arc::clone(&bridge.client);
         let token_task = Arc::clone(&bridge.token_task);
+        let token_sink = bridge.token_sink();
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
@@ -867,7 +899,8 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                         },
                     },
                 };
-                match restore_oauth_client(&homeserver, &store_path, session, &events).await {
+                match restore_oauth_client(
+                    &homeserver, &store_path, session, &events, Some(&token_sink)).await {
                     Ok((client, changes)) => {
                         install_event_handlers(
                             &client,
@@ -881,7 +914,8 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
                                 spawn_token_persistence_with(
-                                    &client, changes, Arc::clone(&events)))
+                                    &client, changes, Arc::clone(&events),
+                                    Some(Arc::clone(&token_sink.ledger))))
                             {
                                 previous.abort();
                             }
@@ -1730,7 +1764,7 @@ mod token_persistence_tests {
         changes: tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>,
     ) -> Vec<serde_json::Value> {
         let events = Arc::new(Mutex::new(VecDeque::new()));
-        let watcher = spawn_token_persistence_with(client, changes, Arc::clone(&events));
+        let watcher = spawn_token_persistence_with(client, changes, Arc::clone(&events), None);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while refreshed(&events).is_empty() && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1764,7 +1798,7 @@ mod token_persistence_tests {
             client.refresh_access_token().await.expect("refresh");
 
             let late_events = Arc::new(Mutex::new(VecDeque::new()));
-            let late = spawn_token_persistence(&client, Arc::clone(&late_events));
+            let late = spawn_token_persistence(&client, Arc::clone(&late_events), None);
             let early_seen = announced(&client, early).await;
             late.abort();
             assert_eq!(early_seen.len(), 1, "the early receiver missed the rotation");
@@ -1791,6 +1825,7 @@ mod token_persistence_tests {
                 &store,
                 MatrixSession { meta: meta(), tokens: tokens() },
                 &events,
+                None,
                 |client| async move {
                     client.refresh_access_token().await.expect("refresh");
                 },
@@ -1823,6 +1858,7 @@ mod token_persistence_tests {
                 &store,
                 session,
                 &events,
+                None,
                 |client| async move {
                     client.refresh_access_token().await.expect("oauth refresh");
                 },

@@ -9,6 +9,17 @@ bool revocationNeedsKeyringProbe(const RevocationEventFacts &f)
     return f.oauthSession && f.hadRefreshToken.has_value() && !*f.hadRefreshToken;
 }
 
+const char *signOutCause(const SignOutFacts &f)
+{
+    if (f.hadRefreshToken.has_value() && !*f.hadRefreshToken)
+        return "no_refresh_token";
+    if (!f.rotations.has_value() || !f.unsavedRotation.has_value())
+        return "refused_unknown";
+    if (*f.rotations <= 0)
+        return "refused_restored_token";
+    return *f.unsavedRotation ? "refused_after_unsaved_rotation" : "refused_saved_token";
+}
+
 RevocationClassification classifyRevocation(const RevocationEventFacts &f,
                                             bool keyringHoldsOrCannotTell)
 {

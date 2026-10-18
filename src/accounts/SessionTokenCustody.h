@@ -47,6 +47,15 @@ enum class LiveWrite : quint8 { Written, WriteFailed, SkippedRotatedPast, Skippe
 LiveWrite writeLive(TokenStore *store /*nullable*/, const QString &tokenOwner,
                     const QString &currentAccess, const SessionTokenPair &rotated);
 
+// What the session_tokens_refreshed handler tells Rust about a rotation
+// (mx_rust_session_tokens_persisted), which ends that rotation's wait inside
+// matrix-sdk's refresh (rust/src/sessiontokens.rs). A refused or ownerless
+// write still answers, NotSaved, so a keyring failure never holds sync for
+// the wait's bound; only Saved claims the pair is in the keyring. A rotation
+// the session has already rotated past has nothing waiting on it: None.
+enum class PersistAnswer : quint8 { None, Saved, NotSaved };
+PersistAnswer persistAnswerFor(LiveWrite outcome);
+
 // retryRotatedTokenWrite: write only when currentAccess non-empty and its digest != persisted.
 bool retryWriteNeeded(const QString &currentAccess, const QByteArray &persistedDigest);
 

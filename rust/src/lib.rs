@@ -105,6 +105,7 @@ mod mediastore;
 mod cachelayout;
 mod storelocking;
 mod sendrecovery;
+mod sessiontokens;
 mod namecolor;
 mod widgets;
 mod oauth;
@@ -283,6 +284,10 @@ struct RustClient {
     // Session-token persistence watcher (oauth::spawn_token_persistence), held
     // so shutdown can abort it; it holds a strong Client.
     token_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    // Every rotation this handle's clients make, recorded inside matrix-sdk's
+    // own refresh (sessiontokens.rs). Outlives the Client: the retiring
+    // worker reads it after the runtime is shut down.
+    token_ledger: Arc<sessiontokens::TokenLedger>,
     // (flow_id, qr): the show-QR half of the single-flow policy. At most one of
     // active_sas / active_qr is occupied for a request.
     active_qr: Arc<Mutex<Option<(String, QrVerification)>>>,
@@ -378,6 +383,7 @@ impl RustClient {
             active_sas: Arc::new(Mutex::new(None)),
             oauth_state: Arc::new(Mutex::new(None)),
             token_task: Arc::new(Mutex::new(None)),
+            token_ledger: sessiontokens::TokenLedger::new(),
             active_qr: Arc::new(Mutex::new(None)),
             verification_tasks: Mutex::new(Vec::new()),
             verification_shutdown: Arc::new(AtomicBool::new(false)),
@@ -397,6 +403,15 @@ impl RustClient {
 
     fn enqueue(&self, value: serde_json::Value) {
         enqueue(&self.events, value);
+    }
+
+    /// Where this handle's next client sends its rotations (sessiontokens.rs).
+    fn token_sink(&self) -> sessiontokens::Sink {
+        sessiontokens::Sink {
+            ledger: Arc::clone(&self.token_ledger),
+            lane: Arc::clone(&self.command_events),
+            events: Arc::clone(&self.events),
+        }
     }
 
     /// A UIA challenge belongs to the session that raised it: at a session
@@ -500,6 +515,11 @@ impl RustClient {
     fn shutdown_managed_tasks(&self)
         -> (bool, bool, usize, usize, u64, u64, u64) {
         let total = std::time::Instant::now();
+        // From here nothing drains or answers: a refresh during the joins
+        // below must not hold its save callback open for the GUI thread that
+        // is blocked in them. Rotations are still recorded in the ledger,
+        // which the retiring worker reads once the runtime is gone.
+        self.token_ledger.stop_waiting();
         // Stop the indexer first and close its connection: an open SQLite handle
         // in the store directory makes the deletion fail on Windows.
         //
@@ -1335,6 +1355,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let session_file = Arc::clone(&bridge.session_file);
         let client_slot = Arc::clone(&bridge.client);
         let token_task = Arc::clone(&bridge.token_task);
+        let token_sink = bridge.token_sink();
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
@@ -1348,6 +1369,8 @@ pub unsafe extern "C" fn mx_rust_login(
             run_async_on(shared_runtime, runtime_events, "login", async move {
                 match build_client(&homeserver, &store_path).await {
                     Ok(client) => {
+                        // Before the login: every rotation goes through it.
+                        token_sink.install_on(&client);
                         install_event_handlers(
                             &client,
                             Arc::clone(&events),
@@ -1390,7 +1413,8 @@ pub unsafe extern "C" fn mx_rust_login(
                                 if let Ok(mut guard) = token_task.lock() {
                                     if let Some(previous) = guard.replace(
                                         oauth::spawn_token_persistence(
-                                            &client, Arc::clone(&events)))
+                                            &client, Arc::clone(&events),
+                                            Some(Arc::clone(&token_sink.ledger))))
                                     {
                                         previous.abort();
                                     }
@@ -1519,7 +1543,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                 }
 
                 match restore_client_with_session(
-                    &homeserver, &store_path, stored.session.clone(), &events)
+                    &homeserver, &store_path, stored.session.clone(), &events, None)
                     .await
                 {
                     // The smoke-session path persists no rotations.
@@ -1609,6 +1633,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
         let token_task = Arc::clone(&bridge.token_task);
+        let token_sink = bridge.token_sink();
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "restore",
@@ -1621,6 +1646,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                     access_token,
                     refresh_token,
                     &events,
+                    Some(&token_sink),
                 )
                 .await
                 {
@@ -1638,7 +1664,8 @@ pub unsafe extern "C" fn mx_rust_restore(
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
                                 oauth::spawn_token_persistence_with(
-                                    &client, changes, Arc::clone(&events)))
+                                    &client, changes, Arc::clone(&events),
+                                    Some(Arc::clone(&token_sink.ledger))))
                             {
                                 previous.abort();
                             }
@@ -3663,6 +3690,9 @@ pub unsafe extern "C" fn mx_rust_poll_event(ptr: *mut c_void) -> *mut c_char {
 pub unsafe extern "C" fn mx_rust_poll_command_event(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        // The GUI thread is draining: a rotation waiting for its keyring
+        // write can expect an answer (sessiontokens::DRAIN_STALL).
+        bridge.token_ledger.note_drain();
         let event = bridge
             .command_events
             .lock()
@@ -11009,7 +11039,10 @@ pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char
 
 /// The session's current tokens as `{"access_token","refresh_token"}`, or an
 /// empty string when there is no session. Called by the retiring worker after
-/// `mx_rust_shutdown_tasks`, so no request can rotate them afterwards.
+/// `mx_rust_shutdown_tasks`. matrix-sdk's own tasks (the send queue, backup
+/// downloads, E2EE initialization) can still refresh until the runtime is
+/// shut down, so the worker prefers the ledger's pair read AFTER
+/// `mx_rust_destroy_and_report` (`mx_rust_token_ledger_latest`).
 /// SENSITIVE: carries credentials; C++ writes them to the SecretStore and
 /// nothing logs them.
 #[no_mangle]
@@ -11018,6 +11051,64 @@ pub unsafe extern "C" fn mx_rust_final_session_tokens(ptr: *mut c_void) -> *mut 
         let bridge = unsafe { bridge(ptr)? };
         Ok(final_session_tokens_json(bridge.final_session_tokens()))
     })
+}
+
+/// C++'s answer for the rotation `generation` (the `session_tokens_refreshed`
+/// event's own field): `saved` non-zero when the pair is in the keyring, zero
+/// when the keyring refused it or no account owns it. Ends that rotation's
+/// wait inside matrix-sdk's refresh (sessiontokens.rs). Holds no secret.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_session_tokens_persisted(
+    ptr: *mut c_void,
+    generation: u64,
+    saved: c_int,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(bridge) = unsafe { bridge(ptr) } {
+            bridge.token_ledger.answer(generation, saved != 0);
+        }
+    }));
+}
+
+/// A reference to this handle's token ledger that outlives the handle, for
+/// the retiring worker: taken before `mx_rust_destroy_and_report`, read after
+/// it with `mx_rust_token_ledger_latest`, released with
+/// `mx_rust_token_ledger_release`. Null for a null handle.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_token_ledger_retain(ptr: *mut c_void) -> *mut c_void {
+    catch_unwind(AssertUnwindSafe(|| match unsafe { bridge(ptr) } {
+        Ok(bridge) => Arc::into_raw(Arc::clone(&bridge.token_ledger)) as *mut c_void,
+        Err(_) => std::ptr::null_mut(),
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// The pair the handle's last client rotated to, as `final_session_tokens`
+/// formats it; "" when that client never rotated. Read after the handle was
+/// destroyed, when its runtime is shut down and nothing can rotate again.
+/// SENSITIVE: carries credentials; never log the result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_token_ledger_latest(ledger: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        if ledger.is_null() {
+            return Ok(String::new());
+        }
+        // Borrowed: the reference taken by `mx_rust_token_ledger_retain` stays
+        // with the caller until it releases it.
+        let ledger = unsafe { &*(ledger as *const sessiontokens::TokenLedger) };
+        Ok(final_session_tokens_json(ledger.latest()))
+    })
+}
+
+/// Release a reference taken by `mx_rust_token_ledger_retain`. Null is a
+/// no-op.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_token_ledger_release(ledger: *mut c_void) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if !ledger.is_null() {
+            drop(unsafe { Arc::from_raw(ledger as *const sessiontokens::TokenLedger) });
+        }
+    }));
 }
 
 fn final_session_tokens_json(tokens: Option<matrix_sdk::SessionTokens>) -> String {
@@ -11451,6 +11542,7 @@ async fn restore_client(
     access_token: String,
     refresh_token: Option<String>,
     events: &Arc<Mutex<VecDeque<String>>>,
+    token_sink: Option<&sessiontokens::Sink>,
 ) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String> {
     let user_id: OwnedUserId = UserId::parse(user_id)
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
@@ -11462,7 +11554,7 @@ async fn restore_client(
         meta: SessionMeta { user_id, device_id },
         tokens: SessionTokens { access_token, refresh_token },
     };
-    restore_client_with_session(homeserver, store_path, session, events).await
+    restore_client_with_session(homeserver, store_path, session, events, token_sink).await
 }
 
 /// How long a restore's discovering client build may take before falling
@@ -11534,9 +11626,12 @@ async fn restore_client_with_session(
     store_path: &Path,
     session: MatrixSession,
     events: &Arc<Mutex<VecDeque<String>>>,
+    token_sink: Option<&sessiontokens::Sink>,
 ) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String> {
-    restore_client_with_session_then(homeserver, store_path, session, events, |_| async {})
-        .await
+    restore_client_with_session_then(
+        homeserver, store_path, session, events, token_sink, |_| async {},
+    )
+    .await
 }
 
 /// `restore_client_with_session` with `after_restore` run right after
@@ -11547,6 +11642,7 @@ pub(crate) async fn restore_client_with_session_then<F, Fut>(
     store_path: &Path,
     session: MatrixSession,
     events: &Arc<Mutex<VecDeque<String>>>,
+    token_sink: Option<&sessiontokens::Sink>,
     after_restore: F,
 ) -> Result<(Client, tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>), String>
 where
@@ -11554,6 +11650,10 @@ where
     Fut: std::future::Future<Output = ()>,
 {
     let client = build_client_for_restore(homeserver, store_path, events).await?;
+    // Before restore_session(), whose E2EE task can already refresh.
+    if let Some(sink) = token_sink {
+        sink.install_on(&client);
+    }
     let changes = client.subscribe_to_session_changes();
     switchtrace::timed(
         Some(switchtrace::RestoreStep::Restore),

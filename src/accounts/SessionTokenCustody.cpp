@@ -54,6 +54,20 @@ LiveWrite writeLive(TokenStore *store, const QString &tokenOwner,
         : LiveWrite::WriteFailed;
 }
 
+PersistAnswer persistAnswerFor(LiveWrite outcome)
+{
+    switch (outcome) {
+    case LiveWrite::Written:
+        return PersistAnswer::Saved;
+    case LiveWrite::WriteFailed:
+    case LiveWrite::SkippedNoOwner:
+        return PersistAnswer::NotSaved;
+    case LiveWrite::SkippedRotatedPast:
+        break;
+    }
+    return PersistAnswer::None;
+}
+
 bool retryWriteNeeded(const QString &currentAccess, const QByteArray &persistedDigest)
 {
     return !(currentAccess.isEmpty() || accessTokenDigest(currentAccess) == persistedDigest);

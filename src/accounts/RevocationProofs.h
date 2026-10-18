@@ -44,6 +44,29 @@ struct RevocationClassification {
 RevocationClassification classifyRevocation(const RevocationEventFacts &f,
                                             bool keyringHoldsOrCannotTell);
 
+// Why a session_token_revoked was declared, for the log line that ends a
+// session and for LIGHTNING_TOKEN_TRACE (a word, never a token). matrix-sdk
+// sends that event for an OAuth session only when the authorization server
+// answered invalid_grant or it held no refresh token: a network error, a 5xx,
+// a timeout or an unreachable token endpoint never reaches it (matrix-sdk
+// 0.18 client/futures.rs). The Rust event's ledger counts
+// (rust/src/sessiontokens.rs) then tell the refusals apart:
+//   no_refresh_token         - nothing to renew with;
+//   refused_restored_token   - the refresh token read from the keyring at this
+//                              start: ended while Lightning was closed, or a
+//                              rotation an earlier run failed to save;
+//   refused_after_unsaved_rotation - refused after this session rotated past
+//                              the last pair the keyring confirmed: likely ours;
+//   refused_saved_token      - refused a pair the keyring holds: ended on the
+//                              server (another client, an admin, expiry);
+//   refused_unknown          - an event without the counts.
+struct SignOutFacts {
+    std::optional<bool> hadRefreshToken;
+    std::optional<qint64> rotations;
+    std::optional<bool> unsavedRotation;
+};
+const char *signOutCause(const SignOutFacts &f);
+
 // Per-uid proof map (AppController-owned, process memory, never persisted).
 //
 // The client's single-slot fields (m_revokedUserId/DeviceId, m_softLogout*)

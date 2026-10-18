@@ -1815,6 +1815,17 @@ if(BUILD_TESTING)
     target_link_libraries(session-token-custody-parity-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME session-token-custody-parity COMMAND session-token-custody-parity-test)
 
+    qt_add_executable(token-rotation-mapping-test
+        tests/TokenRotationMappingTest.cpp
+        src/accounts/RevocationProofs.h
+        src/accounts/RevocationProofs.cpp
+        src/accounts/SessionTokenCustody.h
+        src/accounts/SessionTokenCustody.cpp
+    )
+    target_include_directories(token-rotation-mapping-test PRIVATE src)
+    target_link_libraries(token-rotation-mapping-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME token-rotation-mapping COMMAND token-rotation-mapping-test)
+
     # Opt-in account-switch trace (LIGHTNING_SWITCH_TRACE, live accounts
     # Phase 0): env rule shared with Rust, inert when off, accumulating and
     # nesting steps, targets, deadline, the exact line; AppController's stamps

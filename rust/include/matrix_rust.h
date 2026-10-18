@@ -2296,6 +2296,27 @@ char *mx_rust_shutdown_tasks(void *client);
  */
 char *mx_rust_final_session_tokens(void *client);
 
+/*
+ * The answer for one rotation: `generation` is the session_tokens_refreshed
+ * event's own field, `saved` non-zero when the pair is in the keyring, zero
+ * when the keyring refused it or no account owns it. Releases the rotation's
+ * wait inside matrix-sdk's refresh (rust/src/sessiontokens.rs), which holds
+ * the retried request until the pair is written. Carries no secret.
+ */
+void mx_rust_session_tokens_persisted(void *client, uint64_t generation, int saved);
+
+/*
+ * The handle's token ledger, kept past mx_rust_destroy_and_report by the
+ * retiring worker: retain before destroying the handle, read with
+ * mx_rust_token_ledger_latest once it is destroyed (its runtime shut down, so
+ * nothing can rotate any more), then release. latest returns
+ * {"access_token","refresh_token"} for the pair the handle's last client
+ * rotated to, or "" if it never rotated. SENSITIVE: never log the result.
+ */
+void *mx_rust_token_ledger_retain(void *client);
+char *mx_rust_token_ledger_latest(void *ledger);
+void mx_rust_token_ledger_release(void *ledger);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 
