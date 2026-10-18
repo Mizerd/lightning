@@ -5976,6 +5976,14 @@ if(BUILD_TESTING)
         set_tests_properties(download-notice-qml PROPERTIES
             SKIP_RETURN_CODE 77
             ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
+        # The media browser's grid tile: which media class it asks for, the
+        # bounds on full-file fallbacks, no binding loop
+        # (scripts/test-media-browser-tile.sh).
+        add_test(NAME media-browser-tile-qml
+            COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-media-browser-tile.sh)
+        set_tests_properties(media-browser-tile-qml PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
     endif()
 
     # Lightning's own file chooser (Linux without a portal): the folder

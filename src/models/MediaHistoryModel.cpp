@@ -72,8 +72,10 @@ QHash<int, QByteArray> MediaHistoryModel::roleNames() const
         { FilenameRole, "filename" },
         { MimetypeRole, "mimetype" },
         { SizeRole, "size" },
-        { WidthRole, "width" },
-        { HeightRole, "height" },
+        // Not "width"/"height": a delegate's required property of that name
+        // would be its own Item geometry, so the tile could never read them.
+        { WidthRole, "mediaWidth" },
+        { HeightRole, "mediaHeight" },
         { DurationMsRole, "durationMs" },
         { MxcRole, "mxc" },
         { ThumbnailMxcRole, "thumbnailMxc" },

@@ -76,6 +76,8 @@ public:
         FilenameRole,
         MimetypeRole,
         SizeRole,
+        /// The event's declared pixel size ("mediaWidth"/"mediaHeight"), 0
+        /// when it declares none.
         WidthRole,
         HeightRole,
         DurationMsRole,

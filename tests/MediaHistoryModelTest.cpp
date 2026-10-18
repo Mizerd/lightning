@@ -9,6 +9,11 @@
 #include "models/MediaHistoryModel.h"
 
 #include <QDateTime>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTimeZone>
 #include <QtTest/QtTest>
@@ -694,6 +699,134 @@ private Q_SLOTS:
         // The viewer still gets the GIF image.
         model.setCategory(QStringLiteral("image"));
         QCOMPARE(model.imageEntries().size(), 2);
+    }
+
+    // The grid tile chooses crop or fit from the event's declared size: an
+    // Image's own implicit size follows its fillMode, so reading that looped.
+    // A role named "width"/"height" can never reach a delegate as a required
+    // property (that name is the delegate's own geometry), so the roles carry
+    // the media prefix, as GifResultModel's "gifHeight" does.
+    void theDeclaredSizeReachesADelegateByName()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        QVariantMap wide = keyedEntry(QStringLiteral("$wide"), QStringLiteral("image"));
+        wide.insert(QStringLiteral("width"), 3000);
+        wide.insert(QStringLiteral("height"), 1000);
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       QVariantList{ wide }, 1, 1, 0, true, false);
+        QCOMPARE(model.rowCount(), 1);
+
+        const auto names = model.roleNames();
+        QCOMPARE(names.value(MediaHistoryModel::WidthRole), QByteArray("mediaWidth"));
+        QCOMPARE(names.value(MediaHistoryModel::HeightRole), QByteArray("mediaHeight"));
+        QVERIFY(!names.values().contains(QByteArray("width")));
+        QVERIFY(!names.values().contains(QByteArray("height")));
+        QCOMPARE(model.data(model.index(0), MediaHistoryModel::WidthRole).toInt(), 3000);
+        QCOMPARE(model.data(model.index(0), MediaHistoryModel::HeightRole).toInt(), 1000);
+    }
+
+    // A QQuickDelegateModel silently builds NO delegate whose required
+    // property the model cannot supply by name, while the view's count stays
+    // right (CLAUDE.md §16, the GIF picker's blank Saved tab). So the real
+    // tile, in a real GridView, over this model: every row gets a tile, and
+    // the tile reads the declared size.
+    void everyRowBuildsAGridTile()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        QVariantMap wide = keyedEntry(QStringLiteral("$wide"), QStringLiteral("image"));
+        wide.insert(QStringLiteral("width"), 3000);
+        wide.insert(QStringLiteral("height"), 1000);
+        wide.insert(QStringLiteral("encrypted"), true);
+        const QVariantList page{
+            wide,
+            keyedEntry(QStringLiteral("$vid"), QStringLiteral("video")),
+            entry(QStringLiteral("$unkeyed"), QStringLiteral("image")),
+        };
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       page, 3, 3, 0, true, false);
+        QCOMPARE(model.rowCount(), 3);
+
+        QQmlEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const QQmlError &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty(QStringLiteral("historyModel"),
+                                                 &model);
+        QQmlComponent component(&engine);
+        // The bridge reports itself unsupported: this case is about building
+        // the tiles, not fetching.
+        component.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 360
+    height: 360
+    QtObject {
+        id: bridge
+        property bool supported: false
+        signal mediaCached(string cacheKey)
+        signal mediaRetryable(string cacheKey)
+        signal mediaFetchFailed(string cacheKey, string category)
+    }
+    property var app: ({ mediaBridge: bridge })
+    property alias grid: grid
+    GridView {
+        id: grid
+        anchors.fill: parent
+        cellWidth: 116
+        cellHeight: 116
+        model: historyModel
+        delegate: MediaBrowserTile {
+            width: 116
+            height: 116
+        }
+    }
+}
+)QML"),
+                          QUrl(QStringLiteral("mediahistorygrid.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QVERIFY(item);
+        QQuickWindow window;
+        window.resize(360, 360);
+        item->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto *grid = root->property("grid").value<QQuickItem *>();
+        QVERIFY(grid);
+        QMetaObject::invokeMethod(grid, "forceLayout");
+        QTRY_COMPARE(grid->property("count").toInt(), 3);
+        for (int row = 0; row < 3; ++row) {
+            QQuickItem *tile = nullptr;
+            QMetaObject::invokeMethod(grid, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, tile),
+                                      Q_ARG(int, row));
+            QVERIFY2(tile, qPrintable(QStringLiteral(
+                "row %1 built no tile: a required property the model does "
+                "not supply by name. Warnings: %2")
+                .arg(row).arg(warnings.join(u'\n'))));
+        }
+        QQuickItem *first = nullptr;
+        QMetaObject::invokeMethod(grid, "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, first),
+                                  Q_ARG(int, 0));
+        QCOMPARE(first->property("mediaWidth").toInt(), 3000);
+        QCOMPARE(first->property("mediaHeight").toInt(), 1000);
+        for (const QString &w : std::as_const(warnings))
+            QVERIFY2(!w.contains(QStringLiteral("MediaBrowserTile")), qPrintable(w));
     }
 };
 
