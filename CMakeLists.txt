@@ -654,6 +654,7 @@ set(APP_SOURCES
     src/storage/CacheStore.cpp
     src/storage/SecretStore.h
     src/storage/SecretStore.cpp
+    src/storage/TwoBackendSecretStore.h
     src/storage/PortableSecretStore.h
     src/storage/PortableSecretStore.cpp
     src/storage/InsecureFallbackSecretStore.h
@@ -1954,6 +1955,7 @@ if(BUILD_TESTING)
         src/media/MediaVisibilityStore.h
         src/media/MediaVisibilityStore.cpp
         src/storage/SecretStore.h
+        src/storage/TwoBackendSecretStore.h
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
     )
@@ -1989,6 +1991,7 @@ if(BUILD_TESTING)
         qt_add_executable(libsecret-scope-test
             tests/LibSecretScopeTest.cpp
             src/storage/SecretStore.h
+            src/storage/TwoBackendSecretStore.h
             src/storage/LibSecretStore.h
             src/storage/LibSecretStore.cpp
         )

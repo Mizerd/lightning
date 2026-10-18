@@ -15,6 +15,7 @@
 #include "app/SettingsManager.h"
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
+#include "storage/TwoBackendSecretStore.h"
 
 #include <QCoreApplication>
 #include <QHash>
@@ -239,6 +240,79 @@ private:
     mutable bool m_lastReadFailed = false;
 };
 
+// LibSecretStore inside a Flatpak or snap: libsecret's sandbox FILE keyring,
+// whose key only the Secret portal hands out, and the desktop's Secret
+// Service; `kind` is the one this "process" landed on. Only the two backends
+// are faked: which one each account is read and written in is the shipped
+// routing (TwoBackendSecretStore). A locked FakeKeyring is a backend that
+// cannot answer (a Secret Service not started yet, a locked wallet).
+// No Q_OBJECT: it adds no meta-object of its own.
+class SandboxKeyringStore final : public TwoBackendSecretStore
+{
+public:
+    SandboxKeyringStore(FakeKeyring *file, FakeKeyring *service,
+                        const QString &kind)
+        : m_file(file), m_service(service), m_kind(kind) {}
+
+    bool isSecure() const override { return true; }
+    bool isAvailable() const override { return true; }
+    QString backendName() const override { return QStringLiteral("fake sandbox keyring"); }
+    bool isSharedBetweenInstalls() const override { return true; }
+    QString backendKind() const override { return m_kind; }
+
+protected:
+    QString readFrom(Backend backend, const QString &userId,
+                     const QString &key) const override
+    {
+        const FakeKeyring *keyring = keyringFor(backend);
+        if (keyring->locked) {
+            setError(QStringLiteral("simulated: backend cannot answer"));
+            m_lastReadFailed = true;
+            return {};
+        }
+        m_lastReadFailed = false;
+        QString value;
+        keyring->lookup(scopedAttrs(userId, key, installScope()), &value);
+        return value;
+    }
+    bool storeIn(Backend backend, const QString &userId, const QString &key,
+                 const QString &value) override
+    {
+        FakeKeyring *keyring = keyringFor(backend);
+        if (keyring->locked)
+            return false;
+        keyring->store(scopedAttrs(userId, key, installScope()), value);
+        return true;
+    }
+    bool clearFrom(Backend backend, const QString &userId,
+                   const QString *key) override
+    {
+        FakeKeyring *keyring = keyringFor(backend);
+        if (keyring->locked)
+            return false;
+        Attributes query = scopedAttrs(userId, key ? *key : QString(), installScope());
+        if (!key)
+            query.remove(QStringLiteral("key"));
+        keyring->clear(query);
+        return true;
+    }
+
+private:
+    // libsecret's password API goes where the process landed; the Secret
+    // Service API always reaches the Secret Service. Nothing reaches the file
+    // keyring from a process on the Secret Service.
+    FakeKeyring *keyringFor(Backend backend) const
+    {
+        if (backend == Backend::Service)
+            return m_service;
+        return m_kind == QLatin1String("file") ? m_file : m_service;
+    }
+
+    FakeKeyring *m_file;
+    FakeKeyring *m_service;
+    QString m_kind;
+};
+
 // A store that lives inside one install (Credential Manager, portable file).
 class PerInstallStore final : public SecretStore
 {
@@ -309,6 +383,15 @@ private Q_SLOTS:
 
     // Instrumentation: which keyring holds a sign-in.
     void aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnotherSaysSo();
+
+    // A sandbox whose Secret portal came or went between launches (live
+    // 0.10.2 Flatpak finding F1, docs/open-items.md): each account is read in
+    // the keyring its record names.
+    void aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGetsTheFileKeyring();
+    void aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePortalDidNotAnswer();
+    void aSecretServiceNotUpYetIsTransientAndTheNextReadFindsTheSignIn();
+    void signingOutOfAnAccountReadPastTheFileKeyringClearsBothKeyrings();
+    void aSignInSavedBeforeTheRecordIsRecordedWhereItIsFound();
 
 private:
     // Each install has its own settings file, as the Flatpak and a native
@@ -893,6 +976,214 @@ void KeyringScopeTest::aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnoth
     auto deb = openInstall(QStringLiteral("keyring-deb"), &single);
     deb->saveSession(kHs, kUser, QStringLiteral("DEBDEV"), QStringLiteral("deb-access"));
     QVERIFY(deb->keyringBackendFor(kUser).isEmpty());
+}
+
+namespace {
+const QString kFlatpak = QStringLiteral("keyring-flatpak");
+
+QString recordedBackendOf(const QString &userId)
+{
+    QSettings raw;
+    return raw.value(QStringLiteral("accounts/")
+                     + matrix::app_data::safeUserSlug(userId)
+                     + QStringLiteral("/keyringBackend"))
+        .toString();
+}
+
+int scopedItemsFor(const FakeKeyring &keyring, const QString &userId)
+{
+    int count = 0;
+    for (const Item &item : keyring.withSchema(kScopedSchema)) {
+        if (item.attributes.value(QStringLiteral("user_id")) == userId)
+            ++count;
+    }
+    return count;
+}
+} // namespace
+
+// The F1 sequence: the first launch's portal did not answer, so libsecret kept
+// the sign-in in the Secret Service; the relaunch's portal answered, so
+// libsecret's own choice is the (empty) file keyring. Reading that showed "Fix
+// this account" for a sign-in that was never gone.
+void KeyringScopeTest::aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGetsTheFileKeyring()
+{
+    FakeKeyring file;
+    FakeKeyring service;
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        launch->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                            QStringLiteral("access-0"), QStringLiteral("refresh-0"),
+                            QStringLiteral("oauth"), QStringLiteral("client"));
+        QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("service"));
+    }
+    QCOMPARE(scopedItemsFor(file, kUser), 0);
+    QVERIFY(scopedItemsFor(service, kUser) > 0);
+
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+        auto launch = openInstall(kFlatpak, &store);
+        QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(QStringLiteral(
+                "saved_in= \"?service\"? reading= \"?file\"? .*reading it where "
+                "it was saved")));
+        QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("access-0"));
+        QVERIFY(!launch->secretBackendUnavailable());
+        // Every key of the account, not only the access token.
+        QCOMPARE(launch->refreshTokenFor(kUser), QStringLiteral("refresh-0"));
+        QCOMPARE(launch->oauthClientIdFor(kUser), QStringLiteral("client"));
+
+        // A rotation stays beside the sign-in it replaces, so no keyring is
+        // left holding a consumed refresh token for the next launch to read.
+        QVERIFY(launch->updateSessionTokens(kUser, QStringLiteral("access-1"),
+                                            QStringLiteral("refresh-1")));
+        QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("service"));
+        QCOMPARE(scopedItemsFor(file, kUser), 0);
+    }
+
+    // And a launch whose portal is gone again reads the same sign-in.
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("access-1"));
+        QCOMPARE(launch->refreshTokenFor(kUser), QStringLiteral("refresh-1"));
+    }
+}
+
+// The other direction: the file keyring's key comes only from the portal, so a
+// launch whose portal did not answer cannot read it. That is a keyring that
+// cannot answer (the "unlock and try again" notice), never a lost sign-in: the
+// lost-sign-in card keys on secretBackendUnavailable() being false.
+void KeyringScopeTest::aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePortalDidNotAnswer()
+{
+    FakeKeyring file;
+    FakeKeyring service;
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+        auto launch = openInstall(kFlatpak, &store);
+        launch->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                            QStringLiteral("file-access"));
+        QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("file"));
+    }
+    const int fileItems = scopedItemsFor(file, kUser);
+    QVERIFY(fileItems > 0);
+
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(QStringLiteral(
+                "saved_in= \"?file\"? reading= \"?service\"? .*cannot be read in "
+                "this launch")));
+        QVERIFY(launch->accessTokenFor(kUser).isEmpty());
+        QVERIFY2(launch->secretBackendUnavailable(),
+                 "a sign-in this launch cannot reach read as gone");
+        QVERIFY(launch->secretsWrittenHereForRecordedDevice(kUser));
+        // Nothing recorded moves, and nothing claims to have been removed.
+        QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("file"));
+        QVERIFY(!store.clearAccountSecrets(kUser));
+        QVERIFY(!store.lastError().isEmpty());
+    }
+    QCOMPARE(scopedItemsFor(file, kUser), fileItems);
+
+    // The portal is back: the sign-in is exactly where it was.
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+        auto launch = openInstall(kFlatpak, &store);
+        QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("file-access"));
+        QVERIFY(!launch->secretBackendUnavailable());
+    }
+}
+
+// The recorded Secret Service is not running yet (still starting at login, or
+// its wallet locked): the read cannot answer, which is transient, and a read
+// once it is up finds the sign-in in the same process ("Try again").
+void KeyringScopeTest::aSecretServiceNotUpYetIsTransientAndTheNextReadFindsTheSignIn()
+{
+    FakeKeyring file;
+    FakeKeyring service;
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        launch->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                            QStringLiteral("service-access"));
+    }
+    SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+    service.locked = true;
+    auto launch = openInstall(kFlatpak, &store);
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression(QStringLiteral("saved_in= \"?service\"?")));
+    QVERIFY(launch->accessTokenFor(kUser).isEmpty());
+    QVERIFY(launch->secretBackendUnavailable());
+
+    service.locked = false;
+    QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("service-access"));
+    QVERIFY(!launch->secretBackendUnavailable());
+}
+
+// Sign-out deletes the store that was in use (CLAUDE.md §6), and for an
+// account read past the file keyring that is the Secret Service; the file
+// keyring is cleared too, whatever it holds of the account.
+void KeyringScopeTest::signingOutOfAnAccountReadPastTheFileKeyringClearsBothKeyrings()
+{
+    FakeKeyring file;
+    FakeKeyring service;
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        launch->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                            QStringLiteral("service-access"));
+    }
+    SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+    auto launch = openInstall(kFlatpak, &store);
+    // Something of the account's in the file keyring as well.
+    file.store(scopedAttrs(kUser, QStringLiteral("mediaStoreKey"), store.installScope()),
+               QStringLiteral("stray"));
+
+    QVERIFY(launch->clearSessionForAccount(kUser));
+    QCOMPARE(scopedItemsFor(service, kUser), 0);
+    QCOMPARE(scopedItemsFor(file, kUser), 0);
+}
+
+// A password sign-in written before the backend was recorded never rewrites
+// its tokens, so it would never be recorded and a later launch on the other
+// backend could not tell where it is. Found where this launch reads it, it is
+// recorded there.
+void KeyringScopeTest::aSignInSavedBeforeTheRecordIsRecordedWhereItIsFound()
+{
+    FakeKeyring file;
+    FakeKeyring service;
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        launch->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
+                            QStringLiteral("service-access"));
+    }
+    {
+        // As a build from before the record left it.
+        useInstall(kFlatpak);
+        QSettings raw;
+        raw.remove(QStringLiteral("accounts/")
+                   + matrix::app_data::safeUserSlug(kUser)
+                   + QStringLiteral("/keyringBackend"));
+        raw.sync();
+        QVERIFY(recordedBackendOf(kUser).isEmpty());
+    }
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
+        auto launch = openInstall(kFlatpak, &store);
+        QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("service-access"));
+        QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("service"));
+    }
+    {
+        SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
+        auto launch = openInstall(kFlatpak, &store);
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("saved_in= \"?service\"?")));
+        QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("service-access"));
+    }
 }
 
 QTEST_GUILESS_MAIN(KeyringScopeTest)

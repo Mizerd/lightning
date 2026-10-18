@@ -622,10 +622,11 @@ store rebuild; NOT TESTED live on a real Flatpak or snap.
 
 What remains open:
 
-- **Record which libsecret backend holds each account's items** (file or
-  Secret Service), so a miss under the other one is "cannot tell" rather than
-  a lost sign-in; until then a sandbox whose portal comes and goes asks for a
-  sign-in again after each switch (non-destructive, same device).
+- DONE 2026-10-18 (fx4): each account is read in the backend its record names
+  (TwoBackendSecretStore): a sign-in in the Secret Service is read there past
+  the file keyring; one in the file keyring reads as "cannot tell" (keyring
+  notice) when the portal did not answer. Live NOT TESTED (real Flatpak,
+  portal coming and going).
 - **"Try again" from the signed-out path.** The keyring notice and its retry
   appear when a launch lands on the login screen; a sign-out that leaves other
   accounts unreadable still says "restart Lightning".
@@ -639,9 +640,8 @@ What remains open:
   (`RustSdkMatrixClient.cpp` `startAdoptedSessionCheck`, `oauth.rs`
   `mx_rust_whoami_probe`) and recording the backend (`LibSecretStore.cpp`, a
   one-time warning). The rest lands after 0.10.2, in this order: "Try again"
-  from the signed-out path; a miss under the other backend reads as "cannot
-  tell"; an OAuth lost sign-in resumes on the recorded device; then the OAuth
-  adoption check after the first refresh. Plan in `docs/roadmap.md`.
+  from the signed-out path; an OAuth lost sign-in resumes on the recorded
+  device; then the OAuth adoption check after the first refresh. Plan in `docs/roadmap.md`.
 - **Adopted sessions are UNVERIFIED.** An item written by an older build
   (`net.smetonis.matrixclient.Secret`) is copied into the install's own items
   at first start (`keyringItems=adopted-unverified`). Offline nothing tells

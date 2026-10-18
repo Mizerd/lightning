@@ -14,6 +14,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <memory>
+#include <utility>
 
 class SecretStore;
 
@@ -1073,9 +1074,11 @@ public:
     /// install scoping (whose device may be another install's). Reads the
     /// settings file only, never the secret store.
     bool secretsWrittenHereForRecordedDevice(const QString &userId) const;
-    // The keyring backend (SecretStore::backendKind()) this account's sign-in
-    // was last written in; empty when never recorded. keyringBackendChanged()
-    // is true when this launch's store reads a different one. Diagnostic.
+    // The keyring backend (SecretStore::backendKindFor()) this account's
+    // sign-in was last written in, or found in; empty when never recorded. A
+    // store with two backends reads the account there (setSecretStore()).
+    // keyringBackendChanged() is true when this launch's store defaults to a
+    // different one.
     QString keyringBackendFor(const QString &userId) const;
     // The adoption check (RustSdkMatrixClient::AdoptedSessionCheck) on a
     // sign-in copied from an item saved before install scoping:
@@ -1285,10 +1288,16 @@ private:
     // Records how this install's items for the account came to be, and for
     // which device. Flushed at once.
     void markKeyringItems(const QString &slug, const char *how) const;
-    // Records SecretStore::backendKind() for the account (see
+    // Records SecretStore::backendKindFor() for the account (see
     // kAccountKeyringBackend). Const: called from the const adoption path.
     void noteKeyringBackend(const QString &userId) const;
     mutable QSet<QString> m_keyringBackendChangeLogged;
+    // What the secret store is told an account's recorded keyring is
+    // (SecretStore::setRecordedBackendLookup()): keyringBackendFor(), or, for
+    // the account whose record clearSessionForAccount() has just removed and
+    // whose secrets it is clearing, what that record said.
+    QString keyringBackendForStore(const QString &userId) const;
+    std::pair<QString, QString> m_keyringBackendBeingCleared;
     enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };
     // Copies an account's items saved before install scoping into this
     // install's, leaving the shared ones untouched. Only for an account this

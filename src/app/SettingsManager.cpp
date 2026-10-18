@@ -19,6 +19,7 @@
 #include <QHash>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QPointer>
 #include <QSet>
 #include <QUuid>
 
@@ -170,9 +171,11 @@ constexpr auto kKeyringInstallId    = "keyring/installId";
 // Both absent: recorded before scoping; adopted on first use.
 constexpr auto kAccountKeyringItems  = "keyringItems";
 constexpr auto kAccountKeyringDevice = "keyringDevice";
-// Per account: SecretStore::backendKind() when its sign-in was last written
-// ("file" or "service"), for a store with more than one backend. Diagnostic:
-// a launch reading the other one says so (keyringBackendChanged()).
+// Per account: where its sign-in was last written, or found
+// (SecretStore::backendKindFor(), "file" or "service"), for a store with more
+// than one backend. That store reads the account there whatever this launch's
+// own backend is (TwoBackendSecretStore); a launch on the other one also says
+// so (keyringBackendChanged()).
 constexpr auto kAccountKeyringBackend = "keyringBackend";
 constexpr auto kKeyringItemsOwn      = "own";
 constexpr auto kKeyringItemsAdopted  = "adopted-unverified";
@@ -705,6 +708,16 @@ void SettingsManager::setSecretStore(SecretStore *store)
     // Before any read or write: an unscoped shared store refuses both.
     if (m_secretStore && m_secretStore->isSharedBetweenInstalls())
         m_secretStore->setInstallScope(keyringInstallId());
+    // Before any read or write too: a store with two backends reads each
+    // account in the one its record names. Pulled on every use, so a record
+    // written later is what the next read sees; a store that outlives this
+    // object reads as if nothing were recorded.
+    if (m_secretStore) {
+        m_secretStore->setRecordedBackendLookup(
+            [self = QPointer<SettingsManager>(this)](const QString &userId) {
+                return self ? self->keyringBackendForStore(userId) : QString();
+            });
+    }
     migratePlaintextTokenIfPresent();
     // After the plaintext migration: an account it moved has its own items.
     adoptLegacyKeyringSessions();
@@ -756,7 +769,10 @@ void SettingsManager::markKeyringItems(const QString &slug,
 
 void SettingsManager::noteKeyringBackend(const QString &userId) const
 {
-    const QString kind = m_secretStore ? m_secretStore->backendKind() : QString();
+    // Where this account's items went, which is not this process's default
+    // when the store reached the recorded backend past it.
+    const QString kind =
+        m_secretStore ? m_secretStore->backendKindFor(userId) : QString();
     const QString slug = slugForSavedAccount(userId);
     if (kind.isEmpty() || slug.isEmpty())
         return;
@@ -820,6 +836,16 @@ QString SettingsManager::keyringBackendFor(const QString &userId) const
     if (slug.isEmpty())
         return {};
     return m_store->value(accountKey(slug, kAccountKeyringBackend)).toString();
+}
+
+QString SettingsManager::keyringBackendForStore(const QString &userId) const
+{
+    const QString recorded = keyringBackendFor(userId);
+    if (!recorded.isEmpty() || m_keyringBackendBeingCleared.first.isEmpty())
+        return recorded;
+    return userId.trimmed() == m_keyringBackendBeingCleared.first
+               ? m_keyringBackendBeingCleared.second
+               : QString();
 }
 
 bool SettingsManager::keyringBackendChanged(const QString &userId) const
@@ -930,18 +956,25 @@ QString SettingsManager::readAccountSecret(const QString &userId,
     if (!m_secretStore)
         return {};
     const QLatin1String name(key);
-    // Said once per account and process: a miss, or an older token, read
-    // from a keyring other than the one that last held this sign-in is not
-    // what it looks like (a Flatpak or snap whose Secret portal came or went).
+    // Said once per account and process: this launch landed on another
+    // keyring than the one that last held this sign-in (a Flatpak or snap
+    // whose Secret portal came or went). The store reads the recorded one
+    // when it can reach it, and otherwise cannot answer; it never reads the
+    // other one as if the sign-in were gone.
     if (name == QLatin1String(kSecretAccessToken) && keyringBackendChanged(userId)
         && !m_keyringBackendChangeLogged.contains(userId)) {
         m_keyringBackendChangeLogged.insert(userId);
+        const bool reachable =
+            m_secretStore->backendKindFor(userId) == keyringBackendFor(userId);
         qCWarning(lcSettings)
             << "keyring: this account's sign-in was last saved in another keyring"
             << "than this launch reads"
             << "slug=" << matrix::app_data::safeUserSlug(userId)
             << "saved_in=" << keyringBackendFor(userId)
-            << "reading=" << m_secretStore->backendKind();
+            << "reading=" << m_secretStore->backendKind()
+            << (reachable ? "-- reading it where it was saved"
+                          : "-- that keyring cannot be read in this launch; "
+                            "the sign-in is kept, not lost");
     }
     if (!m_secretStore->isSharedBetweenInstalls())
         return m_secretStore->readSecret(userId, name);
@@ -958,6 +991,11 @@ QString SettingsManager::readAccountSecret(const QString &userId,
         if (m_secretStore->lastReadFailed())
             return {};
         if (!access.isEmpty()) {
+            // Found where this launch reads it: record that, for a sign-in
+            // last written before the backend was recorded (a password
+            // account never rewrites it), so a later launch landing on the
+            // other backend can still tell where it is.
+            noteKeyringBackend(userId);
             return name == QLatin1String(kSecretAccessToken)
                        ? access
                        : m_secretStore->readSecret(userId, name);
@@ -4353,6 +4391,9 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
 
     const bool activeAccount =
         !activeAccountUserId().isEmpty() && activeAccountUserId() == recordUserId;
+    // Read before the record goes: it names the keyring that holds this
+    // account's items, and the clear below must reach that one.
+    const QString recordedBackend = keyringBackendFor(recordUserId);
 
     if (!slug.isEmpty()) {
         m_store->beginGroup(QLatin1String(kAccountsGroup));
@@ -4370,6 +4411,7 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
 
     bool secretsCleared = true;
     if (m_secretStore) {
+        m_keyringBackendBeingCleared = {recordUserId, recordedBackend};
         // A session copied from an item saved before install scoping: while the
         // shared item still holds the very token this sign-out revokes, it goes
         // too, as it did before scoping, or a live token stays at rest after a
@@ -4397,6 +4439,7 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         // entry.
         secretsCleared = m_secretStore->clearAccountSecrets(recordUserId)
                          && sharedCopyCleared;
+        m_keyringBackendBeingCleared = {};
         if (!secretsCleared) {
             qCWarning(lcSettings)
                 << "failed to clear account secrets from SecretStore:"

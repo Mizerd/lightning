@@ -64,10 +64,28 @@ QByteArray toUtf8(const QString &s) { return s.toUtf8(); }
 
 constexpr auto kNoScope = "no install scope set";
 
+// The attributes the password API builds from its arguments, for the Secret
+// Service API, which takes them as a table. A null key matches every key of
+// the account.
+GHashTable *scopedAttributes(const QByteArray &userId, const QByteArray *key,
+                             const QByteArray &install)
+{
+    GHashTable *attributes =
+        g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    g_hash_table_insert(attributes, g_strdup("user_id"),
+                        g_strdup(userId.constData()));
+    if (key)
+        g_hash_table_insert(attributes, g_strdup("key"),
+                            g_strdup(key->constData()));
+    g_hash_table_insert(attributes, g_strdup("install"),
+                        g_strdup(install.constData()));
+    return attributes;
+}
+
 } // namespace
 
 LibSecretStore::LibSecretStore(QObject *parent)
-    : SecretStore(parent)
+    : TwoBackendSecretStore(parent)
 {
     probe();
 }
@@ -207,9 +225,8 @@ QString LibSecretStore::backendName() const
     return QStringLiteral("libsecret (Secret Service)");
 }
 
-bool LibSecretStore::storeSecret(const QString &userId,
-                                  const QString &key,
-                                  const QString &value)
+bool LibSecretStore::storeIn(Backend backend, const QString &userId,
+                             const QString &key, const QString &value)
 {
     if (!m_available) {
         setError(QStringLiteral("libsecret unavailable"));
@@ -227,17 +244,30 @@ bool LibSecretStore::storeSecret(const QString &userId,
     const QByteArray v = toUtf8(value);
     const QByteArray label = toUtf8(makeLabel(userId, key));
 
-    gboolean ok = secret_password_store_sync(
-        scopedSchema(),
-        SECRET_COLLECTION_DEFAULT,
-        label.constData(),
-        v.constData(),
-        nullptr,
-        &err,
-        "user_id", u.constData(),
-        "key",     k.constData(),
-        "install", i.constData(),
-        nullptr);
+    gboolean ok = FALSE;
+    if (backend == Backend::Service) {
+        GHashTable *attributes = scopedAttributes(u, &k, i);
+        // As the password API stores it.
+        SecretValue *secret = secret_value_new(v.constData(), -1, "text/plain");
+        ok = secret_service_store_sync(nullptr, scopedSchema(), attributes,
+                                       SECRET_COLLECTION_DEFAULT,
+                                       label.constData(), secret, nullptr,
+                                       &err);
+        secret_value_unref(secret);
+        g_hash_table_unref(attributes);
+    } else {
+        ok = secret_password_store_sync(
+            scopedSchema(),
+            SECRET_COLLECTION_DEFAULT,
+            label.constData(),
+            v.constData(),
+            nullptr,
+            &err,
+            "user_id", u.constData(),
+            "key",     k.constData(),
+            "install", i.constData(),
+            nullptr);
+    }
 
     if (!ok || err) {
         setError(err ? QString::fromUtf8(err->message)
@@ -249,8 +279,8 @@ bool LibSecretStore::storeSecret(const QString &userId,
     return true;
 }
 
-QString LibSecretStore::readSecret(const QString &userId,
-                                    const QString &key) const
+QString LibSecretStore::readFrom(Backend backend, const QString &userId,
+                                 const QString &key) const
 {
     if (!m_available) {
         setError(QStringLiteral("libsecret unavailable"));
@@ -269,28 +299,42 @@ QString LibSecretStore::readSecret(const QString &userId,
     const QByteArray k = toUtf8(key);
     const QByteArray i = toUtf8(installScope());
 
-    gchar *raw = secret_password_lookup_sync(
-        scopedSchema(), nullptr, &err,
-        "user_id", u.constData(),
-        "key",     k.constData(),
-        "install", i.constData(),
-        nullptr);
+    QString out;
+    if (backend == Backend::Service) {
+        GHashTable *attributes = scopedAttributes(u, &k, i);
+        SecretValue *secret = secret_service_lookup_sync(
+            nullptr, scopedSchema(), attributes, nullptr, &err);
+        g_hash_table_unref(attributes);
+        if (secret) {
+            // Text only, as the password API reads it.
+            if (const gchar *text = secret_value_get_text(secret))
+                out = QString::fromUtf8(text);
+            secret_value_unref(secret);
+        }
+    } else {
+        gchar *raw = secret_password_lookup_sync(
+            scopedSchema(), nullptr, &err,
+            "user_id", u.constData(),
+            "key",     k.constData(),
+            "install", i.constData(),
+            nullptr);
+        if (raw) {
+            out = QString::fromUtf8(raw);
+            secret_password_free(raw);
+        }
+    }
 
     if (err) {
         setError(QString::fromUtf8(err->message));
         g_error_free(err);
         // The backend could not answer (locked collection, dropped session
-        // bus): not "no such secret".
+        // bus, a Secret Service not running): not "no such secret".
         m_lastReadFailed = true;
         qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
         return {};
     }
     // The lookup completed. Absent is a real answer, not a failure.
     m_lastReadFailed = false;
-    if (!raw)
-        return {};
-    QString out = QString::fromUtf8(raw);
-    secret_password_free(raw);
     return out;
 }
 
@@ -350,7 +394,8 @@ bool LibSecretStore::deleteLegacySecret(const QString &userId,
     return true;
 }
 
-bool LibSecretStore::deleteSecret(const QString &userId, const QString &key)
+bool LibSecretStore::clearFrom(Backend backend, const QString &userId,
+                               const QString *key)
 {
     if (!m_available) {
         setError(QStringLiteral("libsecret unavailable"));
@@ -363,57 +408,43 @@ bool LibSecretStore::deleteSecret(const QString &userId, const QString &key)
     }
     GError *err = nullptr;
     const QByteArray u = toUtf8(userId);
-    const QByteArray k = toUtf8(key);
-    const QByteArray i = toUtf8(installScope());
-    gboolean removed = secret_password_clear_sync(
-        scopedSchema(), nullptr, &err,
-        "user_id", u.constData(),
-        "key",     k.constData(),
-        "install", i.constData(),
-        nullptr);
-    if (err) {
-        setError(QString::fromUtf8(err->message));
-        g_error_free(err);
-        return false;
-    }
-    // 'removed' is false only when there was nothing to remove — treat as success.
-    Q_UNUSED(removed);
-    return true;
-}
-
-bool LibSecretStore::clearAccountSecrets(const QString &userId)
-{
-    if (!m_available) {
-        setError(QStringLiteral("libsecret unavailable"));
-        return false;
-    }
-    if (installScope().isEmpty()) {
-        setError(QLatin1String(kNoScope));
-        return false;
-    }
-    GError *err = nullptr;
-    const QByteArray u = toUtf8(userId);
+    const QByteArray k = key ? toUtf8(*key) : QByteArray();
     const QByteArray i = toUtf8(installScope());
     // Without `key`: every entry of this account in this install. Legacy items
     // and other installs' items do not match (different schema name, or a
     // different install attribute).
-    gboolean removed = secret_password_clear_sync(
-        scopedSchema(), nullptr, &err,
-        "user_id", u.constData(),
-        "install", i.constData(),
-        nullptr);
+    if (backend == Backend::Service) {
+        GHashTable *attributes = scopedAttributes(u, key ? &k : nullptr, i);
+        secret_service_clear_sync(nullptr, scopedSchema(), attributes, nullptr,
+                                  &err);
+        g_hash_table_unref(attributes);
+    } else if (key) {
+        secret_password_clear_sync(
+            scopedSchema(), nullptr, &err,
+            "user_id", u.constData(),
+            "key",     k.constData(),
+            "install", i.constData(),
+            nullptr);
+    } else {
+        secret_password_clear_sync(
+            scopedSchema(), nullptr, &err,
+            "user_id", u.constData(),
+            "install", i.constData(),
+            nullptr);
+    }
     if (err) {
         setError(QString::fromUtf8(err->message));
         g_error_free(err);
         return false;
     }
-    Q_UNUSED(removed);
+    // A clear that matched nothing returns FALSE without an error: there was
+    // nothing to remove, which is success.
     return true;
 }
 
 #else // HAVE_LIBSECRET
 
-LibSecretStore::LibSecretStore(QObject *parent) : SecretStore(parent) {}
+LibSecretStore::LibSecretStore(QObject *parent) : TwoBackendSecretStore(parent) {}
 LibSecretStore::~LibSecretStore() = default;
 
 bool LibSecretStore::isAvailable() const { return false; }
@@ -421,11 +452,10 @@ QString LibSecretStore::backendName() const
 {
     return QStringLiteral("libsecret (not compiled in)");
 }
-bool LibSecretStore::storeSecret(const QString &, const QString &, const QString &) { return false; }
-QString LibSecretStore::readSecret(const QString &, const QString &) const { return {}; }
+bool LibSecretStore::storeIn(Backend, const QString &, const QString &, const QString &) { return false; }
+QString LibSecretStore::readFrom(Backend, const QString &, const QString &) const { return {}; }
 QString LibSecretStore::readLegacySecret(const QString &, const QString &) const { return {}; }
 bool LibSecretStore::deleteLegacySecret(const QString &, const QString &) { return false; }
-bool LibSecretStore::deleteSecret(const QString &, const QString &) { return false; }
-bool LibSecretStore::clearAccountSecrets(const QString &) { return false; }
+bool LibSecretStore::clearFrom(Backend, const QString &, const QString *) { return false; }
 
 #endif // HAVE_LIBSECRET

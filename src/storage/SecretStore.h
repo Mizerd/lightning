@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <functional>
 #include <memory>
 
 // Abstract secret storage. Backends include:
@@ -83,10 +84,33 @@ public:
     // sandbox-private FILE keyring whenever the Secret portal answers, and in
     // the Secret Service when it does not, and the choice is made per process.
     // "file" or "service"; empty for a store with one backend (every other
-    // store), which is never recorded or compared. Diagnostic only: an account
-    // records the kind its sign-in was last written under, so a launch can say
-    // when it is reading a different keyring than the one that holds it.
+    // store), which is never recorded or compared. An account records the kind
+    // its sign-in was last written under (backendKindFor()), and such a store
+    // reads it there (TwoBackendSecretStore), so a launch landing on the other
+    // backend never reads a saved sign-in as gone.
     virtual QString backendKind() const { return {}; }
+
+    // Where this process reads and writes this account's items: backendKind(),
+    // unless the store reaches the account's recorded backend past its own
+    // (TwoBackendSecretStore). What an account records after a write.
+    virtual QString backendKindFor(const QString &userId) const
+    {
+        Q_UNUSED(userId);
+        return backendKind();
+    }
+
+    // The backendKind() each account's sign-in was last written under, as the
+    // owner of the account records keeps it; empty when unknown. Asked on every
+    // use, never cached, so a record written since is what the next read sees.
+    using RecordedBackendLookup = std::function<QString(const QString &userId)>;
+    void setRecordedBackendLookup(RecordedBackendLookup lookup)
+    {
+        m_recordedBackend = std::move(lookup);
+    }
+    QString recordedBackendKind(const QString &userId) const
+    {
+        return m_recordedBackend ? m_recordedBackend(userId) : QString();
+    }
     void setInstallScope(const QString &scope) { m_installScope = scope; }
     QString installScope() const { return m_installScope; }
 
@@ -111,4 +135,5 @@ public:
 
 private:
     QString m_installScope;
+    RecordedBackendLookup m_recordedBackend;
 };
