@@ -275,6 +275,8 @@ private Q_SLOTS:
     void signingOutClosesEveryCardItRaised();
     void aRoomsNextMessageReplacesItsCard();
     void aDecryptedMessageReplacesItsEncryptedCard();
+    // 2026-10-18 live C4b (Windows, KDE, dunst).
+    void anEditFromTheLiveSyncReplacesTheShownCard();
     void aKeyedNoticeIsReplacedAndWithdrawn();
     void theCallCardIsQuietWhenSilentAndStaysDismissed();
     void theDesktopsDoNotDisturbSilencesTheChime();
@@ -751,6 +753,92 @@ void NotificationDbusTest::aDecryptedMessageReplacesItsEncryptedCard()
     // It alerted once already.
     QCOMPARE(hintsOf(args).value(QStringLiteral("suppress-sound")).toBool(),
              true);
+}
+
+// Live C4b, 2026-10-18, on all three desktops that could show it: a card
+// raised for a message in a room with no open timeline kept the ORIGINAL text
+// after the sender edited it, while the room list already showed the edit.
+// Such a room has no SDK aggregate (no Set reaches processUpdated); its edit
+// arrives through the live sync as a raw m.replace, which processEvent()
+// dropped as a suppressed edit. The card is replaced in place (replaces_id),
+// silently, and only by the original sender's own edit.
+void NotificationDbusTest::anEditFromTheLiveSyncReplacesTheShownCard()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer);
+    NotificationManager manager;
+    NotificationManager::Context ctx = context();
+    ctx.previewMode = NotificationManager::SenderAndMessage;
+    TimelineEvent original = incomingText();
+    original.body = QStringLiteral("toast orig text");
+    manager.processEvent(original, ctx);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 1);
+    QCOMPARE(m_fake->count(QStringLiteral("Notify")), 1);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    // What RustTimelineIngest makes of the sync's m.replace: the "* "
+    // fallback as body, m.new_content beside it, and the account's
+    // suppress-edits rule as the verdict.
+    const auto editOf = [&original](const QString &id, const QString &sender,
+                                    const QString &text, qint64 ms) {
+        TimelineEvent edit = incomingText();
+        edit.eventId = id;
+        edit.sender = sender;
+        edit.body = QStringLiteral("* ") + text;
+        edit.isEdit = true;
+        edit.replacesEventId = original.eventId;
+        edit.editNewBody = text;
+        edit.editNewBodyAvailable = true;
+        edit.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+        edit.timestamp = QDateTime::fromMSecsSinceEpoch(ms);
+        return edit;
+    };
+    QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+    manager.processEvent(editOf(QStringLiteral("$e1:example.org"),
+                                original.sender,
+                                QStringLiteral("toast EDITED text"), 2000),
+                         ctx);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    QVariantList args = m_fake->lastArguments(QStringLiteral("Notify"));
+    const quint32 shown = args.value(1).toUInt();
+    QVERIFY2(shown != 0,
+             "the edit raised a second card instead of replacing the shown one");
+    QVERIFY2(args.value(4).toString().contains(QStringLiteral("toast EDITED text")),
+             qPrintable(args.value(4).toString()));
+    QVERIFY(!args.value(4).toString().contains(QStringLiteral("* ")));
+    // It alerted once already; an edit is not news.
+    QCOMPARE(hintsOf(args).value(QStringLiteral("suppress-sound")).toBool(),
+             true);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 2);
+    QCOMPARE(delivered.count(), 0);
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    // Another member's m.replace of that message, and an older edit delivered
+    // late, change nothing. The next valid edit is the third Notify, so the
+    // two above were not merely slow.
+    manager.processEvent(editOf(QStringLiteral("$e2:example.org"),
+                                QStringLiteral("@mallory:example.org"),
+                                QStringLiteral("words put in Bob's mouth"), 3000),
+                         ctx);
+    manager.processEvent(editOf(QStringLiteral("$e0:example.org"),
+                                original.sender,
+                                QStringLiteral("an older edit"), 1500),
+                         ctx);
+    manager.processEvent(editOf(QStringLiteral("$e3:example.org"),
+                                original.sender,
+                                QStringLiteral("second edit"), 4000),
+                         ctx);
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 3);
+    QTRY_COMPARE(manager.notifyRepliesProcessedForTest(), 3);
+    const QList<QVariantList> all = m_fake->allArguments(QStringLiteral("Notify"));
+    QCOMPARE(all.size(), 3);
+    QCOMPARE(all.at(2).value(1).toUInt(), shown);
+    QVERIFY2(all.at(2).value(4).toString().contains(QStringLiteral("second edit")),
+             qPrintable(all.at(2).value(4).toString()));
+    for (const QVariantList &call : all) {
+        QVERIFY(!call.value(4).toString().contains(QStringLiteral("mallory")));
+        QVERIFY(!call.value(4).toString().contains(QStringLiteral("mouth")));
+        QVERIFY(!call.value(4).toString().contains(QStringLiteral("older edit")));
+    }
 }
 
 // Findings 80/125: an invite or verification card had no way to be

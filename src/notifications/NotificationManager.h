@@ -231,6 +231,8 @@ public:
 
     /// Refresh an existing card from an SDK-aggregated row, silently. Never
     /// raises a card for an event this manager has not already announced.
+    /// (A room with no open timeline has no such row: its edits reach
+    /// processEvent() raw, which refreshes the card the same way.)
     void processUpdated(const TimelineEvent &event, const Context &context);
 
     /// The event was redacted (or otherwise must disappear): withdraw a card
@@ -539,6 +541,16 @@ private:
     /// event for its account. See deliverNow().
     bool replacementStillOwned(const Card &card) const;
     void deliverNow(Card card);
+    // processUpdated() past its gate: refresh every copy of the card showing
+    // `event` (waiting, in flight, on screen) silently, or withdraw it when
+    // the update would not have notified.
+    void refreshCard(const TimelineEvent &event, const Context &context);
+    // A raw m.replace from the live sync (a room with no open timeline has no
+    // SDK aggregate): refreshes the card showing its target when the edit is
+    // valid for it (same room, same sender as the original, new content
+    // present, not older than an edit already applied). True when it
+    // matched such a card.
+    bool refreshFromEdit(const TimelineEvent &edit, const Context &context);
     // Builds a message card from a decision and delivers it.
     void deliverDecision(const TimelineEvent &event, const Context &context,
                          const Decision &decision, bool undecryptable,
@@ -722,6 +734,12 @@ private:
         QString title;
         QString body;
         std::optional<Card> next;
+        // Who sent the event the card shows: only their own edit may change
+        // its text (refreshFromEdit). Empty for generic notices.
+        QString sender;
+        // The newest edit applied to this card (origin_server_ts), so an
+        // older one delivered late cannot bring back superseded text.
+        qint64 editStampMs = 0;
     };
     // One account's cards. "" is the foreground account, which is the only
     // table there has ever been: every path without an account argument

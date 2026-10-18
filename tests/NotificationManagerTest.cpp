@@ -157,6 +157,9 @@ private Q_SLOTS:
     void aReadRoomLeavesTheBalloonSummary();
     void theBalloonHoldFollowsTheNotificationDuration();
     void theSenderIsNamedTheSameWhicheverPathDeliveredIt();
+    // Live C4b 2026-10-18: a card kept the old text after an edit.
+    void anEditFromTheLiveSyncRefreshesAWaitingCardOnlyIfValid();
+    void anEditShowsTheBalloonOnScreenAgainWithTheNewText();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -2900,6 +2903,25 @@ TimelineEvent textIn(const QString &room, const QString &eventId)
     return event;
 }
 
+// The live sync's m.replace of `original` as RustTimelineIngest builds it: the
+// "* " fallback as body, m.new_content beside it, the suppress-edits verdict.
+TimelineEvent liveEditOf(const TimelineEvent &original, const QString &id,
+                         const QString &text, qint64 ms,
+                         const QString &sender = QString())
+{
+    TimelineEvent edit = original;
+    edit.eventId = id;
+    edit.sender = sender.isEmpty() ? original.sender : sender;
+    edit.body = QStringLiteral("* ") + text;
+    edit.isEdit = true;
+    edit.replacesEventId = original.eventId;
+    edit.editNewBody = text;
+    edit.editNewBodyAvailable = true;
+    edit.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+    edit.timestamp = QDateTime::fromMSecsSinceEpoch(ms);
+    return edit;
+}
+
 // The group key deliverDecision() writes into a message card's payload.
 QString messageGroup(const QString &room, const QString &thread = QString())
 {
@@ -3959,6 +3981,173 @@ void NotificationManagerTest::aDisplacedBalloonBringsBackNothingReadOrCleared()
         QCOMPARE(manager.trayAttemptsForTest(), 2);
         QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
         manager.stopIncomingCall(QStringLiteral("call-1"));
+    }
+}
+
+// ── Live C4b 2026-10-18 (Windows tray balloon, KDE, dunst) ─────────────────
+
+// A room with no open timeline sends no SDK Set for an edit, only the raw
+// m.replace through the live sync, which processEvent() used to drop as a
+// suppressed edit: the card waiting for its avatar went out with the old
+// text. Only an edit that is valid for the card's event may change it.
+void NotificationManagerTest::anEditFromTheLiveSyncRefreshesAWaitingCardOnlyIfValid()
+{
+    NotificationManager manager;
+    parkDeliveries(manager);
+    auto context = parkedContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    const TimelineEvent original = incomingText(QStringLiteral("orig words"));
+    manager.processEvent(original, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QSignalSpy delivered(&manager, &NotificationManager::messageDelivered);
+
+    manager.processEvent(liveEditOf(original, QStringLiteral("$e1:example.org"),
+                                    QStringLiteral("new words"), 2000),
+                         context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QVERIFY2(manager.avatarWaitBodyForTest(0) == QStringLiteral("new words"),
+             qPrintable(manager.avatarWaitBodyForTest(0)));
+    QCOMPARE(manager.avatarWaitPayloadForTest(0)
+                 .value(QStringLiteral("eventId")).toString(),
+             original.eventId);
+    QCOMPARE(delivered.count(), 0);
+
+    // Another member's "edit" (the spec allows only the sender's own).
+    manager.processEvent(liveEditOf(original, QStringLiteral("$e2:example.org"),
+                                    QStringLiteral("forged"), 3000,
+                                    QStringLiteral("@mallory:example.org")),
+                         context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("new words"));
+    // The same event id claimed from another room.
+    auto elsewhere = liveEditOf(original, QStringLiteral("$e3:example.org"),
+                                QStringLiteral("other room"), 3000);
+    elsewhere.roomId = QStringLiteral("!other:example.org");
+    manager.processEvent(elsewhere, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("new words"));
+    // An edit of a message the card does not show.
+    auto stranger = liveEditOf(original, QStringLiteral("$e4:example.org"),
+                               QStringLiteral("not this one"), 3000);
+    stranger.replacesEventId = QStringLiteral("$older:example.org");
+    manager.processEvent(stranger, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("new words"));
+    // No m.new_content: nothing validated to show.
+    auto legacy = liveEditOf(original, QStringLiteral("$e5:example.org"),
+                             QStringLiteral("fallback only"), 3000);
+    legacy.editNewBody.clear();
+    legacy.editNewBodyAvailable = false;
+    manager.processEvent(legacy, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("new words"));
+    // An older edit delivered late.
+    manager.processEvent(liveEditOf(original, QStringLiteral("$e0:example.org"),
+                                    QStringLiteral("first draft"), 1000),
+                         context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("new words"));
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QCOMPARE(delivered.count(), 0);
+
+    // Privacy still decides what the refreshed card says.
+    context.previewMode = NotificationManager::Private;
+    manager.processEvent(liveEditOf(original, QStringLiteral("$e6:example.org"),
+                                    QStringLiteral("private words"), 4000),
+                         context);
+    QVERIFY(!manager.avatarWaitBodyForTest(0)
+                 .contains(QStringLiteral("private words")));
+
+    // An edit that arrives undecryptable refreshes the card once its key
+    // arrives (processDecrypted), and not before.
+    context.previewMode = NotificationManager::SenderAndMessage;
+    manager.setUndecryptableHoldMsForTest(0);
+    auto sealed = liveEditOf(original, QStringLiteral("$e7:example.org"),
+                             QString(), 5000);
+    sealed.body.clear();
+    sealed.editNewBodyAvailable = false;
+    sealed.undecryptable = true;
+    sealed.isEncrypted = true;
+    manager.processEvent(sealed, context);
+    QVERIFY(!manager.avatarWaitBodyForTest(0).contains(QStringLiteral("* ")));
+    auto opened = liveEditOf(original, sealed.eventId,
+                             QStringLiteral("decrypted words"), 5000);
+    opened.isEncrypted = true;
+    manager.processDecrypted(opened, context);
+    QCOMPARE(manager.avatarWaitBodyForTest(0), QStringLiteral("decrypted words"));
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QCOMPARE(delivered.count(), 0);
+}
+
+// Windows: one balloon on screen, which Qt cannot update in place, and every
+// replacement was dropped (deliverNow's tray path), so the shown balloon kept
+// the original text for its whole time. The one still showing the message is
+// shown again with the new text and no sound; one waiting behind it carries
+// the new text when it goes out; one that has had its time is left alone.
+void NotificationManagerTest::anEditShowsTheBalloonOnScreenAgainWithTheNewText()
+{
+    auto context = baseContext();
+    context.previewMode = NotificationManager::SenderAndMessage;
+    const QString roomA = QStringLiteral("!a:example.org");
+    const QString roomB = QStringLiteral("!b:example.org");
+    {
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(60000);
+        TimelineEvent a = textIn(roomA, QStringLiteral("$a1:example.org"));
+        a.body = QStringLiteral("toast-orig");
+        manager.processEvent(a, context);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+        QCOMPARE(manager.lastTrayBodyForTest(), QStringLiteral("toast-orig"));
+
+        manager.processEvent(liveEditOf(a, QStringLiteral("$a2:example.org"),
+                                        QStringLiteral("toast EDITED"), 2000),
+                             context);
+        QVERIFY2(manager.trayAttemptsForTest() == 2,
+                 "the balloon on screen kept the text from before the edit");
+        QCOMPARE(manager.lastTrayBodyForTest(), QStringLiteral("toast EDITED"));
+        QVERIFY(!manager.lastTrayPlatformSoundForTest());
+        QCOMPARE(manager.lastTrayPayloadForTest()
+                     .value(QStringLiteral("eventId")).toString(),
+                 a.eventId);
+        QVERIFY(manager.balloonOnScreenForTest());
+
+        // An open room that is not on screen gets the SDK's aggregated Set
+        // instead (processUpdated): same result.
+        a.body = QStringLiteral("set text");
+        manager.processUpdated(a, context);
+        QCOMPARE(manager.trayAttemptsForTest(), 3);
+        QCOMPARE(manager.lastTrayBodyForTest(), QStringLiteral("set text"));
+
+        // A second room waits behind it, and its edit lands in the summary
+        // rather than on screen.
+        TimelineEvent b = textIn(roomB, QStringLiteral("$b1:example.org"));
+        b.body = QStringLiteral("z2-orig");
+        manager.processEvent(b, context);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+        manager.processEvent(liveEditOf(b, QStringLiteral("$b2:example.org"),
+                                        QStringLiteral("z2-EDITED"), 2000),
+                             context);
+        QCOMPARE(manager.trayAttemptsForTest(), 3);
+        QCOMPARE(manager.pendingBalloonEntriesForTest(), 1);
+        // The click on A's balloon still opens A, and frees the screen for B.
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(opened.at(0).at(0).toString(), roomA);
+        QCOMPARE(manager.trayAttemptsForTest(), 4);
+        QCOMPARE(manager.lastTrayBodyForTest(), QStringLiteral("z2-EDITED"));
+    }
+    {
+        NotificationManager manager;
+        manager.setTrayShowsForTest(true);
+        manager.setBalloonWithdrawableForTest(true);
+        manager.setBalloonHoldMsForTest(50);
+        TimelineEvent a = textIn(roomA, QStringLiteral("$a1:example.org"));
+        manager.processEvent(a, context);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
+        QTRY_VERIFY(!manager.balloonOnScreenForTest());
+        // Gone from the screen: showing it again would be a new toast.
+        manager.processEvent(liveEditOf(a, QStringLiteral("$a2:example.org"),
+                                        QStringLiteral("late edit"), 2000),
+                             context);
+        QCOMPARE(manager.trayAttemptsForTest(), 1);
     }
 }
 

@@ -693,6 +693,12 @@ QString NotificationManager::routableThreadRootId(const QString &roomId,
 void NotificationManager::processEvent(const TimelineEvent &event,
                                        const Context &context)
 {
+    // A room with no open timeline has no SDK aggregate to send through
+    // processUpdated(): its edits arrive here raw, and the card showing the
+    // original follows them. The edit itself notifies only if decide() says
+    // so (one that newly mentions this user), as before.
+    if (event.isEdit)
+        refreshFromEdit(event, context);
     const Decision decision = decide(event, context);
     // A message the SDK could not decrypt yet usually has its key a moment
     // later. Held briefly, so the card carries the text (or, for a mention in
@@ -765,6 +771,9 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
 {
     if (event.eventId.isEmpty() || event.undecryptable)
         return;
+    // An edit that arrived undecryptable could not refresh its card then.
+    if (event.isEdit)
+        refreshFromEdit(event, context);
     const auto live = m_liveUtds.find(event.eventId);
     // Never seen live while undecryptable (history, a previous account), or
     // already decided: nothing to decide again.
@@ -892,10 +901,70 @@ QString bodyForCount(const NotificationManager::Decision &decision,
 void NotificationManager::processUpdated(const TimelineEvent &event,
                                          const Context &context)
 {
-    // Raw m.replace events have not been validated against their target here.
-    // Only the SDK's aggregated row is authoritative, including edit removal.
+    // Raw m.replace events have not been validated against their target here
+    // (processEvent() validates them, see refreshFromEdit()). The SDK's
+    // aggregated row is authoritative, including edit removal.
     if (event.eventId.isEmpty() || event.isEdit || event.undecryptable)
         return;
+    refreshCard(event, context);
+}
+
+bool NotificationManager::refreshFromEdit(const TimelineEvent &edit,
+                                          const Context &context)
+{
+    // What the SDK checks before it aggregates an edit, against what the card
+    // knows: the target is the event a live card shows, in the same room; the
+    // editor is that event's sender (the spec's rule, so another member's
+    // m.replace cannot put words in someone's mouth); m.new_content is
+    // present. Undecryptable or redacted edits carry nothing to show.
+    if (!edit.isEdit || edit.replacesEventId.isEmpty() || edit.sender.isEmpty()
+        || edit.undecryptable || edit.redacted || !edit.editNewBodyAvailable)
+        return false;
+    const QString roomId = routableRoomId(edit.roomId);
+    AccountTable &own = table(context.accountUserId);
+    auto group = own.groups.begin();
+    for (; group != own.groups.end(); ++group) {
+        if (group->payload.value(QStringLiteral("eventId")).toString()
+                == edit.replacesEventId
+            && group->payload.value(QStringLiteral("roomId")).toString()
+                == roomId)
+            break;
+    }
+    if (group == own.groups.end() || group->withdrawn
+        || group->sender != edit.sender)
+        return false;
+    // Edits of one message are applied newest last; one delivered late (a
+    // sliding-sync reset re-delivering) must not bring older text back.
+    const qint64 stamp =
+        edit.timestamp.isValid() ? edit.timestamp.toMSecsSinceEpoch() : 0;
+    if (stamp < group->editStampMs)
+        return true;
+    group->editStampMs = stamp;
+    // The original as edited. Its verdict is the one that raised the card
+    // (refreshCard keeps it for an Unknown one); the edit's own is the
+    // suppress-edits rule's, which says nothing about the message.
+    TimelineEvent current = edit;
+    current.eventId = edit.replacesEventId;
+    current.threadRootId =
+        group->payload.value(QStringLiteral("threadRootId")).toString();
+    current.isEdit = false;
+    current.replacesEventId.clear();
+    current.editNewBody.clear();
+    current.editNewBodyAvailable = false;
+    current.body = messageText(edit);
+    current.formattedBody.clear();
+    current.edited = true;
+    current.pushVerdict = TimelineEvent::PushVerdict::Unknown;
+    current.pushHighlight = false;
+    current.mentionsMe = group->payload.value(QStringLiteral("mention")).toBool();
+    current.mentionsRoom = false;
+    refreshCard(current, context);
+    return true;
+}
+
+void NotificationManager::refreshCard(const TimelineEvent &event,
+                                      const Context &context)
+{
     const QString accountKey = context.accountUserId;
     const QString groupKey = messageGroupKey(
         routableRoomId(event.roomId),
@@ -990,6 +1059,34 @@ void NotificationManager::processUpdated(const TimelineEvent &event,
             waiting = true;
         }
     }
+    // The balloon on screen (the one-balloon gate, Windows) cannot be
+    // updated in place, so while it is still the one showing this message it
+    // is shown again with the new text, silently. One that has had its time
+    // is in the platform's history and stays as it is, and a summary of
+    // several rooms carries no message text.
+    bool balloonShowsIt = false;
+    for (auto &entry : m_shownEntries) {
+        if (entry.accountKey == accountKey
+            && entry.payload.value(QStringLiteral("eventId")).toString() == event.eventId) {
+            entry.title = decision.title;
+            entry.body = decision.body;
+            if (privateMode)
+                entry.avatar = QImage();
+            balloonShowsIt = m_shownEntries.size() == 1;
+            waiting = true;
+        }
+    }
+    if (balloonShowsIt && balloonGate() && m_balloonHold.isActive()
+        && !m_balloonIsCall) {
+        Balloon entry = m_shownEntries.first();
+        if (deliverThroughTray(entry.title, entry.body, entry.payload,
+                               entry.avatar, /*platformSound=*/false,
+                               entry.accountKey)) {
+            qCInfo(lcNotify) << "tray balloon shown again with an edit";
+            // noteBalloon() cleared it; it is still the one on screen.
+            m_shownEntries = { std::move(entry) };
+        }
+    }
     if (!waiting && (group->id != 0 || group->inFlight))
         deliverDecision(event, context, decision, false, /*replacement=*/true);
 }
@@ -1039,6 +1136,9 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     currentGroup.payload = payload;
     currentGroup.title = decision.title;
     currentGroup.body = body;
+    currentGroup.sender = event.sender;
+    if (!replacement)
+        currentGroup.editStampMs = 0;
 
     Card card;
     card.title = decision.title;
