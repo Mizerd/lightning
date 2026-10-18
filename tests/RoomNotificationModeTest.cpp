@@ -32,6 +32,7 @@
 #include "matrix/MatrixClient.h"
 #include "spaces/SpaceManager.h"
 
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSettings>
@@ -1128,6 +1129,104 @@ private Q_SLOTS:
         QCOMPARE(reported.last().at(0).toString(),
                  QStringLiteral("You left Quiet from another session."));
 #endif
+    }
+
+    // A3 (2026-10-18 inventory): `room_membership_lost` carries no account
+    // stamp of its own. Its stamp is the handle it was queued on: the drain
+    // dispatches with that handle's generation, and an account switch always
+    // starts a new handle and generation. A loss the old account queued and
+    // a drain delivers after the switch must not close the same room id in
+    // the new account, nor say anything there.
+    void aLossFromTheAccountBeforeASwitchLeavesTheSameRoomOpen()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The membership reconciler runs on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString shared = QStringLiteral("!shared:example.org");
+        const QJsonObject list{
+            {QStringLiteral("type"), QStringLiteral("rooms")},
+            {QStringLiteral("rooms"),
+             QJsonArray{QJsonObject{{QStringLiteral("id"), shared},
+                                    {QStringLiteral("name"), shared},
+                                    {QStringLiteral("membership"),
+                                     QStringLiteral("joined")}}}}};
+        const QJsonObject lost{
+            {QStringLiteral("type"), QStringLiteral("room_membership_lost")},
+            {QStringLiteral("room_id"), shared},
+            {QStringLiteral("loss"), QStringLiteral("kicked")},
+            {QStringLiteral("name"), QStringLiteral("Ops")}};
+
+        // The old account's handle queues the loss.
+        rust->handleRustEventForTest(list);
+        const quint64 oldAccount = rust->m_lifecycle.activeGeneration();
+        QVERIFY(oldAccount != 0);
+
+        // The switch: what ensureRustHandleForStorePath() does for the next
+        // account's fresh handle. That account lists and opens the same id.
+        rust->m_handleGeneration = rust->m_lifecycle.beginSession();
+        QVERIFY(rust->m_handleGeneration != oldAccount);
+        rust->handleRustEventForTest(list);
+        app.openRoom(shared);
+        QCOMPARE(app.currentRoomId(), shared);
+        QSignalSpy reported(&app, &AppController::errorReported);
+
+        // The drain delivers the old account's loss.
+        rust->handleRustEvent(lost, oldAccount);
+        QCOMPARE(app.currentRoomId(), shared);
+        QVERIFY(reported.isEmpty());
+
+        // The same loss from the new account's own handle closes it: the
+        // handler was reachable, so the stamp is what kept it open.
+        rust->handleRustEvent(lost, rust->m_lifecycle.activeGeneration());
+        QCOMPARE(app.currentRoomId(), QString());
+        QCOMPARE(reported.size(), 1);
+#endif
+    }
+
+    // The stamp above holds only while no event queue outlives its account:
+    // a new handle (and so a new queue and generation) is made only after
+    // the running one was released, and both drain loops dispatch only at
+    // the live generation. A source contract, since the drain needs a live
+    // FFI handle.
+    void anEventQueueNeverOutlivesItsAccount()
+    {
+        QFile file(QStringLiteral(QT_TESTCASE_SOURCEDIR
+                                  "/src/matrix/RustSdkMatrixClient.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        const auto body = [&source](const QString &signature) {
+            const qsizetype start = source.indexOf(signature);
+            if (start < 0)
+                return QString();
+            const qsizetype end = source.indexOf(
+                QLatin1String("\nbool RustSdkMatrixClient::"), start + 1);
+            const qsizetype otherEnd = source.indexOf(
+                QLatin1String("\nvoid RustSdkMatrixClient::"), start + 1);
+            qsizetype stop = end < 0 ? source.size() : end;
+            if (otherEnd > 0 && otherEnd < stop)
+                stop = otherEnd;
+            return source.mid(start, stop - start);
+        };
+
+        const QString ensure = body(QStringLiteral(
+            "bool RustSdkMatrixClient::ensureRustHandleForStorePath("));
+        QVERIFY(!ensure.isEmpty());
+        const qsizetype released = ensure.indexOf(QLatin1String("releaseRustHandle();"));
+        const qsizetype created = ensure.indexOf(QLatin1String("mx_rust_create("));
+        const qsizetype stamped = ensure.indexOf(
+            QLatin1String("m_handleGeneration = m_lifecycle.beginSession();"));
+        QVERIFY2(released >= 0 && created > released,
+                 "a new handle is created while the old one may still be polled");
+        QVERIFY2(stamped > created, "a new handle reuses the old generation");
+
+        const QString poll = body(QStringLiteral("void RustSdkMatrixClient::pollRustEvents()"));
+        QVERIFY(!poll.isEmpty());
+        QVERIFY(poll.contains(QLatin1String("const quint64 eventGeneration = m_handleGeneration;")));
+        QCOMPARE(poll.count(QStringLiteral("if (m_lifecycle.acceptsActive(eventGeneration)) {")), 2);
     }
 
     // B030: matrix-sdk clears every room's event cache on an ignore-list

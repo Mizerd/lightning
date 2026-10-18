@@ -6668,6 +6668,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     // elsewhere, were kicked or banned from. The store has already marked it,
     // so the list drops it on its own; this says why. The name is read here
     // first because the removal may be applied before this event.
+    // No account stamp in the payload, and none needed: like every sync
+    // event it is stamped with the generation of the handle that queued it,
+    // and a switch never polls that handle's queue again, so an old
+    // account's loss cannot close the same room id in the next one.
     if (type == QLatin1String("room_membership_lost")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (roomId.isEmpty())
