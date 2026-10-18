@@ -2037,7 +2037,8 @@ Q_SIGNALS:
     void roomMembersReceived(quint64 opId, const QString &roomId,
                              const QVariantMap &snapshot);
     // facts: ownMembership ("joined", "invited", "left", "knocked",
-    // "banned"; empty when unknown), and canSendMessages / canRedactOthers
+    // "banned"; empty when unknown), and canSendMessages / canRedactOthers /
+    // canKick / canBan / canUnban / canInvite / canEditTopic / canEditName
     // only when the SDK answered (an absent key is unknown).
     void roomOwnPermissionsReceived(quint64 opId, const QString &roomId,
                                     const QVariantMap &facts);

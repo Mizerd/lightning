@@ -201,6 +201,55 @@ private slots:
 #endif
     }
 
+    /// The open-room answer's slash-command facts cross under their own keys
+    /// (six DIFFERENT values, so a swapped key fails); null stays absent
+    /// (unknown, never a refusal), and an answer without the keys carries none.
+    void theOpenRoomModerationFactsSurviveTheBridge()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &MatrixClient::roomOwnPermissionsReceived);
+        QJsonObject event;
+        event.insert(QStringLiteral("type"),
+                     QStringLiteral("room_own_permissions"));
+        event.insert(QStringLiteral("op_id"), 31);
+        event.insert(QStringLiteral("room_id"),
+                     QStringLiteral("!r:example.org"));
+        event.insert(QStringLiteral("own_membership"), QStringLiteral("joined"));
+        const QStringList keys = {"canKick",      "canBan",       "canUnban",
+                                  "canInvite",    "canEditTopic", "canEditName"};
+        const QStringList wire = {"own_can_kick",       "own_can_ban",
+                                  "own_can_unban",      "own_can_invite",
+                                  "own_can_edit_topic", "own_can_edit_name"};
+        const QList<bool> values = {true, false, true, false, true, false};
+        for (int i = 0; i < wire.size(); ++i)
+            event.insert(wire.at(i), values.at(i));
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        QVariantMap facts = spy.takeFirst().at(2).toMap();
+        for (int i = 0; i < keys.size(); ++i)
+            QCOMPARE(facts.value(keys.at(i)), QVariant(values.at(i)));
+
+        for (const QString &w : wire)
+            event.insert(w, QJsonValue(QJsonValue::Null));
+        client.handleRustEventForTest(event);
+        facts = spy.takeFirst().at(2).toMap();
+        for (const QString &key : keys)
+            QVERIFY2(!facts.contains(key),
+                     "an unknown moderation fact crossed as an answer");
+
+        for (const QString &w : wire)
+            event.remove(w);
+        client.handleRustEventForTest(event);
+        facts = spy.takeFirst().at(2).toMap();
+        for (const QString &key : keys)
+            QVERIFY(!facts.contains(key));
+#endif
+    }
+
     /// A typist who left (kicked, banned) gets no typing stop from the server;
     /// a full roster without them drops them from the indicator, a partial or
     /// truncated one cannot prove they left (B026).

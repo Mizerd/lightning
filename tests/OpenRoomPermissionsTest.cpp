@@ -34,7 +34,8 @@ public:
     void startSync() override {}
     void stopSync() override {}
     ConnectionState connectionState() const override { return Syncing; }
-    QList<RoomInfo> rooms() const override { return {}; }
+    QList<RoomInfo> roomList;
+    QList<RoomInfo> rooms() const override { return roomList; }
     QList<TimelineEvent> timeline(const QString &) const override { return {}; }
     QString displayNameFor(const QString &, const QString &id) const override { return id; }
     QString avatarMxcFor(const QString &, const QString &) const override { return {}; }
@@ -68,6 +69,23 @@ public:
         Q_EMIT roomOwnPermissionsReceived(op, roomId, facts);
     }
     void poke(const QString &roomId) { Q_EMIT roomMemberEventSeen(roomId); }
+    void setRoom(const QString &id, bool encrypted, bool known = true)
+    {
+        for (RoomInfo &r : roomList) {
+            if (r.id == id) {
+                r.encrypted = encrypted;
+                r.encryptionKnown = known;
+                Q_EMIT roomsChanged();
+                return;
+            }
+        }
+        RoomInfo r;
+        r.id = id;
+        r.encrypted = encrypted;
+        r.encryptionKnown = known;
+        roomList.append(r);
+        Q_EMIT roomsChanged();
+    }
 };
 
 const QString kRoom = QStringLiteral("!a:example.org");
@@ -137,6 +155,66 @@ private slots:
                                 "room."));
         QVERIFY(perms.redactKnown());
         QVERIFY(perms.canRedactOthers());
+    }
+
+    // The slash-command facts map answer keys to hint keys, only for the keys
+    // the answer carried (six DIFFERENT values, so a swapped key fails), and a
+    // known not-joined membership turns every command off. Unknown stays
+    // absent, never false. An unchanged answer does not notify; a changed
+    // moderation fact alone does.
+    void theCommandFactsAreMappedAndOnlyKnownKeysAppear()
+    {
+        FakeClient client;
+        OpenRoomPermissions perms;
+        perms.setClient(&client);
+        perms.setRoomId(kRoom);
+        client.poke(kRoom);
+        QVERIFY(perms.commandFacts().isEmpty());
+
+        QVariantMap answer = facts(QStringLiteral("joined"), true, false);
+        answer.insert(QStringLiteral("canKick"), true);
+        answer.insert(QStringLiteral("canBan"), false);
+        answer.insert(QStringLiteral("canUnban"), true);
+        answer.insert(QStringLiteral("canInvite"), false);
+        answer.insert(QStringLiteral("canEditTopic"), true);
+        answer.insert(QStringLiteral("canEditName"), false);
+        client.answer(client.lastOpId, kRoom, answer);
+        QVariantMap expected;
+        expected.insert(QStringLiteral("kick"), true);
+        expected.insert(QStringLiteral("ban"), false);
+        expected.insert(QStringLiteral("unban"), true);
+        expected.insert(QStringLiteral("invite"), false);
+        expected.insert(QStringLiteral("topic"), true);
+        expected.insert(QStringLiteral("roomname"), false);
+        QCOMPARE(perms.commandFacts(), expected);
+
+        QSignalSpy changed(&perms, &OpenRoomPermissions::changed);
+        client.poke(kRoom); // ask again
+        client.answer(client.lastOpId, kRoom, answer);
+        QCOMPARE(changed.count(), 0);
+        answer.insert(QStringLiteral("canBan"), true);
+        client.poke(kRoom);
+        client.answer(client.lastOpId, kRoom, answer);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(perms.commandFacts().value(QStringLiteral("ban")).toBool(),
+                 true);
+
+        // A partial answer carries only what it knows.
+        QVariantMap partial = facts(QStringLiteral("joined"), true, false);
+        partial.insert(QStringLiteral("canInvite"), true);
+        client.poke(kRoom);
+        client.answer(client.lastOpId, kRoom, partial);
+        QCOMPARE(perms.commandFacts().size(), 1);
+        QVERIFY(perms.commandFacts().value(QStringLiteral("invite")).toBool());
+
+        // Not joined: every command off, whatever else was said.
+        client.poke(kRoom);
+        client.answer(client.lastOpId, kRoom,
+                      facts(QStringLiteral("left"), {}, {}));
+        const QVariantMap off = perms.commandFacts();
+        QCOMPARE(off.size(), 6);
+        for (auto it = off.cbegin(); it != off.cend(); ++it)
+            QVERIFY2(!it.value().toBool(), qPrintable(it.key()));
     }
 
     // A membership that is not "joined" blocks posting by itself, with its
@@ -303,6 +381,71 @@ private slots:
                       facts(QStringLiteral("joined"), false, true));
         QVERIFY2(!perms.canRedactOthers(),
                  "the previous account's client still reaches the facts");
+    }
+
+    // The open room turns encryption on: the facts are read again from the
+    // same local state, the old answer stays until the new one lands (unknown
+    // stays allowed-to-post and not-offered-to-moderate), and room-list
+    // changes that say nothing new about THIS room ask nothing.
+    void encryptionTurningOnReReadsTheFacts()
+    {
+        FakeClient client;
+        client.setRoom(kRoom, false);
+        client.setRoom(kOther, false);
+        OpenRoomPermissions perms;
+        perms.setClient(&client);
+        perms.setRoomId(kRoom);
+        QCOMPARE(client.asked, QStringList{kRoom});
+        client.answer(client.lastOpId, kRoom,
+                      facts(QStringLiteral("joined"), true, true));
+        QVERIFY(perms.canSendMessages());
+        QVERIFY(perms.canRedactOthers());
+
+        // Unrelated room-list changes: another room, and this room unchanged.
+        client.setRoom(kOther, true);
+        client.setRoom(kRoom, false);
+        QVERIFY2(client.asked == QStringList{kRoom},
+                 "a room-list change that left this room alone re-read");
+
+        // This room turns encryption on: one more read.
+        client.setRoom(kRoom, true);
+        QCOMPARE(client.asked, (QStringList{kRoom, kRoom}));
+        // Repeats of the same state ask nothing.
+        client.setRoom(kRoom, true);
+        QCOMPARE(client.asked.size(), 2);
+        // Until it answers the previous answer stands.
+        QVERIFY(perms.canRedactOthers());
+        // The new answer is applied: send now refused.
+        client.answer(client.lastOpId, kRoom,
+                      facts(QStringLiteral("joined"), false, true));
+        QVERIFY(!perms.canSendMessages());
+        QVERIFY(perms.sendKnown());
+    }
+
+    // The state only becomes known after the open (encryptionKnown flips):
+    // that is a change too. And a room that is not yet in the list, then
+    // appears, reads once. A refused read leaves the facts unknown.
+    void encryptionKnownArrivingAndAnUnansweredReadStayPermissive()
+    {
+        FakeClient client;
+        client.refuse = true;
+        OpenRoomPermissions perms;
+        perms.setClient(&client);
+        client.setRoom(kRoom, false, false);
+        perms.setRoomId(kRoom);
+        QCOMPARE(client.asked.size(), 1);
+        client.setRoom(kRoom, true, true);
+        QCOMPARE(client.asked.size(), 2);
+        // Refused: unknown, never a refusal.
+        QVERIFY(perms.canSendMessages());
+        QVERIFY(!perms.sendKnown());
+        QVERIFY(perms.sendBlockedReason().isEmpty());
+        QVERIFY(!perms.canRedactOthers());
+        QVERIFY(!perms.redactKnown());
+        // No open room: the room list changing asks nothing.
+        perms.setRoomId(QString());
+        client.setRoom(kRoom, false, true);
+        QCOMPARE(client.asked.size(), 2);
     }
 };
 

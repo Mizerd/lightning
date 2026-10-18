@@ -2627,6 +2627,25 @@ fn own_send_and_redact(
     (can_send_message, can_redact_other)
 }
 
+/// Whether this account may kick, ban, unban, invite and edit the topic and
+/// name in `room`, from the SDK's power-level checks against the room's real
+/// levels (unban is the SDK's own max(ban, kick) rule). `None` for each when
+/// our own member is not in the store yet: unknown, which the slash-command
+/// hints treat as offered. Shared with nothing else on purpose: the member
+/// snapshot keeps its own bool-valued copies for the info panel.
+fn own_moderation_facts(
+    own_member: Option<&matrix_sdk::room::RoomMember>,
+) -> [Option<bool>; 6] {
+    [
+        own_member.map(|m| m.can_kick()),
+        own_member.map(|m| m.can_ban()),
+        own_member.map(|m| m.can_do(PowerLevelAction::Unban)),
+        own_member.map(|m| m.can_invite()),
+        own_member.map(|m| m.can_send_state(StateEventType::RoomTopic)),
+        own_member.map(|m| m.can_send_state(StateEventType::RoomName)),
+    ]
+}
+
 /// The open room's own posting facts, for the composer's posting block and
 /// moderator Delete, independent of which room the info panel inspects.
 ///
@@ -2673,6 +2692,12 @@ async fn own_permissions_payload(
             "own_membership": own_membership,
             "own_can_send_message": null,
             "own_can_redact_other": null,
+            "own_can_kick": null,
+            "own_can_ban": null,
+            "own_can_unban": null,
+            "own_can_invite": null,
+            "own_can_edit_topic": null,
+            "own_can_edit_name": null,
         });
     }
     let own_member = match own_id {
@@ -2681,10 +2706,18 @@ async fn own_permissions_payload(
     };
     let (can_send_message, can_redact_other) =
         own_send_and_redact(room, own_member.as_ref());
+    let [kick, ban, unban, invite, edit_topic, edit_name] =
+        own_moderation_facts(own_member.as_ref());
     json!({
         "own_membership": own_membership,
         "own_can_send_message": can_send_message,
         "own_can_redact_other": can_redact_other,
+        "own_can_kick": kick,
+        "own_can_ban": ban,
+        "own_can_unban": unban,
+        "own_can_invite": invite,
+        "own_can_edit_topic": edit_topic,
+        "own_can_edit_name": edit_name,
     })
 }
 
@@ -8216,6 +8249,89 @@ mod member_freshness_tests {
 
         // No request: the whole answer is the store.
         assert_eq!(requests(), requests_before, "the open-room facts made a request");
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// The open-room answer also carries the slash-command facts, from the
+    /// SDK's checks: kick, ban, unban (max of the two), invite, topic and
+    /// name, each against its own level. Every room is chosen so that a swapped
+    /// key or a collapsed level fails: kick 50 / ban 100, invite above kick,
+    /// topic and name at different levels, our level at and one below a
+    /// threshold. A room we are not joined to answers all six null.
+    #[test]
+    fn the_open_room_answer_carries_the_moderation_facts() {
+        let mixed = room_id!("!mixed:example.org");
+        let none = room_id!("!none:example.org");
+        let left = room_id!("!left2:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            let me = client.user_id().unwrap().to_string();
+            let create = json!({
+                "type": "m.room.create", "state_key": "", "sender": me,
+                "event_id": "$create", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "room_version": "11", "creator": me },
+            });
+            let levels = |content: serde_json::Value| {
+                json!({
+                    "type": "m.room.power_levels", "state_key": "", "sender": me,
+                    "event_id": "$pl", "origin_server_ts": 1_700_000_000_000u64,
+                    "content": content,
+                })
+            };
+            // At 50: kick (50) yes, ban (100) no, unban needs max(ban, kick)
+            // = 100 so no, invite (60) no, topic (50) yes, name (51) no.
+            sync(&client, mixed, "q1", vec![
+                create.clone(),
+                member(&me, "join", "Me", "$m0"),
+                levels(json!({
+                    "users": { me.clone(): 50 }, "users_default": 0,
+                    "kick": 50, "ban": 100, "invite": 60,
+                    "events": { "m.room.topic": 50, "m.room.name": 51 },
+                })),
+            ], vec![]).await;
+            // Nothing granted at level 0 against raised thresholds.
+            sync(&client, none, "q2", vec![
+                create.clone(),
+                member(&me, "join", "Me", "$m0"),
+                levels(json!({
+                    "users_default": 0, "kick": 50, "ban": 50, "invite": 50,
+                    "events": { "m.room.topic": 50, "m.room.name": 50 },
+                })),
+            ], vec![]).await;
+            sync(&client, left, "q3", vec![
+                create.clone(),
+                member(&me, "leave", "Me", "$m1"),
+                levels(json!({ "users_default": 100, "kick": 0, "ban": 0 })),
+            ], vec![]).await;
+            (server, client)
+        });
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-own-moderation-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+        let ask = |room: &RoomId, op: u64| {
+            room_own_permissions(&bridge, room.to_string(), op).expect("a known room");
+            own_permissions_answer(&bridge, op)
+        };
+        let keys = [
+            "own_can_kick", "own_can_ban", "own_can_unban", "own_can_invite",
+            "own_can_edit_topic", "own_can_edit_name",
+        ];
+        let read = |answer: &serde_json::Value| keys.map(|k| answer[k].clone());
+        let answer = ask(mixed, 1);
+        assert_eq!(
+            read(&answer),
+            [json!(true), json!(false), json!(false), json!(false), json!(true), json!(false)],
+            "{answer}"
+        );
+        let answer = ask(none, 2);
+        assert_eq!(read(&answer), std::array::from_fn::<_, 6, _>(|_| json!(false)), "{answer}");
+        let answer = ask(left, 3);
+        assert_eq!(read(&answer), std::array::from_fn::<_, 6, _>(|_| json!(null)), "{answer}");
         drop(bridge);
         drop(server);
         drop(rt);

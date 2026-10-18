@@ -751,20 +751,37 @@ Item {
             }
         }
     }
-    // Permission hints for completion rows, only when the room-info controller
-    // is on the composer's room. A missing key counts as allowed; the server
-    // enforces.
+    // Permission hints for completion rows. Each key comes from the open
+    // room's own facts when they say it (as postBlocked reads them: a known
+    // membership other than "joined" offers none), else from the room-info
+    // controller while it is on the composer's room, else it counts as
+    // allowed; the server enforces. Every input is a property read in this
+    // expression, so a change to any re-evaluates it; the composer's property
+    // is only ever set by this Binding.
+    readonly property var openFacts:
+        !!app.openRoomPermissions
+        && app.openRoomPermissions.roomId === app.currentRoomId
+        ? app.openRoomPermissions.commandFacts : ({})
+    readonly property bool infoOnRoom: app.roomInfo.roomId === app.currentRoomId
     Binding {
         target: app.composer
         property: "commandPermissions"
-        value: app.roomInfo.roomId === app.currentRoomId
-               ? { "kick": app.roomInfo.canKick,
-                   "ban": app.roomInfo.canBan,
-                   "unban": app.roomInfo.canUnban,
-                   "invite": app.roomInfo.canInvite,
-                   "topic": app.roomInfo.canEditTopic,
-                   "roomname": app.roomInfo.canEditName }
-               : ({})
+        value: ({
+            "kick": root.openFacts.kick !== undefined ? root.openFacts.kick
+                    : (root.infoOnRoom ? app.roomInfo.canKick : true),
+            "ban": root.openFacts.ban !== undefined ? root.openFacts.ban
+                   : (root.infoOnRoom ? app.roomInfo.canBan : true),
+            "unban": root.openFacts.unban !== undefined ? root.openFacts.unban
+                     : (root.infoOnRoom ? app.roomInfo.canUnban : true),
+            "invite": root.openFacts.invite !== undefined
+                      ? root.openFacts.invite
+                      : (root.infoOnRoom ? app.roomInfo.canInvite : true),
+            "topic": root.openFacts.topic !== undefined ? root.openFacts.topic
+                     : (root.infoOnRoom ? app.roomInfo.canEditTopic : true),
+            "roomname": root.openFacts.roomname !== undefined
+                        ? root.openFacts.roomname
+                        : (root.infoOnRoom ? app.roomInfo.canEditName : true)
+        })
     }
     // Format-only rehighlights re-emit textChanged with unchanged text and
     // cursor; rescanning then would loop the highlighter and reopen a dismissed

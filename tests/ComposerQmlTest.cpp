@@ -1852,8 +1852,10 @@ private slots:
         const QString other = QStringLiteral("!devs:mock.local");
         const QString previousRoom = m_controller->currentRoomId();
         // Nobody has opened a panel: the room-info controller is on no room.
+        const QString previousInfoRoom = m_controller->roomInfo()->roomId();
         m_controller->roomInfo()->setRoomId(QString());
         const auto restore = qScopeGuard([&] {
+            m_controller->roomInfo()->setRoomId(previousInfoRoom);
             mock->setOwnPermissionsForTest(room, {});
             mock->setRoomSuccessorForTest(room, QString());
             m_controller->setCurrentRoomId(previousRoom);
@@ -1916,6 +1918,77 @@ private slots:
                  QStringLiteral("This room has been replaced."));
         QVERIFY2(cont->isVisible(),
                  "a replaced room does not offer its successor");
+    }
+
+    // The slash-command permission hints read the open room's own facts
+    // first, as the posting block does, with no room panel open (they used
+    // to read app.roomInfo only, so they stayed all-allowed): a known
+    // membership other than "joined" offers none of the moderation commands,
+    // and a joined answer's kick/ban/unban/invite/topic/name facts decide
+    // each command, key by key. A key the answer does not carry falls back to
+    // the room-info controller (not on this room here: allowed).
+    void theCommandHintsReadTheOpenRoomsFactsFirst()
+    {
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        const QString room = QStringLiteral("!general:mock.local");
+        const QString previousRoom = m_controller->currentRoomId();
+        const QString previousInfoRoom = m_controller->roomInfo()->roomId();
+        m_controller->roomInfo()->setRoomId(QString());
+        const auto restore = qScopeGuard([&] {
+            m_controller->roomInfo()->setRoomId(previousInfoRoom);
+            mock->setOwnPermissionsForTest(room, {});
+            m_controller->setCurrentRoomId(previousRoom);
+            QTest::qWait(30);
+        });
+        m_controller->setCurrentRoomId(room);
+        QTest::qWait(30);
+        MessageComposer *composer = m_controller->composer();
+        const QStringList keys = {"kick",  "ban",   "unban",
+                                  "invite", "topic", "roomname"};
+        const auto allowed = [&](const QString &key) {
+            return composer->commandPermissions()
+                .value(key, true)
+                .toBool();
+        };
+        for (const QString &key : keys)
+            QVERIFY2(allowed(key), qPrintable(key));
+
+        QVariantMap left;
+        left.insert(QStringLiteral("ownMembership"), QStringLiteral("left"));
+        mock->setOwnPermissionsForTest(room, left);
+        QTRY_VERIFY_WITH_TIMEOUT(!allowed(QStringLiteral("kick")), 3000);
+        for (const QString &key : keys)
+            QVERIFY2(composer->commandPermissions().contains(key)
+                         && !allowed(key),
+                     qPrintable(key));
+
+        // Joined with the SDK's answers: each key follows its own fact, and
+        // the one it does not carry (unban) stays allowed.
+        QVariantMap joined;
+        joined.insert(QStringLiteral("ownMembership"),
+                      QStringLiteral("joined"));
+        joined.insert(QStringLiteral("canSendMessages"), true);
+        joined.insert(QStringLiteral("canKick"), true);
+        joined.insert(QStringLiteral("canBan"), false);
+        joined.insert(QStringLiteral("canInvite"), false);
+        joined.insert(QStringLiteral("canEditTopic"), true);
+        joined.insert(QStringLiteral("canEditName"), false);
+        mock->setOwnPermissionsForTest(room, joined);
+        QTRY_VERIFY_WITH_TIMEOUT(allowed(QStringLiteral("kick")), 3000);
+        QVERIFY(!allowed(QStringLiteral("ban")));
+        QVERIFY(allowed(QStringLiteral("unban")));
+        QVERIFY(!allowed(QStringLiteral("invite")));
+        QVERIFY(allowed(QStringLiteral("topic")));
+        QVERIFY(!allowed(QStringLiteral("roomname")));
+
+        // Joined with no moderation facts says nothing: all allowed again.
+        QVariantMap bare;
+        bare.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
+        mock->setOwnPermissionsForTest(room, bare);
+        QTRY_VERIFY_WITH_TIMEOUT(allowed(QStringLiteral("ban")), 3000);
+        for (const QString &key : keys)
+            QVERIFY2(allowed(key), qPrintable(key));
     }
 
     // #42 "Drag and drop not working": real drag events on the PRODUCTION

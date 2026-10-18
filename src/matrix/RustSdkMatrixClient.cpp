@@ -12214,6 +12214,22 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             v.isBool()) {
             facts.insert(QStringLiteral("canRedactOthers"), v.toBool());
         }
+        // The slash-command facts, the same way: a real bool crosses, null
+        // stays absent (unknown, so the command stays offered).
+        static const struct { const char *wire; const char *key; } kModeration[] = {
+            {"own_can_kick", "canKick"},
+            {"own_can_ban", "canBan"},
+            {"own_can_unban", "canUnban"},
+            {"own_can_invite", "canInvite"},
+            {"own_can_edit_topic", "canEditTopic"},
+            {"own_can_edit_name", "canEditName"},
+        };
+        for (const auto &m : kModeration) {
+            if (const QJsonValue v = event.value(QLatin1String(m.wire));
+                v.isBool()) {
+                facts.insert(QLatin1String(m.key), v.toBool());
+            }
+        }
         Q_EMIT roomOwnPermissionsReceived(
             opId(), event.value(QStringLiteral("room_id")).toString(), facts);
         return true;
