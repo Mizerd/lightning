@@ -340,13 +340,14 @@ private slots:
     void comboBoxesKeepTheirStoredValueAcrossARetranslation()
     {
         auto *settings = m_controller->settings();
-        settings->setReadReceiptMode(2);
+        // Read receipts have two modes since 2026-10-18; Private is the last.
+        settings->setReadReceiptMode(1);
         settings->setNotificationPreview(2);
         m_controller->showSettings();
         m_controller->showSettingsSection(QStringLiteral("privacy"));
         QCoreApplication::processEvents();
         struct Case { const char *name; int expected; };
-        const Case privacy[] = { { "readReceiptModeCombo", 2 } };
+        const Case privacy[] = { { "readReceiptModeCombo", 1 } };
         int checked = 0;
         for (const Case &c : privacy) {
             auto *combo = item(c.name);
@@ -366,12 +367,13 @@ private slots:
         // What setLanguage does through main.cpp's retranslateRequested.
         m_engine->retranslate();
         QCoreApplication::processEvents();
-        for (const char *name : { "readReceiptModeCombo",
-                                  "notificationPreviewCombo" }) {
-            auto *combo = item(name);
-            QVERIFY2(combo, name);
+        const Case retranslated[] = { { "readReceiptModeCombo", 1 },
+                                      { "notificationPreviewCombo", 2 } };
+        for (const Case &c : retranslated) {
+            auto *combo = item(c.name);
+            QVERIFY2(combo, c.name);
             QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentIndex").toInt(),
-                                      2, 3000);
+                                      c.expected, 3000);
             ++checked;
         }
         QCOMPARE(checked, 2);
@@ -449,7 +451,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!item("videoPrefetchLimitRow")->isVisible(),
                                  3000);
         settings->setVideoPrefetchEnabled(true);
-        settings->setVideoPrefetchMaxMb(32);
+        settings->setVideoPrefetchMaxMb(SettingsManager::videoPrefetchDefaultMb());
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
         m_controller->showMain();

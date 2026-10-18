@@ -393,15 +393,15 @@ private Q_SLOTS:
         QVERIFY(controller.busy());
     }
 
-    // Only a definite "not found" stops the create. A network error, a
-    // timeout or a server that refuses profile lookups (403) must not block,
-    // and a user who exists is created without asking.
+    // Only "not found" and "their server did not answer" stop the create. A
+    // server that refuses profile lookups (403), a rate limit or an endpoint
+    // it lacks must not block, and a user who exists is created without
+    // asking.
     void aProfileLookupThatIsNotANotFoundNeverBlocks()
     {
         const QStringList outcomes = { QStringLiteral("ok"),
-                                       QStringLiteral("network"),
-                                       QStringLiteral("timeout"),
                                        QStringLiteral("forbidden"),
+                                       QStringLiteral("rate_limited"),
                                        QStringLiteral("unrecognized") };
         for (const QString &outcome : outcomes) {
             FakeClient client;
@@ -419,6 +419,59 @@ private Q_SLOTS:
             QVERIFY2(controller.unknownTarget().isEmpty(), qPrintable(outcome));
             QVERIFY2(controller.busy(), qPrintable(outcome));
         }
+    }
+
+    // Decided 2026-10-18 (C7): /createRoom federates the invite before it
+    // answers, so a DM to a homeserver that is down or slow left an empty room
+    // that can never be reused. When the profile lookup could not reach their
+    // server (our server's federation request failed: "network", or the 10 s
+    // bound ran out: "timeout") the dialog asks first, as for "not found",
+    // and says why. Old code created the room at once.
+    void aDmToAServerThatDoesNotAnswerAsksFirst()
+    {
+        for (const QString &category : { QStringLiteral("network"),
+                                          QStringLiteral("timeout") }) {
+            FakeClient client;
+            client.profileLookupSupported = true;
+            ConversationController controller;
+            controller.setClient(&client);
+            const QString far = QStringLiteral("@bob:down.example");
+
+            controller.startDirectMessage(far);
+            Q_EMIT client.userProfileFinished(client.lastProfileOp, false, far,
+                                              QString(), QString(), category);
+            QVERIFY2(client.createDmCalls == 0, qPrintable(category));
+            QCOMPARE(controller.unknownTarget(), far);
+            QVERIFY2(controller.unknownTargetUnreachable(), qPrintable(category));
+            QVERIFY(!controller.busy());
+
+            controller.dismissUnknownTarget();
+            QVERIFY(controller.unknownTarget().isEmpty());
+            QVERIFY(!controller.unknownTargetUnreachable());
+            QCOMPARE(client.createDmCalls, 0);
+
+            // The person may still go ahead.
+            controller.startDirectMessage(far);
+            Q_EMIT client.userProfileFinished(client.lastProfileOp, false, far,
+                                              QString(), QString(), category);
+            controller.startDirectMessageAnyway(far);
+            QCOMPARE(client.createDmCalls, 1);
+            QCOMPARE(client.lastDmUser, far);
+            QVERIFY(!controller.unknownTargetUnreachable());
+        }
+
+        // "Not found" keeps its own wording.
+        FakeClient client;
+        client.profileLookupSupported = true;
+        ConversationController controller;
+        controller.setClient(&client);
+        const QString nobody = QStringLiteral("@nobody:example.org");
+        controller.startDirectMessage(nobody);
+        Q_EMIT client.userProfileFinished(client.lastProfileOp, false, nobody,
+                                          QString(), QString(),
+                                          QStringLiteral("not_found"));
+        QCOMPARE(controller.unknownTarget(), nobody);
+        QVERIFY(!controller.unknownTargetUnreachable());
     }
 
     // The check has done nothing server-side, so closing the dialog abandons
@@ -448,19 +501,35 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 0);
     }
 
-    // No answer at all is not "does not exist": the bound proceeds.
-    void aCheckThatNeverAnswersStillCreates()
+    // No answer at all is not "does not exist", and not "reachable" either
+    // (decided 2026-10-18, C7): the bound asks with the unreachable wording,
+    // as rooms.rs's own "timeout" does, and a late answer creates nothing.
+    // Old code created the room when the bound ran out.
+    void aCheckThatNeverAnswersAsksFirst()
     {
         FakeClient client;
         client.profileLookupSupported = true;
         ConversationController controller;
         controller.setClient(&client);
         controller.setTargetCheckTimeoutMsForTest(20);
-        controller.startDirectMessage(QStringLiteral("@alice:example.org"));
+        const QString user = QStringLiteral("@alice:example.org");
+        controller.startDirectMessage(user);
+        const quint64 checkOp = client.lastProfileOp;
         QCOMPARE(client.createDmCalls, 0);
-        QTRY_COMPARE(client.createDmCalls, 1);
-        QVERIFY(controller.unknownTarget().isEmpty());
         QVERIFY(controller.busy());
+        QTRY_COMPARE(controller.unknownTarget(), user);
+        QVERIFY(controller.unknownTargetUnreachable());
+        QVERIFY(!controller.busy());
+        QCOMPARE(client.createDmCalls, 0);
+
+        Q_EMIT client.userProfileFinished(checkOp, true, user,
+                                          QStringLiteral("Alice"), QString(),
+                                          QString());
+        QCOMPARE(client.createDmCalls, 0);
+
+        controller.startDirectMessageAnyway(user);
+        QCOMPARE(client.createDmCalls, 1);
+        QCOMPARE(client.lastDmUser, user);
     }
 
     void dmCreateOpensRoomWhenItAppears()

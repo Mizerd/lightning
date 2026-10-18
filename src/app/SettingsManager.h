@@ -104,8 +104,9 @@ class SettingsManager : public QObject
                    WRITE setDownloadFolder NOTIFY downloadFolderChanged)
     // Who is told this account has read a message: 0 public (default), 1
     // private (MSC2285 `m.read.private`, still clears this account's other
-    // devices), 2 off. The fully-read marker is sent in every mode; it is
-    // private account data.
+    // devices). A stored 2 (the former "Do not send" mode, which sent private
+    // receipts too) reads as 1. The fully-read marker is sent in every mode;
+    // it is private account data.
     Q_PROPERTY(int readReceiptMode READ readReceiptMode
                    WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
     // Whether typing notices leave this device.
@@ -852,7 +853,10 @@ public:
     void setVideoPrefetchMaxMb(int mb);
     static constexpr int videoPrefetchMinMb() { return 1; }
     static constexpr int videoPrefetchLimitMb() { return 100; }
-    static constexpr int videoPrefetchDefaultMb() { return 32; }
+    // Decided 2026-10-18: 8 MB, Telegram's style of auto-downloading only
+    // short clips (was 32). Element and Discord fetch nothing before Play,
+    // but they stream; an encrypted video here must be whole before it plays.
+    static constexpr int videoPrefetchDefaultMb() { return 8; }
     void setStoreRecentGifs(bool v);
     QString gifPreferredProvider() const;
     void setGifPreferredProvider(const QString &id);

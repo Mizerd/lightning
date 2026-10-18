@@ -4885,8 +4885,7 @@ Item {
                                     Layout.fillWidth: true
                                     model: [
                                         qsTr("Send read receipts"),
-                                        qsTr("Private — only my own devices"),
-                                        qsTr("Do not send read receipts")
+                                        qsTr("Private — only my own devices")
                                     ]
                                     currentIndex: app.settings.readReceiptMode
                                     onActivated: (index) =>
@@ -4899,26 +4898,23 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Modes 1 and 2 both send m.read.private
+                                    // Private sends m.read.private
                                     // (rust/src/lib.rs receipts_for_mode,
                                     // automatic_receipt; timeline.rs
                                     // thread_receipt_type): matrix-sdk counts
                                     // unread from the user's own receipts, so
                                     // sending none left every room unread on
                                     // this device. The text must not promise
-                                    // that nothing is sent.
+                                    // that nothing is sent. The former third
+                                    // mode, "Do not send", did exactly this
+                                    // and was folded into Private 2026-10-18.
                                     text: qsTr("Private receipts still clear the "
                                                + "unread badge on your own other "
                                                + "devices; nobody else sees them. "
-                                               + "\"Do not send read receipts\" "
-                                               + "works the same way: a private "
-                                               + "receipt is still sent, because "
-                                               + "your own devices need it to know "
-                                               + "what you have read, and other "
-                                               + "people see nothing. Receipts you "
-                                               + "have already sent cannot be taken "
-                                               + "back, and other people's receipts "
-                                               + "are still shown to you.")
+                                               + "Receipts you have already sent "
+                                               + "cannot be taken back, and other "
+                                               + "people's receipts are still "
+                                               + "shown to you.")
                                 }
 
                                 CheckBox {

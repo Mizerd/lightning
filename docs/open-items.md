@@ -1,5 +1,25 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-18 — DECIDED: product decisions that had no entry of their own
+
+Taken 2026-10-18 for Rokas under his standing rule (copy the mainstream
+clients, no niche settings); reasoning in the vault note
+`Tasks/2026-10-18-dec.md`, plans in `docs/roadmap.md` ("Decided 2026-10-18").
+The code half (read receipts, ringer policy, DM pre-check, video prefetch)
+is on `main` before the 0.10.2 tag, with its own `update-translations`
+commit, and has had no live test yet.
+
+- **Live accounts Phase 1 (Labs).** DECIDED 2026-10-18: lands after 0.10.2,
+  hidden behind `LIGHTNING_LABS_LIVE_ACCOUNTS`, rebased onto post-release
+  `main` in reviewable slices, each with a §18 review. Not in 0.10.2.
+- **Small-video prefetch on room open.** DECIDED 2026-10-18: stays on, and
+  the default limit drops from 32 MB to 8 MB (Telegram-style "short clips
+  only"). The user setting (on/off, 1-100 MB) is unchanged. A video over the
+  limit that was sent without a thumbnail shows no poster until Play, so a
+  video of 8-32 MB without one loses the poster it had: accepted.
+- **#35 unified inbox.** DECIDED 2026-10-18: it is design B phase 3, built on
+  live accounts Phases 1-2. No separate sync path.
+
 ## 2026-10-17 — OPEN (SDK question, fixture-only mitigation): an edit synced right after the original can be lost when the event cache has not applied the first update
 
 `rust/src/edit_regression_tests.rs` waits, after every synthetic sync, until
@@ -44,13 +64,24 @@ Rokas, not an implementation round picking one.
 - **(a) The third read-receipt mode.** "Do not send read receipts" now sends
   `m.read.private`, so on the wire it is identical to Private. Keep it, merge
   it into Private, or relabel it.
+  DECIDED 2026-10-18: merged into Private. Two modes, as Element, Element X
+  and Signal offer, and a stored 2 reads as Private.
 - **(b) The ringer under Do Not Disturb (finding 104).** Lightning's own ringer
   still rings while the desktop's Do Not Disturb is on.
+  DECIDED 2026-10-18: honour it. No ringer and no card sound, but the call is
+  still announced so it can be answered (the phones' and Teams/Slack's DND
+  behaviour). No setting. LANDED: `notices::ringPlan` takes the input and
+  the incoming-call announce in `AppController.cpp` passes
+  `m_notifications->desktopInhibited()`. Not live-tested.
 - **(c) Window deactivation and `m.fully_read`.** Whether deactivating the
   window should move `m.fully_read`. Today it moves only when the user leaves a
   read room.
+  DECIDED 2026-10-18: keep today's behaviour (Element, Slack and Discord keep
+  the "new messages" line until you leave the room). No change.
 - **(d) Per-event "seen" persistence for the Activity Center.** Whether the
   Activity Center should remember seen state per event across restarts.
+  DECIDED 2026-10-18: no. It stays session-only, and the read receipt (synced
+  to every device) is the persistent truth.
 
 **Live: NOT TESTED** for the notification round's behaviour: ring and
 notification semantics, `m.fully_read` handling, MSC4306 auto-subscribe after a
@@ -166,6 +197,10 @@ oldest clamp should be held on their row (as the anchor does elsewhere) needs a
 `docs/timeline-scrolling.md` decision first; that file forbids a fourth anchor
 fix without a capture naming a failure, and this is an offscreen measurement.
 **Live: NOT TESTED.**
+DECIDED 2026-10-18: yes, the reader is held on their row (what Element and
+Discord do away from the bottom). It ships only after a live
+`LIGHTNING_SCROLL_TRACE=1` capture shows the shift, as part of the
+event-focused timeline work (`docs/roadmap.md`, after 0.10.2).
 
 ## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
 
@@ -197,8 +232,10 @@ output and whose PipeWire then restarts (a session restart without logging
 out, a crash, an update). The repeat limiter (`RepeatLogLimiter`) bounds what
 it writes to disk; it does not stop the loop.
 
-**Mitigation to evaluate later, NOT decided.** Run Qt Multimedia on its
-PulseAudio backend in the Flatpak (`QT_AUDIO_BACKEND=pulseaudio`, through
+**Mitigation: DECIDED 2026-10-18, after 0.10.2 and only once the three
+checks below pass** (every Chromium client and Telegram Desktop already talk
+to PipeWire through the PulseAudio API; plan in `docs/roadmap.md`). Run Qt
+Multimedia on its PulseAudio backend in the Flatpak (`QT_AUDIO_BACKEND=pulseaudio`, through
 pipewire-pulse; the manifest already grants `--socket=pulseaudio`). Its sink
 stream has no self-reference and dies with the application's owner, on the
 application thread (`qpulseaudiosink.cpp`). To check first: device ids (the
@@ -267,7 +304,8 @@ enchant); with `myspell-en_US` it works.
 record)" at the end of this file.**
 
 **Leap 16.0 cannot install the release `.rpm`** (Qt 6.9.1 against its Qt 6.11
-floor). It gets the COPR route: the COPR spec now has an openSUSE branch, and
+floor). DECIDED 2026-10-18: COPR route only (plus Flathub), with no native
+Leap lane; Rokas ticks the COPR openSUSE chroots. It gets the COPR route: the COPR spec now has an openSUSE branch, and
 COPR's `opensuse-leap-16.0-x86_64` and `opensuse-tumbleweed-x86_64` chroots
 need ticking (`packaging-ci/docs/copr.md`). Measured in rig containers: that
 spec compiles on Leap 16.0 (40 min at -j8, peak 6.95 GiB — above the 6 GiB
@@ -320,12 +358,18 @@ before the next release; the full checklist is kept in the maintainer's notes.
   live. They can be switched off under Settings > Sound & video > Call sounds.
 - The server-admin "Delete from server" path was NOT TESTED: it needs a
   server-admin grant on the production homeserver, which was not given.
+  DECIDED 2026-10-18: Rokas grants it to a test account (`lightningtest5`) for
+  one live run, then revokes it.
 - `validate-rpm-opensuse` is a HARD gate installing from live Tumbleweed
   repositories: a Tumbleweed transition can block a release (the remedy is to
   retry the one job). The alternative is `allow_failure`.
+  DECIDED 2026-10-18: it stays a hard gate. A blocked release is recoverable
+  by a retry, and a broken published rpm is not.
 - The COPR project (mizerd/lightning-matrix) needs its one-time setup, webhook and
   first build (`packaging-ci/docs/copr.md`); the `dnf copr enable` lines join
   `docs/install.md` only after a green COPR build.
+  DECIDED 2026-10-18: Rokas does the setup after 0.10.2 is out
+  (`packaging-ci/docs/copr.md` "One-time setup").
 
 **Found live, NOT fixed.**
 - (Eight entries that stood here, the soft-logout loop, the `m.space.parent`
@@ -468,6 +512,8 @@ Everything below was found or left open by that round's live testing and its
   route, Windows and macOS.
 - Decision for Rokas: "Show images and videos from links inline" defaults ON
   (it sits under the link-preview switches, which default OFF).
+  DECIDED 2026-10-18: keep ON. It loads nothing itself, the link-preview
+  switches are the privacy gate, and Discord's equivalent defaults on.
 
 ### Spaces
 
@@ -487,6 +533,9 @@ Everything below was found or left open by that round's live testing and its
   given that his own AI-disclosed submission was accepted, and chose this. The
   job waits on him to create `FLATHUB_GITHUB_TOKEN`. The text below records
   what was weighed.
+  DECIDED 2026-10-18: Rokas confirms the variable exists (protected, masked,
+  environment `flathub`; release-operations.md says a token was made
+  2026-09-30) before the 0.10.2 trigger, or the job only says it was skipped.
 - **Superseded — OPEN DECISION (Rokas): how Flathub updates are automated.** Flathub's
   requirements (2026-09-21) bar AI tools from writing manifests or opening,
   automating or describing Flathub pull requests, and the repo
@@ -504,6 +553,10 @@ Everything below was found or left open by that round's live testing and its
 - The signed update manifest still says "No Flathub publication exists"
   (`generate-update-manifest.sh`); flipping the Flatpak channel changes what
   clients are told and is a decision for Rokas.
+  DECIDED 2026-10-18: already done in `262b1e57` (the note now says Lightning
+  is on Flathub, and updates come through Flathub). The channel stays `false`,
+  because Flathub updates its own installs. `packaging-ci/docs/update-manifest.md`
+  is corrected to match.
 
 - **DECIDED (Rokas, 2026-09-29): one `.rpm` for Fedora and openSUSE.** Reported
   by an openSUSE user: "nothing provides gstreamer1-plugins-bad-free", and a
@@ -528,7 +581,8 @@ Everything below was found or left open by that round's live testing and its
   maintainer's (`packaging-ci/docs/copr.md`). OPEN, for Rokas: whether the
   release trigger sets the manifest's `linux-rpm-repo` channel `true` at once
   (COPR users hear of it an hour or two before dnf can see it) or a refresh
-  does after the COPR build is green; that COPR builds carry no GIF keys (the
+  does after the COPR build is green (DECIDED 2026-10-18: the refresh, after
+  green, so no user is told about an update dnf cannot see yet); that COPR builds carry no GIF keys (the
   SRPM is public). NOT TESTED: any build on COPR itself, any COPR build after
   v0.9.9.
 - Follow-up: a Tumbleweed Qt behind Fedora's refuses the rpm until it catches
@@ -580,6 +634,14 @@ What remains open:
   cannot ask for a device, so it still ends in "already signed in on this
   device".
 
+- DECIDED 2026-10-18 (phase 2): most of it LANDED in `83aa66f0` (2026-10-15,
+  §18 APPROVED). That covers the whoami check for password adoptions
+  (`RustSdkMatrixClient.cpp` `startAdoptedSessionCheck`, `oauth.rs`
+  `mx_rust_whoami_probe`) and recording the backend (`LibSecretStore.cpp`, a
+  one-time warning). The rest lands after 0.10.2, in this order: "Try again"
+  from the signed-out path; a miss under the other backend reads as "cannot
+  tell"; an OAuth lost sign-in resumes on the recorded device; then the OAuth
+  adoption check after the first refresh. Plan in `docs/roadmap.md`.
 - **Adopted sessions are UNVERIFIED.** An item written by an older build
   (`net.smetonis.matrixclient.Secret`) is copied into the install's own items
   at first start (`keyringItems=adopted-unverified`). Offline nothing tells
@@ -679,6 +741,12 @@ session. That stops seven rooms becoming eight.
    room created. NOT attempted — it adds a request to every DM start and its
    failure modes (a server that answers `/profile` but refuses the invite)
    were not thought through.
+   DECIDED 2026-10-18: Element's way. The probe exists since `cc790962` and
+   asked only on a 404. Now a federation failure or timeout ("network",
+   "timeout"), or no answer at all within the controller's 15 s bound, also
+   asks first, with "Their server is not answering" and a "Start anyway". A 403 (profile lookups limited) or a rate limit still
+   proceeds. A server that answers `/profile` and then refuses the invite can
+   still leave a room; that case stays accepted.
 
 **What to tell a reporter today:** 0.9.8 does not contain the fix, and even
 with it the underlying hang and the orphan rooms remain. The rooms are safe to
@@ -864,6 +932,11 @@ instead of consuming `client.encryption().verification_state()`, which is a
 Lightning approximates with `own_identity_available`.
 
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
+
+DECIDED 2026-10-18: the more private mode (sender only), as a privacy
+setting should fail closed. This was already done on `main` in `e8b2cdd2`
+(2026-10-15: the getter falls back to 1, the absent-key default stays 0,
+`SettingsSessionTest`). The text below is the record of what was weighed.
 
 `SettingsManager::notificationPreview()` falls back to **0 (sender and
 message)** for a stored value outside 0..2; `setNotificationPreview()` falls

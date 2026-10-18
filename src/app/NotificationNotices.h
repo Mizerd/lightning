@@ -116,11 +116,18 @@ struct RingPlan {
 /// Without it (the tray balloon on Windows and macOS) the desktop gives one
 /// cue at most, so Lightning's own ringer is always started there, and the
 /// card's single cue is used only while that ringer is not ready.
+///
+/// `desktopDoNotDisturb` (decided 2026-10-18): the desktop's Do Not Disturb
+/// is on (NotificationManager::desktopInhibited(); false where it cannot be
+/// read). The call is still announced, so its card and the in-app prompt can
+/// be answered, but nothing sounds, as phones and Teams/Slack do in Do Not
+/// Disturb and as Lightning's own message chime already does.
 inline RingPlan ringPlan(bool ringForCalls, bool silenced, bool ringerAvailable,
-                         bool platformLoopsCallSound)
+                         bool platformLoopsCallSound,
+                         bool desktopDoNotDisturb = false)
 {
     RingPlan plan;
-    plan.ring = ringForCalls && !silenced;
+    plan.ring = ringForCalls && !silenced && !desktopDoNotDisturb;
     if (!plan.ring)
         return plan;
     if (platformLoopsCallSound) {

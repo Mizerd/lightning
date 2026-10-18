@@ -140,6 +140,8 @@ private Q_SLOTS:
     void hiddenComposerButtonsDefaultToNoneAndNormalize();
     // What this device discloses while reading and typing.
     void readReceiptModeDefaultsToPublicPersistsAndClamps();
+    void anOlderBuildsDoNotSendModeReadsAsPrivate();
+    void theReadReceiptComboOffersTwoModes();
     void typingNotificationsDefaultOnAndPersist();
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnrecognisedPreviewModeErrsTowardLessDisclosure();
@@ -942,9 +944,10 @@ void SettingsSessionTest::videoPrefetchDefaultsPersistAndValidate()
 {
     {
         SettingsManager s;
-        // Defaults: on, at the threshold the app shipped with (32 MB).
+        // Defaults: on, short clips only (8 MB, decided 2026-10-18; it was
+        // 32 MB, the threshold the app first shipped with).
         QCOMPARE(s.videoPrefetchEnabled(), true);
-        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        QCOMPARE(s.videoPrefetchMaxMb(), 8);
         QCOMPARE(s.videoPrefetchMinMb(), 1);
         QCOMPARE(s.videoPrefetchLimitMb(), 100);
 
@@ -977,14 +980,14 @@ void SettingsSessionTest::videoPrefetchDefaultsPersistAndValidate()
         raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"), 5000);
         raw.sync();
         SettingsManager s;
-        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        QCOMPARE(s.videoPrefetchMaxMb(), 8);
         raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"),
                      QStringLiteral("lots"));
         raw.sync();
-        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        QCOMPARE(s.videoPrefetchMaxMb(), 8);
         raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"), 0);
         raw.sync();
-        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        QCOMPARE(s.videoPrefetchMaxMb(), 8);
     }
 }
 
@@ -1871,8 +1874,10 @@ void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
         settings.setReadReceiptMode(1);
         QCOMPARE(spy.count(), 1);
 
+        // The former "Do not send" mode is Private (decided 2026-10-18).
         settings.setReadReceiptMode(2);
-        QCOMPARE(settings.readReceiptMode(), 2);
+        QCOMPARE(settings.readReceiptMode(), 1);
+        QCOMPARE(spy.count(), 1);
         // Out of range falls back to the previous behaviour (public), so a
         // corrupt store does not silently stop receipts.
         settings.setReadReceiptMode(9);
@@ -1884,6 +1889,39 @@ void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
     }
     SettingsManager reopened;
     QCOMPARE(reopened.readReceiptMode(), 1);
+}
+
+// Decided 2026-10-18 (C1): "Do not send read receipts" sent m.read.private,
+// identical on the wire to Private, so the two are one mode, as in Element,
+// Element X and Signal. A 2 an older build stored reads as Private, never as
+// Public (which would start disclosing reads the user had hidden) and never as
+// a third combo entry that no longer exists. Old code returned 2.
+void SettingsSessionTest::anOlderBuildsDoNotSendModeReadsAsPrivate()
+{
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("privacy/readReceiptMode"), 2);
+        raw.sync();
+    }
+    SettingsManager settings;
+    QCOMPARE(settings.readReceiptMode(), 1);
+    // Choosing Private over it is not a change anyone sees.
+    QSignalSpy spy(&settings, &SettingsManager::readReceiptModeChanged);
+    settings.setReadReceiptMode(1);
+    QCOMPARE(spy.count(), 0);
+    settings.setReadReceiptMode(0);
+    QCOMPARE(settings.readReceiptMode(), 0);
+    QCOMPARE(spy.count(), 1);
+}
+
+// The settings page offers exactly the two modes.
+void SettingsSessionTest::theReadReceiptComboOffersTwoModes()
+{
+    QFile file(QStringLiteral(REPO_ROOT "/qml/SettingsScreen.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString qml = QString::fromUtf8(file.readAll());
+    QVERIFY(qml.contains(QStringLiteral("qsTr(\"Private — only my own devices\")")));
+    QVERIFY(!qml.contains(QLatin1String("Do not send read receipts")));
 }
 
 void SettingsSessionTest::typingNotificationsDefaultOnAndPersist()

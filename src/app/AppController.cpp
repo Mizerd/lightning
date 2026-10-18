@@ -1588,7 +1588,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const notices::RingPlan plan = notices::ringPlan(
                     m_settings->ringForCalls(),
                     m_callSounds->isRingSilenced(callId),
-                    m_callSounds->ringerAvailable(), kPlatformLoopsCallSound);
+                    m_callSounds->ringerAvailable(), kPlatformLoopsCallSound,
+                    m_notifications->desktopInhibited());
                 m_announcedCallId = callId;
                 // Remembered for the missed-call notice, which is raised from
                 // a signal that no longer carries the caller.

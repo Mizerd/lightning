@@ -690,6 +690,45 @@ private slots:
         closeDialog();
     }
 
+    // Decided 2026-10-18 (C7): their server did not answer the profile
+    // lookup. The same panel asks, with its own words, and creates nothing.
+    void anUnreachableTargetIsAskedAboutWithItsOwnWords()
+    {
+        m_fake->profileLookupSupported = true;
+        openDialog("dm");
+        const QString far = QStringLiteral("@bob:down.example");
+        selectUserFromSearch(far, QString());
+        if (QTest::currentTestFailed())
+            return;
+
+        auto *start = item("dmStartButton");
+        auto *panel = item("dmUnknownTargetPanel");
+        QVERIFY(start && panel);
+        QTRY_VERIFY(start->isVisible());
+        const int before = m_fake->createDmCalls;
+        QMetaObject::invokeMethod(start, "click");
+        Q_EMIT m_fake->userProfileFinished(m_fake->lastProfileOp, false, far,
+                                           QString(), QString(),
+                                           QStringLiteral("timeout"));
+        QTRY_VERIFY(panel->isVisible());
+        QCOMPARE(m_fake->createDmCalls, before);
+        auto *text = item("dmUnknownTargetText");
+        QVERIFY(text);
+        const QString said = text->property("text").toString();
+        QVERIFY(said.contains(far));
+        QVERIFY2(said.contains(QStringLiteral("could not be reached")),
+                 qPrintable(said));
+        QVERIFY(!said.contains(QStringLiteral("could not find a profile")));
+
+        auto *cancel = item("dmUnknownTargetCancel");
+        QVERIFY(cancel);
+        QMetaObject::invokeMethod(cancel, "click");
+        QTRY_VERIFY(!panel->isVisible());
+        QCOMPARE(m_fake->createDmCalls, before);
+        m_fake->profileLookupSupported = false;
+        closeDialog();
+    }
+
     // (g) The omnibox offers "Create room" for plain text and "#name" (seeding
     // the Room tab), never for "@" text.
     void omniboxSuggestsCreatingARoomForNonAtText()

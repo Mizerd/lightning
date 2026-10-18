@@ -122,6 +122,30 @@ private Q_SLOTS:
         QVERIFY(!plan.ring && !plan.ownRinger && !plan.cardSound);
     }
 
+    // Decided 2026-10-18 (C2, finding 104): the desktop's Do Not Disturb
+    // silences an incoming call, on every delivery path. Old code: the plan
+    // had no such input and rang (ownRinger / cardSound true).
+    void doNotDisturbSilencesTheRingButNotTheCall()
+    {
+        for (const bool loops : { true, false }) {
+            for (const bool ringerReady : { true, false }) {
+                const auto plan = notices::ringPlan(
+                    /*ringForCalls=*/true, /*silenced=*/false, ringerReady,
+                    loops, /*desktopDoNotDisturb=*/true);
+                QVERIFY(!plan.ring);      // nothing to Silence either
+                QVERIFY(!plan.ownRinger);
+                QVERIFY(!plan.cardSound);
+            }
+        }
+        // Do Not Disturb off: exactly the plan without the argument.
+        const auto off = notices::ringPlan(true, false, true, true, false);
+        const auto unset = notices::ringPlan(true, false, true, true);
+        QCOMPARE(off.ring, unset.ring);
+        QCOMPARE(off.ownRinger, unset.ownRinger);
+        QCOMPARE(off.cardSound, unset.cardSound);
+        QVERIFY(off.ring && off.ownRinger);
+    }
+
     void withoutALoopingDesktopSoundOurOwnRingerAlwaysRuns()
     {
         // Windows / macOS: the balloon cues once at most. Handing the ring to

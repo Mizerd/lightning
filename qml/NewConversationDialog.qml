@@ -724,9 +724,9 @@ Dialog {
             }
 
             // The target's homeserver says there is no such user (404
-            // M_NOT_FOUND on the profile lookup). As in Element: say so and
-            // let the person decide, rather than leave an encrypted room
-            // nobody will ever join.
+            // M_NOT_FOUND on the profile lookup), or it did not answer at all.
+            // As in Element: say so and let the person decide, rather than
+            // leave an encrypted room nobody will ever join.
             Rectangle {
                 id: unknownTargetPanel
                 objectName: "dmUnknownTargetPanel"
@@ -750,7 +750,9 @@ Dialog {
                     Label {
                         id: unknownTargetTitle
                         Layout.fillWidth: true
-                        text: qsTr("This user may not exist")
+                        text: app.conversations.unknownTargetUnreachable
+                              ? qsTr("Their server is not answering")
+                              : qsTr("This user may not exist")
                         color: AppTheme.chipWarningInk
                         font.pixelSize: AppTheme.textSubtitle
                         font.weight: AppTheme.weightBold
@@ -761,9 +763,14 @@ Dialog {
                         // Carries a typed user id: never markup.
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
-                        text: qsTr("The server could not find a profile for "
-                                   + "%1. If you start a conversation anyway, "
-                                   + "it may never be answered.")
+                        text: (app.conversations.unknownTargetUnreachable
+                               ? qsTr("The server of %1 could not be reached. "
+                                      + "If you start a conversation anyway "
+                                      + "and it stays unreachable, an empty "
+                                      + "room may be left behind.")
+                               : qsTr("The server could not find a profile for "
+                                      + "%1. If you start a conversation anyway, "
+                                      + "it may never be answered."))
                               .arg(root.selectedUserId)
                         color: AppTheme.stormTextSecondary
                         font.pixelSize: AppTheme.textBody

@@ -339,6 +339,30 @@ private Q_SLOTS:
         QCOMPARE(settings.messageLayout(), 2);
     }
 
+    // (2026-10-18) An older build's file or synced blob still says 2, the
+    // former "Do not send" mode. It is accepted (a rejected key would leave
+    // this device Public) and lands as Private, which is what 2 sent. Fails on
+    // a setter that stores 2, and on a table that caps the range at 1.
+    void anOlderBuildsDoNotSendReceiptModeLandsAsPrivate()
+    {
+        QSettings().clear();
+        SettingsManager settings;
+        QCOMPARE(settings.readReceiptMode(), 0);
+        const ParseResult r = parseDocument(j("{'format':'lightning-settings','version':1,'settings':{'readReceiptMode':2}}"));
+        QVERIFY(r.ok);
+        QVERIFY(r.rejected.isEmpty());
+        QVERIFY(writeProperties(&settings, r.doc.settings).isEmpty());
+        QCOMPARE(settings.readReceiptMode(), 1);
+
+        settings.setReadReceiptMode(0);
+        const ParsedBlob p = parseBlob(QJsonDocument::fromJson(j("{'version':1,'settings':{'readReceiptMode':{'v':2,'t':1}}}")).object());
+        QVERIFY(p.rejected.isEmpty());
+        QVariantMap remote;
+        remote.insert(QStringLiteral("readReceiptMode"), p.entries.value("readReceiptMode").v);
+        QVERIFY(writeProperties(&settings, remote).isEmpty());
+        QCOMPARE(settings.readReceiptMode(), 1);
+    }
+
     // ---- sync blob ---------------------------------------------------------
 
     void theBlobRoundTripsAsIntegersOnly()

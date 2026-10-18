@@ -57,7 +57,7 @@
     { QStringLiteral("storeRecentGifs"), Kind::Bool, 0, 0, 1, QStringLiteral("Media"), 0, {  }, QVariant(true) },
     { QStringLiteral("gifPreferredProvider"), Kind::String, 0, 0, 1, QStringLiteral("Media"), 16, { QStringLiteral("giphy"), QStringLiteral("klipy") }, QVariant(QStringLiteral("giphy")) },
     { QStringLiteral("videoPrefetchEnabled"), Kind::Bool, 0, 0, 1, QStringLiteral("Media"), 0, {  }, QVariant(true) },
-    { QStringLiteral("videoPrefetchMaxMb"), Kind::Int, 0, 100000, 1, QStringLiteral("Media"), 0, {  }, QVariant(int(32)) },
+    { QStringLiteral("videoPrefetchMaxMb"), Kind::Int, 0, 100000, 1, QStringLiteral("Media"), 0, {  }, QVariant(int(8)) },
     { QStringLiteral("shareMaxHeight"), Kind::Int, 0, 4320, 1, QStringLiteral("Calls"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("shareFps"), Kind::Int, 0, 240, 1, QStringLiteral("Calls"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("callPictureInPicture"), Kind::Bool, 0, 0, 1, QStringLiteral("Calls"), 0, {  }, QVariant(false) },

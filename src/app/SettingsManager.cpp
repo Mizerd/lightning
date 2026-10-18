@@ -1892,12 +1892,20 @@ int SettingsManager::readReceiptMode() const
     // 0 = public.
     const int mode =
         m_store->value(QStringLiteral("privacy/readReceiptMode"), 0).toInt();
-    return (mode < 0 || mode > 2) ? 0 : mode;
+    if (mode == 2)
+        return 1;   // the old "Do not send" mode: identical on the wire
+    return (mode < 0 || mode > 1) ? 0 : mode;
 }
 
 void SettingsManager::setReadReceiptMode(int mode)
 {
-    if (mode < 0 || mode > 2)
+    // Decided 2026-10-18: two modes, as Element, Element X and Signal offer
+    // (one "send read receipts" switch whose off state still sends private
+    // receipts). The former third mode sent m.read.private exactly like
+    // Private, so it folds into it.
+    if (mode == 2)
+        mode = 1;
+    if (mode < 0 || mode > 1)
         mode = 0;
     if (readReceiptMode() == mode)
         return;

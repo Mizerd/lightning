@@ -45,11 +45,16 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_targetCheckTimeout, &QTimer::timeout, this, [this]() {
         if (m_targetCheckOp == 0)
             return;
-        // No answer is not "does not exist": do not block.
+        // No answer is not "does not exist", but it is not "reachable"
+        // either: rooms.rs's own 10 s bound did not answer "timeout" in time,
+        // and a create now would hang on the same federation path. Ask, as for
+        // "timeout" (decided 2026-10-18, C7). A late answer is dropped by the
+        // op id below.
         const QString userId = m_targetCheckUser;
         m_targetCheckOp = 0;
         m_targetCheckUser.clear();
-        createDirectChat(userId);
+        qCInfo(lcConv) << "dm target check unanswered; asking before create";
+        setUnknownTarget(userId, true);
         Q_EMIT busyChanged();
     });
     m_opTimeout.setSingleShot(true);
@@ -237,16 +242,24 @@ void ConversationController::onUserProfileFinished(quint64 opId, bool ok,
     m_targetCheckOp = 0;
     m_targetCheckUser.clear();
     m_targetCheckTimeout.stop();
-    if (!ok && category == QLatin1String("not_found")
+    const bool notFound = category == QLatin1String("not_found");
+    // Their homeserver did not answer (our server's federation request
+    // failed, or the 10 s bound in rooms.rs ran out). /createRoom federates
+    // the invite before it answers, so creating now is how a DM to a slow or
+    // down server leaves an empty room that can never be reused. Ask, as for
+    // "not found".
+    const bool unreachable = category == QLatin1String("network")
+        || category == QLatin1String("timeout");
+    if (!ok && (notFound || unreachable)
         && (userId.isEmpty() || userId == target)) {
-        // The server answered: there is no such user. Ask, do not create.
-        qCInfo(lcConv) << "dm target not found; asking before create";
-        setUnknownTarget(target);
+        qCInfo(lcConv) << "dm target" << (notFound ? "not found" : "unreachable")
+                       << "; asking before create";
+        setUnknownTarget(target, unreachable);
         Q_EMIT busyChanged();
         return;
     }
-    // Found, or the lookup failed for another reason (network, timeout, a
-    // server that refuses profile lookups): proceed as before.
+    // Found, or the lookup failed for another reason (a server that refuses
+    // profile lookups, a rate limit): proceed as before.
     createDirectChat(target);
     Q_EMIT busyChanged();
 }
@@ -264,11 +277,15 @@ void ConversationController::createDirectChat(const QString &userId)
     m_opTimeout.start();
 }
 
-void ConversationController::setUnknownTarget(const QString &userId)
+void ConversationController::setUnknownTarget(const QString &userId,
+                                              bool unreachable)
 {
-    if (m_unknownTarget == userId)
+    if (userId.isEmpty())
+        unreachable = false;
+    if (m_unknownTarget == userId && m_unknownTargetUnreachable == unreachable)
         return;
     m_unknownTarget = userId;
+    m_unknownTargetUnreachable = unreachable;
     Q_EMIT unknownTargetChanged();
 }
 

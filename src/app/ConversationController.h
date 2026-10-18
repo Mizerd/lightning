@@ -27,11 +27,15 @@ class ConversationController : public QObject
     // Per-user invite progress for the invite dialog:
     // list of {userId, state("pending"|"ok"|"failed"), category}.
     Q_PROPERTY(QVariantList inviteResults READ inviteResults NOTIFY inviteResultsChanged)
-    // The user a DM was about to be started with when their homeserver
-    // answered the profile lookup with 404 M_NOT_FOUND ("" otherwise). The
-    // dialog asks before creating: startDirectMessageAnyway() or
-    // dismissUnknownTarget().
+    // The user a DM was about to be started with when the profile lookup
+    // said they do not exist (404 M_NOT_FOUND) or their homeserver could not
+    // be reached ("" otherwise). The dialog asks before creating:
+    // startDirectMessageAnyway() or dismissUnknownTarget().
     Q_PROPERTY(QString unknownTarget READ unknownTarget NOTIFY unknownTargetChanged)
+    // Why unknownTarget is set: true when their server did not answer (a
+    // network failure or a timeout), false for "no such user".
+    Q_PROPERTY(bool unknownTargetUnreachable READ unknownTargetUnreachable
+                   NOTIFY unknownTargetChanged)
 
 public:
     explicit ConversationController(QObject *parent = nullptr);
@@ -48,6 +52,7 @@ public:
     UserSearchModel *userSearch() const { return m_userSearch; }
     QVariantList inviteResults() const { return m_inviteResults; }
     QString unknownTarget() const { return m_unknownTarget; }
+    bool unknownTargetUnreachable() const { return m_unknownTargetUnreachable; }
 
     // Looks up existing joined DMs with `userId`; updates `existingDms`. Each
     // entry is {roomId, name, avatarUrl[, oneToOne]}: the room list's computed
@@ -57,9 +62,10 @@ public:
     Q_INVOKABLE void checkExistingDm(const QString &userId);
 
     // Create a new encrypted DM, after the existing-DM check. The target's
-    // profile is looked up first (as Element does): a 404 M_NOT_FOUND stops
-    // here and sets `unknownTarget`; any other failure (network, timeout, a
-    // server that hides profiles) does not block.
+    // profile is looked up first (as Element does): a 404 M_NOT_FOUND, a
+    // network failure or a timeout stops here and sets `unknownTarget`, since
+    // a /createRoom whose invite cannot federate leaves an empty room behind.
+    // A server that hides profiles (403) or anything else does not block.
     Q_INVOKABLE void startDirectMessage(const QString &userId);
     // The user confirmed a target the server says does not exist.
     Q_INVOKABLE void startDirectMessageAnyway(const QString &userId);
@@ -127,7 +133,7 @@ private Q_SLOTS:
 
 private:
     void setError(const QString &message);
-    void setUnknownTarget(const QString &userId);
+    void setUnknownTarget(const QString &userId, bool unreachable = false);
     // Abandons an in-flight profile check; it has no server-side effect.
     void cancelTargetCheck();
     // The self-DM and timed-out-create refusals, shared by both start paths.
@@ -151,6 +157,7 @@ private:
     QString m_targetCheckUser;
     QTimer m_targetCheckTimeout;
     QString m_unknownTarget;
+    bool m_unknownTargetUnreachable = false;
 
     // A created room is opened once it appears in the room list, bounded by
     // a timer.

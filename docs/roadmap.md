@@ -16,6 +16,185 @@
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
+## Decided 2026-10-18, planned after 0.10.2
+
+Decided for Rokas under his standing rule: copy what Element/Element X,
+Discord, Telegram, Signal and Slack do, and add no niche settings. The
+reasoning, decision by decision, is in the vault note `Tasks/2026-10-18-dec.md`,
+and each decision carries a "DECIDED 2026-10-18" line in `docs/open-items.md`.
+None of the work below goes into 0.10.2. Order: **1** keyring finish, **2**
+Flatpak audio backend, **3** event-focused timeline, **4** live accounts
+Phase 1, then **5** the unified inbox, which needs 4 and its Phase 2. Items
+1-3 are independent of each other and can run in parallel with separate file
+ownership. Item 4 owns `AppController.*` and `RustSdkMatrixClient.*` while it
+lands, so nothing else edits those files in that window.
+
+### 1. Keyring phase 2, the remainder (open-items "Keyring: install scoping")
+
+Already landed in `83aa66f0`: the whoami check for password adoptions and
+recording the backend. Four slices, one commit each, each with a §18 review
+(credentials and sign-in):
+
+1. **"Try again" from the signed-out path.** `onLoggedOut`
+   (`src/app/AppController.cpp`, the "restart Lightning" message) calls
+   `refreshKeyringUnavailable()` and offers the existing `retryKeyring()`.
+   Test (`StartupSessionTest` / `LoginRepairQmlTest`): sign out with the other
+   accounts' secrets unreadable, then assert that the notice shows and that
+   `retryKeyring()` restores them without a restart.
+2. **A miss under the other libsecret backend is "cannot tell".** Compare the
+   recorded backend (`SettingsManager`, written by `LibSecretStore`) with the
+   one this launch reads. On a mismatch, `secretMissesAreInconclusive` holds
+   and no `keyring_lost_session` card is shown. Test in `KeyringScopeTest`:
+   a record says `file`, this launch reads `service` and misses, so the
+   account stays and no repair is offered.
+3. **An OAuth account whose keyring lost its sign-in resumes on the recorded
+   device.** Pass the recorded device id into the OAuth login (`rust/src/oauth.rs`,
+   which passes `device_id None` today). `oauthLoginBlockReason`
+   (`src/matrix/RustSessionPolicy.cpp`) already accepts `saved == fresh`.
+   Needs a MAS capture first (matrix.org or the local homeserver with MAS).
+   Tests: `RustSessionPolicyTest` and a Rust unit test on the request.
+4. **The OAuth adoption check** after the first token refresh and before the
+   first sync, with the same three outcomes as the password check. It is the
+   riskiest slice and comes last.
+
+Constraints that bind every slice: a restore never needs a live server; an
+unreadable token never means "no account"; destructive cleanup keys on the
+record only (CLAUDE.md §6). Live: a real Flatpak with the Secret portal coming
+and going, and KWallet.
+
+### 2. Flatpak: Qt Multimedia on its PulseAudio backend
+
+Decided because every Chromium client and Telegram Desktop reach PipeWire
+through the PulseAudio API, and Qt's PipeWire sink is what spins the GUI
+thread (open-items 2026-10-07).
+
+1. **Measure first, change nothing.** In the Flatpak with
+   `QT_AUDIO_BACKEND=pulseaudio` set by hand, check three things. (a) Are the
+   stored call device ids (Qt device ids) the same as on the PipeWire backend?
+   If not, write a one-time mapping by description, so nobody's chosen
+   microphone is reset. (b) Run the QSoundEffect voice path (ringer, chimes)
+   for 10 minutes of cues. (c) Does a QAudioSink open block the GUI thread
+   when pipewire-pulse is stopped?
+2. **Change.** Add `--env=QT_AUDIO_BACKEND=pulseaudio` to `finish-args` in both
+   Flatpak manifests (the root one for Flathub, and `packaging-ci`'s), plus
+   the mapping from step 1 if it was needed. Gate: `test-flathub-manifest-pin.py`
+   and the packaging config tests.
+3. **Live.** Reproduce the orphaned stream (unplug the output, restart
+   PipeWire) and require that the GUI thread does not spin. Then run a
+   two-party call, a voice message and the ringer inside the Flatpak.
+   Self-review is enough (packaging, but one env var); §18 if a device-id
+   mapping is needed.
+
+### 3. Event-focused timeline (jumps to old messages)
+
+Today every jump goes through `PaginationController::jumpToEvent`. A loaded
+target lands in place. Otherwise the read-only `ContextView` overlay opens:
+`rust/src/timeline.rs` `open_context_task` already builds a matrix-sdk-ui
+`TimelineFocus::Event` timeline, but `ContextController` never sends, reacts or
+marks read. If `/context` fails, `walkToEvent` pages up to 12 batches and
+freezes past about 600 rows. Element Web and Element X open a normal,
+interactive timeline around the event, with "Jump to latest".
+
+1. **Rust (§18: FFI and lifecycle).** Let a room's main timeline be either
+   Live or Event-focused under one timeline id and generation, and add a
+   `switch_to_live` call that keeps the event cache. Every callback stays
+   stamped with the focus generation, so a late Live diff cannot reach the
+   focused view or the other way round. Files: `rust/src/timeline.rs`,
+   `rust/src/lib.rs`, `rust/include/matrix_rust.h`. Tests: Rust, focusing a
+   cached event and an uncached one, then going back to Live after new
+   messages, with a stale-generation diff dropped.
+2. **C++.** `PaginationController::jumpToEvent` asks for the focus instead of
+   opening the overlay. `TimelineModel` resets on focus change, and sending
+   from a focused timeline first returns to Live (Element's behaviour).
+   Receipts are not sent while focused away from the newest message. Files:
+   `src/models/{PaginationController,TimelineModel,ContextController}`,
+   `src/matrix/{MatrixClient,RustSdkMatrixClient,MockMatrixClient}`,
+   `src/app/AppController.cpp` (the context wiring around `m_contextOpener`).
+   Tests: `PaginationControllerTest`, `ContextControllerTest` (rewritten for
+   focus) and a mock focus in `MockMatrixClient`.
+3. **QML.** `TimelinePane.qml` gets a "Jump to latest" pill while focused,
+   and `ContextView.qml` is retired or kept only as the failure fallback.
+   Landing uses `beginNavigationLanding`, as find matches already do. Tests:
+   the jump cases in `TimelinePaneQmlTest` (reply, search, pin, Activity,
+   jump-to-date). They must fail when the focus is replaced by the old walk.
+4. **Parked-at-oldest shift (open-items 2026-10-16).** Only after a live
+   `LIGHTNING_SCROLL_TRACE=1` capture shows the shift (docs/timeline-scrolling.md
+   forbids a fourth anchor fix without one). The decision is already taken:
+   hold the reader on their row.
+
+Review gates: §18 on slices 1 and 2. `timeline-pane-qml` is load-sensitive,
+so run it alone at low parallelism before reading a failure as a regression.
+Live: physical scrolling around a jumped-to event, a jump in an encrypted
+room, and a thread root.
+
+### 4. Live accounts Phase 1 (Labs), hidden behind `LIGHTNING_LABS_LIVE_ACCOUNTS`
+
+State: Phase 0 is on `main` (`0b168b9d`). Phase 1 is integrated in
+`/mnt/storage/scratch/la1-partial-integration.patch` (1.2 MB, 79 files, base
+`02693a52`, fixes G1-G11 included). Its last ctest was 322/325: localization
+(expected), background-host and notification-dbus, the last two probably the
+D-Bus environment, which is unconfirmed. cargo was not re-run after G6.
+`main` is now 21 commits past that base, and 10 of them touch Phase 1 files.
+Rokas's DECISIONS block in the design note settles §14: card hidden until
+Phase 2, no background presence, one notification per event. Removal also
+signs out on the server.
+
+Land it as five slices onto post-0.10.2 `main`, in this order, with the flag
+off throughout and `FlagOffParityTest` green after every slice:
+
+1. **R (Rust):** `labs.rs`, `bgsession.rs`, the store reservation in
+   `storeclose.rs`. Re-run the full cargo suite, including
+   `every_type_literal_is_classified`, which must classify every event
+   `"type"` added on `main` since the base (for example
+   `room_membership_lost`, `room_own_permissions` and any account stamp
+   wp2 adds). §18.
+2. **S (session machinery):** `src/accounts/*` plus the claim and proof code
+   in `RustSdkMatrixClient.*`, conflict C1 in `login()` re-merged against
+   `main`. Then G3 (`beginQuitRetirement`) and G5. §18 (lifecycle, store,
+   E2EE).
+3. **M (settings and models):** `SettingsManager`, `SettingsSchemaTable.inc`,
+   `AccountActivityModel`, `AccountListModel`. Self-review plus focused tests.
+4. **A (app wiring):** `AppController.*` (about +1000 lines) and the
+   `NotificationManager` refactor. This slice changes the default path even
+   with the flag off, so `FlagOffParityTest`, `NotificationFlood`,
+   `RemovalOrder` and `QuitParallel` must all pass. §18.
+5. **Q (QML):** `AccountActivityBadge`, `AccountActivityFeed`, and the Labs
+   card hidden without the env var. Badge contrast across all 11 palettes is
+   checked here (a `ThemeTokensTest` case asserting the count).
+
+Before slice 1, close the open §18 rechecks G2-G6, and decide or implement
+`SessionPool::abandonRelease` and the Labs switcher's lost "Needs sign-in" for
+a lost token (record that one in `docs/open-items.md`). Risks named by the
+design: a store opened twice (crypto store corruption), a crypto or
+verification event misclassified as UI-only, a refresh token lost to a stale
+keyring read, and quit and retirement ordering (NOT TESTED live). Before it is
+called Phase 1 done, it needs a live run on the local homeserver with two
+throwaway accounts plus `lightningtest5`/`6`: background mention, switch,
+quit while syncing, and removal.
+
+### 5. #35 unified inbox
+
+Rokas chose inbox design B (all accounts live) over design A (a read-only
+poll per account), so the inbox is design B phase 3. It needs live accounts
+Phase 1 (above) and Phase 2 (instant switch through `ActiveClientProxy`).
+v1 matches what Discord, Slack and Telegram show:
+
+1. **Switcher badges and rail dot** from every live session. Encrypted rooms
+   show a dot, not a count (CLAUDE.md §8 rule on invented counts). Files:
+   `AccountMenu.qml`, `IdentityCard.qml`, `SpacesRail.qml`,
+   `AccountActivityModel`.
+2. **"From your other accounts" list**: a `UnifiedInboxModel` over the live
+   sessions' Activity rows, and `UnifiedInboxPanel.qml`. A click switches
+   account and opens the room (cross-account pending open). Plain text only.
+   Tests: generation guards across an account switch, and a stale row from a
+   removed account.
+3. Notifications for other accounts follow the existing per-account
+   notification settings. No new setting.
+
+Review: §18 for slice 2 (cross-account routing). Live: two accounts on
+different homeservers, a mention in the background one, and opening it from
+the list.
+
 ## Planned (2026-10-17) — BOTH BUILT for 0.10.2
 
 - **German translation (`de`).** Requested by Rokas, 2026-10-17. BUILT in

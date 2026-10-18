@@ -12,8 +12,9 @@ signing is still **not active**. Every Windows artifact this pipeline publishes
 is unsigned and will produce a SmartScreen "unknown publisher" warning
 (`windows_signed` in `scripts/lib.sh` is `false`, and
 [`docs/signpath-integration.md`](signpath-integration.md) explains why). There
-is no GPG-signed APT or DNF repository, no Flathub publication, and no Snap
-Store publication. Today, **the signed update manifest is the actual integrity
+is no GPG-signed APT repository and no Snap Store publication; Flathub
+(`org.lightning_matrix.Lightning`) and Fedora COPR update their own installs.
+Today, **the signed update manifest is the actual integrity
 guarantee for an in-app update** — it is the only cryptographic link between "a
 release Rokas cut" and "the bytes a user's Lightning installs". Treat the
 signing key accordingly.
@@ -199,8 +200,10 @@ describes ecosystem state without offering a download.
 All four channels are `available: false` by default, and each carries a `note`
 saying plainly why:
 
-- **`linux-flatpak`** — there is no Flathub publication. The `.flatpak` on the
-  release page is a manual download.
+- **`linux-flatpak`** — Lightning is on Flathub (`org.lightning_matrix.Lightning`,
+  first merged 2026-10-01), and a Flathub install is updated by Flathub, never
+  by this manifest, so the channel stays `false` and its note says where updates
+  come from. The `.flatpak` on the release page is a manual download.
 - **`linux-snap`** — there is no Snap Store publication. Same situation.
 - **`linux-deb-repo`** — there is no APT repository. The `.deb` is a direct
   download, which is why it *is* in `artifacts`.
