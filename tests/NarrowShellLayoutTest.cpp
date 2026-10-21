@@ -21,6 +21,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlExpression>
+#include <QQmlProperty>
 #include <memory>
 
 #include "app/AppController.h"
@@ -273,6 +274,125 @@ Item {
         QTRY_COMPARE_WITH_TIMEOUT(title->property("text").toString(),
                                   QStringLiteral("No rooms match"), 2000);
         clear.evaluate();
+    }
+
+    // C08-F04 / F02: the Home pane scrolls by key, by scrollbar and by
+    // middle-click autoscroll when its card overflows. Old code: no
+    // scrollbar, keys did nothing, no scroller.
+    void theHomePaneScrollsByKeysScrollbarAndMiddleClick()
+    {
+        QQmlComponent component(m_engine);
+        component.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 640
+    height: 240
+    HomePane { objectName: "pane"; anchors.fill: parent }
+}
+)QML"), QUrl(QStringLiteral("homepane-scroll.qml")));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(rootItem);
+        QQuickWindow win;
+        win.resize(640, 240);
+        rootItem->setParentItem(win.contentItem());
+        win.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&win));
+        QQuickItem *pane = findItem(rootItem, QStringLiteral("pane"));
+        QVERIFY(pane);
+        QTest::qWait(900);
+        QQuickItem *flick = findItem(pane, QStringLiteral("homeFlick"));
+        QVERIFY(flick);
+        auto maxYNow = [&]() {
+            return flick->property("contentHeight").toReal() - flick->height();
+        };
+        QVERIFY2(maxYNow() > 100, "the fixture must overflow");
+        QVERIFY2(findItem(pane, QStringLiteral("homeScrollBar")),
+                 "no scrollbar on the Home pane");
+
+        flick->forceActiveFocus();
+        QTest::keyClick(&win, Qt::Key_PageDown);
+        QTest::qWait(30);
+        QVERIFY2(flick->property("contentY").toReal() > 50,
+                 "PageDown did not scroll the Home pane");
+        QTest::keyClick(&win, Qt::Key_End);
+        QTest::qWait(30);
+        QVERIFY(qAbs(flick->property("contentY").toReal() - maxYNow()) < 1.0);
+        QTest::keyClick(&win, Qt::Key_Down);   // clamped at the end
+        QTest::qWait(30);
+        QVERIFY(qAbs(flick->property("contentY").toReal() - maxYNow()) < 1.0);
+        QTest::keyClick(&win, Qt::Key_Home);
+        QTest::qWait(30);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+
+        // A click on blank space focuses the pane so the keys work there.
+        flick->setProperty("focus", false);
+        win.contentItem()->forceActiveFocus();
+        QTest::mouseClick(&win, Qt::LeftButton, Qt::NoModifier, QPoint(6, 120));
+        QTest::qWait(30);
+        QVERIFY2(flick->hasActiveFocus(), "a click did not focus the pane");
+
+        // Middle-click autoscroll: press at the blank left margin, travel
+        // down, and the content follows.
+        QQuickItem *scroller = findItem(pane,
+                                        QStringLiteral("homeMiddleClickScroller"));
+        QVERIFY2(scroller, "no middle-click scroller on the Home pane");
+        QTest::mousePress(&win, Qt::MiddleButton, Qt::NoModifier, QPoint(6, 60));
+        QTest::mouseMove(&win, QPoint(6, 200));
+        QTRY_VERIFY_WITH_TIMEOUT(flick->property("contentY").toReal() > 20, 2000);
+        QTest::mouseRelease(&win, Qt::MiddleButton, Qt::NoModifier, QPoint(6, 200));
+    }
+
+    // C08-F06: a keyboard-focused room-updates summary shows a ring; a mouse
+    // focus does not. Old code: border width 0 in both.
+    void theRoomUpdatesSummaryDrawsAKeyboardFocusRing()
+    {
+        QQmlComponent component(m_engine);
+        component.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400
+    height: 100
+    RoomActivityDelegate {
+        objectName: "activity"
+        width: parent.width
+        entries: [ { eventKind: "m.room.member", timestamp: new Date() },
+                   { eventKind: "m.room.topic", timestamp: new Date() } ]
+    }
+}
+)QML"), QUrl(QStringLiteral("activity-ring.qml")));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
+        QQuickWindow win;
+        win.resize(400, 100);
+        rootItem->setParentItem(win.contentItem());
+        win.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&win));
+        win.requestActivate();
+        QTRY_VERIFY_WITH_TIMEOUT(win.isActive(), 2000);
+        QQuickItem *row = findItem(rootItem,
+                                   QStringLiteral("stateActivitySummary"));
+        QVERIFY(row);
+        auto *bg = row->property("background").value<QQuickItem *>();
+        QVERIFY(bg);
+        auto borderWidth = [&]() {
+            return QQmlProperty(bg, QStringLiteral("border.width")).read().toInt();
+        };
+        QCOMPARE(borderWidth(), 0);
+        row->forceActiveFocus(Qt::MouseFocusReason);
+        QTest::qWait(30);
+        QCOMPARE(borderWidth(), 0);
+        row->setFocus(false, Qt::OtherFocusReason);
+        QVERIFY(!row->hasActiveFocus());
+        row->forceActiveFocus(Qt::TabFocusReason);
+        QTest::qWait(30);
+        QVERIFY2(row->property("visualFocus").toBool(),
+                 "Tab focus must be a visual focus");
+        QCOMPARE(borderWidth(), 2);
     }
 };
 

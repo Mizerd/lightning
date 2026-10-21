@@ -140,8 +140,33 @@ Dialog {
         bottomPadding: AppTheme.spacing8
     }
 
+    // Cancel is the default and must really hold the keys with a visible ring:
+    // the Popup's own focus hand-off uses PopupFocusReason, which draws no
+    // ring, so the dialog opened with focus nobody could see (break-it C06
+    // F01). Asked for again with the Tab reason once it is open.
+    // (It already holds the focus by then, and forceActiveFocus on the holder
+    // keeps the old reason, so the focus is released first.)
+    onOpened: {
+        cancelButton.focus = false
+        cancelButton.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
+        // A Button answers Space only; Return / Enter did nothing in any
+        // dialog button (C06 F03). They press the focused button, so Cancel
+        // (the default) closes and a Tab-ed-to Leave room confirms.
+        Keys.onPressed: (event) => {
+            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                    && !event.isAutoRepeat) {
+                var item = root.contentItem.Window.activeFocusItem
+                if (item && typeof item.click === "function"
+                        && typeof item.kind === "string") {
+                    item.click()
+                    event.accepted = true
+                }
+            }
+        }
         Label {
             objectName: "leaveRoomConfirmBody"
             Layout.fillWidth: true
@@ -159,6 +184,8 @@ Dialog {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             AppButton {
+                id: cancelButton
+                objectName: "leaveRoomConfirmCancel"
                 text: qsTr("Cancel")
                 focus: true
                 onClicked: root.close()
@@ -167,6 +194,20 @@ Dialog {
                 objectName: "leaveRoomConfirmButton"
                 kind: "danger"
                 text: qsTr("Leave room")
+                // The destructive button answers the keyboard only when it
+                // was REACHED by the keyboard (visualFocus: Tab, arrow). A
+                // Space / Return that finds it focused any other way (live
+                // report C06 F01: Space left the room 3/3 with no ring
+                // anywhere) is swallowed and the focus goes back to Cancel.
+                Keys.onPressed: (event) => {
+                    if (!visualFocus
+                            && (event.key === Qt.Key_Space
+                                || event.key === Qt.Key_Return
+                                || event.key === Qt.Key_Enter)) {
+                        event.accepted = true
+                        cancelButton.forceActiveFocus(Qt.TabFocusReason)
+                    }
+                }
                 onClicked: {
                     var id = root.pendingRoomId
                     root.close()

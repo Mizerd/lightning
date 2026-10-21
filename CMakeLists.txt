@@ -3250,6 +3250,18 @@ if(BUILD_TESTING)
     set_tests_properties(channel-row-geometry-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Channels layout list fixes (swarm C05): Tab order, right-to-left
+    # mirroring, tooltips, and the presenter's autoscroll/bounds contract.
+    qt_add_executable(channel-list-fixes-qml-test
+        tests/ChannelListFixesQmlTest.cpp)
+    lightning_configure_qml_test(channel-list-fixes-qml-test)
+    target_compile_definitions(channel-list-fixes-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(channel-list-fixes-qml-test PRIVATE Qt6::Test)
+    add_test(NAME channel-list-fixes-qml COMMAND channel-list-fixes-qml-test)
+    set_tests_properties(channel-list-fixes-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     qt_add_executable(code-block-qml-test tests/CodeBlockQmlTest.cpp)
     lightning_configure_qml_test(code-block-qml-test)
     target_link_libraries(code-block-qml-test PRIVATE Qt6::Test)

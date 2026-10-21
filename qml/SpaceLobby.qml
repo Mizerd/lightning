@@ -59,6 +59,15 @@ ColumnLayout {
     }
     // On a Space switch, a menu aimed at the old Space's section closes.
     function closeMenus() { sectionMenu.close() }
+    // Opens the shared section menu for a subspace section at lobby
+    // coordinates. The root "Rooms" section has no menu. Used by the
+    // three-dot button, a right-click and the Menu / Shift+F10 keys alike.
+    function openSectionMenu(section, ax, ay) {
+        if (!section || section.isRoot === true)
+            return
+        sectionMenu.target = section
+        sectionMenu.popup(root, ax, ay)
+    }
     function restoreHeaderFocus() {
         if (!restoreFocus)
             return
@@ -264,6 +273,7 @@ ColumnLayout {
             Item {
                 id: sectionHeader
                 objectName: "spaceLobbySectionHeader"
+                readonly property string sectionId: sectionItem.modelData.sectionId
                 Layout.fillWidth: true
                 implicitHeight: 36
                 activeFocusOnTab: true
@@ -284,31 +294,73 @@ ColumnLayout {
                     root.collapseToggled(sectionItem.modelData.sectionId,
                                          !sectionItem.collapsed)
                 }
-                Keys.onReturnPressed: toggle()
-                Keys.onSpacePressed: toggle()
+                // Only when the header ITSELF has focus: an unhandled key
+                // bubbles up from the three-dot button, and must not fold the
+                // section instead of that button's own action.
+                Keys.onReturnPressed: { if (sectionHeader.activeFocus) toggle() }
+                Keys.onEnterPressed: { if (sectionHeader.activeFocus) toggle() }
+                Keys.onSpacePressed: { if (sectionHeader.activeFocus) toggle() }
+                // True when a header-local point lies on the menu button or
+                // the selection box, which act on their own.
+                function overControl(pt) {
+                    var bands = [sectionMenuButton, sectionSelectBox]
+                    for (var i = 0; i < bands.length; ++i) {
+                        var b = bands[i]
+                        if (!b.visible)
+                            continue
+                        var p = sectionHeader.mapToItem(b, pt.x, pt.y)
+                        if (p.x >= 0 && p.x <= b.width
+                                && p.y >= 0 && p.y <= b.height)
+                            return true
+                    }
+                    return false
+                }
+                Accessible.onPressAction: toggle()
+                // The context menu from the keyboard, at the header's lower
+                // left, as the three-dot button places it.
+                function openMenuFromKeyboard() {
+                    var p = sectionHeader.mapToItem(
+                        root, AppTheme.spacingXS,
+                        sectionHeader.height + AppTheme.spacing4)
+                    root.openSectionMenu(sectionItem.modelData, p.x, p.y)
+                }
+                Keys.onMenuPressed: openMenuFromKeyboard()
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_F10
+                            && (event.modifiers & Qt.ShiftModifier)) {
+                        openMenuFromKeyboard()
+                        event.accepted = true
+                    }
+                }
                 HoverHandler { id: headerHover }
                 Rectangle {
+                    objectName: "spaceLobbyHeaderFill"
                     anchors.fill: parent
                     radius: AppTheme.radiusSm
                     color: headerHover.hovered || sectionHeader.activeFocus
                            ? AppTheme.hover : "transparent"
+                    // A tint alone is not a focus indicator.
+                    border.width: sectionHeader.activeFocus ? 2 : 0
+                    border.color: AppTheme.focusRing
+                }
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    gesturePolicy: TapHandler.WithinBounds
+                    onTapped: (eventPoint) => {
+                        if (sectionHeader.overControl(eventPoint.position))
+                            return
+                        var p = sectionHeader.mapToItem(
+                            root, eventPoint.position.x,
+                            eventPoint.position.y)
+                        root.openSectionMenu(sectionItem.modelData, p.x, p.y)
+                    }
                 }
                 TapHandler {
                     // Exclude the menu button and selection box: TapHandlers
                     // are non-exclusive across subtrees.
                     onTapped: (eventPoint) => {
-                        var bands = [sectionMenuButton, sectionSelectBox]
-                        for (var i = 0; i < bands.length; ++i) {
-                            var b = bands[i]
-                            if (!b.visible)
-                                continue
-                            var p = sectionHeader.mapToItem(
-                                b, eventPoint.position.x,
-                                eventPoint.position.y)
-                            if (p.x >= 0 && p.x <= b.width
-                                    && p.y >= 0 && p.y <= b.height)
-                                return
-                        }
+                        if (sectionHeader.overControl(eventPoint.position))
+                            return
                         sectionHeader.toggle()
                     }
                 }
@@ -403,13 +455,13 @@ ColumnLayout {
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            sectionMenu.target = sectionItem.modelData
                             // Anchored to the lobby, not the button, which a
                             // rebuild can destroy.
                             var p = sectionMenuButton.mapToItem(
                                 root, 0,
                                 sectionMenuButton.height + AppTheme.spacing4)
-                            sectionMenu.popup(root, p.x, p.y)
+                            root.openSectionMenu(sectionItem.modelData,
+                                                 p.x, p.y)
                         }
                     }
                     SelectBox {
@@ -509,6 +561,24 @@ ColumnLayout {
                             // Hover feedback only where a click acts.
                             color: rowHover.hovered && row.joined ? AppTheme.hover : "transparent"
                             HoverHandler { id: rowHover }
+                            // A joined row opens, so it is a Tab stop with a
+                            // ring; an unjoined one acts only through Join,
+                            // which is its own stop.
+                            activeFocusOnTab: row.joined
+                            border.width: row.activeFocus && row.joined ? 2 : 0
+                            border.color: AppTheme.focusRing
+                            function activate() {
+                                if (!row.joined)
+                                    return
+                                if (row.isSpace)
+                                    root.openSpaceRequested(row.modelData.roomId)
+                                else
+                                    root.openRoomRequested(row.modelData.roomId)
+                            }
+                            Keys.onReturnPressed: activate()
+                            Keys.onEnterPressed: activate()
+                            Keys.onSpacePressed: activate()
+                            Accessible.onPressAction: activate()
                             TapHandler {
                                 // Exclude the selection box's band.
                                 onTapped: (eventPoint) => {
@@ -519,12 +589,7 @@ ColumnLayout {
                                                 && sp.y >= 0 && sp.y <= selectBox.height)
                                             return
                                     }
-                                    if (!row.joined)
-                                        return
-                                    if (row.isSpace)
-                                        root.openSpaceRequested(row.modelData.roomId)
-                                    else
-                                        root.openRoomRequested(row.modelData.roomId)
+                                    row.activate()
                                 }
                             }
                             Accessible.role: Accessible.Button
@@ -792,6 +857,21 @@ ColumnLayout {
         implicitHeight: 26
         Layout.preferredWidth: 26
         Layout.preferredHeight: 26
+        activeFocusOnTab: true
+        Keys.onSpacePressed: box.toggled()
+        Keys.onReturnPressed: box.toggled()
+        Keys.onEnterPressed: box.toggled()
+        Accessible.onToggleAction: box.toggled()
+        Accessible.onPressAction: box.toggled()
+        Rectangle {
+            objectName: "spaceChildSelectBoxRing"
+            anchors.centerIn: parent
+            width: 24; height: 24
+            radius: 6
+            color: "transparent"
+            border.width: box.activeFocus ? 2 : 0
+            border.color: AppTheme.focusRing
+        }
         Rectangle {
             anchors.centerIn: parent
             width: 18; height: 18

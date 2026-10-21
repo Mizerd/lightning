@@ -77,6 +77,8 @@ QtObject {
             add("e1", "reaction", "%2", false)
             add("e2", "reaction", "mxc:/" + "/matrix.org/AbCdEfGhIjKlMno", true)
             add("e3", "mention", "hello", true)
+            for (var i = 4; i < 40; ++i)
+                add("e" + i, "mention", "m" + i, true)
         }
     }
     function showSettingsSection(s) { settingsSection = s }
@@ -263,6 +265,57 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(btn, "clicked");
         QCOMPARE(f.app->property("settingsSection").toString(),
                  QStringLiteral("notifications"));
+    }
+
+    // C08-F03: Home/End/PageUp/PageDown moved nothing (keyNavigationEnabled
+    // covers Up/Down) and a Tab-focused list did not follow its current row.
+    // Old code: currentIndex stays 0 after End.
+    void homeEndAndPageKeysMoveTheCurrentRow()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QQuickWindow *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        f.list->forceActiveFocus();
+        settle();
+        QTest::keyClick(w, Qt::Key_End);
+        settle();
+        QCOMPARE(f.list->property("currentIndex").toInt(),
+                 f.list->property("count").toInt() - 1);
+        QTest::keyClick(w, Qt::Key_PageUp);
+        settle();
+        const int afterPage = f.list->property("currentIndex").toInt();
+        QVERIFY2(afterPage < f.list->property("count").toInt() - 2 && afterPage > 0, qPrintable(QString::number(afterPage)));
+        QTest::keyClick(w, Qt::Key_Home);
+        settle();
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QVERIFY(f.list->property("contentY").toReal() <= 1.0);
+    }
+
+    void focusingTheListBringsItsCurrentRowIntoView()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QVERIFY(f.list->property("contentHeight").toReal()
+                > f.list->height());
+        // Scroll away from row 0, then give the list focus.
+        QMetaObject::invokeMethod(f.list, "positionViewAtEnd");
+        settle();
+        QVERIFY(f.list->property("contentY").toReal() > 100);
+        f.list->setProperty("currentIndex", 0);
+        f.list->forceActiveFocus();
+        settle();
+        QVERIFY2(f.list->property("contentY").toReal() <= 1.0,
+                 "the focused list must show its current row");
+    }
+
+    // C08-F02: middle-click autoscroll exists on the Activity list.
+    void theActivityListHasAMiddleClickScroller()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QVERIFY(f.panel->findChild<QObject *>(
+            QStringLiteral("activityMiddleClickScroller")));
     }
 
     // Break-it rerun, section 10: after a restart on a server without

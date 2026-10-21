@@ -35,6 +35,13 @@ Dialog {
     // The Browse row asked to join ("" = none), so only it shows in-flight
     // state.
     property string pendingJoinRoomId: ""
+    // A knock is a server request that RoomDiscoveryController.busy() does not
+    // cover, so the dialog tracks it itself: in flight (button disabled, no
+    // repeat) and sent (the row/preview reads "Request pending" at once, not
+    // only after a later sync or lookup shows membership=knock). C12-F03.
+    property bool knockInFlight: false
+    property var knockedRoomIds: ({})
+    property bool addressKnockSent: false
 
     readonly property bool busy: app.discovery.busy
     readonly property var resolved: app.discovery.resolved
@@ -125,8 +132,17 @@ Dialog {
         addressText = ""
         knockReasonText = ""
         pendingJoinRoomId = ""
+        knockInFlight = false
+        knockedRoomIds = ({})
+        addressKnockSent = false
         autoOpenJoined = false
         activatedLink = ""
+        // Browse state must not outlive the dialog: a row that was joined
+        // stayed "Join" and the old query/server came back on reopen (C12-F05).
+        // Set the fields first; clear() then cancels the debounce they start.
+        app.discovery.directory.query = ""
+        app.discovery.directory.server = ""
+        app.discovery.directory.clear()
         app.discovery.clearResolved()
         app.discovery.clearError()
     }
@@ -147,6 +163,25 @@ Dialog {
         return ""
     }
 
+    // RoomDiscoveryController::knock() returns SILENTLY when unsupported, busy
+    // or a knock is already running, so the in-flight flag is only raised when
+    // none of those hold, and a bounded timer releases it in case the answer
+    // never arrives (logout zeroes the op without a signal).
+    function startKnock(target, via, reason) {
+        if (knockInFlight || !app.discovery.supported || app.discovery.busy)
+            return false
+        knockInFlight = true
+        knockGuard.restart()
+        app.discovery.knock(target, via, reason)
+        return true
+    }
+    Timer {
+        id: knockGuard
+        interval: 30000
+        onTriggered: root.knockInFlight = false
+    }
+    onKnockInFlightChanged: if (!knockInFlight) knockGuard.stop()
+
     onClosed: resetAll()
 
     Connections {
@@ -155,10 +190,24 @@ Dialog {
         // the pending state is visible.
         function onRoomJoined() { root.close() }
         function onSpaceJoined() { root.close() }
-        function onKnockSent() { root.pendingJoinRoomId = "" }
+        function onKnockSent(roomId) {
+            if (root.pendingJoinRoomId !== "" || root.knockInFlight) {
+                var m = Object.assign({}, root.knockedRoomIds)
+                if (root.pendingJoinRoomId !== "")
+                    m[root.pendingJoinRoomId] = true
+                if (roomId.length > 0)
+                    m[roomId] = true
+                root.knockedRoomIds = m
+            }
+            if (root.mode === "address" && root.knockInFlight)
+                root.addressKnockSent = true
+            root.pendingJoinRoomId = ""
+            root.knockInFlight = false
+        }
         function onErrorMessageChanged() {
             if (app.discovery.errorMessage.length > 0) {
                 root.pendingJoinRoomId = ""
+                root.knockInFlight = false
                 // A link that failed must say so somewhere the user can see.
                 if (root.autoOpenJoined)
                     root.revealForLink()
@@ -232,6 +281,9 @@ Dialog {
                 iconSize: 18
                 implicitWidth: 28; implicitHeight: 28
                 Accessible.name: qsTr("Close")
+                ToolTip.text: Accessible.name
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
                 onClicked: root.close()
             }
         }
@@ -332,10 +384,57 @@ Dialog {
                                         : (alias.length > 0 ? alias : roomId)
                     readonly property bool joined: membership === "joined"
                     readonly property bool knocked: membership === "knocked"
+                        || root.knockedRoomIds[roomId] === true
                     readonly property bool rowKnocks:
                         joinRule === "knock" || joinRule === "knock_restricted"
                     readonly property bool rowPending:
-                        root.pendingJoinRoomId === roomId && root.busy
+                        root.pendingJoinRoomId === roomId
+                        && (root.busy || root.knockInFlight)
+                    readonly property bool primaryAvailable:
+                        joined || (!knocked && !root.busy
+                                   && !root.knockInFlight)
+                    // One keyboard stop per row (C12-F04): the buttons inside
+                    // a ListView delegate were not reached by Tab, so the row
+                    // itself takes focus and Enter/Space does what its button
+                    // does.
+                    function activate() {
+                        if (joined) {
+                            app.openRoom(roomId)
+                            root.close()
+                            return
+                        }
+                        if (!primaryAvailable)
+                            return
+                        root.pendingJoinRoomId = roomId
+                        if (rowKnocks) {
+                            if (!root.startKnock(roomId, [], ""))
+                                root.pendingJoinRoomId = ""
+                        } else {
+                            app.discovery.join(roomId, [], isSpace)
+                        }
+                    }
+                    activeFocusOnTab: true
+                    // Keep the focus ring inside the clipped viewport (F04).
+                    onActiveFocusChanged: if (activeFocus && ListView.view)
+                        ListView.view.positionViewAtIndex(index, ListView.Contain)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: joined
+                        ? qsTr("Open %1").arg(visibleName)
+                        : (knocked ? qsTr("Request pending for %1").arg(visibleName)
+                                   : (rowKnocks ? qsTr("Ask to join %1").arg(visibleName)
+                                                : qsTr("Join %1").arg(visibleName)))
+                    Keys.onReturnPressed: activate()
+                    Keys.onEnterPressed: activate()
+                    Keys.onSpacePressed: activate()
+                    Rectangle {
+                        objectName: "directoryRowFocusRing"
+                        anchors.fill: parent
+                        radius: directoryRow.radius
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.bolt
+                        visible: directoryRow.activeFocus
+                    }
 
                     width: directoryList.width
                     height: 64
@@ -423,29 +522,22 @@ Dialog {
                         AppButton {
                             visible: directoryRow.joined
                             storm: true
+                            focusPolicy: Qt.NoFocus
                             text: qsTr("Open")
-                            onClicked: {
-                                app.openRoom(directoryRow.roomId)
-                                root.close()
-                            }
+                            onClicked: directoryRow.activate()
                         }
                         AppButton {
                             visible: !directoryRow.joined && !directoryRow.knocked
                             storm: true
                             kind: "primary"
-                            enabled: !root.busy
+                            focusPolicy: Qt.NoFocus
+                            enabled: directoryRow.primaryAvailable
                             text: directoryRow.rowPending
-                                  ? qsTr("Joining…")
+                                  ? (directoryRow.rowKnocks ? qsTr("Requesting…")
+                                                            : qsTr("Joining…"))
                                   : (directoryRow.rowKnocks ? qsTr("Ask to join")
                                                             : qsTr("Join"))
-                            onClicked: {
-                                root.pendingJoinRoomId = directoryRow.roomId
-                                if (directoryRow.rowKnocks)
-                                    app.discovery.knock(directoryRow.roomId, [], "")
-                                else
-                                    app.discovery.join(directoryRow.roomId, [],
-                                                       directoryRow.isSpace)
-                            }
+                            onClicked: directoryRow.activate()
                         }
                     }
                 }
@@ -522,7 +614,11 @@ Dialog {
                     placeholderText:
                         qsTr("#room:server, !roomid:server, or a Matrix link")
                     text: root.addressText
-                    onTextChanged: root.addressText = text
+                    onTextChanged: {
+                        if (root.addressText !== text)
+                            root.addressKnockSent = false
+                        root.addressText = text
+                    }
                     onAccepted: lookupButton.clicked()
                 }
                 AppButton {
@@ -691,6 +787,7 @@ Dialog {
                         Item { Layout.fillWidth: true }
                         Label {
                             visible: root.resolvedMembership === "knocked"
+                                     || root.addressKnockSent
                             text: qsTr("Request pending")
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
@@ -711,10 +808,13 @@ Dialog {
                                      && root.resolvedMembership !== "joined"
                                      && root.resolvedMembership !== "knocked"
                                      && root.resolvedMembership !== "banned"
+                                     && !root.addressKnockSent
                             storm: true
                             kind: "primary"
-                            enabled: !root.busy
-                            text: root.busy
+                            enabled: !root.busy && !root.knockInFlight
+                            text: root.knockInFlight
+                                  ? qsTr("Requesting…")
+                                  : root.busy
                                   ? qsTr("Joining…")
                                   : (root.resolvedCanKnock
                                      ? qsTr("Ask to join")
@@ -724,10 +824,10 @@ Dialog {
                             onClicked: {
                                 var target = root.resolved.target || ""
                                 var via = root.resolved.via || []
-                                if (root.resolvedCanKnock)
-                                    app.discovery.knock(target, via,
-                                                        root.knockReasonText)
-                                else
+                                if (root.resolvedCanKnock) {
+                                    root.startKnock(target, via,
+                                                    root.knockReasonText)
+                                } else
                                     app.discovery.join(
                                         target, via,
                                         root.resolved.isSpace === true)

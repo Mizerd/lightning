@@ -64,6 +64,9 @@ AppDialog {
         if (app.roomInfo)
             app.roomInfo.roomId = targetSpaceId
         section = 0
+        // `section` does not change when reopening on tab 0, so reset the
+        // shared scroller explicitly.
+        bodyFlick.contentY = 0
         memberError = ""
         memberFilter.text = ""
         membershipCombo.currentIndex = 0
@@ -89,6 +92,40 @@ AppDialog {
             app.roomClosure.checkServerAdmin()
         open()
     }
+
+    // The Flickable behind the body's ScrollView.
+    readonly property Flickable bodyFlick: bodyScroll.contentItem
+
+    // Scrolls the body so `item` is fully visible, when it lives inside it.
+    function ensureVisibleInBody(item) {
+        var f = root.bodyFlick
+        if (!f || !item || !f.contentItem)
+            return
+        var p = item
+        while (p && p !== f.contentItem)
+            p = p.parent
+        if (!p)
+            return
+        var top = item.mapToItem(f.contentItem, 0, 0).y
+        var bottom = top + item.height
+        var maxY = Math.max(0, f.contentHeight - f.height)
+        if (top < f.contentY)
+            f.contentY = Math.max(0, top - 8)
+        else if (bottom > f.contentY + f.height)
+            f.contentY = Math.min(maxY, bottom - f.height + 8)
+        // Horizontal axis: a wide section scrolls sideways (minContentWidth),
+        // so a control at the row end must be brought into view too.
+        var left = item.mapToItem(f.contentItem, 0, 0).x
+        var right = left + item.width
+        var maxX = Math.max(0, f.contentWidth - f.width)
+        if (left < f.contentX)
+            f.contentX = Math.max(0, left - 8)
+        else if (right > f.contentX + f.width)
+            f.contentX = Math.min(maxX, right - f.width + 8)
+    }
+
+    // One scroller serves all four tabs: each opens at its top.
+    onSectionChanged: bodyFlick.contentY = 0
 
     onClosed: {
         if (app.roomInfo && app.roomInfo.roomId === root.spaceId)
@@ -236,6 +273,7 @@ AppDialog {
                 spacing: 2
 
                 Repeater {
+                    id: navRepeater
                     model: root.sections
                     delegate: Rectangle {
                         id: navRow
@@ -254,8 +292,27 @@ AppDialog {
                             cursorShape: Qt.PointingHandCursor
                         }
                         TapHandler { onTapped: root.section = navRow.index }
+                        // Keyboard: Tab reaches the rows, Up/Down move between
+                        // them and Return/Space/Enter select.
+                        activeFocusOnTab: true
+                        function _goto(i) {
+                            var n = root.sections.length
+                            root.section = Math.max(0, Math.min(n - 1, i))
+                            var target = navRepeater.itemAt(root.section)
+                            if (target)
+                                target.forceActiveFocus(Qt.TabFocusReason)
+                        }
+                        Keys.onUpPressed: navRow._goto(navRow.index - 1)
+                        Keys.onDownPressed: navRow._goto(navRow.index + 1)
+                        Keys.onReturnPressed: root.section = navRow.index
+                        Keys.onEnterPressed: root.section = navRow.index
+                        Keys.onSpacePressed: root.section = navRow.index
+                        border.width: activeFocus ? 2 : 0
+                        border.color: AppTheme.bolt
                         Accessible.role: Accessible.Button
                         Accessible.name: navRow.modelData.label
+                        Accessible.focusable: true
+                        Accessible.onPressAction: root.section = navRow.index
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: AppTheme.spacing12
@@ -293,11 +350,43 @@ AppDialog {
             }
 
             // Section body
-            ScrollView {
+            Item {
+                id: bodyHost
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+
+            ScrollView {
+                id: bodyScroll
+                objectName: "spaceSettingsBodyScroll"
+                anchors.fill: parent
                 clip: true
-                contentWidth: availableWidth
+                // Room for the overlay scrollbar, so it does not sit on the
+                // right edge of the cards.
+                rightPadding: AppTheme.spacing8
+                // The Members and Permissions rows need about this much;
+                // below it the page scrolls sideways instead of clipping.
+                readonly property real minContentWidth:
+                    (root.section === 1 || root.section === 2) ? 500 : 0
+                contentWidth: Math.max(availableWidth, minContentWidth)
+                // Page keys scroll when focus is on the page itself.
+                activeFocusOnTab: true
+                Keys.onPressed: (event) => {
+                    var f = bodyFlick
+                    var step = 40
+                    var page = Math.max(40, f.height - 40)
+                    var top = 0
+                    var bottom = Math.max(0, f.contentHeight - f.height)
+                    var y = f.contentY
+                    if (event.key === Qt.Key_Down) y += step
+                    else if (event.key === Qt.Key_Up) y -= step
+                    else if (event.key === Qt.Key_PageDown) y += page
+                    else if (event.key === Qt.Key_PageUp) y -= page
+                    else if (event.key === Qt.Key_Home) y = top
+                    else if (event.key === Qt.Key_End) y = bottom
+                    else return
+                    f.contentY = Math.max(top, Math.min(bottom, y))
+                    event.accepted = true
+                }
 
                 ColumnLayout {
                     width: parent ? parent.width : 0
@@ -450,9 +539,12 @@ AppDialog {
                                         }
                                         enabled: root.infoIsOurs
                                                  && app.roomInfo.canEditName
+                                        onAccepted: if (renameButton.enabled)
+                                                        renameButton.clicked()
                                         Accessible.name: qsTr("Space name")
                                     }
                                     AppButton {
+                                        id: renameButton
                                         storm: true
                                         kind: "primary"
                                         text: qsTr("Rename")
@@ -494,9 +586,12 @@ AppDialog {
                                         }
                                         enabled: root.infoIsOurs
                                                  && app.roomInfo.canEditTopic
+                                        onAccepted: if (topicSaveButton.enabled)
+                                                        topicSaveButton.clicked()
                                         Accessible.name: qsTr("Space topic")
                                     }
                                     AppButton {
+                                        id: topicSaveButton
                                         storm: true
                                         kind: "primary"
                                         text: qsTr("Save")
@@ -826,6 +921,8 @@ AppDialog {
                                         placeholderText: qsTr("#space-name")
                                         enabled: root.infoIsOurs
                                                  && app.roomInfo.canChangeAlias
+                                        onAccepted: if (aliasSaveButton.enabled)
+                                                        aliasSaveButton.clicked()
                                         property string authoritative: ""
                                         function resetForSpace() {
                                             authoritative =
@@ -842,6 +939,7 @@ AppDialog {
                                         }
                                     }
                                     AppButton {
+                                        id: aliasSaveButton
                                         storm: true
                                         kind: "primary"
                                         text: qsTr("Save")
@@ -1126,7 +1224,22 @@ AppDialog {
                         // Grouped by role; buckets come from C++
                         // (memberRoleGroups), so a custom level gets its own
                         // group.
+                        Label {
+                            objectName: "spaceSettingsMembersEmpty"
+                            Layout.fillWidth: true
+                            visible: root.infoIsOurs
+                                     && memberGroupsRepeater.count === 0
+                                     && (memberFilter.text.length > 0
+                                         || membersSection.membership !== "")
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("No members match this name.")
+                        }
+
                         Repeater {
+                            id: memberGroupsRepeater
                             model: {
                                 var _t = root.rosterTick
                                 return root.infoIsOurs
@@ -1287,6 +1400,17 @@ AppDialog {
                                                     memberRow.modelData,
                                                     memberMenuButton, 0,
                                                     memberMenuButton.height + 2)
+                                                // Menu key and Shift+F10 open
+                                                // the same menu.
+                                                Keys.onMenuPressed: clicked()
+                                                Keys.onPressed: (event) => {
+                                                    if (event.key === Qt.Key_F10
+                                                        && (event.modifiers
+                                                            & Qt.ShiftModifier)) {
+                                                        clicked()
+                                                        event.accepted = true
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1516,8 +1640,15 @@ AppDialog {
                                                 text.trim().length === 0
                                                 ? -1000
                                                 : parseInt(text.trim(), 10)
+                                            // Return applies, as the check
+                                            // beside it does; that button is
+                                            // disabled (so unreachable by Tab)
+                                            // until the field holds a level.
+                                            onAccepted: if (applyLevel.enabled)
+                                                            applyLevel.clicked()
                                         }
                                         IconButton {
+                                            id: applyLevel
                                             objectName: "spacePermApply_"
                                                         + permRow.permKey
                                             visible: permRow.known
@@ -1566,9 +1697,16 @@ AppDialog {
                         Repeater {
                             model: {
                                 var _t = root.rosterTick
-                                return root.infoIsOurs
-                                       && app.roomInfo.canChangePowerLevels
-                                       ? app.roomInfo.filterMembers("") : []
+                                if (!(root.infoIsOurs
+                                      && app.roomInfo.canChangePowerLevels))
+                                    return []
+                                // Joined members only: a banned or invited
+                                // user holds no role to change.
+                                return app.roomInfo.filterMembers("").filter(
+                                    function (m) {
+                                        return m.membership !== "banned"
+                                               && m.membership !== "invited"
+                                    })
                             }
                             delegate: RowLayout {
                                 id: roleRow
@@ -1736,6 +1874,7 @@ AppDialog {
                                     font.pixelSize: AppTheme.textMeta
                                 }
                                 IconButton {
+                                    id: devCopyButton
                                     objectName: "spaceSettingsDevCopy"
                                     iconName: "content_copy"
                                     implicitWidth: 26
@@ -1744,13 +1883,24 @@ AppDialog {
                                     enabled: devRow.modelData.v.length > 0
                                     Accessible.name: qsTr("Copy %1")
                                                          .arg(devRow.modelData.k)
-                                    ToolTip.text: Accessible.name
-                                    ToolTip.visible: hovered
-                                    ToolTip.delay: 500
+                                    // "Copied" for a moment after a click.
+                                    property bool justCopied: false
+                                    Timer {
+                                        id: copiedTimer
+                                        interval: 1500
+                                        onTriggered: devCopyButton.justCopied = false
+                                    }
+                                    ToolTip.text: justCopied
+                                                  ? qsTr("Copied")
+                                                  : Accessible.name
+                                    ToolTip.visible: hovered || justCopied
+                                    ToolTip.delay: justCopied ? 0 : 500
                                     onClicked: {
                                         devCopyHelper.text = devRow.modelData.v
                                         devCopyHelper.selectAll()
                                         devCopyHelper.copy()
+                                        justCopied = true
+                                        copiedTimer.restart()
                                     }
                                 }
                             }
@@ -1774,6 +1924,28 @@ AppDialog {
 
                     Item { Layout.fillHeight: true; Layout.preferredHeight: 8 }
                 }
+            }
+
+            // Middle-click autoscroll, as in the timeline and room list.
+            MiddleClickScroller {
+                objectName: "spaceSettingsMiddleClickScroller"
+                anchors.fill: parent
+                view: bodyFlick
+            }
+
+            // Keyboard focus follows into view: a Tab onto a control below
+            // the fold scrolls to it instead of acting on something unseen.
+            // A mouse click into a partly visible field nudges by at most the
+            // 8 px margin; accepted (focusReason is not available here).
+            Connections {
+                target: bodyHost.Window.window
+                function onActiveFocusItemChanged() {
+                    var win = bodyHost.Window.window
+                    var item = win ? win.activeFocusItem : null
+                    if (item)
+                        root.ensureVisibleInBody(item)
+                }
+            }
             }
         }
     }
@@ -1823,7 +1995,10 @@ AppDialog {
                            settable: settable })
         }
         // Only the current level and nothing to change it to is no choice.
-        memberMenu.roleOptions = options.length > 1 ? options : []
+        // A banned or invited user holds no role to change.
+        var notJoined = member.membership === "banned"
+                        || member.membership === "invited"
+        memberMenu.roleOptions = options.length > 1 && !notJoined ? options : []
         memberMenu.popup(anchor, x, y)
     }
 
@@ -1873,6 +2048,8 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberKick"
             visible: memberMenu.canKick
+            // A hidden item stays in the keyboard chain unless disabled.
+            enabled: memberMenu.canKick
             danger: true
             iconName: "person_remove"
             text: qsTr("Kick from space…")
@@ -1883,6 +2060,8 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberBan"
             visible: memberMenu.canBan
+            // A hidden item stays in the keyboard chain unless disabled.
+            enabled: memberMenu.canBan
             danger: true
             iconName: "block"
             text: qsTr("Ban from space…")
@@ -1893,6 +2072,8 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberUnban"
             visible: memberMenu.canUnban
+            // A hidden item stays in the keyboard chain unless disabled.
+            enabled: memberMenu.canUnban
             iconName: "undo"
             text: qsTr("Unban…")
             onTriggered: memberAction.openFor(root.spaceId, root.info.name || "",

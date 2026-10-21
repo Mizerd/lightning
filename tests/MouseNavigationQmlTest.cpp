@@ -193,6 +193,34 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kDevs);
     }
 
+    void historyBackLeavesAScopedSpaceList()
+    {
+        openThreeRooms();
+        m_controller->spaces()->setActiveSpaceId(QStringLiteral("!space:example.org"));
+        QVERIFY(m_controller->navigateRoomBack());
+        QVERIFY2(m_controller->spaces()->activeSpaceId().isEmpty(),
+                 "history opened a room under a stale space scope");
+    }
+
+    // MASTER-1 M2: stepping between two rooms of the Space in front keeps it
+    // (the mock's Team holds General and Developers); a room outside it
+    // still leaves the scope.
+    void historyBetweenRoomsOfTheActiveSpaceKeepsTheSpace()
+    {
+        const QString team = QStringLiteral("!space-team:mock.local");
+        m_controller->setCurrentRoomId(kDm);
+        m_controller->setCurrentRoomId(kGeneral);
+        m_controller->setCurrentRoomId(kDevs);
+        m_controller->spaces()->setActiveSpaceId(team);
+        QVERIFY(m_controller->navigateRoomBack());
+        QCOMPARE(m_controller->currentRoomId(), kGeneral);
+        QCOMPARE(m_controller->spaces()->activeSpaceId(), team);
+        QVERIFY(m_controller->navigateRoomBack());
+        QCOMPARE(m_controller->currentRoomId(), kDm);
+        QVERIFY2(m_controller->spaces()->activeSpaceId().isEmpty(),
+                 "a room outside the Space opened under its scope");
+    }
+
     void aHistoryMoveIsNotRecordedAsANewVisit()
     {
         openThreeRooms();

@@ -132,6 +132,12 @@ Item {
         anchors.bottomMargin: root.showGroupDivider ? 1 : 0
         // An 8px rounded highlight chip from the semantic tokens.
         radius: AppTheme.radiusMd
+        // Every row is a Tab stop and nothing else focuses one (a click does
+        // not), so activeFocus is keyboard focus; Item has no visualFocus.
+        // The one holding the keyboard says so
+        // (C06 F02: Tab moved through the list with nothing to see).
+        border.width: root.activeFocus ? 2 : 0
+        border.color: AppTheme.focusRing
         color: selected ? (hover.hovered ? AppTheme.roomSelectedHover : AppTheme.roomSelected)
              : hover.hovered ? AppTheme.roomHover
              : root.needsAttention ? AppTheme.chipAccentFill
@@ -223,6 +229,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
                 Label {
+                    id: nameLabel
                     text: model.name
                     textFormat: Text.PlainText
                     // Read rows dim; unread and selected keep full ink. A muted
@@ -235,6 +242,11 @@ Item {
                                  ? AppTheme.weightBold : AppTheme.weightMedium
                     elide: Label.ElideRight
                     Layout.fillWidth: true
+                    // A name cut to fit the row stays readable (C06 F05).
+                    ToolTip.visible: nameHover.hovered && nameLabel.truncated
+                    ToolTip.delay: 600
+                    ToolTip.text: model.name
+                    HoverHandler { id: nameHover }
                 }
                 // Bridged-network badge; empty for native rooms. A Loader
                 // rather than an empty Label: a Text born with "" never clears

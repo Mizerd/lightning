@@ -3301,10 +3301,22 @@ int SettingsManager::roomListSort() const
         m_store->value(kRoomListSort, conversation::SortByActivity).toInt());
 }
 
+bool SettingsManager::roomListSortChosen() const
+{
+    return m_store->contains(kRoomListSort);
+}
+
+int SettingsManager::roomListSortForModels() const
+{
+    return roomListSortChosen() ? roomListSort() : -1;
+}
+
 void SettingsManager::setRoomListSort(int mode)
 {
     const int valid = conversation::normalizedSortMode(mode);
-    if (roomListSort() == valid)
+    // An explicit choice is stored even when it equals the default: picking
+    // Activity inside a Space must keep Activity there.
+    if (roomListSortChosen() && roomListSort() == valid)
         return;
     m_store->setValue(kRoomListSort, valid);
     Q_EMIT roomListSortChanged();

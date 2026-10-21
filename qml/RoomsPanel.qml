@@ -376,14 +376,50 @@ Rectangle {
                         active: roomListSortMenu.opened
                         Accessible.name: qsTr("Room list options")
                         ToolTip.text: qsTr("Room list options")
-                        ToolTip.visible: hovered
+                        // Not while its own menu is open: the tip drew over
+                        // the menu's header (C04-F06).
+                        ToolTip.visible: hovered && !roomListSortMenu.opened
                         ToolTip.delay: 500
-                        onClicked: roomListSortMenu.open()
+                        // Enter, KP_Enter, the Menu key and Shift+F10 open the
+                        // menu as Space does (C04-F05); the Menu key used to
+                        // fall through to the search field's edit menu.
+                        Keys.onReturnPressed: (event) => { sortBtn.clicked(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { sortBtn.clicked(); event.accepted = true }
+                        Keys.onMenuPressed: (event) => { sortBtn.clicked(); event.accepted = true }
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_F10
+                                    && (event.modifiers & Qt.ShiftModifier)) {
+                                sortBtn.clicked()
+                                event.accepted = true
+                            }
+                        }
+                        // Whether the menu was opened from the keyboard, so the
+                        // ring comes back on this button when it closes
+                        // (C04-F06): a popup closing returns focus with a
+                        // reason that draws no ring.
+                        property bool openedByKeyboard: false
+                        onClicked: {
+                            openedByKeyboard = visualFocus
+                            roomListSortMenu.open()
+                        }
                         RoomListSortMenu {
                             id: roomListSortMenu
                             parent: sortBtn
                             x: sortBtn.width - width
                             y: sortBtn.height + 4
+                            // After the popup has handed focus back: it does
+                            // so with a reason that draws no ring.
+                            onClosed: if (sortBtn.openedByKeyboard) {
+                                // forceActiveFocus() is a no-op on an item the
+                                // popup already refocused, so the reason is set
+                                // directly: visualFocus reads it.
+                                sortBtn.focusReason = Qt.TabFocusReason
+                                Qt.callLater(function() {
+                                    if (!sortBtn.activeFocus)
+                                        sortBtn.forceActiveFocus(Qt.TabFocusReason)
+                                    sortBtn.focusReason = Qt.TabFocusReason
+                                })
+                            }
                         }
                     }
                     // Everything that adds to the list, as one labelled menu
@@ -407,12 +443,35 @@ Rectangle {
                         ToolTip.text: qsTr("New message, room or Space")
                         ToolTip.visible: hovered && !roomListAddMenu.opened
                         ToolTip.delay: 500
-                        onClicked: roomListAddMenu.popup(
-                            newConversationBtn, 0,
-                            newConversationBtn.height + AppTheme.spacing4)
+                        // As the sort button beside it (C04-F05, F06).
+                        Keys.onReturnPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
+                        Keys.onMenuPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_F10
+                                    && (event.modifiers & Qt.ShiftModifier)) {
+                                newConversationBtn.clicked()
+                                event.accepted = true
+                            }
+                        }
+                        property bool openedByKeyboard: false
+                        onClicked: {
+                            openedByKeyboard = visualFocus
+                            roomListAddMenu.popup(
+                                newConversationBtn, 0,
+                                newConversationBtn.height + AppTheme.spacing4)
+                        }
                         AppMenu {
                             id: roomListAddMenu
                             objectName: "roomListAddMenu"
+                            onClosed: if (newConversationBtn.openedByKeyboard) {
+                                newConversationBtn.focusReason = Qt.TabFocusReason
+                                Qt.callLater(function() {
+                                    if (!newConversationBtn.activeFocus)
+                                        newConversationBtn.forceActiveFocus(Qt.TabFocusReason)
+                                    newConversationBtn.focusReason = Qt.TabFocusReason
+                                })
+                            }
                             AppMenuItem {
                                 objectName: "roomListAddMessage"
                                 visible: app.conversations.supported

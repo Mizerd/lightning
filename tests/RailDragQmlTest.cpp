@@ -2372,6 +2372,321 @@ private slots:
                      .arg(measured)));
     }
 
+    // ---- C07 keyboard and menu cases ----------------------------------
+
+    QObject *railMenuObject() const
+    {
+        return m_rail->findChild<QObject *>(QStringLiteral("railContextMenu"));
+    }
+
+    // The menu's row whose objectName is `name` (first match), or nullptr.
+    QObject *menuRowNamed(const QString &name) const
+    {
+        QObject *menu = railMenuObject();
+        if (!menu)
+            return nullptr;
+        const int n = menu->property("count").toInt();
+        for (int i = 0; i < n; ++i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            if (row && row->objectName() == name)
+                return row;
+        }
+        return nullptr;
+    }
+
+    // Escape abandons a drag. Before, nothing read it: the ghost stayed,
+    // release still filed the Space and the shell's own Escape went Home.
+    void escapeCancelsADragAndFilesNothing()
+    {
+        const QString a = m_spaceIds.at(0);
+        const QString b = m_spaceIds.at(1);
+        const QPoint from = tileCentre(a);
+        const QPoint to = tileCentre(b);
+        QVERIFY(!from.isNull() && !to.isNull());
+
+        pressAt(from);
+        sweep(from, to, 10);
+        QTest::qWait(100);
+        QVERIFY2(entries()->dragging(), "the drag never started");
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QVERIFY2(!entries()->dragging(), "Escape did not end the drag");
+        QVERIFY(entries()->draggingEntryId().isEmpty());
+
+        // More pointer travel and the release must change nothing.
+        moveTo(QPoint(to.x(), to.y() + 3));
+        releaseAt(to);
+        QTest::qWait(300);
+        QCOMPARE(store()->folders().size(), 0);
+        QVERIFY(store()->folderOf(a).isEmpty());
+        QVERIFY(entries()->rowForEntry(a) < entries()->rowForEntry(b));
+    }
+
+    // Every tile is a Tab stop, and the context menu opens from the keyboard.
+    void spaceTilesAreTabStopsAndTheMenuKeyOpensTheirMenu()
+    {
+        QQuickItem *tile = delegateFor(m_spaceIds.at(0));
+        QVERIFY(tile);
+        QVERIFY2(tile->property("activeFocusOnTab").toBool(),
+                 "a rail tile is not a Tab stop");
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(tile->hasActiveFocus());
+        QQuickItem *ring = descendantNamed(tile, QStringLiteral("railSpaceFocusRing"));
+        QVERIFY2(ring, "no focus ring on a rail tile");
+        QVERIFY2(ring->isVisible(), "the focused tile draws no ring");
+
+        QObject *menu = railMenuObject();
+        QVERIFY(menu);
+        QVERIFY(!menu->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_Menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QCOMPARE(menu->property("spaceId").toString(), m_spaceIds.at(0));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+
+        // Shift+F10 is the other conventional key.
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(m_window, Qt::Key_F10, Qt::ShiftModifier);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // Return on a focused Space tile selects it, as a tap does.
+    void returnOnAFocusedSpaceTileOpensThatSpace()
+    {
+        QQuickItem *tile = delegateFor(m_spaceIds.at(1));
+        QVERIFY(tile);
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_controller->spaces()->activeSpaceId(),
+                     m_spaceIds.at(1));
+    }
+
+    // Right-click, which old and new code both honour, so a case about the
+    // menu's contents does not depend on the keyboard route.
+    void openMenuByRightClick(const QString &entryId)
+    {
+        QQuickItem *item = delegateFor(entryId);
+        QVERIFY(item);
+        QTest::mouseClick(m_window, Qt::RightButton, Qt::NoModifier,
+                          tileCentre(entryId));
+        QCoreApplication::processEvents();
+    }
+
+    // A row hidden for this entry must not take the keyboard: it used to stay
+    // enabled, so Down stopped on it unseen and Return ran "Rename folder" on
+    // a plain Space.
+    void hiddenMenuRowsAreNotKeyboardStops()
+    {
+        QQuickItem *tile = delegateFor(m_spaceIds.at(0));
+        QVERIFY(tile);
+        openMenuByRightClick(m_spaceIds.at(0));
+        QObject *menu = railMenuObject();
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QObject *del = menuRowNamed(QStringLiteral("railDeleteFolder"));
+        QVERIFY(del);
+        QVERIFY(!del->property("visible").toBool());
+        QVERIFY2(!del->property("enabled").toBool(),
+                 "a hidden folder-only row is still enabled");
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // Home has no folder to file into, so the menu must not offer "Move to".
+    void homeAndOtherRoomsOfferNoMoveTo()
+    {
+        const QString id = store()->createFolder(QStringLiteral("Work"));
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE(store()->folders().size(), 1);
+        const int homeRow = 0;
+        const QString homeId = entries()->entryAt(homeRow)
+                                   .value(QStringLiteral("entryId")).toString();
+        QQuickItem *home = delegateFor(homeId);
+        QVERIFY(home);
+        openMenuByRightClick(homeId);
+        QObject *menu = railMenuObject();
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY2(!menuRowNamed(QStringLiteral("railMoveToItem")),
+                 "Home offers 'Move to folder', which cannot work");
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+
+        // A real Space does offer it.
+        openMenuByRightClick(m_spaceIds.at(0));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QTRY_VERIFY(menuRowNamed(QStringLiteral("railMoveToItem")));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // Choosing "Move to" files the Space and closes the menu. It stayed open,
+    // because the move rebuilds the entry's own Repeater.
+    void moveToClosesTheMenuItWasChosenFrom()
+    {
+        const QString folder = store()->createFolder(QStringLiteral("Work"));
+        QVERIFY(!folder.isEmpty());
+        QTRY_COMPARE(store()->folders().size(), 1);
+        openMenuByRightClick(m_spaceIds.at(0));
+        QObject *menu = railMenuObject();
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QObject *row = nullptr;
+        QTRY_VERIFY((row = menuRowNamed(QStringLiteral("railMoveToItem"))));
+        QVERIFY(QMetaObject::invokeMethod(row, "triggered"));
+        QTRY_COMPARE(store()->folderOf(m_spaceIds.at(0)), folder);
+        QTRY_VERIFY2(!menu->property("opened").toBool(),
+                     "the menu stayed open after Move to");
+    }
+
+    // Focus goes to the rail for the length of a drag (Escape is read there)
+    // and must go back to whoever held it: a user re-ordering a Space while
+    // the composer had focus must not have to click the composer again.
+    void focusReturnsToThePreviousHolderAfterADrag()
+    {
+        QQuickItem *other = new QQuickItem(m_window->contentItem());
+        other->setSize(QSizeF(10, 10));
+        other->setActiveFocusOnTab(true);
+        other->forceActiveFocus();
+        QVERIFY(other->hasActiveFocus());
+
+        const QString a = m_spaceIds.at(0);
+        const QString b = m_spaceIds.at(1);
+        const QPoint from = tileCentre(a);
+        const QPoint to = tileCentre(b);
+        pressAt(from);
+        sweep(from, to, 10);
+        QTest::qWait(100);
+        QVERIFY2(entries()->dragging(), "the drag never started");
+        releaseAt(to);
+        QTest::qWait(300);
+        QVERIFY2(other->hasActiveFocus(),
+                 "the drag took the keyboard focus and never gave it back");
+
+        // An Escape-cancelled drag restores it too.
+        pressAt(from);
+        sweep(from, to, 10);
+        QTest::qWait(100);
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        releaseAt(to);
+        QTest::qWait(300);
+        QVERIFY(other->hasActiveFocus());
+        delete other;
+    }
+
+    // A held Return must not repeat the tile's action.
+    void keyAutoRepeatDoesNotRepeatTheTileAction()
+    {
+        QQuickItem *tile = delegateFor(m_spaceIds.at(1));
+        QVERIFY(tile);
+        // Start from a different Space, or the case could pass vacuously.
+        m_controller->spaces()->setProperty("activeSpaceId", m_spaceIds.at(0));
+        QCOMPARE(m_controller->spaces()->activeSpaceId(), m_spaceIds.at(0));
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        const QString before = m_controller->spaces()->activeSpaceId();
+        QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier,
+                         QString(), true);
+        QCoreApplication::sendEvent(m_window, &repeat);
+        QCoreApplication::processEvents();
+        QCOMPARE(m_controller->spaces()->activeSpaceId(), before);
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_controller->spaces()->activeSpaceId(),
+                     m_spaceIds.at(1));
+    }
+
+    // A held key the tile does not use (Tab) must NOT be accepted, or Qt
+    // stops repeating focus traversal.
+    void heldUnrelatedKeyIsNotAccepted()
+    {
+        QQuickItem *tile = delegateFor(m_spaceIds.at(1));
+        QVERIFY(tile);
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QKeyEvent repeat(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier,
+                         QStringLiteral("a"), true);
+        repeat.setAccepted(false);
+        QCoreApplication::sendEvent(m_window, &repeat);
+        QVERIFY2(!repeat.isAccepted(),
+                 "a held key the tile never uses was swallowed");
+    }
+
+    // The chevron's keyboard equivalent: Right opens an expandable Space,
+    // Left closes it, and neither toggles.
+    void rightAndLeftOpenAndCloseAnExpandableSpace()
+    {
+        QSignalSpy loginSpy(m_controller->auth(),
+                            &AuthManager::loginSucceeded);
+        m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                    QStringLiteral("alice"),
+                                    QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTest::qWait(200);
+        entries()->setSources(m_controller->spaces(), store());
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+
+        SpaceManager *spaces = m_controller->spaces();
+        QString leafId;
+        for (const QVariant &entry : spaces->allSpaces()) {
+            const QVariantMap row = entry.toMap();
+            const QString id = row.value(QStringLiteral("spaceId")).toString();
+            if (!id.isEmpty()
+                && row.value(QStringLiteral("childSpaceCount")).toInt() == 0
+                && spaces->directChildRoomsDetailed(id).size() > 0) {
+                leafId = id;
+                break;
+            }
+        }
+        QVERIFY2(!leafId.isEmpty(), "no leaf Space with rooms in the fixture");
+        store()->setSpaceExpanded(leafId, false);
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+
+        QQuickItem *tile = delegateFor(leafId);
+        QVERIFY(tile);
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QTest::qWait(50);
+        QVERIFY2(!delegateFor(leafId)->property("expanded").toBool(),
+                 "Left opened a closed Space");
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QTRY_VERIFY2(delegateFor(leafId)->property("expanded").toBool(),
+                     "Right did not open the Space");
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QTest::qWait(50);
+        QVERIFY2(delegateFor(leafId)->property("expanded").toBool(),
+                 "Right toggled an open Space closed");
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QTRY_VERIFY2(!delegateFor(leafId)->property("expanded").toBool(),
+                     "Left did not close the Space");
+
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+    }
+
+    // "Move to" for the folder the Space is already in is a hidden row and
+    // must not be a keyboard stop.
+    void moveToCurrentFolderRowIsNotAKeyboardStop()
+    {
+        const QString folder = store()->createFolder(QStringLiteral("Work"));
+        QVERIFY(!folder.isEmpty());
+        QTRY_COMPARE(store()->folders().size(), 1);
+        store()->setSpaceFolder(m_spaceIds.at(0), folder);
+        QTRY_COMPARE(store()->folderOf(m_spaceIds.at(0)), folder);
+        openMenuByRightClick(m_spaceIds.at(0));
+        QObject *menu = railMenuObject();
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QObject *row = nullptr;
+        QTRY_VERIFY((row = menuRowNamed(QStringLiteral("railMoveToItem"))));
+        QVERIFY(!row->property("visible").toBool());
+        QVERIFY2(!row->property("enabled").toBool(),
+                 "the hidden Move-to row for the current folder is enabled");
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
 };
 
 int main(int argc, char *argv[])

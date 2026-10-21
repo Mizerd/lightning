@@ -12,8 +12,23 @@ Rectangle {
 
     radius: AppTheme.radiusPill
     color: chipHover.hovered ? AppTheme.hover : AppTheme.surface
-    border.color: AppTheme.border
-    border.width: 1
+    border.color: spaceMemberChip.activeFocus ? AppTheme.focusRing
+                                              : AppTheme.border
+    border.width: spaceMemberChip.activeFocus ? 2 : 1
+    // A chip opens a profile card, so it is a Tab stop with a ring and a
+    // name a screen reader can speak.
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Button
+    Accessible.name: spaceMemberChip.modelData.displayName
+                     || spaceMemberChip.modelData.userId
+    Accessible.onPressAction: spaceMemberChip.profileRequested(
+                                  spaceMemberChip.modelData)
+    Keys.onReturnPressed: spaceMemberChip.profileRequested(
+                              spaceMemberChip.modelData)
+    Keys.onEnterPressed: spaceMemberChip.profileRequested(
+                             spaceMemberChip.modelData)
+    Keys.onSpacePressed: spaceMemberChip.profileRequested(
+                             spaceMemberChip.modelData)
     // The row's own side margins, so the name gets all of its width; a
     // fractional text width is rounded up, never down into an elision.
     implicitWidth: Math.min(Math.ceil(chipRow.implicitWidth)

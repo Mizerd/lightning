@@ -841,6 +841,13 @@ public:
     void setKeepRoomListOrderStill(bool v);
     int roomListSort() const;
     void setRoomListSort(int mode);
+    // Whether the user ever chose a sort (an explicit Activity included):
+    // until then the models get -1, "never chosen", which is Space order
+    // inside a real Space and Activity elsewhere (C04, MASTER-1 H2).
+    bool roomListSortChosen() const;
+    // What the room list models are handed: roomListSort() once chosen,
+    // -1 before.
+    int roomListSortForModels() const;
     int railSort() const;
     void setRailSort(int mode);
     bool spaceBannerExpanded() const;

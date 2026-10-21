@@ -93,6 +93,9 @@ Item {
                 radius: AppTheme.radiusSm
                 color: summaryRow.hovered || summaryRow.activeFocus
                        ? AppTheme.hover : "transparent"
+                // A visible keyboard ring, not only the hover tint (C08-F06).
+                border.width: summaryRow.visualFocus ? 2 : 0
+                border.color: AppTheme.focusRing
             }
             contentItem: RowLayout {
                 id: summaryContent

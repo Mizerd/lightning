@@ -214,7 +214,7 @@ GridLayout {
             onClicked: {
                 row.captureError = ""
                 row.endCapture()
-                app.shortcuts.resetToDefault(row.actionId)
+                row.captureError = app.shortcuts.resetToDefault(row.actionId)
             }
             Accessible.description: qsTr("Reset %1 to %2")
                 .arg(row.description).arg(row.defaultSequence)

@@ -1130,22 +1130,122 @@ ApplicationWindow {
         id: fileChooserDialog
     }
 
-    // Corner prompts share one bottom-right column so they never overlap;
-    // hidden prompts reclaim their space. The verification nudge is a card, not
-    // a modal: an unverified session still works.
-    Column {
+    // The composer's real top edge lifts the corner cards clear of the
+    // send/emoji/GIF/mic controls; a guessed constant was wrong for a
+    // multi-line composer, a reply strip or UI scale. The search covers the
+    // page only (never the timeline delegates' whole tree on every tick), a
+    // MISS is remembered until the room or screen changes, and a cached item
+    // is dropped as soon as it is null, parentless or reads invisible-undefined
+    // (a destroyed wrapper is not reliably null).
+    property var composerProbe: null
+    property string composerMissKey: ""
+    function findByObjectName(item, name) {
+        if (!item)
+            return null
+        if (item.objectName === name)
+            return item
+        var kids = item.children
+        for (var i = 0; i < kids.length; ++i) {
+            var hit = findByObjectName(kids[i], name)
+            if (hit)
+                return hit
+        }
+        return null
+    }
+    function composerProbeAlive() {
+        var c = composerProbe
+        return !!c && c.parent !== null && c.parent !== undefined
+               && c.visible !== undefined
+    }
+    /// Pixels from the window bottom up to the composer's top edge, 0 when no
+    /// composer is on screen.
+    property real composerClearance: 0
+    function refreshComposerClearance() {
+        var next = 0
+        if (app.currentScreen === 1 && app.currentRoomId !== "") {
+            var key = app.currentScreen + "|" + app.currentRoomId
+            if (!composerProbeAlive()) {
+                composerProbe = null
+                if (composerMissKey !== key) {
+                    composerProbe = findByObjectName(pageLoader.item,
+                                                     "composerCard")
+                    if (!composerProbe)
+                        composerMissKey = key
+                }
+            }
+            var c = composerProbe
+            if (c && c.visible && c.height > 0) {
+                var top = c.mapToItem(window.contentItem, 0, 0).y
+                next = Math.max(0, window.contentItem.height - top)
+            }
+        } else {
+            composerProbe = null
+            composerMissKey = ""
+        }
+        if (Math.abs(next - composerClearance) >= 1)
+            composerClearance = next
+    }
+    Timer {
+        // Runs only while a card is showing; the composer moves when it grows.
+        interval: 250
+        repeat: true
+        running: cornerPassiveHost.height > 0 || incomingCallHost.height > 0
+        triggeredOnStart: true
+        onTriggered: window.refreshComposerClearance()
+    }
+
+    // VoiceMiniPlayer and the PiP avoid the object named "cornerPromptHost".
+    // That is this invisible proxy spanning BOTH real hosts below, so the
+    // ring is avoided as well as the passive cards without touching them.
+    Item {
         objectName: "cornerPromptHost"
         parent: Overlay.overlay
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: AppTheme.spacing16
-        spacing: AppTheme.spacing8
+        anchors.rightMargin: AppTheme.spacing16
+        anchors.bottomMargin: AppTheme.spacing16 + window.composerClearance
+        width: Math.max(incomingCallHost.width, cornerPassiveHost.width)
+        height: cornerPassiveHost.height + incomingCallHost.height
+                + (cornerPassiveHost.height > 0 && incomingCallHost.height > 0
+                   ? AppTheme.spacing8 : 0)
+        visible: height > 0
+        enabled: false
+        z: -2
+    }
+
+    // A live ring has its own host ABOVE every popup: it is time-critical and
+    // must stay answerable while a modal dialog is open.
+    Column {
+        id: incomingCallHost
+        objectName: "incomingCallHost"
+        parent: Overlay.overlay
+        anchors.right: parent.right
+        anchors.bottom: cornerPassiveHost.top
+        anchors.rightMargin: AppTheme.spacing16
+        anchors.bottomMargin: cornerPassiveHost.height > 0 ? AppTheme.spacing8 : 0
         z: 900
 
-        // A live ring comes first, above the passive prompts.
         IncomingCallPrompt {
             objectName: "incomingCallPromptHost"
         }
+    }
+
+    // Passive corner prompts share one bottom-right column so they never
+    // overlap; hidden prompts reclaim their space. The verification nudge is
+    // a card, not a modal: an unverified session still works.
+    Column {
+        id: cornerPassiveHost
+        objectName: "cornerPassiveHost"
+        parent: Overlay.overlay
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: AppTheme.spacing16
+        anchors.bottomMargin: AppTheme.spacing16 + window.composerClearance
+        spacing: AppTheme.spacing8
+        // Below every popup (default z 0), so a modal dialog's scrim covers
+        // the cards and blocks clicks on them.
+        z: -1
+
         UpdateAvailablePrompt {
             objectName: "updateAvailablePromptHost"
             onDetailsRequested: updateAvailableDialog.open()

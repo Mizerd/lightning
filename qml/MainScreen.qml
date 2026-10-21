@@ -539,7 +539,10 @@ Item {
             objectName: "roomsPanel"
             visible: app.settings.roomListVisible
             SplitView.preferredWidth: app.settings.roomListWidth
-            SplitView.minimumWidth:   200
+            // 200 clipped the Reject button of an invite row by up to 8 px (en,
+            // 100%); 212 clears the measured worst case. Other languages and
+            // scales need the invite row itself to shrink (RoomDelegate).
+            SplitView.minimumWidth:   212
             SplitView.maximumWidth:   560
             // The Channels "Message Search" row opens the same dialog as
             // Ctrl+Shift+F.

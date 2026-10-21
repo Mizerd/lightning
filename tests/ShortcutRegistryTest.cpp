@@ -742,6 +742,20 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 2);
     }
 
+    void resetRefusesADefaultThatWouldDuplicateAnotherBinding()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString back = QStringLiteral("nav.historyBack");
+        const QString fwd = QStringLiteral("nav.historyForward");
+        const QString def = registry.sequenceFor(back);
+        QCOMPARE(registry.setBinding(back, QStringLiteral("Ctrl+Alt+B")), QString());
+        QCOMPARE(registry.setBinding(fwd, def), QString());
+        QVERIFY(!registry.resetToDefault(back).isEmpty());
+        QCOMPARE(registry.sequenceFor(back), QStringLiteral("Ctrl+Alt+B"));
+        QCOMPARE(registry.conflictCount(), 0);
+    }
+
     // The capture control's input path.
     //
     // A bare modifier press is not a captured sequence: the user is still

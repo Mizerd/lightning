@@ -146,6 +146,31 @@ private slots:
         QTRY_VERIFY(!popup->property("opened").toBool());
     }
 
+    // The account tile was a TapHandler only: Tab skipped it and no key opened
+    // the switcher. It is a Tab stop now, and Return opens the popover.
+    void theHeaderAccountTileIsReachableFromTheKeyboard()
+    {
+        m_controller->settings()->setSpacesRailVisible(false);
+        QTRY_VERIFY(item("scenActions")->isVisible());
+        auto *tile = item("headerAccountTile");
+        QVERIFY(tile);
+        QVERIFY2(tile->property("activeFocusOnTab").toBool(),
+                 "the header account tile is not a Tab stop");
+        auto *win = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(win);
+        win->requestActivate();
+        tile->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(tile->hasActiveFocus());
+        auto *popup = tile->findChild<QObject *>(
+            QStringLiteral("accountSwitcherPopover"));
+        QVERIFY(popup);
+        QVERIFY(!popup->property("opened").toBool());
+        QTest::keyClick(win, Qt::Key_Return);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(!popup->property("opened").toBool());
+    }
+
     // The host really instantiates it in the room list header.
     void theRoomListHeaderHostsIt()
     {

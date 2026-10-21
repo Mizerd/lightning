@@ -631,12 +631,17 @@ QString ShortcutRegistry::setBinding(const QString &actionId,
     return {};
 }
 
-void ShortcutRegistry::resetToDefault(const QString &actionId)
+QString ShortcutRegistry::resetToDefault(const QString &actionId)
 {
-    if (!m_settings || !find(actionId))
-        return;
+    const Action *action = find(actionId);
+    if (!m_settings || !action)
+        return {};
+    const QString error = validationError(actionId, action->defaultSequence);
+    if (!error.isEmpty())
+        return error; // keep the working override rather than make a clash
     m_settings->clearShortcutSequence(actionId);
     reload();
+    return {};
 }
 
 void ShortcutRegistry::resetAll()

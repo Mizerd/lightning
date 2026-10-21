@@ -28,6 +28,9 @@ ItemDelegate {
     height: Math.max(32, 2 * AppTheme.scaled(AppTheme.textMeta))
     padding: 0
     hoverEnabled: true
+    activeFocusOnTab: true
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
 
     Accessible.role: Accessible.Button
     Accessible.name: {
@@ -60,8 +63,11 @@ ItemDelegate {
 
         Icon {
             id: chevron
+            objectName: "channelCategoryChevron"
             anchors.verticalCenter: parent.verticalCenter
-            x: 12
+            // Anchored, not `x`, so it mirrors in right-to-left languages.
+            anchors.left: parent.left
+            anchors.leftMargin: 12
             name: "expand_more"
             size: 14
             color: AppTheme.channelChevron
@@ -97,6 +103,7 @@ ItemDelegate {
         // Behind a Loader: an unresolved Space name is empty, the
         // ItemObservesViewport hazard.
         Loader {
+            objectName: "channelCategoryName"
             active: root.headerName.length > 0
             anchors.left: root.showsAvatar ? avatarLoader.right : chevron.right
             anchors.leftMargin: 6

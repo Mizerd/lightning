@@ -2483,7 +2483,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     applyRoomOrderHold();
     // The sort mode (Activity / A-Z) reaches both layouts the same way.
     const auto applyRoomListSort = [this] {
-        const int mode = m_settings->roomListSort();
+        // -1 until the user picks a sort (C04): Space order in a Space.
+        const int mode = m_settings->roomListSortForModels();
         m_roomList->setSortMode(mode);
         m_spaceChannels->setSortMode(mode);
     };
@@ -6021,6 +6022,13 @@ bool AppController::stepRoomHistory(bool forward)
                                    : m_roomHistory.back(openable);
     if (target.isEmpty())
         return false;
+    // A scoped list (space overview) would otherwise stay scoped around a
+    // room that is not in it, with no row highlighted. A room the active
+    // Space contains keeps the Space (stepping between two of its rooms must
+    // not drop the list to Home).
+    if (m_spaces && !m_spaces->activeSpaceId().isEmpty()
+        && !m_spaces->includesRoom(m_spaces->activeSpaceId(), target))
+        m_spaces->setActiveSpaceId(QString());
     const QScopedValueRollback moving(m_roomHistoryNavigating, true);
     openRoom(target);
     return true;

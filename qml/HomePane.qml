@@ -135,6 +135,8 @@ Item {
         (app.messageSearch && app.messageSearch.indexAllOffered) ? 232 : 0
 
     Flickable {
+        id: homeFlick
+        objectName: "homeFlick"
         anchors.fill: parent
         contentWidth: width
         contentHeight: card.implicitHeight + AppTheme.spacing24 * 2
@@ -143,7 +145,36 @@ Item {
         clip: true
         // Same wheel/touchpad feel as the room timeline; see
         // qml/SmoothWheelArea.qml.
-        SmoothWheelArea {}
+        SmoothWheelArea { id: homeWheel }
+        ScrollBar.vertical: AppScrollBar {
+            objectName: "homeScrollBar"
+            policy: ScrollBar.AsNeeded
+        }
+        // Keyboard scrolling. A key a focused button does not take reaches
+        // here through the parent chain; a click on blank space focuses the
+        // pane so the keys work from there too (C08-F04).
+        function scrollKey(key) {
+            var max = Math.max(0, contentHeight - height)
+            var y = contentY
+            switch (key) {
+            case Qt.Key_Home: y = 0; break
+            case Qt.Key_End: y = max; break
+            case Qt.Key_PageUp: y = contentY - height * 0.9; break
+            case Qt.Key_PageDown: y = contentY + height * 0.9; break
+            case Qt.Key_Up: y = contentY - 48; break
+            case Qt.Key_Down: y = contentY + 48; break
+            default: return false
+            }
+            // A key jump must not fight a wheel glide still in flight.
+            homeWheel.stopGlide()
+            contentY = Math.max(0, Math.min(max, y))
+            return true
+        }
+        Keys.onPressed: function(event) {
+            if (homeFlick.scrollKey(event.key))
+                event.accepted = true
+        }
+        TapHandler { onTapped: homeFlick.forceActiveFocus() }
 
         ColumnLayout {
             id: card
@@ -750,5 +781,12 @@ Item {
                 }
             }
         }
+    }
+
+    MiddleClickScroller {
+        objectName: "homeMiddleClickScroller"
+        anchors.fill: parent
+        z: 1
+        view: homeFlick
     }
 }

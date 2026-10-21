@@ -111,7 +111,11 @@ void SpaceChannelModel::setDeferReordering(bool defer)
 
 void SpaceChannelModel::setSortMode(int mode)
 {
-    const int valid = conversation::normalizedSortMode(mode);
+    // -1, "never chosen" (SettingsManager::roomListSortForModels): a Space's
+    // channels follow the Space's own order, as RoomListModel does inside a
+    // real Space, so the two layouts and the lobby agree (C04).
+    const int valid = mode == -1 ? int(conversation::SortBySpaceOrder)
+                                 : conversation::normalizedSortMode(mode);
     if (valid == m_sortMode)
         return;
     m_sortMode = valid;

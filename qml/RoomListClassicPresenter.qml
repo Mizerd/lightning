@@ -51,7 +51,13 @@ Item {
 
     ListView {
         id: roomList
+        objectName: "roomListView"
         anchors.fill: parent
+        // The SplitView divider beside this column (MainScreen's handle) has
+        // a 9px grab mask reaching 4px back into it, which is exactly where
+        // the scrollbar lives: a press on the thumb or the track went to the
+        // divider and the list never moved (C04-F02). Keep the bar clear of it.
+        anchors.rightMargin: 5
         clip: true
         model: app.roomList
         currentIndex: -1
@@ -62,6 +68,37 @@ Item {
         // Recycle delegates; RoomDelegate keeps no per-instance state that
         // could leak across rows.
         reuseItems: true
+        // Keyboard: ONE tab stop for the whole list (the current row, or the
+        // first when nothing is current), then arrows, Home/End and
+        // PageUp/PageDown move between rows (C04-F03). Rows used to be a tab
+        // stop each with no focus ring, so Tab vanished into the list.
+        keyNavigationEnabled: false
+        function focusRow(i) {
+            if (count <= 0)
+                return
+            const target = Math.max(0, Math.min(count - 1, i))
+            currentIndex = target
+            positionViewAtIndex(target, ListView.Contain)
+            // The row may not exist until the view has been positioned.
+            Qt.callLater(function() {
+                if (roomList.currentItem)
+                    roomList.currentItem.forceActiveFocus(Qt.TabFocusReason)
+            })
+        }
+        Keys.onPressed: (event) => {
+            const page = Math.max(1, Math.floor(height / 56) - 1)
+            const here = currentIndex < 0 ? 0 : currentIndex
+            switch (event.key) {
+            case Qt.Key_Down:     focusRow(currentIndex < 0 ? 0 : here + 1); break
+            case Qt.Key_Up:       focusRow(here - 1); break
+            case Qt.Key_PageDown: focusRow(here + page); break
+            case Qt.Key_PageUp:   focusRow(here - page); break
+            case Qt.Key_Home:     focusRow(0); break
+            case Qt.Key_End:      focusRow(count - 1); break
+            default: return
+            }
+            event.accepted = true
+        }
 
         ScrollBar.vertical: AppScrollBar {
             policy: ScrollBar.AsNeeded
@@ -113,16 +150,55 @@ Item {
         }
 
         delegate: RoomDelegate {
+            id: rowDelegate
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
+            // Roving tab stop: only the current row (the first while none is)
+            // takes Tab, so Tab enters the list once and leaves it again.
+            activeFocusOnTab: ListView.view.currentIndex < 0
+                              ? index === 0
+                              : index === ListView.view.currentIndex
+            onActiveFocusChanged: if (activeFocus && ListView.view)
+                ListView.view.currentIndex = index
+            // Enter opens the focused room, as a click does, without the
+            // composer grab a pointer open gets.
+            Keys.onReturnPressed: (event) => rowDelegate.openFromKeyboard(event)
+            Keys.onEnterPressed: (event) => rowDelegate.openFromKeyboard(event)
+            function openFromKeyboard(event) {
+                if (model.membership === "joined") {
+                    root.roomActivated(model.roomId)
+                    event.accepted = true
+                }
+            }
+            // The full name on hover: a long one is elided in the row.
+            HoverHandler { id: rowHover }
+            ToolTip.text: model.name || ""
+            ToolTip.visible: rowHover.hovered && (model.name || "").length > 0
+            ToolTip.delay: 800
+            // The focus ring. Drawn here because RoomDelegate has none.
+            Rectangle {
+                objectName: "roomRowFocusRing"
+                anchors.fill: parent
+                anchors.margins: 1
+                z: 10
+                color: "transparent"
+                radius: AppTheme.radiusMd
+                border.width: 2
+                border.color: AppTheme.focusRing
+                visible: rowDelegate.activeFocus
+            }
             // Favourites are now interleaved by recency, so the model reports
             // an empty boundary; the binding stays for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
             // RoomDelegate's clicked comes from its TapHandler alone, so it
             // is always a pointer open (GitHub #29).
-            onClicked: if (model.membership === "joined") {
-                root.roomActivated(model.roomId)
-                root.roomOpenedByPointer(model.roomId)
+            onClicked: {
+                // Tab then continues from the row that was clicked.
+                ListView.view.currentIndex = index
+                if (model.membership === "joined") {
+                    root.roomActivated(model.roomId)
+                    root.roomOpenedByPointer(model.roomId)
+                }
             }
             onAcceptInvite: app.roomList.acceptInvite(model.roomId)
             onRejectInvite: app.roomList.rejectInvite(model.roomId)

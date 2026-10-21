@@ -55,6 +55,19 @@ AppDialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
+        // Return / Enter press the focused BUTTON, as Space does (a Button
+        // answers only Space; C06 F03). A text field keeps its own Return.
+        Keys.onPressed: (event) => {
+            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                    && !event.isAutoRepeat) {
+                var item = root.contentItem.Window.activeFocusItem
+                if (item && typeof item.click === "function"
+                        && typeof item.kind === "string") {
+                    item.click()
+                    event.accepted = true
+                }
+            }
+        }
 
         Label {
             objectName: "roomCloseNotice"
@@ -350,6 +363,16 @@ AppDialog {
                 kind: "dangerPrimary"
                 text: root.ctl ? root.ctl.confirmLabel : ""
                 enabled: root.ctl && root.ctl.canConfirm
+                // Answers the keyboard only when reached by it (visualFocus):
+                // a stray Space on a ring-less focus started the close
+                // (C06 F04). Swallowed otherwise.
+                Keys.onPressed: (event) => {
+                    if (!visualFocus
+                            && (event.key === Qt.Key_Space
+                                || event.key === Qt.Key_Return
+                                || event.key === Qt.Key_Enter))
+                        event.accepted = true
+                }
                 onClicked: root.ctl.confirm(reasonField.text)
             }
         }

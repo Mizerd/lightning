@@ -108,6 +108,9 @@ Item {
         // Safe to recycle: ChannelDelegate re-queries its mute mode on every id
         // change.
         reuseItems: true
+        // Stop at the edges: the default flick overshoot drew a blank gap above
+        // the first row after a fast wheel burst.
+        boundsBehavior: Flickable.StopAtBounds
 
         ScrollBar.vertical: AppScrollBar {
             policy: ScrollBar.AsNeeded
@@ -264,6 +267,26 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    // Middle-click autoscroll, a sibling of the view, as in the Classic list.
+    // A room or account switch ends it.
+    MiddleClickScroller {
+        id: middleClickScroller
+        objectName: "channelsMiddleClickScroller"
+        anchors.fill: parent
+        z: 1
+        view: channelList
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            middleClickScroller.stop()
+        }
+        function onAccountSwitchingChanged() {
+            if (app.accountSwitching)
+                middleClickScroller.stop()
         }
     }
 }

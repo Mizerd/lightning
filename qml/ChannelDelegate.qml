@@ -16,6 +16,10 @@ import MatrixClient
 ItemDelegate {
     id: root
 
+    activeFocusOnTab: true
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
+
     property string roomId: ""
     property string channelName: ""
     /// The room's avatar (mxc uri); empty until it resolves, when Avatar shows
@@ -114,6 +118,12 @@ ItemDelegate {
         return base;
     }
 
+    // A name cut short by the column is readable in full on hover.
+    ToolTip.text: root.channelName
+    ToolTip.visible: root.hovered && !root.contextMenuOpen
+                     && nameLoader.item !== null && nameLoader.item.truncated
+    ToolTip.delay: 600
+
     background: Rectangle {
         radius: AppTheme.radiusSm
         // Inset from the column edges so it reads as a list, not full-width
@@ -140,7 +150,9 @@ ItemDelegate {
         // already marked.
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
-            x: 2 + root.depth * 10
+            // Anchored, not `x`: anchors mirror under LayoutMirroring.
+            anchors.left: parent.left
+            anchors.leftMargin: 2 + root.depth * 10
             // Wide enough to notice: surfacing unread is this column's job.
             width: 4
             height: 20
@@ -152,8 +164,10 @@ ItemDelegate {
         // A DM is a circle and a room a rounded square, as in the Classic row.
         Avatar {
             id: roomAvatar
+            objectName: "channelAvatar"
             anchors.verticalCenter: parent.verticalCenter
-            x: 12 + root.depth * 10
+            anchors.left: parent.left
+            anchors.leftMargin: 12 + root.depth * 10
             width: 20
             height: 20
             size: 20
@@ -190,6 +204,8 @@ ItemDelegate {
 
         // Behind a Loader: the name is empty until the room's state resolves.
         Loader {
+            id: nameLoader
+            objectName: "channelNameLoader"
             active: root.channelName.length > 0
             anchors.left: roomAvatar.right
             anchors.leftMargin: 8
@@ -335,6 +351,12 @@ ItemDelegate {
                 name: "notifications_off"
                 size: 14
                 color: AppTheme.channelCategoryText
+                HoverHandler {
+                    id: muteHover
+                }
+                ToolTip.text: qsTr("Muted")
+                ToolTip.visible: muteHover.hovered && !root.contextMenuOpen
+                ToolTip.delay: 400
             }
         }
     }
@@ -343,6 +365,7 @@ ItemDelegate {
     // The menu is loaded on first use, not declared inline: building a Popup
     // with a submenu per 32px row made filter switches (which rebuild every
     // delegate) laggy.
+    readonly property bool contextMenuOpen: menuLoader.item !== null && menuLoader.item.visible
     function openContextMenu() {
         if (root.roomId.length === 0)
             return;

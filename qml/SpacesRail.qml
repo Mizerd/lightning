@@ -363,6 +363,31 @@ Rectangle {
     // it follows the pointer; the model reorder moves its neighbours.
     property real dragContentY: 0
 
+    // Escape abandons a drag: nothing is filed, moved or selected. The
+    // handler stays active until release, but endDrag(true) then finds no drag
+    // and the pointer reading is ignored.
+    function cancelTileDrag() {
+        if (!root.dragging)
+            return false
+        app.railEntries.endDrag(false)
+        return true
+    }
+    Keys.onEscapePressed: (event) => { event.accepted = root.cancelTileDrag() }
+
+    // Whoever held the keyboard when a tile drag began (the composer, say).
+    // A drag takes focus to read Escape and must not keep it.
+    property Item focusBeforeDrag: null
+    // From the model's own flag, not the delegate's handler: a drop reorders
+    // rows and the delegate that began the drag may be gone before its
+    // handler reports the end.
+    onDraggingChanged: if (!dragging) restoreFocusAfterDrag()
+    function restoreFocusAfterDrag() {
+        var prev = root.focusBeforeDrag
+        root.focusBeforeDrag = null
+        if (prev && prev !== root && prev.visible && prev.enabled)
+            prev.forceActiveFocus()
+    }
+
     function beginTileDrag(entryId, sceneY) {
         if (!app.railEntries.beginDrag(entryId))
             return false
@@ -788,6 +813,85 @@ Rectangle {
                     for (var i = 0; i < list.length; ++i)
                         ids.push(list[i].roomId)
                     app.railLayout.setRoomOrder(spaceItem.spaceId, ids)
+                }
+
+                // Keyboard: every tile is a Tab stop (the rail was pointer-only,
+                // so Tab skipped every Space, folder and chevron). Return, Enter
+                // and Space do what a tap does; Menu and Shift+F10 open the
+                // context menu, as a right-click does.
+                activeFocusOnTab: true
+                objectName: "railSpaceDelegate"
+                function activateTile() {
+                    if (spaceItem.isFolder) {
+                        app.railLayout.setFolderCollapsed(
+                            spaceItem.entryId, !spaceItem.collapsed)
+                        return
+                    }
+                    if (spaceItem.isRealSpace)
+                        app.openSpaceHome(spaceItem.spaceId)
+                    // A second tap on the Home tile that is already
+                    // selected goes to Home itself. Without it the only
+                    // way back from an open room to Home was through a
+                    // Space and out again (GUI check 2026-10-07); the first
+                    // tap still only filters, so it never closes a room.
+                    else if (spaceItem.isHome && spaceItem.isActive)
+                        app.openSpaceHome("")
+                    else if (app.spaces)
+                        app.spaces.activeSpaceId = spaceItem.spaceId
+                }
+                // (x, y) in this delegate's coordinates.
+                function openContextMenu(x, y) {
+                    railMenu.entryId = spaceItem.entryId
+                    railMenu.isFolder = spaceItem.isFolder
+                    railMenu.spaceId = spaceItem.spaceId
+                    railMenu.inFolder = spaceItem.inFolder
+                                        ? spaceItem.folderId : ""
+                    railMenu.collapsed = spaceItem.collapsed
+                    railMenu.hierarchyChild = spaceItem.hierarchyChild
+                    railMenu.folderName = spaceItem.isFolder
+                                          ? spaceItem.name : ""
+                    railMenu.spaceMuted =
+                        spaceItem.isRealSpace
+                        && app.spaceIsMuted(spaceItem.spaceId)
+                    railMenu.spaceUnread = spaceItem.hasUnread
+                                           || spaceItem.mentionCount > 0
+                                           || spaceItem.unreadTotal > 0
+                    var p = spaceItem.mapToItem(Overlay.overlay, x, y)
+                    railMenu.popup(Overlay.overlay, p.x, p.y)
+                }
+                Keys.onPressed: (event) => {
+                    if (root.dragging)
+                        return
+                    var k = event.key
+                    // A held key must not repeat the action: on a folder it
+                    // would flicker collapse/expand, on Home it would bounce
+                    // between Home and the open Space.
+                    // Classify first: an unrelated held key (Tab) must stay
+                    // unaccepted or Qt stops its focus traversal repeating.
+                    if (k === Qt.Key_Return || k === Qt.Key_Enter
+                            || k === Qt.Key_Space) {
+                        if (!event.isAutoRepeat)
+                            spaceItem.activateTile()
+                        event.accepted = true
+                    } else if ((k === Qt.Key_Right || k === Qt.Key_Left)
+                               && spaceItem.isRealSpace
+                               && spaceItem.expandable) {
+                        // The chevron's keyboard equivalent, as in a tree:
+                        // Right opens, Left closes, neither toggles.
+                        if (!event.isAutoRepeat
+                                && (k === Qt.Key_Right) !== spaceItem.expanded)
+                            app.railLayout.toggleSpaceExpanded(
+                                spaceItem.spaceId)
+                        event.accepted = true
+                    } else if (k === Qt.Key_Menu
+                               || (k === Qt.Key_F10
+                                   && (event.modifiers & Qt.ShiftModifier))) {
+                        if (!event.isAutoRepeat)
+                            spaceItem.openContextMenu(
+                            spaceTile.x + spaceTile.width,
+                            spaceTile.y + spaceTile.height / 2)
+                        event.accepted = true
+                    }
                 }
 
                 Accessible.role: Accessible.Button
@@ -1262,6 +1366,17 @@ Rectangle {
                         border.width: stroke
                         visible: spaceItem.dropTarget
                     }
+                    // Keyboard focus, outside the tile like the other rings.
+                    Rectangle {
+                        objectName: "railSpaceFocusRing"
+                        anchors.fill: parent
+                        anchors.margins: -root.tileRingOutset
+                        radius: spaceTile.radius + root.tileRingOutset
+                        color: "transparent"
+                        border.color: AppTheme.focusRing
+                        border.width: 2
+                        visible: spaceItem.activeFocus
+                    }
                 }
 
                 // Drag to rearrange, vertical only; pseudo rows are excluded.
@@ -1281,8 +1396,16 @@ Rectangle {
                     xAxis.enabled: false
                     onActiveChanged: {
                         if (active) {
-                            root.beginTileDrag(spaceItem.entryId,
-                                               centroid.scenePosition.y)
+                            if (root.beginTileDrag(spaceItem.entryId,
+                                                   centroid.scenePosition.y)) {
+                                // Escape is read here, so the rail must hold
+                                // the focus for the length of the gesture;
+                                // the previous holder gets it back after.
+                                var w = root.Window.window
+                                root.focusBeforeDrag =
+                                    w ? w.activeFocusItem : null
+                                root.forceActiveFocus()
+                            }
                         } else if (app.railEntries.draggingEntryId
                                    === spaceItem.entryId) {
                             app.railEntries.endDrag(true)
@@ -1308,27 +1431,9 @@ Rectangle {
                     acceptedButtons: Qt.RightButton
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     enabled: !root.dragging
-                    onTapped: (eventPoint) => {
-                        railMenu.entryId = spaceItem.entryId
-                        railMenu.isFolder = spaceItem.isFolder
-                        railMenu.spaceId = spaceItem.spaceId
-                        railMenu.inFolder = spaceItem.inFolder
-                                            ? spaceItem.folderId : ""
-                        railMenu.collapsed = spaceItem.collapsed
-                        railMenu.hierarchyChild = spaceItem.hierarchyChild
-                        railMenu.folderName = spaceItem.isFolder
-                                              ? spaceItem.name : ""
-                        railMenu.spaceMuted =
-                            spaceItem.isRealSpace
-                            && app.spaceIsMuted(spaceItem.spaceId)
-                        railMenu.spaceUnread = spaceItem.hasUnread
-                                               || spaceItem.mentionCount > 0
-                                               || spaceItem.unreadTotal > 0
-                        var p = spaceItem.mapToItem(Overlay.overlay,
-                                                    eventPoint.position.x,
-                                                    eventPoint.position.y)
-                        railMenu.popup(Overlay.overlay, p.x, p.y)
-                    }
+                    onTapped: (eventPoint) => spaceItem.openContextMenu(
+                                  eventPoint.position.x,
+                                  eventPoint.position.y)
                 }
 
                 // Same outset as the ring; the chevron's gap is budgeted
@@ -1368,22 +1473,7 @@ Rectangle {
                             return
                         if (pointOnChevron(eventPoint))
                             return
-                        if (spaceItem.isFolder) {
-                            app.railLayout.setFolderCollapsed(
-                                spaceItem.entryId, !spaceItem.collapsed)
-                            return
-                        }
-                        if (spaceItem.isRealSpace)
-                            app.openSpaceHome(spaceItem.spaceId)
-                        // A second tap on the Home tile that is already
-                        // selected goes to Home itself. Without it the only
-                        // way back from an open room to Home was through a
-                        // Space and out again (GUI check 2026-10-07); the first
-                        // tap still only filters, so it never closes a room.
-                        else if (spaceItem.isHome && spaceItem.isActive)
-                            app.openSpaceHome("")
-                        else if (app.spaces)
-                            app.spaces.activeSpaceId = spaceItem.spaceId
+                        spaceItem.activateTile()
                     }
                 }
 
@@ -1819,6 +1909,28 @@ Rectangle {
                 return colon > 0 ? uid.slice(0, colon) : uid
             }
 
+            // Keyboard: a Tab stop that opens the switcher on Return, Enter,
+            // Space or the Menu key.
+            activeFocusOnTab: true
+            Keys.onPressed: (event) => {
+                var k = event.key
+                if (k === Qt.Key_Return || k === Qt.Key_Enter
+                        || k === Qt.Key_Space || k === Qt.Key_Menu) {
+                    railAccountMenu.open()
+                    event.accepted = true
+                }
+            }
+            Rectangle {
+                objectName: "railAccountFocusRing"
+                anchors.fill: parent
+                anchors.margins: -3
+                radius: AppTheme.radiusPill
+                color: "transparent"
+                border.color: AppTheme.focusRing
+                border.width: 2
+                visible: railAccount.activeFocus
+            }
+
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("Account menu for %1")
                              .arg(app.accounts ? app.accounts.activeUserId : "")
@@ -1986,6 +2098,9 @@ Rectangle {
             text: railMenu.collapsed ? qsTr("Expand folder")
                                      : qsTr("Collapse folder")
             visible: railMenu.isFolder
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: app.railLayout.setFolderCollapsed(railMenu.entryId,
                                                            !railMenu.collapsed)
         }
@@ -1993,6 +2108,9 @@ Rectangle {
             iconName: "edit_square"
             text: qsTr("Rename folder…")
             visible: railMenu.isFolder
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: {
                 folderNameDialog.folderId = railMenu.entryId
                 folderNameDialog.openFor(railMenu.folderName)
@@ -2003,6 +2121,9 @@ Rectangle {
             iconName: "delete"
             text: qsTr("Delete folder")
             visible: railMenu.isFolder
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             // The Spaces inside return to the top level; nothing is removed
             // from the account, so no confirmation.
             onTriggered: app.railLayout.deleteFolder(railMenu.entryId)
@@ -2018,7 +2139,7 @@ Rectangle {
             text: qsTr("Mark all rooms read")
             visible: !railMenu.isFolder && railMenu.spaceId === ""
             // Disabled when nothing is unread.
-            enabled: railMenu.spaceUnread
+            enabled: visible && (railMenu.spaceUnread)
             onTriggered: app.roomList.markAllRoomsRead()
         }
         AppMenuItem {
@@ -2027,7 +2148,7 @@ Rectangle {
             text: qsTr("Mark as read")
             visible: railMenu.isRealSpace
             // Disabled when nothing is unread.
-            enabled: railMenu.spaceUnread
+            enabled: visible && (railMenu.spaceUnread)
             onTriggered: app.markSpaceRead(railMenu.spaceId)
         }
         AppMenuItem {
@@ -2036,6 +2157,9 @@ Rectangle {
             text: railMenu.spaceMuted ? qsTr("Unmute space")
                                       : qsTr("Mute space")
             visible: railMenu.isRealSpace
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: app.setSpaceMuted(railMenu.spaceId,
                                            !railMenu.spaceMuted)
         }
@@ -2047,6 +2171,9 @@ Rectangle {
             // room, not this Space. The invite dialog reports the server's
             // answer.
             visible: railMenu.isRealSpace
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: spaceInviteDialog.openFor(railMenu.spaceId)
         }
         AppMenuItem {
@@ -2054,6 +2181,9 @@ Rectangle {
             iconName: "content_copy"
             text: qsTr("Copy link")
             visible: railMenu.isRealSpace
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: root.copySpaceLink(railMenu.spaceId)
         }
         AppMenuItem {
@@ -2063,6 +2193,9 @@ Rectangle {
             iconName: "link"
             text: qsTr("Share link…")
             visible: railMenu.isRealSpace
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: shareLinkDialog.openFor(
                              railMenu.spaceId,
                              app.spaces.spaceName(railMenu.spaceId))
@@ -2072,6 +2205,9 @@ Rectangle {
             iconName: "settings"
             text: qsTr("Space settings")
             visible: railMenu.isRealSpace
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: spaceSettings.openFor(railMenu.spaceId)
         }
 
@@ -2082,6 +2218,9 @@ Rectangle {
             iconName: "add"
             text: qsTr("New folder…")
             visible: !railMenu.hierarchyChild
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: {
                 folderNameDialog.folderId = ""
                 folderNameDialog.pendingSpaceId =
@@ -2093,20 +2232,34 @@ Rectangle {
             iconName: "logout"
             text: qsTr("Move out of folder")
             visible: !railMenu.isFolder && railMenu.inFolder.length > 0
+            // A hidden row must not take the keyboard: an enabled one absorbs Down
+            // presses and Return would trigger it unseen.
+            enabled: visible
             onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId, "")
         }
         // One entry per folder, so filing a Space never requires a drag.
         Repeater {
-            model: (railMenu.isFolder || railMenu.hierarchyChild)
+            // Real Spaces only: Home and Other rooms cannot be filed, and the
+            // entry used to close the menu and do nothing.
+            model: (railMenu.isFolder || railMenu.hierarchyChild
+                    || !railMenu.isRealSpace)
                    ? [] : app.railLayout.folders
             delegate: AppMenuItem {
                 required property var modelData
+                objectName: "railMoveToItem"
                 iconName: "workspaces"
                 text: qsTr("Move to “%1”").arg(modelData.name && modelData.name.length > 0
                                          ? modelData.name : qsTr("Folder"))
                 visible: modelData.id !== railMenu.inFolder
-                onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId,
-                                                           modelData.id)
+                // Same rule as every other row: hidden means unreachable.
+                enabled: visible
+                onTriggered: {
+                    // Close first: the move rebuilds this Repeater, destroying
+                    // the item that was triggered before the menu dismissed.
+                    railMenu.close()
+                    app.railLayout.setSpaceFolder(railMenu.spaceId,
+                                                  modelData.id)
+                }
             }
         }
         AppMenuSeparator {}
@@ -2162,6 +2315,19 @@ Rectangle {
         railLinkClipboard.selectAll()
         railLinkClipboard.copy()
         railLinkClipboard.text = ""
+        linkCopiedTip.show(qsTr("Link copied"))
+    }
+
+    // The clipboard has no visible effect, so say it happened.
+    ToolTip {
+        id: linkCopiedTip
+        objectName: "railLinkCopiedTip"
+        parent: Overlay.overlay
+        x: root.width + AppTheme.spacing8
+        // A fixed anchor (the rail's top): the Share dialog also copies, and
+        // the context menu's last y is stale there.
+        y: AppTheme.spacing8
+        timeout: 1800
     }
 
     InvitePeopleDialog {

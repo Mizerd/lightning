@@ -24,6 +24,10 @@ ItemDelegate {
     height: Math.max(32, 2 * AppTheme.scaled(AppTheme.textBody))
     padding: 0
     hoverEnabled: true
+    // Reachable by Tab, like a Classic row (RoomDelegate).
+    activeFocusOnTab: true
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
 
     Accessible.role: Accessible.Button
     Accessible.name: root.comingSoon
@@ -59,8 +63,11 @@ ItemDelegate {
 
         Icon {
             id: glyph
+            objectName: "channelNavGlyph"
             anchors.verticalCenter: parent.verticalCenter
-            x: 14
+            // Anchored, not `x`: anchors mirror under LayoutMirroring, x does not.
+            anchors.left: parent.left
+            anchors.leftMargin: 14
             name: root.iconName
             size: 16
             color: root.comingSoon ? AppTheme.channelCategoryText
@@ -84,6 +91,7 @@ ItemDelegate {
         }
 
         Loader {
+            objectName: "channelNavName"
             active: root.label.length > 0
             anchors.left: glyph.right
             anchors.leftMargin: 8

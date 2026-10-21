@@ -282,155 +282,189 @@ Dialog {
             }
         }
 
-        ListView {
-            id: listView
-            objectName: "activityList"
+        Item {
+            id: listHost
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: AppTheme.spacing4
-            model: root.activity
-            activeFocusOnTab: true
-            keyNavigationEnabled: true
-            currentIndex: 0
-            Accessible.role: Accessible.List
-            Accessible.name: qsTr("Activity")
-            Keys.onReturnPressed: listView.openCurrent()
-            Keys.onEnterPressed: listView.openCurrent()
-            Keys.onSpacePressed: listView.openCurrent()
-            function openCurrent() {
-                if (listView.currentItem)
-                    root.openEntry(listView.currentItem.entryId)
-            }
-            ScrollBar.vertical: ScrollBar { }
-            delegate: Rectangle {
-                id: row
-                required property int index
-                required property string entryId
-                required property string kind
-                required property string roomId
-                required property string roomName
-                required property string senderId
-                required property string senderName
-                required property string preview
-                required property double timestampMs
-                required property string eventId
-                required property string threadRootId
-                required property bool seen
-                required property bool encrypted
-                required property string reactionKey
-                width: ListView.view.width
-                implicitHeight: rowContent.implicitHeight + AppTheme.spacing12 * 2
-                radius: AppTheme.radiusTile
-                color: rowHover.hovered ? AppTheme.stormSelection : AppTheme.stormInset
-                border.width: 1
-                border.color: row.seen ? AppTheme.stormBorder : AppTheme.stormBorderStrong
-                Accessible.role: Accessible.Button
-                objectName: "activityRow"
-                readonly property string a11yName: root.rowAccessibleName(
-                    row.kind, row.reactionKey, row.roomName, row.senderName,
-                    row.senderId, row.preview, row.encrypted, row.seen,
-                    row.timestampMs)
-                Accessible.name: row.a11yName
-                Accessible.onPressAction: root.openEntry(row.entryId)
-                // Visible keyboard focus: the current row while the list has
-                // focus. Drawn inside the row so it is never clipped.
-                Rectangle {
-                    objectName: "activityRowFocusRing"
-                    anchors.fill: parent
-                    radius: parent.radius
-                    color: "transparent"
-                    border.width: 2
-                    border.color: AppTheme.stormBorderStrong
-                    visible: row.ListView.isCurrentItem && listView.activeFocus
-                }
-                HoverHandler { id: rowHover }
-                TapHandler {
-                    gesturePolicy: TapHandler.WithinBounds
-                    onTapped: {
-                        listView.currentIndex = row.index
-                        root.openEntry(row.entryId)
+            ListView {
+                id: listView
+                objectName: "activityList"
+                anchors.fill: parent
+                clip: true
+                spacing: AppTheme.spacing4
+                model: root.activity
+                activeFocusOnTab: true
+                keyNavigationEnabled: true
+                currentIndex: 0
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Activity")
+                Keys.onReturnPressed: listView.openCurrent()
+                Keys.onEnterPressed: listView.openCurrent()
+                Keys.onSpacePressed: listView.openCurrent()
+                // keyNavigationEnabled covers Up/Down only. Home/End/Page keys
+                // move the current row, and the view follows it, so a list that
+                // is Tab-focused while scrolled away shows its ring (C08-F03).
+                Keys.onPressed: function(event) {
+                    if (listView.count === 0)
+                        return
+                    var page = Math.max(1, Math.floor(listView.height / 64))
+                    var target = -1
+                    switch (event.key) {
+                    case Qt.Key_Home: target = 0; break
+                    case Qt.Key_End: target = listView.count - 1; break
+                    case Qt.Key_PageUp:
+                        target = Math.max(0, listView.currentIndex - page); break
+                    case Qt.Key_PageDown:
+                        target = Math.min(listView.count - 1,
+                                          listView.currentIndex + page); break
+                    default: return
                     }
+                    listView.currentIndex = target
+                    listView.positionViewAtIndex(target, ListView.Contain)
+                    event.accepted = true
                 }
-                RowLayout {
-                    id: rowContent
-                    anchors.fill: parent
-                    anchors.margins: AppTheme.spacing12
-                    spacing: AppTheme.spacing10
+                onActiveFocusChanged: if (activeFocus && count > 0)
+                    positionViewAtIndex(Math.max(0, currentIndex), ListView.Contain)
+                function openCurrent() {
+                    if (listView.currentItem)
+                        root.openEntry(listView.currentItem.entryId)
+                }
+                ScrollBar.vertical: ScrollBar { }
+                delegate: Rectangle {
+                    id: row
+                    required property int index
+                    required property string entryId
+                    required property string kind
+                    required property string roomId
+                    required property string roomName
+                    required property string senderId
+                    required property string senderName
+                    required property string preview
+                    required property double timestampMs
+                    required property string eventId
+                    required property string threadRootId
+                    required property bool seen
+                    required property bool encrypted
+                    required property string reactionKey
+                    width: ListView.view.width
+                    implicitHeight: rowContent.implicitHeight + AppTheme.spacing12 * 2
+                    radius: AppTheme.radiusTile
+                    color: rowHover.hovered ? AppTheme.stormSelection : AppTheme.stormInset
+                    border.width: 1
+                    border.color: row.seen ? AppTheme.stormBorder : AppTheme.stormBorderStrong
+                    Accessible.role: Accessible.Button
+                    objectName: "activityRow"
+                    readonly property string a11yName: root.rowAccessibleName(
+                        row.kind, row.reactionKey, row.roomName, row.senderName,
+                        row.senderId, row.preview, row.encrypted, row.seen,
+                        row.timestampMs)
+                    Accessible.name: row.a11yName
+                    Accessible.onPressAction: root.openEntry(row.entryId)
+                    // Visible keyboard focus: the current row while the list has
+                    // focus. Drawn inside the row so it is never clipped.
                     Rectangle {
-                        Layout.alignment: Qt.AlignTop
-                        Layout.topMargin: 6
-                        width: 8; height: 8; radius: 4
-                        color: AppTheme.bolt
-                        visible: !row.seen
+                        objectName: "activityRowFocusRing"
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.stormBorderStrong
+                        visible: row.ListView.isCurrentItem && listView.activeFocus
                     }
-                    Icon {
-                        Layout.alignment: Qt.AlignTop
-                        name: root.kindIcon(row.kind)
-                        size: 18
-                        color: row.seen ? AppTheme.stormTextMuted : AppTheme.stormText
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing2
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing6
-                            Label {
-                                text: row.roomName
-                                // Room names are attacker-chosen, and an
-                                // unsolicited invite puts a stranger's here;
-                                // with AutoText, markup such as `<img src=...>`
-                                // would render and beacon.
-                                textFormat: Text.PlainText
-                                color: AppTheme.stormText
-                                font.pixelSize: AppTheme.textBody
-                                font.weight: row.seen ? AppTheme.weightBody
-                                                      : AppTheme.weightStrong
-                                elide: Text.ElideRight
-                                Layout.maximumWidth: 240
-                            }
-                            Label {
-                                // Includes the reaction key, an arbitrary
-                                // sender-chosen string.
-                                text: root.kindLabel(row.kind, row.reactionKey)
-                                textFormat: Text.PlainText
-                                color: AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.textMeta
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                text: root.timeLabel(row.timestampMs)
-                                color: AppTheme.stormTextMuted
-                                // Proportional, like every other list's time.
-                                font.pixelSize: AppTheme.textMeta
-                            }
+                    HoverHandler { id: rowHover }
+                    TapHandler {
+                        gesturePolicy: TapHandler.WithinBounds
+                        onTapped: {
+                            listView.currentIndex = row.index
+                            root.openEntry(row.entryId)
                         }
-                        Label {
+                    }
+                    RowLayout {
+                        id: rowContent
+                        anchors.fill: parent
+                        anchors.margins: AppTheme.spacing12
+                        spacing: AppTheme.spacing10
+                        Rectangle {
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 6
+                            width: 8; height: 8; radius: 4
+                            color: AppTheme.bolt
+                            visible: !row.seen
+                        }
+                        Icon {
+                            Layout.alignment: Qt.AlignTop
+                            name: root.kindIcon(row.kind)
+                            size: 18
+                            color: row.seen ? AppTheme.stormTextMuted : AppTheme.stormText
+                        }
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: row.encrypted
-                                  ? qsTr("Encrypted message")
-                                  : (row.kind === "invite"
-                                     ? root.fill(qsTr("From %1"), [root.isolate(
-                                           root.senderLabel(row.senderName,
-                                                            row.senderId))])
-                                     : (root.isolate(root.senderLabel(
-                                            row.senderName, row.senderId))
-                                        + ": " + root.previewText(
-                                            row.kind, row.preview,
-                                            row.reactionKey)))
-                            color: row.encrypted ? AppTheme.stormTextMuted
-                                                 : AppTheme.stormTextSecondary
-                            font.italic: row.encrypted
-                            font.pixelSize: AppTheme.textBody
-                            wrapMode: Text.Wrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                            textFormat: Text.PlainText
+                            spacing: AppTheme.spacing2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing6
+                                Label {
+                                    text: row.roomName
+                                    // Room names are attacker-chosen, and an
+                                    // unsolicited invite puts a stranger's here;
+                                    // with AutoText, markup such as `<img src=...>`
+                                    // would render and beacon.
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: row.seen ? AppTheme.weightBody
+                                                          : AppTheme.weightStrong
+                                    elide: Text.ElideRight
+                                    Layout.maximumWidth: 240
+                                }
+                                Label {
+                                    // Includes the reaction key, an arbitrary
+                                    // sender-chosen string.
+                                    text: root.kindLabel(row.kind, row.reactionKey)
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: root.timeLabel(row.timestampMs)
+                                    color: AppTheme.stormTextMuted
+                                    // Proportional, like every other list's time.
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: row.encrypted
+                                      ? qsTr("Encrypted message")
+                                      : (row.kind === "invite"
+                                         ? root.fill(qsTr("From %1"), [root.isolate(
+                                               root.senderLabel(row.senderName,
+                                                                row.senderId))])
+                                         : (root.isolate(root.senderLabel(
+                                                row.senderName, row.senderId))
+                                            + ": " + root.previewText(
+                                                row.kind, row.preview,
+                                                row.reactionKey)))
+                                color: row.encrypted ? AppTheme.stormTextMuted
+                                                     : AppTheme.stormTextSecondary
+                                font.italic: row.encrypted
+                                font.pixelSize: AppTheme.textBody
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                textFormat: Text.PlainText
+                            }
                         }
                     }
                 }
+            }
+            MiddleClickScroller {
+                objectName: "activityMiddleClickScroller"
+                anchors.fill: parent
+                z: 1
+                view: listView
             }
         }
     }

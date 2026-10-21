@@ -309,6 +309,9 @@ Dialog {
                 iconName: "close"
                 iconSize: 18
                 Accessible.name: qsTr("Close")
+                ToolTip.text: Accessible.name
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
                 onClicked: root.close()
             }
         }
@@ -485,6 +488,19 @@ Dialog {
                     root.selectedDisplayName = displayName
                     root.selectedAvatarUrl = avatarUrl || ""
                     app.conversations.checkExistingDm(userId)
+                    // The search field that held focus is hidden now, which
+                    // leaves no focus owner and the first Tab on an invisible
+                    // stop (C12-F02, HYPOTHESIS: no live Tab pass yet). Land on
+                    // the dialog's own content item: always visible, and with no
+                    // action of its own. The primary button is NOT a safe target:
+                    // the unknown-user warning arrives asynchronously, so a
+                    // second Enter could start a DM before it is read, and the
+                    // button hides when the panel appears. The X would discard
+                    // the choice.
+                    Qt.callLater(function() {
+                        if (root.contentItem)
+                            root.contentItem.forceActiveFocus(Qt.TabFocusReason)
+                    })
                 }
             }
 
@@ -624,6 +640,7 @@ Dialog {
                         }
                     }
                     IconButton {
+                        id: dmChangeUserButton
                         storm: true
                         objectName: "dmChangeUserButton"
                         implicitWidth: 30; implicitHeight: 30
@@ -807,6 +824,7 @@ Dialog {
             // Primary action when there is nothing to reuse…
             AppButton {
                 storm: true
+                id: dmStartButton
                 objectName: "dmStartButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length === 0
@@ -821,6 +839,7 @@ Dialog {
             // …secondary when there is.
             AppButton {
                 storm: true
+                id: dmStartAnywayButton
                 objectName: "dmStartAnywayButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0

@@ -32,6 +32,24 @@ AppMenu {
     signal chatBackgroundRequested()
     // The host opens the invite dialog for this room.
     signal inviteRequested()
+
+    // The Notifications flyout is a nested Menu, so its row is the delegate
+    // AppMenu builds for it and has no `visible` of its own to bind; hide
+    // that row for an invitation, and show it again if the same delegate
+    // later becomes a joined room.
+    function syncFlyoutRow() {
+        for (var i = 0; i < root.count; ++i) {
+            var row = root.itemAt(i)
+            if (row && row.subMenu === notificationsFlyout) {
+                row.visible = !root.isInvite
+                // Menu navigation skips disabled rows, not invisible ones.
+                row.enabled = !root.isInvite
+            }
+        }
+    }
+    onIsInviteChanged: syncFlyoutRow()
+    onCountChanged: syncFlyoutRow()
+    Component.onCompleted: syncFlyoutRow()
     // Mono room-address header: the canonical alias when there is one,
     // otherwise the display name without a fabricated "#".
     contextLabel: root.isDirect
@@ -55,17 +73,28 @@ AppMenu {
     AppMenuSeparator {
         visible: app.roomList.roomFavouritesSupported && !root.isInvite
     }
+    // A pending invitation is not a room the user is in: read state, the
+    // notification mode, the chat background and a room link all have
+    // nothing to act on until it is accepted (C06 F06).
     AppMenuItem {
+        objectName: "roomMarkReadItem"
+        visible: !root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "check"
         text: qsTr("Mark as read")
         onTriggered: root.markRead()
     }
     AppMenuItem {
+        objectName: "roomMarkUnreadItem"
+        visible: !root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "visibility_off"
         text: qsTr("Mark as unread")
         onTriggered: root.markUnread()
     }
-    AppMenuSeparator {}
+    AppMenuSeparator { visible: !root.isInvite }
     // Per-room notification mode. roomNotificationMode is a Q_INVOKABLE, so it
     // is re-queried (refreshMode()) rather than bound; radioSelected binds to
     // the local currentMode and is never assigned. With server push rules the
@@ -171,11 +200,13 @@ AppMenu {
             wrapMode: Text.WordWrap
         }
     }
-    AppMenuSeparator {}
+    AppMenuSeparator { visible: !root.isInvite }
     // Where people look for it: the room they want to change.
     AppMenuItem {
         objectName: "roomChatBackgroundItem"
-        visible: !!app.backdrops
+        visible: !!app.backdrops && !root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "image"
         text: qsTr("Chat background…")
         onTriggered: root.chatBackgroundRequested()
@@ -189,11 +220,17 @@ AppMenu {
                                          && app.roomInfo.roomId === root.roomId
         visible: !root.isInvite && !root.isDirect
                  && (!openRoom || app.roomInfo.canInvite)
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "person_add"
         text: qsTr("Invite people…")
         onTriggered: root.inviteRequested()
     }
     AppMenuItem {
+        objectName: "roomCopyLinkItem"
+        visible: !root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "link"
         text: qsTr("Copy room link")
         onTriggered: root.copyRoomLink()
@@ -201,6 +238,8 @@ AppMenu {
     AppMenuItem {
         objectName: "roomLeaveItem"
         visible: !root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "logout"
         text: qsTr("Leave room")
         danger: true
@@ -209,6 +248,8 @@ AppMenu {
     AppMenuItem {
         objectName: "roomAcceptInviteItem"
         visible: root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "person_add"
         text: qsTr("Accept invitation")
         onTriggered: root.acceptInviteRequested()
@@ -216,6 +257,8 @@ AppMenu {
     AppMenuItem {
         objectName: "roomRejectInviteItem"
         visible: root.isInvite
+        // Hidden rows must not take the keyboard (MASTER-3 M6).
+        enabled: visible
         iconName: "close"
         text: qsTr("Reject invitation")
         danger: true

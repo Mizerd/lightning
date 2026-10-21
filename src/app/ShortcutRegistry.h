@@ -103,7 +103,9 @@ public:
     Q_INVOKABLE QString setBinding(const QString &actionId,
                                    const QString &sequence);
 
-    Q_INVOKABLE void resetToDefault(const QString &actionId);
+    /// Refuses (returns the reason, changes nothing) when the default would
+    /// duplicate another action's binding, as setBinding does.
+    Q_INVOKABLE QString resetToDefault(const QString &actionId);
     Q_INVOKABLE void resetAll();
 
     /// True when `sequence` belongs to a hard-coded key with no row (Escape,

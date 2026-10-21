@@ -64,6 +64,27 @@ RowLayout {
         id: accountTile
         objectName: "headerAccountTile"
         implicitWidth: 30; implicitHeight: 30
+        // Keyboard: a Tab stop with a ring, opening the menu on Return, Enter,
+        // Space or the Menu key (it was a TapHandler only).
+        activeFocusOnTab: true
+        Keys.onPressed: (event) => {
+            var k = event.key
+            if (k === Qt.Key_Return || k === Qt.Key_Enter
+                    || k === Qt.Key_Space || k === Qt.Key_Menu) {
+                accountMenu.open()
+                event.accepted = true
+            }
+        }
+        Rectangle {
+            objectName: "headerAccountFocusRing"
+            anchors.fill: parent
+            anchors.margins: -2
+            radius: AppTheme.radiusPill
+            color: "transparent"
+            border.color: AppTheme.focusRing
+            border.width: 2
+            visible: accountTile.activeFocus
+        }
         Accessible.role: Accessible.Button
         Accessible.name: qsTr("Account menu for %1")
                          .arg(app.accounts ? app.accounts.activeUserId : "")

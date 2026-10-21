@@ -22,6 +22,13 @@ Dialog {
 
     readonly property var presence: app.presence
     property string expiryChoice: "none"
+    // Default for a fresh custom expiry: an hour from now, so the row opens
+    // valid instead of in the "in the future" error state.
+    function fillCustomDefault() {
+        var d = new Date(Date.now() + 60 * 60 * 1000)
+        customDate.text = Qt.formatDate(d, "yyyy-MM-dd")
+        customTime.text = Qt.formatTime(d, "HH:mm")
+    }
 
     function openForEdit() {
         emojiField.text = presence ? presence.ownStatusEmoji : ""
@@ -35,8 +42,7 @@ Dialog {
             customTime.text = Qt.formatTime(d, "HH:mm")
         } else {
             root.expiryChoice = "none"
-            customDate.text = Qt.formatDate(new Date(), "yyyy-MM-dd")
-            customTime.text = Qt.formatTime(new Date(), "HH:mm")
+            root.fillCustomDefault()
         }
         open()
         Qt.callLater(function () { textField.forceActiveFocus() })
@@ -65,6 +71,14 @@ Dialog {
         }
         default: return 0
         }
+    }
+    // True when the typed date or time is not a real date at all (month 13),
+    // as opposed to a real one that has passed.
+    function customMalformed() {
+        var parsed = Date.fromLocaleString(Qt.locale(AppLocale.name),
+                                           customDate.text + " " + customTime.text,
+                                           "yyyy-MM-dd HH:mm")
+        return isNaN(parsed.getTime())
     }
     readonly property bool customInvalid: root.expiryChoice === "custom"
                                           && root.expiresAtMs() < 0
@@ -106,7 +120,7 @@ Dialog {
                 Layout.fillWidth: true
                 placeholderText: qsTr("Working from home")
                 maximumLength: 200
-                onAccepted: setButton.clicked()
+                onAccepted: if (setButton.enabled) setButton.clicked()
                 Accessible.name: qsTr("Status text")
             }
         }
@@ -131,7 +145,13 @@ Dialog {
                 { value: "custom", label: qsTr("Custom") }
             ]
             current: root.expiryChoice
-            onActivated: (value) => root.expiryChoice = value
+            onActivated: (value) => {
+                // Choosing Custom with a stale or empty row starts from a
+                // valid time rather than the error state.
+                root.expiryChoice = value
+                if (value === "custom" && root.expiresAtMs() < 0)
+                    root.fillCustomDefault()
+            }
         }
         RowLayout {
             Layout.fillWidth: true
@@ -144,6 +164,7 @@ Dialog {
                 Layout.fillWidth: true
                 placeholderText: qsTr("yyyy-mm-dd")
                 inputMask: "9999-99-99"
+                onAccepted: if (setButton.enabled) setButton.clicked()
             }
             AppTextField {
                 id: customTime
@@ -152,11 +173,14 @@ Dialog {
                 Layout.preferredWidth: 90
                 placeholderText: qsTr("hh:mm")
                 inputMask: "99:99"
+                onAccepted: if (setButton.enabled) setButton.clicked()
             }
         }
         Label {
             visible: root.customInvalid
-            text: qsTr("Pick a date and time in the future.")
+            text: root.customMalformed()
+                  ? qsTr("That is not a valid date and time (yyyy-mm-dd hh:mm).")
+                  : qsTr("Pick a date and time in the future.")
             color: AppTheme.stormDanger
             font.pixelSize: AppTheme.textMeta
         }

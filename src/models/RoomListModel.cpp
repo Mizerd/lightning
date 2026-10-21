@@ -13,6 +13,13 @@
 #include <QSet>
 #include <QUrl>
 
+namespace {
+/// setSortMode()'s "the user has never chosen a sort" (SettingsManager passes
+/// it while the stored value is absent). Behaves as Space order inside a real
+/// Space and as Activity everywhere else; any explicit mode replaces it.
+constexpr int kSortUnset = -1;
+} // namespace
+
 RoomListModel::RoomListModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -542,7 +549,11 @@ void RoomListModel::setDeferReordering(bool defer)
 
 void RoomListModel::setSortMode(int mode)
 {
-    const int valid = conversation::normalizedSortMode(mode);
+    // kSortUnset ("the user never chose a sort") is its own state, not an
+    // unknown value: normalizedSortMode() would fold it into Activity and a
+    // Space's list would then disagree with its lobby until the menu was used.
+    const int valid = mode == kSortUnset ? kSortUnset
+                                         : conversation::normalizedSortMode(mode);
     if (valid == m_sortMode)
         return;
     m_sortMode = valid;
@@ -674,8 +685,13 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
         // of its rooms, as its lobby lists them; conversations it does not contain (a DM with one
         // of its people) follow, by recency.
         // Only in Space order mode; every other mode is activity here.
+        // With no explicit choice (kSortUnset) a real Space follows its own
+        // order too, so the sidebar and the lobby agree out of the box;
+        // childOrder() is empty for Home and every pseudo selection, which
+        // keeps those on Activity.
         const QHash<QString, int> spaceOrder =
-            m_spaces && m_sortMode == conversation::SortBySpaceOrder
+            m_spaces && (m_sortMode == conversation::SortBySpaceOrder
+                         || m_sortMode == kSortUnset)
                 ? m_spaces->childOrder(m_spaces->activeSpaceId())
                 : QHash<QString, int>();
         // Unread first: inside a rank, rooms with something to read lead.

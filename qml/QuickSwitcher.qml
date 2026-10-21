@@ -290,6 +290,42 @@ Popup {
         id: switcherBackgroundDialog
         objectName: "switcherChatBackgroundDialog"
     }
+    // One height per list, shared by the delegates and the paging arithmetic.
+    readonly property int resultRowHeight: 48
+    readonly property int commandRowHeight: 44
+    // Names are untrusted (a room or invite name is chosen by a stranger), so
+    // the hover text is drawn by a plain-text Label; the attached tooltip text property
+    // would auto-detect rich text and fetch remote <img> resources.
+    component PlainTip: ToolTip {
+        id: plainTip
+        property bool shown: false
+        property string plainText: ""
+        // A standalone ToolTip ignores `delay`, so the hover delay is a Timer.
+        onShownChanged: {
+            if (shown) tipDelay.restart()
+            else { tipDelay.stop(); hide() }
+        }
+        Timer {
+            id: tipDelay
+            interval: 600
+            onTriggered: if (plainTip.shown) plainTip.show(plainTip.plainText)
+        }
+        contentItem: Label {
+            objectName: "plainTipLabel"
+            text: plainTip.plainText
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+        }
+    }
+    readonly property bool hasOtherAccount: {
+        var list = app.accountList ? (switcher.labsAccountRows || [])
+                                   : (app.accounts ? app.accounts.accounts : [])
+        for (var i = 0; i < list.length; ++i)
+            if (!list[i].isActive) return true
+        return false
+    }
     readonly property string commandQueryLower: queryField.text.toLowerCase()
     function actionMatches(a) {
         if (commandQueryLower.length === 0) return true
@@ -362,6 +398,36 @@ Popup {
             if (cat !== lastCat) { starts.push(i); lastCat = cat }
         }
         return starts
+    }
+    // The visible list's selection moves through this one door so every key
+    // (arrows, Tab wrap-around, paging) also scrolls the row into view.
+    function activeList() { return switcher.commandMode ? commandList : resultList }
+    function activeCount() {
+        return switcher.commandMode ? switcher.commandRows.length
+                                    : app.quickSwitcher.count
+    }
+    function selectRow(index) {
+        const cnt = switcher.activeCount()
+        if (cnt <= 0) return
+        const list = switcher.activeList()
+        list.currentIndex = Math.max(0, Math.min(index, cnt - 1))
+    }
+    function pageRows(list) {
+        var rowH = list === commandList ? switcher.commandRowHeight
+                                        : switcher.resultRowHeight
+        return Math.max(1, Math.floor(list.height / rowH) - 1)
+    }
+    // Enter. With no match the fallbacks are the keyboard path too: message
+    // search first, else the public room directory.
+    function acceptCurrent() {
+        if (switcher.commandMode) {
+            switcher.activateCommandRow(commandList.currentIndex)
+        } else if (app.quickSwitcher.count === 0) {
+            if (searchMessagesButton.visible) searchMessagesButton.clicked()
+            else if (exploreRoomsButton.visible) exploreRoomsButton.clicked()
+        } else {
+            switcher.activate(resultList.currentIndex)
+        }
     }
     function jumpToSection(forward) {
         var starts = switcher.sectionStarts()
@@ -498,6 +564,23 @@ Popup {
                         event.accepted = true
                         return
                     }
+                    if (event.key === Qt.Key_PageDown || event.key === Qt.Key_PageUp) {
+                        const step = switcher.pageRows(switcher.activeList())
+                        const cur = Math.max(0, switcher.activeList().currentIndex)
+                        switcher.selectRow(event.key === Qt.Key_PageDown
+                                           ? cur + step : cur - step)
+                        event.accepted = true
+                        return
+                    }
+                    // Ctrl+Home / Ctrl+End jump to the ends of the list; plain
+                    // Home/End stay with the text cursor.
+                    if ((event.modifiers & Qt.ControlModifier)
+                        && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
+                        switcher.selectRow(event.key === Qt.Key_Home
+                                           ? 0 : switcher.activeCount() - 1)
+                        event.accepted = true
+                        return
+                    }
                     if (!switcher.commandMode
                         && (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)) {
                         switcher.jumpToSection(event.key === Qt.Key_Tab)
@@ -524,12 +607,8 @@ Popup {
                         resultList.currentIndex -= 1
                     }
                 }
-                Keys.onReturnPressed: switcher.commandMode
-                    ? switcher.activateCommandRow(commandList.currentIndex)
-                    : switcher.activate(resultList.currentIndex)
-                Keys.onEnterPressed: switcher.commandMode
-                    ? switcher.activateCommandRow(commandList.currentIndex)
-                    : switcher.activate(resultList.currentIndex)
+                Keys.onReturnPressed: switcher.acceptCurrent()
+                Keys.onEnterPressed: switcher.acceptCurrent()
             }
 
             MenuKeycap {
@@ -635,6 +714,7 @@ Popup {
                 font.pixelSize: AppTheme.textBody
             }
             AppButton {
+                id: searchMessagesButton
                 objectName: "quickSwitcherSearchMessages"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -657,6 +737,7 @@ Popup {
                 }
             }
             AppButton {
+                id: exploreRoomsButton
                 objectName: "quickSwitcherExploreRooms"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -683,9 +764,7 @@ Popup {
         }
 
         // Navigate mode: sectioned rooms/people/spaces/invites list
-        ListView {
-            id: resultList
-            objectName: "quickSwitcherList"
+        Item {
             visible: !switcher.commandMode
             Layout.fillWidth: true
             // Mode-dependent: a plain `true` leaves the column's height
@@ -693,233 +772,280 @@ Popup {
             // (openCommandMode() before open()), so the visible list would open
             // at 0 height.
             Layout.fillHeight: !switcher.commandMode
-            clip: true
-            model: app.quickSwitcher
-            currentIndex: -1
-            keyNavigationEnabled: false
-            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-
-            section.property: "category"
-            section.criteria: ViewSection.FullString
-            section.delegate: MenuSectionLabel {
-                text: switcher.sectionLabelFor(section)
-                leftPadding: AppTheme.spacing16
-                topPadding: AppTheme.spacing8
-                bottomPadding: AppTheme.spacing4
+            // The scroller is a sibling of the view, never inside it.
+            MiddleClickScroller {
+                objectName: "quickSwitcherMiddleClickScroller"
+                anchors.fill: parent
+                z: 1
+                view: resultList
             }
-
-            delegate: ItemDelegate {
-                id: row
-                width: ListView.view.width
-                height: 48
-                highlighted: ListView.isCurrentItem
-                onClicked: switcher.activate(index)
-                Accessible.name: model.name + " " + (model.subtitle || "")
-                Accessible.selected: row.highlighted
-
-                background: Rectangle {
-                    color: row.highlighted ? AppTheme.stormSelection : "transparent"
-                    // Bolt cursor overhanging the selected row's left edge.
-                    Icon {
-                        visible: row.highlighted
-                        name: "bolt"
-                        size: 12
-                        color: AppTheme.bolt
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.leftMargin: 0
-                    }
+            ListView {
+                id: resultList
+                objectName: "quickSwitcherList"
+                anchors.fill: parent
+                clip: true
+                model: app.quickSwitcher
+                currentIndex: -1
+                keyNavigationEnabled: false
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                // Every selection change scrolls its row into view, including the
+                // Tab wrap-around, which sets currentIndex from far away.
+                onCurrentIndexChanged: {
+                    if (currentIndex === 0) positionViewAtBeginning()
+                    else if (currentIndex > 0)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
                 }
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: AppTheme.spacing16
-                    anchors.rightMargin: AppTheme.spacing12
-                    spacing: AppTheme.spacing10
+                section.property: "category"
+                section.criteria: ViewSection.FullString
+                section.delegate: MenuSectionLabel {
+                    text: switcher.sectionLabelFor(section)
+                    leftPadding: AppTheme.spacing16
+                    topPadding: AppTheme.spacing8
+                    bottomPadding: AppTheme.spacing4
+                }
 
-                    Avatar {
-                        size: 28
-                        // Invite pictures follow the account's MSC4278 choice.
-                        mxc: (model.category === "invite" && app.accountPrefs
-                              && !app.accountPrefs.inviteAvatars)
-                             ? "" : model.avatarUrl
-                        name: model.name
-                        colorKey: model.identityColorKey || model.roomId
-                        circle: model.category === "dm"
+                delegate: ItemDelegate {
+                    id: row
+                    width: ListView.view.width
+                    height: switcher.resultRowHeight
+                    highlighted: ListView.isCurrentItem
+                    onClicked: switcher.activate(index)
+                    Accessible.name: model.name + " " + (model.subtitle || "")
+                    Accessible.selected: row.highlighted
+                    // Names elide in a fixed-width dialog; hover shows the rest.
+                    PlainTip {
+                        objectName: "quickSwitcherRowTip"
+                        shown: row.hovered && rowTitle.truncated
+                        plainText: model.name || ""
                     }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Label {
-                            Layout.fillWidth: true
-                            textFormat: Text.StyledText
-                            // The matched fragment is bolt on the selected row
-                            // only; other rows brighten it to stormText.
-                            text: switcher.highlightedName(
-                                model.name, app.quickSwitcher.query,
-                                row.highlighted ? "" + AppTheme.bolt
-                                                : "" + AppTheme.stormText)
-                            color: row.highlighted ? AppTheme.stormText
-                                                   : AppTheme.stormTextSecondary
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.textSubtitle
-                            font.weight: AppTheme.weightStrong
-                            elide: Label.ElideRight
-                        }
-                        Label {
-                            // Untrusted text: never markup.
-                            textFormat: Text.PlainText
-                            Layout.fillWidth: true
-                            visible: (model.subtitle || "").length > 0
-                            text: model.subtitle || ""
-                            // AA on the selection fill.
-                            color: row.highlighted ? AppTheme.stormTextSecondary
-                                                 : AppTheme.stormTextMuted
-                            // One face down the list; mono is for code and
-                            // keycaps.
-                            font.family: AppTheme.uiFont
-                            // Meta size, not the mono identity size.
-                            font.pixelSize: AppTheme.textMeta
-                            elide: Label.ElideRight
+
+                    background: Rectangle {
+                        color: row.highlighted ? AppTheme.stormSelection : "transparent"
+                        // Bolt cursor overhanging the selected row's left edge.
+                        Icon {
+                            visible: row.highlighted
+                            name: "bolt"
+                            size: 12
+                            color: AppTheme.bolt
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: 0
                         }
                     }
-                    MenuKeycap {
-                        visible: row.highlighted
-                        iconName: "keyboard_return"
-                        tinted: true
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: AppTheme.spacing16
+                        anchors.rightMargin: AppTheme.spacing12
+                        spacing: AppTheme.spacing10
+
+                        Avatar {
+                            size: 28
+                            // Invite pictures follow the account's MSC4278 choice.
+                            mxc: (model.category === "invite" && app.accountPrefs
+                                  && !app.accountPrefs.inviteAvatars)
+                                 ? "" : model.avatarUrl
+                            name: model.name
+                            colorKey: model.identityColorKey || model.roomId
+                            circle: model.category === "dm"
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Label {
+                                id: rowTitle
+                                Layout.fillWidth: true
+                                textFormat: Text.StyledText
+                                // The matched fragment is bolt on the selected row
+                                // only; other rows brighten it to stormText.
+                                text: switcher.highlightedName(
+                                    model.name, app.quickSwitcher.query,
+                                    row.highlighted ? "" + AppTheme.bolt
+                                                    : "" + AppTheme.stormText)
+                                color: row.highlighted ? AppTheme.stormText
+                                                       : AppTheme.stormTextSecondary
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: AppTheme.textSubtitle
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                            }
+                            Label {
+                                // Untrusted text: never markup.
+                                textFormat: Text.PlainText
+                                Layout.fillWidth: true
+                                visible: (model.subtitle || "").length > 0
+                                text: model.subtitle || ""
+                                // AA on the selection fill.
+                                color: row.highlighted ? AppTheme.stormTextSecondary
+                                                     : AppTheme.stormTextMuted
+                                // One face down the list; mono is for code and
+                                // keycaps.
+                                font.family: AppTheme.uiFont
+                                // Meta size, not the mono identity size.
+                                font.pixelSize: AppTheme.textMeta
+                                elide: Label.ElideRight
+                            }
+                        }
+                        MenuKeycap {
+                            visible: row.highlighted
+                            iconName: "keyboard_return"
+                            tinted: true
+                        }
                     }
                 }
             }
         }
 
         // Command mode: actions or the scoped Rooms/People copy
-        ListView {
-            id: commandList
-            objectName: "quickSwitcherCommandList"
+        Item {
             visible: switcher.commandMode
             Layout.fillWidth: true
             // Mode-dependent, as for the navigate list.
             Layout.fillHeight: switcher.commandMode
-            clip: true
-            model: commandRowModel
-            currentIndex: -1
-            keyNavigationEnabled: false
-            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-
-            delegate: ItemDelegate {
-                id: cmdRow
-                width: ListView.view.width
-                height: 44
-                highlighted: ListView.isCurrentItem
-                enabled: model.kind !== "action" || model.enabled !== false
-                onClicked: switcher.activateCommandRow(index)
-                Accessible.name: model.kind === "action"
-                    ? (model.label + " " + (model.subtitle || ""))
-                    : (model.name + " " + (model.subtitle || ""))
-                Accessible.selected: cmdRow.highlighted
-
-                background: Rectangle {
-                    color: cmdRow.highlighted ? AppTheme.stormSelection : "transparent"
-                    Icon {
-                        visible: cmdRow.highlighted && cmdRow.enabled
-                        name: "bolt"
-                        size: 12
-                        color: AppTheme.bolt
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.leftMargin: 0
-                    }
+            MiddleClickScroller {
+                objectName: "quickSwitcherCommandMiddleClickScroller"
+                anchors.fill: parent
+                z: 1
+                view: commandList
+            }
+            ListView {
+                id: commandList
+                objectName: "quickSwitcherCommandList"
+                anchors.fill: parent
+                clip: true
+                model: commandRowModel
+                currentIndex: -1
+                keyNavigationEnabled: false
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                onCurrentIndexChanged: {
+                    if (currentIndex === 0) positionViewAtBeginning()
+                    else if (currentIndex > 0)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
                 }
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: AppTheme.spacing16
-                    anchors.rightMargin: AppTheme.spacing12
-                    spacing: AppTheme.spacing10
-                    opacity: cmdRow.enabled ? 1.0 : 0.5
+                delegate: ItemDelegate {
+                    id: cmdRow
+                    width: ListView.view.width
+                    height: switcher.commandRowHeight
+                    highlighted: ListView.isCurrentItem
+                    enabled: model.kind !== "action" || model.enabled !== false
+                    onClicked: switcher.activateCommandRow(index)
+                    Accessible.name: model.kind === "action"
+                        ? (model.label + " " + (model.subtitle || ""))
+                        : (model.name + " " + (model.subtitle || ""))
+                    Accessible.selected: cmdRow.highlighted
+                    PlainTip {
+                        objectName: "quickSwitcherCommandRowTip"
+                        shown: cmdRow.hovered && commandRowTitleLabel.truncated
+                        plainText: model.kind === "action" ? (model.label || "")
+                                                           : (model.name || "")
+                    }
 
-                    Rectangle {
-                        visible: model.kind === "action"
-                        implicitWidth: 30
-                        implicitHeight: 30
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.stormInset
+                    background: Rectangle {
+                        color: cmdRow.highlighted ? AppTheme.stormSelection : "transparent"
                         Icon {
-                            anchors.centerIn: parent
-                            name: model.kind === "action" ? model.iconName : ""
-                            size: AppTheme.menuIconSize
-                            color: cmdRow.highlighted ? AppTheme.bolt
-                                                      : AppTheme.stormTextMuted
+                            visible: cmdRow.highlighted && cmdRow.enabled
+                            name: "bolt"
+                            size: 12
+                            color: AppTheme.bolt
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: 0
                         }
                     }
-                    Avatar {
-                        visible: model.kind === "entity"
-                        size: 28
-                        mxc: model.kind === "entity"
-                             && !(model.category === "invite" && app.accountPrefs
-                                  && !app.accountPrefs.inviteAvatars)
-                             ? model.avatarUrl : ""
-                        name: model.kind === "entity" ? model.name : ""
-                        colorKey: model.kind === "entity" ? (model.identityColorKey || model.roomId) : ""
-                        circle: model.kind === "entity" && model.category === "dm"
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Label {
-                            objectName: "commandRowTitle"
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: AppTheme.spacing16
+                        anchors.rightMargin: AppTheme.spacing12
+                        spacing: AppTheme.spacing10
+                        opacity: cmdRow.enabled ? 1.0 : 0.5
+
+                        Rectangle {
+                            visible: model.kind === "action"
+                            implicitWidth: 30
+                            implicitHeight: 30
+                            radius: AppTheme.radiusMd
+                            color: AppTheme.stormInset
+                            Icon {
+                                anchors.centerIn: parent
+                                name: model.kind === "action" ? model.iconName : ""
+                                size: AppTheme.menuIconSize
+                                color: cmdRow.highlighted ? AppTheme.bolt
+                                                          : AppTheme.stormTextMuted
+                            }
+                        }
+                        Avatar {
+                            visible: model.kind === "entity"
+                            size: 28
+                            mxc: model.kind === "entity"
+                                 && !(model.category === "invite" && app.accountPrefs
+                                      && !app.accountPrefs.inviteAvatars)
+                                 ? model.avatarUrl : ""
+                            name: model.kind === "entity" ? model.name : ""
+                            colorKey: model.kind === "entity" ? (model.identityColorKey || model.roomId) : ""
+                            circle: model.kind === "entity" && model.category === "dm"
+                        }
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            // Row ink follows the selection for both kinds;
-                            // only the matched entity fragment is tinted, via
-                            // the same escape+highlight helper.
-                            textFormat: model.kind === "entity"
-                                        ? Text.StyledText : Text.PlainText
-                            text: model.kind === "action"
-                                  ? (model.label || "")
-                                  : switcher.highlightedName(
-                                        model.name || "",
-                                        switcher.commandQueryLower,
-                                        cmdRow.highlighted ? "" + AppTheme.bolt
-                                                           : "" + AppTheme.stormText)
-                            color: cmdRow.highlighted ? AppTheme.stormText
-                                                      : AppTheme.stormTextSecondary
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.textSubtitle
-                            font.weight: AppTheme.weightStrong
-                            elide: Label.ElideRight
+                            spacing: 0
+                            Label {
+                                id: commandRowTitleLabel
+                                objectName: "commandRowTitle"
+                                Layout.fillWidth: true
+                                // Row ink follows the selection for both kinds;
+                                // only the matched entity fragment is tinted, via
+                                // the same escape+highlight helper.
+                                textFormat: model.kind === "entity"
+                                            ? Text.StyledText : Text.PlainText
+                                text: model.kind === "action"
+                                      ? (model.label || "")
+                                      : switcher.highlightedName(
+                                            model.name || "",
+                                            switcher.commandQueryLower,
+                                            cmdRow.highlighted ? "" + AppTheme.bolt
+                                                               : "" + AppTheme.stormText)
+                                color: cmdRow.highlighted ? AppTheme.stormText
+                                                          : AppTheme.stormTextSecondary
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: AppTheme.textSubtitle
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                            }
+                            Label {
+                                // Untrusted text: never markup.
+                                textFormat: Text.PlainText
+                                Layout.fillWidth: true
+                                visible: (model.subtitle || "").length > 0
+                                text: model.subtitle || ""
+                                // Muted ink; faint is reserved for decorative
+                                // headers.
+                                color: AppTheme.stormTextMuted
+                                // One face and one size down the list.
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                                elide: Label.ElideRight
+                            }
                         }
-                        Label {
-                            // Untrusted text: never markup.
-                            textFormat: Text.PlainText
-                            Layout.fillWidth: true
-                            visible: (model.subtitle || "").length > 0
-                            text: model.subtitle || ""
-                            // Muted ink; faint is reserved for decorative
-                            // headers.
-                            color: AppTheme.stormTextMuted
-                            // One face and one size down the list.
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                            elide: Label.ElideRight
+                        // A "Switch to" entry's account activity (Labs). Only
+                        // inactive accounts get an entry, so the active-row rule
+                        // holds by construction.
+                        AccountActivityBadge {
+                            objectName: "quickSwitcherAccountBadge"
+                            readonly property var activity:
+                                switcher.activityFeed.entryFor(model.accountUserId || "")
+                            visible: (model.accountUserId || "").length > 0 && shown
+                            liveState: activity.liveState
+                            mentionCount: activity.mentionCount
+                            mentionsLowerBound: activity.mentionsLowerBound
+                            hasUnread: activity.hasUnread
                         }
-                    }
-                    // A "Switch to" entry's account activity (Labs). Only
-                    // inactive accounts get an entry, so the active-row rule
-                    // holds by construction.
-                    AccountActivityBadge {
-                        objectName: "quickSwitcherAccountBadge"
-                        readonly property var activity:
-                            switcher.activityFeed.entryFor(model.accountUserId || "")
-                        visible: (model.accountUserId || "").length > 0 && shown
-                        liveState: activity.liveState
-                        mentionCount: activity.mentionCount
-                        mentionsLowerBound: activity.mentionsLowerBound
-                        hasUnread: activity.hasUnread
-                    }
-                    MenuKeycap {
-                        visible: cmdRow.highlighted
-                        iconName: "keyboard_return"
-                        tinted: true
+                        MenuKeycap {
+                            visible: cmdRow.highlighted
+                            iconName: "keyboard_return"
+                            tinted: true
+                        }
                     }
                 }
             }
@@ -1016,7 +1142,10 @@ Popup {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width
                 elide: Label.ElideRight
-                text: qsTr("Try “theme indigo night” · “switch to alice” · “open privacy”")
+                // "switch to" is only offered when another account exists.
+                text: switcher.hasOtherAccount
+                      ? qsTr("Try “theme indigo night” · “switch to alice” · “open privacy”")
+                      : qsTr("Try “theme indigo night” · “open privacy”")
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textMeta
