@@ -989,11 +989,11 @@ Rectangle {
     ColumnLayout {
         id: roomColumn
         objectName: "roomColumn"
-        // Below 660px the 340px panel and the 320px timeline minimum cannot
-        // coexist, so the thread surface takes the pane; the room stays alive
-        // underneath.
-        visible: !(root.threadSurfaceOpen && root.width < 660)
-                 && !(root.searchOpen && root.width < 700)
+        // When the thread or search panel (sideSurface.width) and the 320px
+        // timeline minimum cannot coexist, that surface takes the pane; the
+        // room stays alive underneath.
+        visible: !((root.threadSurfaceOpen || root.searchOpen)
+                   && !sideSurface.beside)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -5745,21 +5745,87 @@ Rectangle {
         }
     }
 
-    // Thread side panel
-    Rectangle {
-        visible: root.threadSurfaceOpen && root.width >= 660
+    // Side surfaces: ONE geometry for every right-hand panel, read by the
+    // panels, by roomColumn's visibility, by the resize grab and by
+    // chatDropArea, so none of them can drift (they used to repeat literals:
+    // 340/660 for threads, 360/700 for search, 320 in the drop area for Room
+    // information). All of it follows Settings > Appearance > Side panel
+    // width (SettingsManager clamps it to 240-640). Reads only root.width and
+    // the setting, never the layout it drives, so it cannot form a binding
+    // loop.
+    QtObject {
+        id: sideSurface
+        // Thread and search panels: the stored width, never under 260, and
+        // never so wide that the timeline column (Layout.minimumWidth 320)
+        // plus the panel's 1px divider overflow the pane.
+        readonly property int width:
+            Math.max(260, Math.min(app.settings.sidePanelWidth,
+                                   root.width - 320 - 1))
+        // Beside the timeline only while the timeline keeps its 320px; below
+        // that (a pane under 581px) the surface takes the whole pane.
+        readonly property bool beside: root.width - 1 - width >= 320
+        // Room information keeps its own floor for the conversation (420)
+        // and its >= 700 gate; the same setting drives it.
+        readonly property int infoWidth:
+            Math.max(260, Math.min(app.settings.sidePanelWidth,
+                                   root.width - 420))
+        readonly property bool infoBeside: root.width >= 700
+    }
+
+    // The thread and search panels' divider, also their resize grab: it
+    // writes the same setting as Room Information's grab, so every side panel
+    // shares one width. One item serves both because they are exclusive
+    // (rightPanelState) and an invisible layout child takes no space, so it
+    // always sits immediately left of whichever is open.
+    Item {
+        id: sidePanelResizer
+        objectName: "sidePanelResizeHandle"
+        visible: (root.threadSurfaceOpen || root.searchOpen)
+                 && sideSurface.beside
         Layout.fillHeight: true
+        // One pixel; the grab area is the handlers' margin, as infoResizer.
         implicitWidth: 1
-        color: AppTheme.borderStrong
+
+        Rectangle {
+            anchors.fill: parent
+            color: sideDrag.active ? AppTheme.accent : AppTheme.borderStrong
+            Behavior on color { ColorAnimation { duration: 90 } }
+        }
+        HoverHandler {
+            margin: 4
+            cursorShape: Qt.SplitHCursor
+        }
+        DragHandler {
+            id: sideDrag
+            margin: 4
+            target: null
+            yAxis.enabled: false
+            // The width the reader SEES at the press, not the stored one: a
+            // stored width wider than the window allows would otherwise eat
+            // the first part of the drag with no visible change.
+            property int startWidth: 0
+            onActiveChanged: {
+                if (active)
+                    startWidth = sideSurface.width
+            }
+            onTranslationChanged: {
+                if (!active)
+                    return
+                // The panel is on the right, so dragging left widens it.
+                // SettingsManager clamps the stored value.
+                app.settings.sidePanelWidth =
+                    Math.round(startWidth - translation.x)
+            }
+        }
     }
     ThreadPanel {
         id: threadPanel
         objectName: "threadPanel"
         visible: root.threadSurfaceOpen
         Layout.fillHeight: true
-        // The thread panel is 340px wide.
-        Layout.preferredWidth: root.width >= 660 ? 340 : root.width
-        Layout.fillWidth: root.threadSurfaceOpen && root.width < 660
+        Layout.preferredWidth: sideSurface.beside ? sideSurface.width
+                                                  : root.width
+        Layout.fillWidth: root.threadSurfaceOpen && !sideSurface.beside
         onCloseRequested: {
             // Closing the thread collapses the right side; Room Information is
             // not restored implicitly.
@@ -5825,13 +5891,11 @@ Rectangle {
         // Capped by the space actually available, not only the stored width,
         // which can outlive a wider window; otherwise the row overflows off the
         // right edge. 420 is the conversation's floor; the panel's is 260, and
-        // the >= 700 gate keeps them from fighting.
-        Layout.preferredWidth: root.infoOpen
-            ? Math.max(260, Math.min(app.settings.sidePanelWidth,
-                                     root.width - 420))
-            : 0
+        // the >= 700 gate keeps them from fighting (sideSurface.infoWidth,
+        // which chatDropArea reads too).
+        Layout.preferredWidth: root.infoOpen ? sideSurface.infoWidth : 0
         // Collapse at narrow widths instead of crushing the chat.
-        visible: root.infoOpen && root.width >= 700
+        visible: root.infoOpen && sideSurface.infoBeside
         onCloseRequested: {
             root.infoOpen = false
             root.rememberMemberPanel()
@@ -5849,20 +5913,17 @@ Rectangle {
         onExportRoomRequested: root.openExportRoom()
     }
 
-    // Room message search side panel
-    Rectangle {
-        visible: root.searchOpen && root.width >= 700
-        Layout.fillHeight: true
-        implicitWidth: 1
-        color: AppTheme.border
-    }
+    // Room message search side panel. Same geometry and divider/grab as the
+    // thread panel (sideSurface, sidePanelResizer): it used to be a fixed
+    // 360px with its own 700px threshold, ignoring "Side panel width".
     SearchPanel {
         id: searchPanel
         objectName: "roomSearchPanel"
         visible: root.searchOpen
         Layout.fillHeight: true
-        Layout.preferredWidth: root.width >= 700 ? 360 : root.width
-        Layout.fillWidth: root.searchOpen && root.width < 700
+        Layout.preferredWidth: sideSurface.beside ? sideSurface.width
+                                                  : root.width
+        Layout.fillWidth: root.searchOpen && !sideSurface.beside
         historyAvailable: root.findHistoryAvailable
         serverAvailable: root.serverSearchAvailable
         onCloseRequested: root.searchOpen = false
@@ -6616,7 +6677,19 @@ Rectangle {
                                   ? qsTr("Hide people")
                                   : qsTr("People (%1)").arg(
                                         spaceHome.spacePeople.length)
-                            onClicked: app.settings.memberPanelOpen = !spaceHome.peopleOpen
+                            onClicked: {
+                                const opening = !spaceHome.peopleOpen
+                                app.settings.memberPanelOpen = opening
+                                // The card is at the END of the column, so in
+                                // a large Space it opens below the fold; an
+                                // explicit click brings it into view. Only the
+                                // click: the remembered flag at load does not
+                                // scroll anything.
+                                if (opening)
+                                    spacePeopleCard.reveal()
+                                else
+                                    spacePeopleCard.revealPending = false
+                            }
                         }
                         AppButton {
                             objectName: "spaceSettingsButton"
@@ -6646,69 +6719,6 @@ Rectangle {
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                    }
-
-                    // Space members, from the roster Room Information reads.
-                    Rectangle {
-                        objectName: "spacePeopleCard"
-                        visible: spaceHome.peopleOpen
-                                 && app.roomInfo
-                                 && app.roomInfo.roomId === spaceHome.spaceId
-                        Layout.fillWidth: true
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.cardElevated
-                        border.color: AppTheme.border
-                        border.width: 1
-                        implicitHeight: spacePeopleCol.implicitHeight
-                                        + AppTheme.spacing16 * 2
-
-                        ColumnLayout {
-                            id: spacePeopleCol
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: AppTheme.spacing16
-                            spacing: AppTheme.spacing8
-
-                            Label {
-                                text: qsTr("People in this Space")
-                                color: AppTheme.textPrimary
-                                font.pixelSize: AppTheme.textBody
-                                font.weight: AppTheme.weightStrong
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                text: qsTr("Members of the Space itself. Its rooms each have their own members.")
-                                color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.textMeta
-                            }
-
-                            Flow {
-                                Layout.fillWidth: true
-                                spacing: AppTheme.spacing8
-                                Repeater {
-                                    // Bounded: the Flow is not virtualized.
-                                    model: spaceHome.spacePeople.slice(0, 60)
-                                    delegate: SpaceMemberChip {
-                                        onProfileRequested: (member) =>
-                                            senderProfilePopover.openFor(member, parent)
-                                    }
-                                }
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                visible: spaceHome.spacePeople.length > 60
-                                // Disclose the cap rather than silently
-                                // truncating.
-                                text: qsTr("Showing the first 60 of %1.")
-                                      .arg(spaceHome.spacePeople.length)
-                                color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.textMeta
-                            }
-                        }
                     }
 
                     // Space settings, through the same permission-gated
@@ -6925,6 +6935,128 @@ Rectangle {
                                 app.spaces.setSpaceChildSuggested(
                                     spaceHome.spaceId, roomIds[i], suggested)
                             spaceHome.selectedChildIds = ({})
+                        }
+                    }
+
+                    // Space members, from the roster Room Information reads.
+                    // AFTER the lobby, at the end of the column: in a large
+                    // Space a roster laid out above the channels pushed them
+                    // off-screen (support chat 2026-10-20). The button that
+                    // toggles it stays in the header row.
+                    Rectangle {
+                        id: spacePeopleCard
+                        objectName: "spacePeopleCard"
+                        // An explicit "People" click scrolls Space Home just
+                        // far enough to show the card's top (with up to half a
+                        // viewport of it), never past the end and never
+                        // upward. Pending until the column has laid the
+                        // newly visible card out (contentHeight follows the
+                        // layout's next polish), and only briefly, so a later
+                        // roster load cannot scroll the page on its own.
+                        property bool revealPending: false
+                        function reveal() {
+                            revealPending = true
+                            revealWindow.restart()
+                            Qt.callLater(tryReveal)
+                        }
+                        function tryReveal() {
+                            if (!revealPending || !visible || height <= 0)
+                                return
+                            // Not laid out yet: a card that has never been
+                            // shown still sits at y 0, above the lobby it
+                            // follows. onYChanged retries once it is placed.
+                            if (y < spaceLobby.y + spaceLobby.height)
+                                return
+                            const top = spaceCol.y + y
+                            const want = Math.min(height, spaceScroll.height / 2)
+                            const viewBottom = spaceScroll.contentY
+                                               + spaceScroll.height
+                            if (top + want <= viewBottom) {
+                                revealPending = false
+                                return
+                            }
+                            const maxY = Math.max(0, spaceScroll.contentHeight
+                                                     - spaceScroll.height)
+                            const target = Math.max(spaceScroll.contentY,
+                                                    top + want
+                                                    - spaceScroll.height
+                                                    + AppTheme.spacing24)
+                            spaceScroll.contentY = Math.min(maxY, target)
+                            // Done unless the content was still too short
+                            // (contentHeight not yet grown by the card).
+                            if (target <= maxY)
+                                revealPending = false
+                        }
+                        onYChanged: tryReveal()
+                        onHeightChanged: tryReveal()
+                        Connections {
+                            target: spaceScroll
+                            function onContentHeightChanged() {
+                                spacePeopleCard.tryReveal()
+                            }
+                        }
+                        Timer {
+                            id: revealWindow
+                            interval: 600
+                            onTriggered: spacePeopleCard.revealPending = false
+                        }
+                        visible: spaceHome.peopleOpen
+                                 && app.roomInfo
+                                 && app.roomInfo.roomId === spaceHome.spaceId
+                        Layout.fillWidth: true
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.cardElevated
+                        border.color: AppTheme.border
+                        border.width: 1
+                        implicitHeight: spacePeopleCol.implicitHeight
+                                        + AppTheme.spacing16 * 2
+
+                        ColumnLayout {
+                            id: spacePeopleCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: AppTheme.spacing16
+                            spacing: AppTheme.spacing8
+
+                            Label {
+                                text: qsTr("People in this Space")
+                                color: AppTheme.textPrimary
+                                font.pixelSize: AppTheme.textBody
+                                font.weight: AppTheme.weightStrong
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Members of the Space itself. Its rooms each have their own members.")
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing8
+                                Repeater {
+                                    // Bounded: the Flow is not virtualized.
+                                    model: spaceHome.spacePeople.slice(0, 60)
+                                    delegate: SpaceMemberChip {
+                                        onProfileRequested: (member) =>
+                                            senderProfilePopover.openFor(member, parent)
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                visible: spaceHome.spacePeople.length > 60
+                                // Disclose the cap rather than silently
+                                // truncating.
+                                text: qsTr("Showing the first 60 of %1.")
+                                      .arg(spaceHome.spacePeople.length)
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
                         }
                     }
                 }
@@ -7248,19 +7380,19 @@ Rectangle {
     // DropArea only consumes drag events.
     DropArea {
         id: chatDropArea
-        // Never cover the thread surface: ThreadPanel has its own DropArea, and
-        // thread attachments must use the thread send path. Stops 340px short
-        // beside a thread panel; zero width in the full-width thread layout
-        // (<660).
+        objectName: "chatDropArea"
+        // Never cover a side surface: ThreadPanel has its own DropArea, and
+        // thread attachments must use the thread send path; a drop on search
+        // or Room information is not meant for the composer either. Stops at
+        // the open panel's divider (the same sideSurface widths the panels are
+        // laid out with); zero width when a surface takes the whole pane.
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        width: root.threadSurfaceOpen
-               ? (root.width >= 660 ? root.width - 340 : 0)
-               : root.searchOpen
-                 ? (root.width >= 700 ? root.width - 360 : 0)
-                 : root.infoOpen && root.width >= 700
-                   ? root.width - 320 : root.width
+        width: (root.threadSurfaceOpen || root.searchOpen)
+               ? (sideSurface.beside ? root.width - sideSurface.width - 1 : 0)
+               : root.infoOpen && sideSurface.infoBeside
+                 ? root.width - sideSurface.infoWidth - 1 : root.width
         z: 400
         enabled: app.composer.attachmentsSupported
                  && app.currentRoomId.length > 0

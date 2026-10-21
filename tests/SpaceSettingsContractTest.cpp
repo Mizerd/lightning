@@ -221,21 +221,32 @@ private Q_SLOTS:
 
     // "People in this Space" listed a banned member (2026-09-30, live): the
     // card and its count read the whole roster, bans and invites included.
-    // They read the joined members now, and nothing else in that stretch of
-    // Space Home reads the unfiltered roster.
+    // They read the joined members now, and nothing else in those stretches
+    // of Space Home reads the unfiltered roster. The card sits AFTER the
+    // lobby since 2026-10-20 (a large Space's roster pushed its channels
+    // off-screen); DesignAcceptanceTest::spaceHomeListsChannelsBeforePeople
+    // asserts that geometrically, this only bounds the scans.
     void spacePeopleListsOnlyTheJoined()
     {
         const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
-        const int start = pane.indexOf(QStringLiteral("objectName: \"spacePeopleButton\""));
-        const int end = pane.indexOf(QStringLiteral("id: settingsCol"), start);
-        QVERIFY2(start >= 0 && end > start, "the Space Home people button or card moved");
-        const QString block = pane.mid(start, end - start);
-        QVERIFY2(block.contains(QStringLiteral("objectName: \"spacePeopleCard\"")),
-                 "the people card is no longer between the button and the settings");
-        QVERIFY2(!block.contains(QStringLiteral("app.roomInfo.members")),
-                 "the people button or card reads the whole roster, bans included");
-        QVERIFY(block.contains(QStringLiteral("model: spaceHome.spacePeople.slice(0, 60)")));
-        QVERIFY(block.contains(QStringLiteral(".arg(spaceHome.spacePeople.length)")));
+        const int button = pane.indexOf(QStringLiteral("objectName: \"spacePeopleButton\""));
+        const int settings = pane.indexOf(QStringLiteral("id: settingsCol"), button);
+        QVERIFY2(button >= 0 && settings > button, "the Space Home people button moved");
+        const QString buttonBlock = pane.mid(button, settings - button);
+        QVERIFY(buttonBlock.contains(QStringLiteral("spaceHome.spacePeople.length")));
+        QVERIFY2(!buttonBlock.contains(QStringLiteral("app.roomInfo.members")),
+                 "the people button reads the whole roster, bans included");
+
+        const int lobby = pane.indexOf(QStringLiteral("SpaceLobby {"), settings);
+        const int card = pane.indexOf(QStringLiteral("objectName: \"spacePeopleCard\""));
+        const int end = pane.indexOf(QStringLiteral("// Child-removal confirmation"), card);
+        QVERIFY2(lobby > 0 && card > lobby && end > card,
+                 "the people card is no longer after the Space's channel list");
+        const QString cardBlock = pane.mid(card, end - card);
+        QVERIFY2(!cardBlock.contains(QStringLiteral("app.roomInfo.members")),
+                 "the people card reads the whole roster, bans included");
+        QVERIFY(cardBlock.contains(QStringLiteral("model: spaceHome.spacePeople.slice(0, 60)")));
+        QVERIFY(cardBlock.contains(QStringLiteral(".arg(spaceHome.spacePeople.length)")));
         QVERIFY(pane.contains(QStringLiteral(
             "app.roomInfo ? (app.roomInfo.joinedMembers || []) : []")));
     }

@@ -469,9 +469,9 @@ private Q_SLOTS:
         // The chat-wide area never covers the thread surface, which owns its
         // own drops (thread send path).
         QVERIFY(pane.contains(QStringLiteral(
-            "width: root.threadSurfaceOpen")));
+            "width: (root.threadSurfaceOpen || root.searchOpen)")));
         QVERIFY(pane.contains(QStringLiteral(
-            "? (root.width >= 660 ? root.width - 340 : 0)")));
+            "? (sideSurface.beside ? root.width - sideSurface.width - 1 : 0)")));
         QVERIFY(!pane.contains(QStringLiteral(
             "chatDropArea\n        anchors.fill: parent")));
 

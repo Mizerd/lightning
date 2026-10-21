@@ -3952,8 +3952,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Below 660 px the open panel takes the whole pane and the room column
-    // hides; from 660 up the thread is a 340 px side panel.
+    // While the thread panel (the shared "Side panel width", floor 260) and
+    // the 320 px timeline do not fit side by side, the open panel takes the
+    // whole pane and the room column hides: below a 581 px pane. From 581 up
+    // the thread is a side panel at the setting's width (default 320).
     void narrowWindowThreadPanelReplacesRoomColumn()
     {
         AppController controller(AppController::MockBackend);
@@ -3975,7 +3977,7 @@ private Q_SLOTS:
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
-        root->setWidth(640);   // narrow
+        root->setWidth(560);   // narrow
         root->setHeight(480);
         QObject *roomColumn = root->findChild<QObject *>(
             QStringLiteral("roomColumn"));
@@ -3995,22 +3997,37 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   false, kSignalTimeoutMs);
 
-        // Wide again: side by side, panel at 340 px.
+        auto *panelItem = qobject_cast<QQuickItem *>(panel);
+        QVERIFY(panelItem);
+        // The boundary: a 580 px pane still gives the thread the whole pane,
+        // 581 puts it beside the 320 px timeline at the 260 px floor.
+        root->setWidth(580);
+        QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
+                                  false, kSignalTimeoutMs);
+        QQmlExpression widthAt580(qmlContext(panelItem), panelItem,
+                                  QStringLiteral("Layout.preferredWidth"));
+        QCOMPARE(widthAt580.evaluate().toReal(), 580.0);
+        root->setWidth(581);
+        QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
+                                  true, kSignalTimeoutMs);
+        QQmlExpression widthAt581(qmlContext(panelItem), panelItem,
+                                  QStringLiteral("Layout.preferredWidth"));
+        QCOMPARE(widthAt581.evaluate().toReal(), 260.0);
+
+        // Wide again: side by side at the default setting, 320 px.
         root->setWidth(800);
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   true, kSignalTimeoutMs);
         QCOMPARE(panel->property("visible").toBool(), true);
-        auto *panelItem = qobject_cast<QQuickItem *>(panel);
-        QVERIFY(panelItem);
         // Offscreen items get no layout polish, so read the preferred width
         // the RowLayout would apply.
         QQmlExpression widthAt800(qmlContext(panelItem), panelItem,
                                   QStringLiteral("Layout.preferredWidth"));
-        QCOMPARE(widthAt800.evaluate().toReal(), 340.0);
+        QCOMPARE(widthAt800.evaluate().toReal(), 320.0);
         root->setWidth(1200);
         QQmlExpression widthAt1200(qmlContext(panelItem), panelItem,
                                    QStringLiteral("Layout.preferredWidth"));
-        QCOMPARE(widthAt1200.evaluate().toReal(), 340.0);
+        QCOMPARE(widthAt1200.evaluate().toReal(), 320.0);
         QCOMPARE(roomColumn->property("visible").toBool(), true);
 
         controller.thread()->close();

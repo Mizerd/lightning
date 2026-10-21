@@ -525,6 +525,7 @@ Rectangle {
                 anchors.margins: AppTheme.spacing12
                 spacing: 4
                 RowLayout {
+                    id: rootHeaderRow
                     objectName: "threadRootHeaderRow"
                     // Capped at the column: a fillWidth child here was
                     // otherwise given the layout's implicit width and wrapped
@@ -534,6 +535,38 @@ Rectangle {
                     Layout.maximumWidth: rootColumn.width
                     spacing: AppTheme.spacingS
                     visible: panel.rootData.loaded === true
+
+                    // What gives way on a narrow card (the side panel follows
+                    // "Side panel width" down to 260 px): the timestamp first,
+                    // then the "Open in room" label (the button keeps its
+                    // icon), and only then the author's name, which the layout
+                    // would otherwise elide first because it is the one fill
+                    // child. Decided from implicit widths and the COLUMN's
+                    // width, never this row's own layout, so hiding a child
+                    // cannot feed back into the decision.
+                    readonly property real nameNatural:
+                        Math.ceil(rootSenderName.implicitWidth) + 1
+                    // Avatar, name, spacer and button: three gaps; the lock
+                    // brings its own.
+                    readonly property real coreWidth: 32 + nameNatural
+                        + (panel.rootData.isEncrypted === true
+                           ? rootLock.implicitWidth + spacing : 0)
+                        + 3 * spacing
+                    readonly property bool showDate: rootColumn.width
+                        >= coreWidth + openInRoomMeasure.implicitWidth
+                           + rootDate.implicitWidth + spacing
+                    readonly property bool compactOpen: rootColumn.width
+                        < coreWidth + openInRoomMeasure.implicitWidth
+                    // The labelled button's width, measured on a twin that is
+                    // never shown (an invisible child takes no layout space).
+                    AppButton {
+                        id: openInRoomMeasure
+                        visible: false
+                        kind: "ghost"
+                        size: "sm"
+                        minWidth: 0
+                        text: qsTr("Open in room")
+                    }
                     Avatar {
                         size: 32
                         name: panel.rootData.senderDisplayName || ""
@@ -541,6 +574,7 @@ Rectangle {
                         colorKey: panel.rootData.sender || ""
                     }
                     Label {
+                        id: rootSenderName
                         // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         // The name gives way when it must: it may shrink
@@ -565,6 +599,9 @@ Rectangle {
                         font.weight: AppTheme.weightBold
                     }
                     Label {
+                        id: rootDate
+                        objectName: "threadRootDate"
+                        visible: rootHeaderRow.showDate
                         text: panel.rootData.timestamp
                               ? Qt.locale().toString(panel.rootData.timestamp,
                                                   "d MMM hh:mm")
@@ -573,6 +610,7 @@ Rectangle {
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     }
                     Icon {
+                        id: rootLock
                         visible: panel.rootData.isEncrypted === true
                         name: "lock"
                         size: 12
@@ -588,7 +626,17 @@ Rectangle {
                         kind: "ghost"
                         size: "sm"
                         minWidth: 0
-                        text: qsTr("Open in room")
+                        text: rootHeaderRow.compactOpen ? ""
+                                                        : qsTr("Open in room")
+                        iconName: rootHeaderRow.compactOpen ? "arrow_forward"
+                                                            : ""
+                        Accessible.name: qsTr("Open in room")
+                        ToolTip.text: qsTr("Open in room")
+                        // An icon alone says nothing: name it on hover and
+                        // on keyboard focus alike.
+                        ToolTip.visible: rootHeaderRow.compactOpen
+                                         && (hovered || visualFocus)
+                        ToolTip.delay: 500
                         onClicked: app.pagination.jumpToEvent(
                             panel.rootData.eventId || "")
                     }
