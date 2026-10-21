@@ -11403,7 +11403,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+802"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Pridėti nuorodą</translation>
@@ -11739,7 +11739,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įrašykite balso žinutę</translation>
     </message>
     <message>
-        <location line="-3391"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>Jau vyksta įrašymas.</translation>
     </message>
@@ -11759,7 +11759,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Balso įrašymas nepasiekiamas.</translation>
     </message>
     <message>
-        <location line="+3106"/>
+        <location line="+3107"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Daugiau</translation>
@@ -15114,7 +15114,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Tema: %1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>KAMBARIAI</translation>
     </message>
@@ -15202,16 +15207,6 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+19"/>
         <source>commands</source>
         <translation>komandos</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Išbandykite „teminį indigo vakarą“ · „persijungti į alisą“ · „atvirą privatumą“</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>Išbandykite „tema indigo naktis“ · „atidaryti privatumą“</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -30156,7 +30151,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>Ši sesija nepatvirtinta</translation>
     </message>

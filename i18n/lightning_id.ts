@@ -11333,7 +11333,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+802"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Tambahkan tautan</translation>
@@ -11669,7 +11669,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Rekam pesan suara</translation>
     </message>
     <message>
-        <location line="-3391"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>Rekaman sedang berlangsung.</translation>
     </message>
@@ -11689,7 +11689,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Perekaman suara tidak tersedia.</translation>
     </message>
     <message>
-        <location line="+3106"/>
+        <location line="+3107"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Lainnya</translation>
@@ -15020,7 +15020,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tema: %1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>RUANG</translation>
     </message>
@@ -15108,16 +15113,6 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+19"/>
         <source>commands</source>
         <translation>perintah</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Coba “tema indigo night” · “beralih ke alice” · “buka privasi”</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>Coba “theme indigo night” · “open privacy”</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -29920,7 +29915,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>Sesi ini belum terverifikasi</translation>
     </message>

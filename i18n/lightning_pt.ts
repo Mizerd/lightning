@@ -11368,7 +11368,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+802"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Adicionar ligação</translation>
@@ -11704,7 +11704,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Gravar uma mensagem de voz</translation>
     </message>
     <message>
-        <location line="-3391"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>Já está em curso uma gravação.</translation>
     </message>
@@ -11724,7 +11724,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>A gravação de voz está indisponível.</translation>
     </message>
     <message>
-        <location line="+3106"/>
+        <location line="+3107"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Mais</translation>
@@ -15067,7 +15067,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Tema: %1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>SALAS</translation>
     </message>
@@ -15155,16 +15160,6 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <location line="+19"/>
         <source>commands</source>
         <translation>comandos</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Experimente «tema indigo night» · «mudar para alice» · «abrir privacidade»</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>Experimente “tema noite índigo” · “abrir privacidade”</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -30038,7 +30033,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>Esta sessão não está verificada</translation>
     </message>

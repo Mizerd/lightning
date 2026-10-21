@@ -11333,7 +11333,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+802"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>添加链接</translation>
@@ -11669,7 +11669,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3391"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -11689,7 +11689,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+3106"/>
+        <location line="+3107"/>
         <location line="+1"/>
         <source>More</source>
         <translation>更多</translation>
@@ -15020,7 +15020,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>主题：%1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>房间</translation>
     </message>
@@ -15108,16 +15113,6 @@ Signing out and signing in again is the only fix.</source>
         <location line="+19"/>
         <source>commands</source>
         <translation>命令</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>试试 “theme indigo night” · “switch to alice” · “open privacy”</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>试试“theme indigo night”·“open privacy”</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -29920,7 +29915,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>此会话未验证</translation>
     </message>

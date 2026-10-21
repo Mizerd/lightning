@@ -11388,7 +11388,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Sprachaufnahme ist nicht verfügbar.</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+705"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Link hinzufügen</translation>
@@ -15067,7 +15067,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Design: %1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>RÄUME</translation>
     </message>
@@ -15155,16 +15160,6 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+19"/>
         <source>commands</source>
         <translation>Befehle</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Versuche „Design Indigo-Nacht“ · „wechsle zu alice“ · „öffne Datenschutz“</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>Probiere „Design Indigonacht“ · „Datenschutz öffnen“</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -30038,7 +30033,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>Diese Sitzung ist nicht verifiziert</translation>
     </message>

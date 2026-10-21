@@ -11403,7 +11403,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+802"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>Добавить ссылку</translation>
@@ -11739,7 +11739,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Записать голосовое сообщение</translation>
     </message>
     <message>
-        <location line="-3391"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>Запись уже идёт.</translation>
     </message>
@@ -11759,7 +11759,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Запись голоса недоступна.</translation>
     </message>
     <message>
-        <location line="+3106"/>
+        <location line="+3107"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Ещё</translation>
@@ -15114,7 +15114,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Тема: %1</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+135"/>
+        <source>Try %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>ROOMS</source>
         <translation>КОМНАТЫ</translation>
     </message>
@@ -15202,16 +15207,6 @@ Signing out and signing in again is the only fix.</source>
         <location line="+19"/>
         <source>commands</source>
         <translation>команды</translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Try “theme indigo night” · “switch to alice” · “open privacy”</source>
-        <translation>Попробуйте «тема indigo night» · «переключиться на alice» · «открыть конфиденциальность»</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Try “theme indigo night” · “open privacy”</source>
-        <translation>Попробуйте «тема indigo night» · «открыть конфиденциальность»</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -30156,7 +30151,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+59"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+71"/>
         <source>This session is not verified</source>
         <translation>Этот сеанс не проверен</translation>
     </message>
