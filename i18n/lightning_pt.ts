@@ -24265,6 +24265,10 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>ShortcutRegistry</name>
     <message>
+        <source>Focus the message box</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+87"/>
         <source>Application</source>
         <translation>Aplicação</translation>

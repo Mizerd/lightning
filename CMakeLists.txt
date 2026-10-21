@@ -5069,6 +5069,16 @@ if(BUILD_TESTING)
     set_tests_properties(composer-focus-on-open-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Explicit, rebindable composer focus preserves drafts and popup ownership.
+    qt_add_executable(composer-focus-shortcut-qml-test
+        tests/ComposerFocusShortcutQmlTest.cpp
+    )
+    lightning_configure_qml_test(composer-focus-shortcut-qml-test)
+    target_include_directories(composer-focus-shortcut-qml-test PRIVATE src)
+    add_test(NAME composer-focus-shortcut-qml COMMAND composer-focus-shortcut-qml-test)
+    set_tests_properties(composer-focus-shortcut-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A finger is not a right button: a touch tap on a room row opens the
     # room without its menu, a long press opens the menu without the room,
     # and no right-button-only TapHandler lets touch in.

@@ -300,6 +300,9 @@ void ShortcutRegistry::buildTables()
         // These drive the composer's applyFormat(). Ctrl+B and Ctrl+I shadow
         // the two panel toggles (see the header). Ctrl+S is not the
         // strikethrough default because it means Save everywhere else.
+        { QStringLiteral("composer.focus"), composerCat,
+          tr("Focus the message box"), QStringLiteral("Ctrl+L"), GlobalContext },
+
         { QStringLiteral("composer.bold"), composeCat,
           tr("Bold"), QStringLiteral("Ctrl+B"), EditorContext },
         { QStringLiteral("composer.italic"), composeCat,

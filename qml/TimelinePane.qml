@@ -53,6 +53,18 @@ Rectangle {
     signal discoverRoomsRequested()
 
     property var currentRoom: ({})
+    readonly property bool composerFocusable:
+        app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
+        && currentRoom.membership === "joined" && currentRoom.isSpace !== true
+        && !app.eventContext.active && !app.thread.active
+        && messageComposer.visible && messageComposer.enabled
+        && messageComposer.activeEditor().enabled
+        && !messageComposer.activeEditor().readOnly
+
+    function focusComposer() {
+        return root.composerFocusable && messageComposer.focusForTyping()
+    }
+
     // The current room is an invite not yet accepted (opened from Activity or
     // a notification; the room list opens only joined rooms). It gets the
     // invite card instead of a timeline and composer: sending to a room you

@@ -317,6 +317,15 @@ Item {
         onGlobalSearchRequested: (query) => messageSearchDialog.openDialog(query)
     }
 
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("composer.focus")]
+        }
+        enabled: timelinePane.composerFocusable && !quickSwitcher.visible
+        onActivated: timelinePane.focusComposer()
+    }
+
     // Global server-side message search (Ctrl+Shift+F).
     Shortcut {
         sequences: {
