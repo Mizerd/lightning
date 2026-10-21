@@ -497,6 +497,16 @@ else
     sed 's/^/        /' "$REPORT_DIR/image-format-status.txt" >&2 || true
     failures=$((failures + 1))
 fi
+# Spell checking through NSSpellChecker. WARN-ONLY until the first macOS run
+# has been seen to pass (see assert_spell_selftest in lib.sh for the
+# promotion). A subshell, so a die from a later stricter mode is counted here.
+spell_selftest_status=0
+run_bounded 60 "$CONTENTS/MacOS/$APP_NAME" --spell-selftest \
+    >"$REPORT_DIR/spell-selftest.txt" 2>&1 || spell_selftest_status=$?
+if ! ( assert_spell_selftest macOS "$REPORT_DIR/spell-selftest.txt" \
+        "$spell_selftest_status" warn ); then
+    failures=$((failures + 1))
+fi
 if "$CONTENTS/MacOS/$APP_NAME" --build-info >"$REPORT_DIR/bundle-build-info.txt" 2>&1; then
     check "bundle reports the Rust backend" \
         grep -qx 'matrix_backend: rust' "$REPORT_DIR/bundle-build-info.txt"

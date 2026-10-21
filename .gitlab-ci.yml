@@ -610,6 +610,15 @@ build-appimage:
     - >-
       apt-get install -y --no-install-recommends
       qt6-xdgdesktopportal-platformtheme
+    # Spell checking: libhunspell (dlopen'd, so linuxdeploy never sees it) and
+    # the dictionaries for English and the UI languages that have one.
+    # build-appimage.sh stages them and their copyright files; the snap
+    # inherits them.
+    - >-
+      apt-get install -y --no-install-recommends
+      libhunspell-1.7-0 hunspell-en-us hunspell-en-gb hunspell-ar hunspell-bn
+      hunspell-de-de hunspell-es hunspell-fr-classical hunspell-hi hunspell-id
+      hunspell-lt hunspell-pt-pt hunspell-pt-br hunspell-ru
     - >-
       ( cd /tmp && apt-get download kimageformat6-plugins
       && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )

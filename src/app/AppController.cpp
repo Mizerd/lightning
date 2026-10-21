@@ -300,15 +300,40 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Clipboard images never become files; one store serves both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
 
-    // Spell checking defaults to the system locale rather than the UI
-    // language, since the keyboard decides the dictionary. Reports
-    // "unavailable" when no dictionary exists; see `--spell-status`.
-    m_spell.initialize(m_settings->spellCheckLanguage());
+    // Spell checking. Automatic is the system locale (the keyboard decides
+    // the dictionary) plus the UI language when it has a dictionary; the
+    // user's own languages are honoured exactly. Reports "unavailable" when
+    // no dictionary exists; see `--spell-status` / `--spell-selftest`. The
+    // personal dictionary is per operating-system user, not per account, and
+    // lives under the app-data root like every other file (FontManager's
+    // imported fonts): inside the portable folder on a portable Windows
+    // install, %LOCALAPPDATA% on an installed one. No root, no file: the
+    // list is then kept for the session only.
+    const QString spellRoot = matrix::app_data::primaryRoot();
+    m_spell.setPersonalDictionaryPath(
+        spellRoot.isEmpty()
+            ? QString()
+            : spellRoot + QStringLiteral("/spelling/personal-dictionary.txt"));
+    m_spell.configure(m_settings->spellCheckLanguage(),
+                      m_settings->spellCheckExtraLanguages(),
+                      m_localization->effectiveLanguage());
     m_spell.setEnabled(m_settings->spellCheckEnabled());
+    auto applyAutocorrect = [this] {
+        const int mode = m_settings->autocorrectMode();
+        m_spell.setAutocorrectEnabled(mode == 0 ? SpellChecker::autocorrectDefault()
+                                                : mode == 1);
+    };
+    applyAutocorrect();
+    connect(m_settings.get(), &SettingsManager::autocorrectModeChanged, this,
+            applyAutocorrect);
     connect(m_settings.get(), &SettingsManager::spellCheckEnabledChanged, this,
             [this] { m_spell.setEnabled(m_settings->spellCheckEnabled()); });
     connect(m_settings.get(), &SettingsManager::spellCheckLanguageChanged, this,
             [this] { m_spell.setPreferredLanguage(m_settings->spellCheckLanguage()); });
+    connect(m_settings.get(), &SettingsManager::spellCheckExtraLanguagesChanged, this,
+            [this] { m_spell.setExtraLanguages(m_settings->spellCheckExtraLanguages()); });
+    connect(m_localization.get(), &LocalizationManager::languageChanged, this,
+            [this] { m_spell.setInterfaceLanguage(m_localization->effectiveLanguage()); });
 
     // Privacy settings (read receipts, typing) are applied once here so a
     // stored choice holds from the first receipt, and again on change.

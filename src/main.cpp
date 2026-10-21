@@ -42,6 +42,7 @@
 #include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
 #include "text/SpellChecker.h"
+#include "text/SpellBackend.h"
 #include "storage/AppDataPaths.h"
 #include "storage/PortableMode.h"
 
@@ -63,6 +64,7 @@
 #include <QThread>
 #include <QVersionNumber>
 #include <QDir>
+#include <QRegularExpression>
 #include <QSet>
 #include <QFileInfo>
 #include <QFontDatabase>
@@ -455,6 +457,7 @@ struct PreflightResult {
         RunCallSoundsDemo,   // --call-sounds-demo: play every call sound once
         RunImageFormatStatus, // --image-format-status: probe the image decoders
         RunSpellStatus, // --spell-status: probe the platform spell checker
+        RunSpellSelfTest, // --spell-selftest: booleans a package validator asserts
         RunDesktopStatus, // --desktop-status: launcher entry + icon association
         RunRasterizeSvg,  // --rasterize-svg IN OUT MIN MAX: the SVG helper process
     };
@@ -617,6 +620,11 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       dlopen (Linux) or COM object (Windows), so this is\n"
                 "                       a property of the MACHINE, not of the source. No\n"
                 "                       network, no GUI.\n"
+                "  --spell-selftest     Check English spelling end to end (engine, a\n"
+                "                       misspelling, a correct word, a suggestion, an\n"
+                "                       autocorrection and, on Linux, the dictionaries\n"
+                "                       bundled in this package) and print booleans and\n"
+                "                       a VERDICT line only. Exit 0 only on pass.\n"
                 "  --desktop-status     Publish this build's launcher entry the way a\n"
                 "                       normal launch does, then print whether this\n"
                 "                       session can resolve the app id to an entry\n"
@@ -795,6 +803,10 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("--spell-status")) {
             r.action = PreflightResult::RunSpellStatus;
+            return r;
+        }
+        if (a == QLatin1String("--spell-selftest")) {
+            r.action = PreflightResult::RunSpellSelfTest;
             return r;
         }
         if (a == QLatin1String("--desktop-status")) {
@@ -2131,12 +2143,51 @@ int main(int argc, char *argv[])
         out << "spell checker available: "
             << (checker.available() ? "yes" : "no") << "\n";
         if (!checker.available()) {
-            out << "\nRESULT: this machine has no dictionary Lightning can "
-                   "reach, so the composer will not underline anything.\n";
+            const QString reason = checker.unavailableReason();
+            out << "reason: " << reason << "\n";
+            if (reason == QLatin1String("no-library"))
+                out << "\nRESULT: no spelling engine could be loaded (Linux: "
+                       "neither libenchant-2 nor libhunspell-1.7; Windows: the "
+                       "spell-checking service), so the composer will not "
+                       "underline anything.\n";
+            else if (reason == QLatin1String("no-platform"))
+                out << "\nRESULT: this build has no spelling engine for this "
+                       "operating system.\n";
+            else
+                out << "\nRESULT: the spelling engine loaded but has no "
+                       "dictionary for the system language or English.\n";
             return 1;
         }
         out << "backend: " << checker.backendName() << "\n"
-            << "dictionary: " << checker.language() << "\n";
+            << "dictionary: " << checker.language() << "\n"
+            << "languages: " << checker.availableLanguages().join(QStringLiteral(" "))
+            << "\n";
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+        // A transcript gets pasted into bug reports: no home path, no user
+        // name (CLAUDE.md §6).
+        QStringList shownDirs;
+        // $HOME as given and as the filesystem resolves it (a symlinked
+        // home lists its directories under the real path).
+        QStringList homes{ QDir::homePath() };
+        const QString canonicalHome = QFileInfo(homes.first()).canonicalFilePath();
+        if (!canonicalHome.isEmpty() && canonicalHome != homes.first())
+            homes << canonicalHome;
+        static const QRegularExpression perUser(
+            QStringLiteral("^/etc/profiles/per-user/[^/]+"));
+        for (QString dir : spellDictionaryDirectories()) {
+            for (const QString &home : std::as_const(homes)) {
+                if (!home.isEmpty() && home != QLatin1String("/")
+                    && (dir == home || dir.startsWith(home + QLatin1Char('/')))) {
+                    dir = QLatin1Char('~') + dir.mid(home.size());
+                    break;
+                }
+            }
+            dir.replace(perUser, QStringLiteral("/etc/profiles/per-user/$USER"));
+            shownDirs << dir;
+        }
+        out << "dictionary directories: " << shownDirs.join(QStringLiteral(" "))
+            << "\n";
+#endif
         // A misspelling proves the dictionary actually answers.
         const QVariantList wrong =
             checker.misspelledRanges(QStringLiteral("teh"));
@@ -2155,6 +2206,81 @@ int main(int argc, char *argv[])
         out << "\nRESULT: spell checking works in this build on this "
                "machine.\n";
         return 0;
+    }
+    if (pf.action == PreflightResult::RunSpellSelfTest) {
+        // Booleans only: what a package validator needs to assert, and
+        // nothing about the machine beyond yes/no.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication spellProbeApp(argc, argv);
+        DiagnosticStream out(stdout);
+        auto yn = [](bool v) { return v ? "yes" : "no"; };
+        const bool compiledIn = platformSpellEngineCompiledIn();
+        SpellChecker checker;
+        checker.configure(QStringLiteral("en-US"), {}, QString());
+        const bool loaded = checker.available()
+            || checker.unavailableReason() == QLatin1String("no-dictionary");
+        const bool english = checker.available();
+        const bool rejects = english
+            && !checker.misspelledRanges(QStringLiteral("teh")).isEmpty();
+        const bool accepts = english
+            && checker.misspelledRanges(QStringLiteral("the receive message")).isEmpty();
+        const bool suggests = english
+            && checker.suggestions(QStringLiteral("teh")).contains(QStringLiteral("the"));
+        checker.setAutocorrectEnabled(true);
+        const bool corrects = english
+            && checker.autocorrection(QStringLiteral("teh "), 3)
+                       .value(QStringLiteral("replacement")).toString()
+                == QLatin1String("the");
+        out << "spell engine compiled in: " << yn(compiledIn) << "\n"
+            << "spell engine loaded: " << yn(loaded) << "\n"
+            << "english dictionary found: " << yn(english) << "\n"
+            << "misspelling rejected: " << yn(rejects) << "\n"
+            << "correct words accepted: " << yn(accepts) << "\n"
+            << "suggestion offered: " << yn(suggests) << "\n"
+            << "autocorrect fixed a known typo: " << yn(corrects) << "\n";
+        bool bundledOk = true;
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+        // The bundle on its own, whatever the host offers: Hunspell against
+        // only the directories shipped inside this package.
+        const QStringList bundled = bundledSpellDictionaryDirectories();
+        bool bundledWorks = false;
+        int usable = 0;
+        QStringList bundledLanguages;
+        bool lithuanianWorks = false;
+        if (!bundled.isEmpty()) {
+            auto own = createHunspellSpellBackend(QStringLiteral("en-US"), bundled,
+                                                  nullptr, &bundledLanguages);
+            bundledWorks = own && !own->isCorrect(QStringLiteral("teh"))
+                && own->isCorrect(QStringLiteral("the"));
+            // Every bundled dictionary must OPEN, not just the English one: a
+            // dictionary in an 8-bit encoding this Qt cannot convert (no ICU)
+            // is refused at open, and must not hide behind an English pass.
+            for (const QString &tag : std::as_const(bundledLanguages)) {
+                auto backend = createHunspellSpellBackend(tag, bundled, nullptr, nullptr);
+                if (backend && !backend->isCorrect(QStringLiteral("qzxjvkwq")))
+                    ++usable;
+            }
+            // Lithuanian ships ISO-8859-13: a real word with its letters.
+            auto lt = createHunspellSpellBackend(QStringLiteral("lt-LT"), bundled,
+                                                 nullptr, nullptr);
+            lithuanianWorks = lt && lt->isCorrect(QString::fromUtf8("\u0105\u017euolas"))
+                && !lt->isCorrect(QString::fromUtf8("\u0105\u017euolsa"));
+        }
+        out << "bundled dictionaries present: " << yn(!bundled.isEmpty()) << "\n"
+            << "bundled english dictionary works: " << yn(bundledWorks) << "\n"
+            << "bundled languages usable: " << usable << "/"
+            << bundledLanguages.size() << "\n"
+            << "bundled lithuanian dictionary works: " << yn(lithuanianWorks) << "\n";
+        bundledOk = bundled.isEmpty()
+            || (bundledWorks && usable == bundledLanguages.size());
+#endif
+        const bool pass = compiledIn && english && rejects && accepts && suggests
+            && corrects && bundledOk;
+        out << "VERDICT: "
+            << (pass ? "pass" : !compiledIn || !loaded ? "unavailable" : "fail")
+            << "\n";
+        return pass ? 0 : 1;
     }
     if (pf.action == PreflightResult::RunDesktopStatus) {
         // A filesystem lookup; a QCoreApplication is enough.

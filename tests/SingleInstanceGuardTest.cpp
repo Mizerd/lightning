@@ -749,6 +749,7 @@ private Q_SLOTS:
             QStringLiteral("--image-format-status"),
             QStringLiteral("--desktop-status"),
             QStringLiteral("--spell-status"),
+            QStringLiteral("--spell-selftest"),
             QStringLiteral("--call-media-status"),
         };
         int ran = 0;

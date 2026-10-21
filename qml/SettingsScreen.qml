@@ -289,6 +289,18 @@ Item {
           keywords: qsTr("spell spelling language dictionary automatic system"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
           anchor: "spellLanguageCombo" },
+        { title: qsTr("Also check"),
+          keywords: qsTr("spell spelling languages several multiple second extra dictionary bilingual"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "spellExtraLanguageCombo" },
+        { title: qsTr("Correct obvious typos as you type"),
+          keywords: qsTr("autocorrect auto correct autocorrection typo fix replace capital"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "autocorrectCheck" },
+        { title: qsTr("Personal dictionary"),
+          keywords: qsTr("spell spelling dictionary personal words added learned remove"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "personalDictionaryHeading" },
 
         { title: qsTr("Keyboard shortcuts"),
           keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
@@ -1414,6 +1426,19 @@ Item {
 
     // Off-screen TextEdit, the same mechanism MessageDelegate uses for Copy.
     // Cleared straight after so nothing lingers.
+    // A spelling language's label from the checker's own picker rows; the
+    // tag itself when this machine does not offer it (a missing dictionary).
+    function spellLanguageLabel(tag) {
+        if (app.spell) {
+            var options = app.spell.languageOptions
+            for (var i = 0; i < options.length; ++i) {
+                if (options[i].tag === tag)
+                    return options[i].label
+            }
+        }
+        return tag
+    }
+
     function copyToClipboard(value) {
         if (!value || value.length === 0) return
         settingsClipboardHelper.text = value
@@ -4504,11 +4529,16 @@ Item {
                                         if (!app.spell)
                                             return ""
                                         if (app.spell.available) {
-                                            var engine = app.spell.backendName === "windows"
+                                            var name = app.spell.backendName
+                                            var engine = name === "windows"
                                                 ? qsTr("Windows spell checker")
-                                                : app.spell.backendName === "macos"
+                                                : name === "macos"
                                                   ? qsTr("macOS spell checker")
-                                                  : qsTr("Enchant (system dictionaries)")
+                                                  : name === "hunspell"
+                                                    ? qsTr("Hunspell (system and bundled dictionaries)")
+                                                    : name === "enchant"
+                                                      ? qsTr("Enchant (system dictionaries)")
+                                                      : qsTr("Enchant and Hunspell")
                                             return engine + " · " + qsTr("Dictionary: %1")
                                                 .arg(app.spell.languageLabel.length > 0
                                                      ? app.spell.languageLabel
@@ -4521,7 +4551,7 @@ Item {
                                         if (reason === "no-library") {
                                             if (os === "windows")
                                                 return qsTr("Spell checking is unavailable: the Windows spell-checking service could not be started.")
-                                            return qsTr("Spell checking is unavailable because the enchant-2 spelling library is not installed on this system.")
+                                            return qsTr("Spell checking is unavailable because neither the Hunspell nor the enchant-2 spelling library could be loaded.")
                                         }
                                         var wanted = app.settings.spellCheckLanguage.length > 0
                                             ? app.settings.spellCheckLanguage : qsTr("your system language")
@@ -4529,8 +4559,234 @@ Item {
                                             ? qsTr("Add the language under Windows Settings › Time & language › Language to install its spelling.")
                                             : os === "osx"
                                               ? qsTr("Add the language under System Settings › Keyboard › Text Input.")
-                                              : qsTr("Install your distribution's spelling dictionary for that language (usually a hunspell package). Inside Flatpak or Snap only the runtime's own dictionaries are visible.")
+                                              : qsTr("Install your distribution's spelling dictionary for that language (usually a hunspell package). Flatpak and Snap see only the dictionaries they bundle.")
                                         return qsTr("Spell checking is unavailable because no system dictionary is installed for %1.").arg(wanted) + " " + how
+                                    }
+                                }
+                                // Languages checked as well as the one above;
+                                // a word is right when any of them knows it
+                                // (English and Lithuanian in one message).
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    spacing: AppTheme.spacing8
+                                    enabled: app.settings.spellCheckEnabled
+                                    visible: !!app.spell
+                                             && app.spell.availableLanguages.length > 1
+                                    Label {
+                                        text: qsTr("Also check")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                    }
+                                    AppComboBox {
+                                        id: spellExtraCombo
+                                        objectName: "spellExtraLanguageCombo"
+                                        storm: true
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: 320
+                                        textRole: "label"
+                                        valueRole: "tag"
+                                        displayText: qsTr("Add a language…")
+                                        restoreAfterModelReset: false
+                                        Accessible.name: qsTr("Add a spelling language")
+                                        // Every checkable language except
+                                        // Automatic and the ones already in use.
+                                        model: {
+                                            var out = []
+                                            if (!app.spell)
+                                                return out
+                                            var chosen = app.settings.spellCheckExtraLanguages
+                                            var options = app.spell.languageOptions
+                                            for (var i = 0; i < options.length; ++i) {
+                                                var tag = options[i].tag
+                                                if (tag === ""
+                                                        || tag === app.settings.spellCheckLanguage
+                                                        || chosen.indexOf(tag) >= 0)
+                                                    continue
+                                                out.push(options[i])
+                                            }
+                                            return out
+                                        }
+                                        onActivated: (index) => {
+                                            var tag = valueAt(index)
+                                            if (tag === undefined || tag === "")
+                                                return
+                                            var list = app.settings.spellCheckExtraLanguages.slice()
+                                            list.push(tag)
+                                            app.settings.spellCheckExtraLanguages = list
+                                        }
+                                    }
+                                }
+                                Flow {
+                                    objectName: "spellExtraLanguageChips"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    spacing: AppTheme.spacing6
+                                    visible: app.settings.spellCheckExtraLanguages.length > 0
+                                    Repeater {
+                                        model: app.settings.spellCheckExtraLanguages
+                                        delegate: Rectangle {
+                                            id: extraChip
+                                            objectName: "spellExtraLanguageChip"
+                                            required property string modelData
+                                            radius: height / 2
+                                            color: AppTheme.stormInset
+                                            border.width: 1
+                                            border.color: AppTheme.stormFieldBorder
+                                            implicitHeight: 28
+                                            implicitWidth: chipRow.implicitWidth
+                                                           + AppTheme.spacing8 + AppTheme.spacing4
+                                            RowLayout {
+                                                id: chipRow
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                x: AppTheme.spacing8
+                                                spacing: AppTheme.spacing4
+                                                Label {
+                                                    // A tag the user typed or a
+                                                    // platform name: never markup.
+                                                    textFormat: Text.PlainText
+                                                    text: root.spellLanguageLabel(extraChip.modelData)
+                                                    color: AppTheme.stormText
+                                                    font.pixelSize: AppTheme.textMeta
+                                                }
+                                                IconButton {
+                                                    objectName: "spellExtraLanguageRemove"
+                                                    implicitWidth: 20
+                                                    implicitHeight: 20
+                                                    radius: AppTheme.radiusControl
+                                                    iconName: "close"
+                                                    iconSize: 12
+                                                    Accessible.name: qsTr("Stop checking %1")
+                                                        .arg(root.spellLanguageLabel(extraChip.modelData))
+                                                    onClicked: {
+                                                        var list = app.settings.spellCheckExtraLanguages.slice()
+                                                        var at = list.indexOf(extraChip.modelData)
+                                                        if (at >= 0)
+                                                            list.splice(at, 1)
+                                                        app.settings.spellCheckExtraLanguages = list
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Label {
+                                    objectName: "spellMissingLanguages"
+                                    textFormat: Text.PlainText
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textMeta
+                                    visible: !!app.spell && app.settings.spellCheckEnabled
+                                             && app.spell.missingLanguages.length > 0
+                                    text: {
+                                        if (!app.spell)
+                                            return ""
+                                        var names = []
+                                        var missing = app.spell.missingLanguages
+                                        for (var i = 0; i < missing.length; ++i)
+                                            names.push(root.spellLanguageLabel(missing[i]))
+                                        return qsTr("No dictionary is installed for %1, so it is not checked.")
+                                            .arg(names.join(", "))
+                                    }
+                                }
+                                // Autocorrect: off unless the user turns it on,
+                                // except on macOS where the default follows
+                                // the system's "Correct spelling
+                                // automatically".
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "autocorrectCheck"
+                                    Layout.topMargin: AppTheme.spacing4
+                                    text: qsTr("Correct obvious typos as you type")
+                                    checked: !!app.spell && app.spell.autocorrectEnabled
+                                    enabled: app.settings.spellCheckEnabled
+                                             && (!app.spell || app.spell.available)
+                                    onToggled: app.settings.autocorrectMode = checked ? 1 : 2
+                                }
+                                Label {
+                                    objectName: "autocorrectDetail"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: Qt.platform.os === "osx"
+                                        ? qsTr("Only clear typos are changed, after you finish the word, and never in code, links, mentions or commands. Press Backspace or ⌘Z right after a correction to undo it.")
+                                        : qsTr("Only clear typos are changed, after you finish the word, and never in code, links, mentions or commands. Press Backspace or Ctrl+Z right after a correction to undo it.")
+                                }
+                                // Lightning's own word list: per user on this
+                                // computer, accepted in every language.
+                                Label {
+                                    objectName: "personalDictionaryHeading"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Personal dictionary")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                Label {
+                                    objectName: "personalDictionaryEmpty"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    visible: !app.spell || app.spell.personalWords.length === 0
+                                    text: qsTr("Words you add with “Add to dictionary” are listed here and accepted in every language.")
+                                }
+                                ListView {
+                                    id: personalWordsList
+                                    objectName: "personalDictionaryList"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    Layout.maximumWidth: 420
+                                    // Bounded: a long list scrolls in place.
+                                    Layout.preferredHeight: Math.min(contentHeight, 180)
+                                    visible: !!app.spell && app.spell.personalWords.length > 0
+                                    clip: true
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    model: app.spell ? app.spell.personalWords : []
+                                    ScrollBar.vertical: AppScrollBar { thin: true }
+                                    // The app's wheel feel, only once the list
+                                    // overflows: a short list leaves the wheel to
+                                    // the settings page.
+                                    SmoothWheelArea {
+                                        enabled: personalWordsList.contentHeight
+                                                 > personalWordsList.height + 0.5
+                                    }
+                                    delegate: RowLayout {
+                                        id: wordRow
+                                        required property string modelData
+                                        width: ListView.view ? ListView.view.width : 0
+                                        height: 28
+                                        spacing: AppTheme.spacing4
+                                        Label {
+                                            Layout.fillWidth: true
+                                            // A word the user added: never markup.
+                                            textFormat: Text.PlainText
+                                            text: wordRow.modelData
+                                            color: AppTheme.stormText
+                                            font.pixelSize: AppTheme.textBody
+                                            elide: Label.ElideRight
+                                        }
+                                        IconButton {
+                                            objectName: "personalDictionaryRemove"
+                                            implicitWidth: 24
+                                            implicitHeight: 24
+                                            radius: AppTheme.radiusControl
+                                            iconName: "close"
+                                            iconSize: 14
+                                            Accessible.name: qsTr("Remove “%1” from the dictionary")
+                                                .arg(wordRow.modelData)
+                                            onClicked: app.spell.removeFromDictionary(wordRow.modelData)
+                                        }
                                     }
                                 }
                                 CheckBox {

@@ -175,6 +175,49 @@ for mod in "${NSS_REQUIRED_MODULES[@]}"; do
     cp "$NSS_MODULE_SRC/$mod.so" "$APPDIR/usr/lib/"
 done
 
+# Spell checking. Lightning dlopens libhunspell-1.7 (no NEEDED entry, so
+# linuxdeploy never sees it) and reads the dictionaries from
+# usr/share/hunspell next to its own binary (SpellBackend.cpp), so a host with
+# neither enchant nor dictionaries -- and the strictly confined snap built from
+# this AppDir -- can still check spelling. English plus the UI languages that
+# have a free Hunspell dictionary (Chinese has none). Regional aliases are
+# relative symlinks and are kept as such; the app lists each dictionary once.
+HUNSPELL_LIB="$(ldconfig -p | awk '/libhunspell-1\.7\.so\.0 / {print $NF; exit}')"
+[[ -n "$HUNSPELL_LIB" && -f "$HUNSPELL_LIB" ]] || \
+    die "libhunspell-1.7.so.0 is not installed in the build image (libhunspell-1.7-0): the AppImage and the snap would check spelling only on hosts that happen to have enchant"
+cp -L "$HUNSPELL_LIB" "$APPDIR/usr/lib/libhunspell-1.7.so.0"
+SPELL_DICT_DEST="$APPDIR/usr/share/hunspell"
+SPELL_LICENSE_DEST="$APPDIR/usr/share/licenses/hunspell-dictionaries"
+install -d -m 0755 "$SPELL_DICT_DEST" "$SPELL_LICENSE_DEST"
+SPELL_DICT_PACKAGES=(
+    hunspell-en-us hunspell-en-gb hunspell-ar hunspell-bn hunspell-de-de
+    hunspell-es hunspell-fr-classical hunspell-hi hunspell-id hunspell-lt
+    hunspell-pt-pt hunspell-pt-br hunspell-ru
+)
+for pkg in "${SPELL_DICT_PACKAGES[@]}"; do
+    dpkg -s "$pkg" >/dev/null 2>&1 || \
+        die "dictionary package $pkg is not installed in the build image"
+    while IFS= read -r file; do
+        cp -a "$file" "$SPELL_DICT_DEST/"
+    done < <(dpkg -L "$pkg" | grep -E '^/usr/share/hunspell/[^/]+\.(aff|dic)$')
+    [[ -f "/usr/share/doc/$pkg/copyright" ]] || \
+        die "dictionary package $pkg has no copyright file to ship with its words"
+    install -m 0644 "/usr/share/doc/$pkg/copyright" "$SPELL_LICENSE_DEST/$pkg.copyright"
+done
+# Named, not counted: each one is a language a user can pick.
+SPELL_REQUIRED_DICTS=(en_US en_GB ar bn_BD de_DE es_ES fr hi_IN id_ID lt_LT pt_PT pt_BR ru_RU)
+for dict in "${SPELL_REQUIRED_DICTS[@]}"; do
+    [[ -f "$SPELL_DICT_DEST/$dict.aff" && -f "$SPELL_DICT_DEST/$dict.dic" ]] || \
+        die "bundled dictionary $dict is missing from usr/share/hunspell"
+done
+# No link may point outside the bundle (it would resolve against the host).
+if find "$SPELL_DICT_DEST" -type l -lname '/*' -print -quit | grep -q .; then
+    die "a bundled dictionary alias is an absolute symlink and would resolve against the host"
+fi
+find "$SPELL_DICT_DEST" -type f -exec chmod 0644 {} +
+printf 'Staged libhunspell-1.7 and %s dictionaries (%s)\n' "${#SPELL_REQUIRED_DICTS[@]}" \
+    "$(du -sh "$SPELL_DICT_DEST" | cut -f1)"
+
 # gst-plugin-scanner builds the registry in a separate process for crash
 # isolation. Its path is compiled into libgstreamer, so without a bundled copy
 # every launch warns "External plugin loader failed" and scans in-process.

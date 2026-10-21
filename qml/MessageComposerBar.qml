@@ -252,6 +252,8 @@ Item {
         // The other editor's ranges belong to the other document.
         root.spellUnderlines = []
         root.richSpellUnderlines = []
+        plainAutocorrect.reset()
+        richAutocorrect.reset()
         root.refreshRichBlank()
         if (root.richMode)
             richSpellTimer.restart()
@@ -903,6 +905,45 @@ Item {
         return app.composer.mentionRanges
     }
 
+    // Autocorrect (SpellAutocorrect.qml; the policy is
+    // SpellChecker::autocorrection). Off unless Settings or the platform
+    // default turns it on.
+    readonly property bool autocorrectActive: root.spellActive
+                                              && app.spell.autocorrectEnabled
+    SpellAutocorrect {
+        id: plainAutocorrect
+        objectName: "composerPlainAutocorrect"
+        editor: input
+        active: root.autocorrectActive && !root.richMode
+        textFn: function () { return input.text }
+        skipFn: function () { return app.composer.mentionRanges }
+    }
+    SpellAutocorrect {
+        id: richAutocorrect
+        objectName: "composerRichAutocorrect"
+        editor: richInput
+        active: root.autocorrectActive && root.richMode
+        textFn: function () { return richInput.getText(0, richInput.length) }
+        skipFn: function () {
+            return app.richComposer.spellSkipRanges(richInput.textDocument)
+        }
+        replaceFn: function (start, length, text) {
+            app.richComposer.replaceRange(richInput.textDocument, start,
+                                          length, text)
+        }
+    }
+
+    // [from, to) of `editor` worth checking: the visible part of `flick` and
+    // one viewport either side. Only these words reach a dictionary, so a
+    // large paste costs what is on screen (SpellChecker::kMaxWindowChars).
+    function spellWindow(editor, flick) {
+        var top = Math.max(0, flick.contentY - flick.height)
+        var bottom = flick.contentY + 2 * Math.max(flick.height, 1)
+        var from = editor.positionAt(0, top)
+        var to = editor.positionAt(editor.width, bottom)
+        return { from: from, to: Math.max(from + 1, to + 1) }
+    }
+
     // [{x, y, w}] under every range, in `editor`'s coordinates.
     function spellUnderlineRects(editor, ranges) {
         var out = []
@@ -941,9 +982,11 @@ Item {
             return
         }
         // Skip the word at the caret, and the composer's mention ranges.
+        var w = root.spellWindow(input, inputFlick)
         var ranges = app.spell.misspelledRanges(input.text,
                                                 input.cursorPosition,
-                                                app.composer.mentionRanges)
+                                                app.composer.mentionRanges,
+                                                w.from, w.to)
         root.spellUnderlines = root.spellUnderlineRects(input, ranges)
     }
 
@@ -955,9 +998,11 @@ Item {
                 root.richSpellUnderlines = []
             return
         }
+        var w = root.spellWindow(richInput, richFlick)
         var ranges = app.spell.misspelledRanges(root.spellEditorText(),
                                                 richInput.cursorPosition,
-                                                root.spellSkipRanges())
+                                                root.spellSkipRanges(),
+                                                w.from, w.to)
         root.richSpellUnderlines = root.spellUnderlineRects(richInput, ranges)
     }
 
@@ -974,8 +1019,10 @@ Item {
         var hit = app.spell.wordAt(text, editor.positionAt(mx, my))
         if (!hit || hit.word === "")
             return
-        // Only words the dictionary rejects get suggestions.
-        var wrong = app.spell.misspelledRanges(text, -1, root.spellSkipRanges())
+        // Only words the dictionary rejects get suggestions. Windowed on the
+        // word itself, so a draft of any length still gets its menu.
+        var wrong = app.spell.misspelledRanges(text, -1, root.spellSkipRanges(),
+                                               hit.start, hit.start + hit.length)
         var rejected = false
         for (var i = 0; i < wrong.length; ++i) {
             if (wrong[i].start === hit.start) {
@@ -2334,7 +2381,10 @@ Item {
                             if (contentHeight <= height && contentY !== 0)
                                 contentY = 0
                         }
-                        onContentYChanged: clampContentToTop()
+                        onContentYChanged: {
+                            clampContentToTop()
+                            richSpellTimer.restart()
+                        }
                         onContentHeightChanged: clampContentToTop()
                         onHeightChanged: clampContentToTop()
                         ScrollBar.vertical: AppScrollBar { thin: true }
@@ -2400,8 +2450,12 @@ Item {
                             onTextChanged: {
                                 richSpellTimer.restart()
                                 root.refreshRichBlank()
-                                if (root.richSyncing || !root.richMode)
+                                if (root.richSyncing || !root.richMode) {
+                                    // A loaded document is not typing.
+                                    richAutocorrect.reset()
                                     return
+                                }
+                                richAutocorrect.edited()
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
                                 // The markdown mirror (see root.richMode) and
@@ -2420,6 +2474,7 @@ Item {
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
                                 root.updateEmojiPopupState()
+                                richAutocorrect.cursorMoved()
                                 richSpellTimer.restart()
                             }
                             Keys.onReturnPressed: (event) => {
@@ -2519,6 +2574,8 @@ Item {
                                 }
                             }
                             Keys.onPressed: (event) => {
+                                if (richAutocorrect.handleKey(event))
+                                    return
                                 var timelineAction =
                                     app.shortcuts.timelineActionForKey(
                                         event.key, event.modifiers)
@@ -2577,7 +2634,11 @@ Item {
                             if (contentHeight <= height && contentY !== 0)
                                 contentY = 0
                         }
-                        onContentYChanged: clampContentToTop()
+                        onContentYChanged: {
+                            clampContentToTop()
+                            // Underlines follow the visible window.
+                            spellTimer.restart()
+                        }
                         onContentHeightChanged: clampContentToTop()
                         onHeightChanged: clampContentToTop()
                         ScrollBar.vertical: AppScrollBar { thin: true }
@@ -2642,6 +2703,7 @@ Item {
                             root.emojiPopupDismissed = false
                             root.updateEmojiPopupState()
                             root.checkEmojiAutoConvert(input)
+                            plainAutocorrect.edited()
                             spellTimer.restart()
                         }
                         onSelectionStartChanged: root.refreshFormatState()
@@ -2650,6 +2712,7 @@ Item {
                             root.refreshFormatState()
                             root.updateMentionState()
                             root.updateEmojiPopupState()
+                            plainAutocorrect.cursorMoved()
                             spellTimer.restart()
                         }
                         // A reflow moves every underline.
@@ -2853,6 +2916,10 @@ Item {
                             }
                         }
                         Keys.onPressed: (event) => {
+                            // Backspace or Ctrl+Z right after an autocorrection
+                            // puts the typed word back.
+                            if (plainAutocorrect.handleKey(event))
+                                return
                             var timelineAction =
                                 app.shortcuts.timelineActionForKey(
                                     event.key, event.modifiers)

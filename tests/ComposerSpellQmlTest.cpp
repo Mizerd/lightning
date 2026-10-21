@@ -13,10 +13,14 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 
 #include <memory>
 
 #include "app/AppController.h"
+#include "storage/AppDataPaths.h"
+#include "storage/PortableMode.h"
 #include "text/SpellBackend.h"
 #include "text/SpellChecker.h"
 
@@ -28,13 +32,16 @@ public:
     bool isCorrect(const QString &word) const override
     {
         return word.compare(QStringLiteral("hello"), Qt::CaseInsensitive) == 0
-            || word.compare(QStringLiteral("world"), Qt::CaseInsensitive) == 0;
+            || word.compare(QStringLiteral("world"), Qt::CaseInsensitive) == 0
+            || word.compare(QStringLiteral("say"), Qt::CaseInsensitive) == 0
+            || word.compare(QStringLiteral("the"), Qt::CaseInsensitive) == 0
+            || word.compare(QStringLiteral("and"), Qt::CaseInsensitive) == 0
+            || word.compare(QStringLiteral("that"), Qt::CaseInsensitive) == 0;
     }
     QStringList suggest(const QString &) const override
     {
         return { QStringLiteral("world") };
     }
-    void addToPersonalDictionary(const QString &) override {}
     QString language() const override { return QStringLiteral("en-US"); }
     QStringList availableLanguages() const override
     { return { QStringLiteral("en-US") }; }
@@ -297,6 +304,213 @@ private slots:
         QCOMPARE(underlines().size(), 0);
         typeAndSettle(QStringLiteral("hello wrold"), 0);
         QCOMPARE(underlines().size(), 1);
+    }
+
+    // ---- where the personal dictionary lives ----
+
+    // Under the app-data root every other file uses (FontManager's imported
+    // fonts), not QStandardPaths' AppDataLocation: on a portable Windows
+    // install that one escapes the portable folder. And this suite never
+    // touches the developer's real one (HermeticDataHome.cpp).
+    void thePersonalDictionaryLivesUnderTheAppDataRoot()
+    {
+        const QString dataHome = qEnvironmentVariable("XDG_DATA_HOME");
+        QVERIFY2(dataHome.contains(QStringLiteral("lightning-test-data-")),
+                 qPrintable(QStringLiteral("not hermetic: XDG_DATA_HOME=%1").arg(dataHome)));
+        const QString path = checker()->personalDictionaryPath();
+        QCOMPARE(path, matrix::app_data::primaryRoot()
+                           + QStringLiteral("/spelling/personal-dictionary.txt"));
+        QVERIFY(path.startsWith(dataHome + QLatin1Char('/')));
+
+        // Portable: inside the portable folder, wherever XDG_DATA_HOME points.
+        QTemporaryDir exeDir;
+        QVERIFY(exeDir.isValid());
+        lightning::portable::setPortableOverrideForTest(true, exeDir.path());
+        // A failed QVERIFY returns early: the override must not outlive this
+        // case either way.
+        auto clearPortable = qScopeGuard(
+            [] { lightning::portable::clearPortableOverrideForTest(); });
+        QString portablePath;
+        {
+            AppController portable(AppController::MockBackend);
+            auto *spell = qobject_cast<SpellChecker *>(
+                portable.property("spell").value<QObject *>());
+            QVERIFY(spell);
+            portablePath = spell->personalDictionaryPath();
+        }
+        clearPortable.dismiss();
+        lightning::portable::clearPortableOverrideForTest();
+        QVERIFY2(portablePath.startsWith(exeDir.path() + QLatin1Char('/')),
+                 qPrintable(QStringLiteral("portable dictionary escaped the folder: %1")
+                                .arg(portablePath)));
+        QVERIFY(portablePath.endsWith(QStringLiteral("/spelling/personal-dictionary.txt")));
+    }
+
+    // ---- autocorrect, through real keystrokes ----
+
+    SpellChecker *checker() const
+    {
+        return qobject_cast<SpellChecker *>(
+            m_controller->property("spell").value<QObject *>());
+    }
+
+    // An empty, focused field in the given composer mode.
+    QQuickItem *focusedEditor(bool rich)
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:example.org"));
+        m_controller->settings()->setComposerMode(rich ? QStringLiteral("rich")
+                                                       : QStringLiteral("markdown"));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        QQuickItem *editor = item(rich ? QStringLiteral("composerRichInput")
+                                       : QStringLiteral("composerInput"));
+        if (!editor)
+            return nullptr;
+        if (rich)
+            QMetaObject::invokeMethod(editor, "clear");
+        else
+            editor->setProperty("text", QString());
+        m_window->requestActivate();
+        editor->forceActiveFocus();
+        QCoreApplication::processEvents();
+        return editor;
+    }
+
+    // QTest::keyClicks has no QWindow overload; ASCII is all these need.
+    void typeKeys(const QString &text)
+    {
+        for (const QChar c : text)
+            QTest::keyClick(m_window, c.toLatin1());
+    }
+
+    static QString plainTextOf(QQuickItem *editor)
+    {
+        QString out;
+        const int length = editor->property("length").toInt();
+        QMetaObject::invokeMethod(editor, "getText", Q_RETURN_ARG(QString, out),
+                                  Q_ARG(int, 0), Q_ARG(int, length));
+        return out;
+    }
+
+    void aTypoIsCorrectedAtTheSpaceAndBackspacePutsItBack_data()
+    {
+        QTest::addColumn<bool>("rich");
+        QTest::addColumn<QString>("typo");
+        QTest::addColumn<QString>("fix");
+        // Different words per row: Backspace refuses its word for the whole
+        // session, and both rows share the one checker.
+        QTest::newRow("markdown") << false << QStringLiteral("teh") << QStringLiteral("the");
+        QTest::newRow("rich") << true << QStringLiteral("taht") << QStringLiteral("that");
+    }
+
+    void aTypoIsCorrectedAtTheSpaceAndBackspacePutsItBack()
+    {
+        QFETCH(bool, rich);
+        QFETCH(QString, typo);
+        QFETCH(QString, fix);
+        SpellChecker *spell = checker();
+        QVERIFY(spell);
+        spell->setAutocorrectEnabled(true);
+        QQuickItem *editor = focusedEditor(rich);
+        QVERIFY(editor);
+        QVERIFY2(editor->hasActiveFocus(), "the field did not take focus");
+
+        typeKeys(QStringLiteral("say ") + typo);
+        QCOMPARE(plainTextOf(editor), QStringLiteral("say ") + typo);
+        // Not before the word is finished...
+        QTest::keyClick(m_window, Qt::Key_Space);
+        // ...and then corrected in place, the space kept, the caret after it.
+        const QString corrected = QStringLiteral("say ") + fix + QLatin1Char(' ');
+        QCOMPARE(plainTextOf(editor), corrected);
+        QCOMPARE(editor->property("cursorPosition").toInt(), int(corrected.size()));
+
+        // Backspace straight after restores what was typed, keeps the space.
+        QTest::keyClick(m_window, Qt::Key_Backspace);
+        const QString restored = QStringLiteral("say ") + typo + QLatin1Char(' ');
+        QCOMPARE(plainTextOf(editor), restored);
+        QCOMPARE(editor->property("cursorPosition").toInt(), int(restored.size()));
+        // And that word is left alone from now on.
+        typeKeys(typo + QLatin1Char(' '));
+        QCOMPARE(plainTextOf(editor), restored + typo + QLatin1Char(' '));
+
+        m_controller->settings()->setComposerMode(QStringLiteral("markdown"));
+        spell->setAutocorrectEnabled(false);
+        QTest::qWait(60);
+    }
+
+    void ctrlZRightAfterACorrectionUndoesItButALaterOneDoesNot()
+    {
+        SpellChecker *spell = checker();
+        QVERIFY(spell);
+        QQuickItem *editor = focusedEditor(false);
+        QVERIFY(editor);
+        spell->setAutocorrectEnabled(true);
+        // No table entry for "wrold": the fake engine's best (and only)
+        // suggestion "world" is one transposition away, so it is corrected.
+        typeKeys(QStringLiteral("hello wrold"));
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QCOMPARE(plainTextOf(editor), QStringLiteral("hello world "));
+        QTest::keyClick(m_window, Qt::Key_Z, Qt::ControlModifier);
+        QCOMPARE(plainTextOf(editor), QStringLiteral("hello wrold "));
+        // Typing on ends the undo window: a later Backspace is a Backspace.
+        typeKeys(QStringLiteral("say "));
+        QTest::keyClick(m_window, Qt::Key_Backspace);
+        QCOMPARE(plainTextOf(editor), QStringLiteral("hello wrold say"));
+        spell->setAutocorrectEnabled(false);
+        editor->setProperty("text", QString());
+    }
+
+    void nothingIsCorrectedWhenOffOrWhenTextArrivesAllAtOnce()
+    {
+        SpellChecker *spell = checker();
+        QVERIFY(spell);
+        QQuickItem *editor = focusedEditor(false);
+        QVERIFY(editor);
+        // Off (the default on Linux and Windows): typed through.
+        spell->setAutocorrectEnabled(false);
+        typeKeys(QStringLiteral("adn "));
+        QCOMPARE(plainTextOf(editor), QStringLiteral("adn "));
+        // The control: on, typed key by key, it IS corrected.
+        spell->setAutocorrectEnabled(true);
+        editor->setProperty("text", QString());
+        typeKeys(QStringLiteral("adn "));
+        QCOMPARE(plainTextOf(editor), QStringLiteral("and "));
+        // On, but the text arrives in one piece (a paste, a restored draft):
+        // never corrected.
+        editor->setProperty("text", QStringLiteral("so adn "));
+        editor->setProperty("cursorPosition", 7);
+        QCoreApplication::processEvents();
+        QCOMPARE(plainTextOf(editor), QStringLiteral("so adn "));
+        // Inside inline code, typed key by key: left alone.
+        editor->setProperty("text", QString());
+        typeKeys(QStringLiteral("run `adn "));
+        QCOMPARE(plainTextOf(editor), QStringLiteral("run `adn "));
+        spell->setAutocorrectEnabled(false);
+        editor->setProperty("text", QString());
+    }
+
+    // A draft longer than the un-windowed limit used to get no checking at
+    // all; now the visible part is checked and only that.
+    void aLongDraftIsCheckedWhereTheUserIsLooking()
+    {
+        QQuickItem *editor = focusedEditor(false);
+        QVERIFY(editor);
+        const QString text = QStringLiteral("hello wrold\n").repeated(4000);
+        QVERIFY(text.size() > SpellChecker::kMaxCheckedChars);
+        typeAndSettle(text, 0);
+        const QList<QQuickItem *> marks = underlines();
+        QVERIFY2(!marks.isEmpty(), "a long draft is not checked at all");
+        QVERIFY(marks.size() <= SpellChecker::kMaxReportedRanges);
+        // Only around the viewport: nothing far below it.
+        QQuickItem *flick = item(QStringLiteral("composerInputFlick"));
+        QVERIFY(flick);
+        const qreal bottom = flick->property("contentY").toReal()
+            + 3 * flick->height() + 40;
+        for (QQuickItem *mark : marks)
+            QVERIFY2(mark->y() <= bottom,
+                     qPrintable(QStringLiteral("mark at y=%1, viewport ends near %2")
+                                    .arg(mark->y()).arg(bottom)));
+        editor->setProperty("text", QString());
     }
 
     void anUnavailableCheckerDrawsNothing()

@@ -37,6 +37,12 @@ Requires:       %{gst_element autoaudiosrc}
 Requires:       %{gst_element pipewiresrc}
 # enchant-2 is dlopen'd for spell checking; optional.
 Recommends:     libenchant-2.so.2()(%{__isa_bits}bit)
+# Hunspell is dlopen'd too, as the fallback when enchant has no backend
+# (openSUSE ships enchant-2-backend-hunspell separately), with an English
+# dictionary under either distribution's name. Fedora's enchant2 pulls both
+# in already; on openSUSE this is what makes spelling work out of the box.
+Recommends:     libhunspell-1.7.so.0()(%{__isa_bits}bit)
+Recommends:     (hunspell-en-US or myspell-en_US)
 
 # QML modules the UI imports. Fedora ships them inside the Qt library
 # packages (provides qt6qml(<module>)); openSUSE ships them separately

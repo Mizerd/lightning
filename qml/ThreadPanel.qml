@@ -1475,6 +1475,7 @@ Rectangle {
                         // as threadInputFlick, visibility-exclusive with it.
                         Flickable {
                             id: threadRichFlick
+                            onContentYChanged: threadRichSpellTimer.restart()
                             objectName: "threadRichInputFlick"
                             visible: panel.richMode
                             Layout.fillWidth: true
@@ -1537,8 +1538,12 @@ Rectangle {
                                 onTextChanged: {
                                     threadRichSpellTimer.restart()
                                     panel.refreshThreadRichBlank()
-                                    if (panel.richSyncing || !panel.richMode)
+                                    if (panel.richSyncing || !panel.richMode) {
+                                        // A loaded document is not typing.
+                                        threadRichAutocorrect.reset()
                                         return
+                                    }
+                                    threadRichAutocorrect.edited()
                                     panel.richSyncing = true
                                     app.thread.text =
                                         app.richComposer.toMarkdown(textDocument)
@@ -1547,6 +1552,7 @@ Rectangle {
                                 }
                                 onCursorPositionChanged: {
                                     panel.updateThreadRichMentionState()
+                                    threadRichAutocorrect.cursorMoved()
                                     threadRichSpellTimer.restart()
                                 }
                                 Keys.onShortcutOverride: (event) => {
@@ -1557,6 +1563,10 @@ Rectangle {
                                         event.accepted = true
                                 }
                                 Keys.onPressed: (event) => {
+                                    // Backspace or Ctrl+Z right after an
+                                    // autocorrection puts the word back.
+                                    if (threadRichAutocorrect.handleKey(event))
+                                        return
                                     var richTimelineAction =
                                         app.shortcuts.timelineActionForKey(
                                             event.key, event.modifiers)
@@ -1617,6 +1627,8 @@ Rectangle {
                         Flickable {
                             id: threadInputFlick
                             visible: !panel.richMode
+                            // Underlines follow the visible window.
+                            onContentYChanged: threadSpellTimer.restart()
                             Layout.fillWidth: true
                             // Slash-command refusal, with the literal-send
                             // escape spelled out.
@@ -1655,10 +1667,12 @@ Rectangle {
                                 if (app.thread.text !== text)
                                     app.thread.text = text
                                 panel.updateThreadMentionState()
+                                threadPlainAutocorrect.edited()
                                 threadSpellTimer.restart()
                             }
                             onCursorPositionChanged: {
                                 panel.updateThreadMentionState()
+                                threadPlainAutocorrect.cursorMoved()
                                 threadSpellTimer.restart()
                             }
                             onWidthChanged: threadSpellTimer.restart()
@@ -1796,6 +1810,8 @@ Rectangle {
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {
+                                if (threadPlainAutocorrect.handleKey(event))
+                                    return
                                 var threadTimelineAction =
                                     app.shortcuts.timelineActionForKey(
                                         event.key, event.modifiers)
@@ -2389,6 +2405,43 @@ Rectangle {
             return app.richComposer.spellSkipRanges(threadRichInput.textDocument)
         return app.thread.mentionRanges
     }
+    // Autocorrect, as in the room composer (SpellAutocorrect.qml).
+    readonly property bool threadAutocorrectActive: panel.threadSpellActive
+                                                    && app.spell.autocorrectEnabled
+    SpellAutocorrect {
+        id: threadPlainAutocorrect
+        objectName: "threadPlainAutocorrect"
+        editor: threadComposerInput
+        active: panel.threadAutocorrectActive && !panel.richMode
+        textFn: function () { return threadComposerInput.text }
+        skipFn: function () { return app.thread.mentionRanges }
+    }
+    SpellAutocorrect {
+        id: threadRichAutocorrect
+        objectName: "threadRichAutocorrect"
+        editor: threadRichInput
+        active: panel.threadAutocorrectActive && panel.richMode
+        textFn: function () {
+            return threadRichInput.getText(0, threadRichInput.length)
+        }
+        skipFn: function () {
+            return app.richComposer.spellSkipRanges(threadRichInput.textDocument)
+        }
+        replaceFn: function (start, length, text) {
+            app.richComposer.replaceRange(threadRichInput.textDocument, start,
+                                          length, text)
+        }
+    }
+    // The visible part of `flick` and one viewport either side; see the room
+    // composer's spellWindow.
+    function threadSpellWindow(editor, flick) {
+        var top = Math.max(0, flick.contentY - flick.height)
+        var bottom = flick.contentY + 2 * Math.max(flick.height, 1)
+        var from = editor.positionAt(0, top)
+        var to = editor.positionAt(editor.width, bottom)
+        return { from: from, to: Math.max(from + 1, to + 1) }
+    }
+
     function threadSpellUnderlineRects(editor, ranges) {
         var out = []
         for (var i = 0; i < ranges.length; ++i) {
@@ -2424,10 +2477,11 @@ Rectangle {
                 panel.threadSpellUnderlines = []
             return
         }
+        var w = panel.threadSpellWindow(threadComposerInput, threadInputFlick)
         var ranges = app.spell.misspelledRanges(
             threadComposerInput.text,
             threadComposerInput.cursorPosition,
-            app.thread.mentionRanges)
+            app.thread.mentionRanges, w.from, w.to)
         panel.threadSpellUnderlines =
             panel.threadSpellUnderlineRects(threadComposerInput, ranges)
     }
@@ -2439,9 +2493,11 @@ Rectangle {
                 panel.threadRichSpellUnderlines = []
             return
         }
+        var w = panel.threadSpellWindow(threadRichInput, threadRichFlick)
         var ranges = app.spell.misspelledRanges(panel.threadSpellEditorText(),
                                                 threadRichInput.cursorPosition,
-                                                panel.threadSpellSkipRanges())
+                                                panel.threadSpellSkipRanges(),
+                                                w.from, w.to)
         panel.threadRichSpellUnderlines =
             panel.threadSpellUnderlineRects(threadRichInput, ranges)
     }
@@ -2458,8 +2514,10 @@ Rectangle {
         var hit = app.spell.wordAt(text, editor.positionAt(mx, my))
         if (!hit || hit.word === "")
             return
+        // Windowed on the word itself, so a long draft still gets its menu.
         var wrong = app.spell.misspelledRanges(text, -1,
-                                               panel.threadSpellSkipRanges())
+                                               panel.threadSpellSkipRanges(),
+                                               hit.start, hit.start + hit.length)
         var rejected = false
         for (var i = 0; i < wrong.length; ++i) {
             if (wrong[i].start === hit.start) {
@@ -2697,6 +2755,8 @@ Rectangle {
     onRichModeChanged: {
         panel.threadSpellUnderlines = []
         panel.threadRichSpellUnderlines = []
+        threadPlainAutocorrect.reset()
+        threadRichAutocorrect.reset()
         panel.refreshThreadRichBlank()
         // Switching back fires no textChanged; refresh here.
         if (panel.richMode)

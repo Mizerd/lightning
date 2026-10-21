@@ -4,6 +4,8 @@
 
     let
       qt = pkgs.qt6;
+      # The same dictionaries the package bundles (see package.nix).
+      spellDictionaries = pkgs.callPackage ./spell-dictionaries.nix { };
     in
     {
       devShells.default = pkgs.mkShell {
@@ -51,6 +53,9 @@
           gst_all_1.gst-plugins-good
           gst_all_1.gst-plugins-bad
           libnice
+          # Spell checking: libhunspell is dlopen'd (see LD_LIBRARY_PATH and
+          # DICPATH below), so the dev build and its tests can check spelling.
+          hunspell
         ];
 
         shellHook = ''
@@ -80,6 +85,10 @@
           # nix develop does not put buildInputs on the loader path; expose
           # only pipewire so Qt Multimedia can dlopen libpipewire-0.3.
           export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          # Spell checking: libhunspell is dlopen'd too, and the dictionaries
+          # are the ones the package bundles; a user's own $DICPATH comes first.
+          export LD_LIBRARY_PATH="${pkgs.lib.getLib pkgs.hunspell}/lib:$LD_LIBRARY_PATH"
+          export DICPATH="''${DICPATH:+$DICPATH:}${spellDictionaries}/share/hunspell"
           # nixpkgs ships the libnice GStreamer plugin in libnice's own
           # output, which the gst hook does not add.
           export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice.out}/lib/gstreamer-1.0''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"

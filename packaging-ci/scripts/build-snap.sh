@@ -49,6 +49,12 @@ done
 # confinement shows it an empty home: no file could be attached.
 test -f "$SNAP_WORK/appdir/usr/plugins/platformthemes/libqxdgdesktopportal.so" || \
     die "the AppDir has no platformthemes/libqxdgdesktopportal.so; the confined snap could attach no file"
+# Spell checking: strict confinement hides the host's enchant and
+# dictionaries, so the snap has only what the AppDir bundles.
+test -f "$SNAP_WORK/appdir/usr/lib/libhunspell-1.7.so.0" || \
+    die "the AppDir has no usr/lib/libhunspell-1.7.so.0; the confined snap could not check spelling at all"
+test -f "$SNAP_WORK/appdir/usr/share/hunspell/en_US.dic" || \
+    die "the AppDir has no usr/share/hunspell/en_US.dic; the confined snap would have no dictionary"
 
 mkdir -p "$TREE"
 # Only usr/; AppRun, the top-level desktop file and .DirIcon stay behind.

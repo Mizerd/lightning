@@ -72,6 +72,11 @@ grep -qx 'X11 screen capture (ximagesrc): available' \
 flatpak run --user --command=test "$APP_ID" \
     -f "/app/share/licenses/$APP_ID/gst-ximagesrc/COPYING" \
     || die "Flatpak: the gst-ximagesrc licence text is missing from /app/share/licenses"
+# The bundled spelling dictionaries carry their own licences (GPL, LGPL, MPL,
+# BSD-style); Lithuanian stands in for all of them.
+flatpak run --user --command=test "$APP_ID" \
+    -f "/app/share/licenses/$APP_ID/hunspell-dictionaries/lt_LT/COPYING" \
+    || die "Flatpak: the spelling dictionaries' licence texts are missing from /app/share/licenses"
 
 # Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e
@@ -105,6 +110,16 @@ timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
 image_format_status=$?
 set -e
 assert_image_formats Flatpak dist/flatpak-image-format-status.txt "$image_format_status" jxl
+
+# Spell checking: the KDE runtime has libhunspell but no enchant, and the
+# manifest's hunspell-dictionaries module installs /app/share/hunspell.
+set +e
+timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --spell-selftest" \
+    > dist/flatpak-spell-selftest.txt 2>&1
+spell_selftest_status=$?
+set -e
+assert_spell_selftest Flatpak dist/flatpak-spell-selftest.txt "$spell_selftest_status" bundled
 
 # GIF provider state with every key variable unset (embedded keys only).
 gif_env_clear="env -u GIPHY_API_KEY -u KLIPY_API_KEY \

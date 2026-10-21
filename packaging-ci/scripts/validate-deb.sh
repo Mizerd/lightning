@@ -110,6 +110,16 @@ set -e
 # jxl is expected: apt installs Recommends (kimageformat6-plugins) by default.
 assert_image_formats DEB "$ROOT/dist/deb-image-format-status.txt" "$image_format_status" jxl
 
+# Spell checking. The deb Recommends libenchant-2-2, which Depends on
+# hunspell-en-us | hunspell-dictionary, and apt installs Recommends by default,
+# so English must work on a stock install.
+set +e
+(cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --spell-selftest) \
+    >"$ROOT/dist/deb-spell-selftest.txt" 2>&1
+spell_selftest_status=$?
+set -e
+assert_spell_selftest DEB "$ROOT/dist/deb-spell-selftest.txt" "$spell_selftest_status" system
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/deb-contents.txt"; then
     die "DEB contains the generated GIF build-key header"

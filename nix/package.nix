@@ -18,6 +18,9 @@
   xkeyboard_config,
   gst_all_1,
   libnice,
+  hunspell,
+  stdenvNoCC,
+  fetchurl,
   version ? "git",
   withBuildAccelerators ? false,
   withRustBackend ? true,
@@ -33,6 +36,14 @@ let
     # pipewire ships libgstpipewire (pipewiresrc); screen share needs it.
     pipewire
   ];
+  # Spell checking on Linux: Lightning dlopens libhunspell and NixOS has no
+  # global library path, so the store path is compiled in, as is the
+  # dictionary directory. Both are referenced from the binary, so they are
+  # runtime dependencies. The user's own dictionaries (environment.systemPackages,
+  # the profile, $DICPATH) are searched as well. macOS uses NSSpellChecker.
+  spellDictionaries = import ./spell-dictionaries.nix {
+    inherit lib stdenvNoCC fetchurl;
+  };
 in
 stdenv.mkDerivation {
   pname = "lightning-matrix-client";
@@ -79,6 +90,10 @@ stdenv.mkDerivation {
 
   cmakeFlags = [
     (lib.cmakeBool "ENABLE_RUST_SDK_BACKEND" withRustBackend)
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [
+    (lib.cmakeFeature "LIGHTNING_HUNSPELL_LIBRARY" "${lib.getLib hunspell}/lib/libhunspell-1.7.so.0")
+    (lib.cmakeFeature "LIGHTNING_SPELL_DICTIONARY_DIRS" "${spellDictionaries}/share/hunspell")
   ]
   ++ lib.optionals withBuildAccelerators [
     (lib.cmakeFeature "CMAKE_CXX_COMPILER_LAUNCHER" "ccache")

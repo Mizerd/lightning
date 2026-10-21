@@ -153,6 +153,16 @@ set +e
 image_format_status=$?
 set -e
 assert_image_formats snap dist/snap-image-format-status.txt "$image_format_status" jxl
+
+# Spell checking: strict confinement hides the host's dictionaries, so only
+# what the snap carries can answer.
+set +e
+( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
+    "$audit/prime/bin/lightning-launch" --spell-selftest ) \
+    > dist/snap-spell-selftest.txt 2>&1
+spell_selftest_status=$?
+set -e
+assert_spell_selftest snap dist/snap-spell-selftest.txt "$spell_selftest_status" bundled
 grep -q 'GST_PLUGIN_SYSTEM_PATH_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled plugins"
 # The launcher must also point at the bundled gst-plugin-scanner; otherwise

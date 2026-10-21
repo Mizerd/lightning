@@ -3,9 +3,15 @@
 #include "text/SpellBackend.h"
 
 #include <QChar>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QLocale>
+#include <QSaveFile>
 
 #include <algorithm>
+#include <cstdlib>
+#include <utility>
 
 namespace {
 
@@ -178,33 +184,65 @@ QList<Span> excludedSpans(const QString &text)
     return spans;
 }
 
-bool insideExcluded(const QList<Span> &spans, int start, int length)
-{
-    const int end = start + length;
-    for (const Span &s : spans) {
-        if (s.start >= end)
-            break;
-        if (start < s.end && s.start < end)
-            return true;
-    }
-    return false;
-}
+// The excluded spans, sorted by start, with a running maximum of their ends
+// so "does [start, end) overlap any span" is one binary search however many
+// spans a pasted draft has.
+struct Exclusions {
+    QList<Span> spans;
+    QList<int> maxEnd; // maxEnd[i] = max(spans[0..i].end)
 
-// Walks `text` and calls `fn(start, length)` for every word worth checking.
+    explicit Exclusions(QList<Span> sorted)
+        : spans(std::move(sorted))
+    {
+        maxEnd.reserve(spans.size());
+        int running = -1;
+        for (const Span &s : std::as_const(spans)) {
+            running = std::max(running, s.end);
+            maxEnd.append(running);
+        }
+    }
+
+    bool overlaps(int start, int length) const
+    {
+        const int end = start + length;
+        // Spans starting before `end`; one of them overlaps exactly when the
+        // furthest end among them is past `start`.
+        const auto it = std::lower_bound(
+            spans.cbegin(), spans.cend(), end,
+            [](const Span &s, int value) { return s.start < value; });
+        const qsizetype count = it - spans.cbegin();
+        return count > 0 && maxEnd.at(count - 1) > start;
+    }
+};
+
+// Walks `text` and calls `fn(start, length)` for every word worth checking
+// that overlaps [from, to) (the whole text when `to` < 0).
 template <typename F>
-void forEachWord(const QString &text, F &&fn)
+void forEachWord(const QString &text, F &&fn, int from = 0, int to = -1)
 {
-    const QList<Span> excluded = excludedSpans(text);
+    const Exclusions excluded(excludedSpans(text));
     const int n = text.size();
+    const int limit = to < 0 ? n : std::min(n, to);
     int i = 0;
+    // Start at the beginning of the whitespace chunk holding `from`, so a
+    // chunk cut by the window is still judged whole.
+    if (from > 0 && from < n) {
+        i = from;
+        while (i > 0 && !text.at(i - 1).isSpace())
+            --i;
+    }
     while (i < n) {
         while (i < n && text.at(i).isSpace())
             ++i;
+        if (i >= limit)
+            break;
         int chunkStart = i;
         while (i < n && !text.at(i).isSpace())
             ++i;
         const int chunkEnd = i;
         if (chunkEnd <= chunkStart)
+            continue;
+        if (chunkEnd <= from)
             continue;
         const QStringView chunk =
             QStringView{ text }.mid(chunkStart, chunkEnd - chunkStart);
@@ -224,7 +262,9 @@ void forEachWord(const QString &text, F &&fn)
             const int wordLength = j - wordStart;
             if (wordLength <= 0)
                 continue;
-            if (insideExcluded(excluded, wordStart, wordLength))
+            if (wordStart + wordLength <= from || wordStart >= limit)
+                continue;
+            if (excluded.overlaps(wordStart, wordLength))
                 continue;
             const QStringView word =
                 QStringView{ text }.mid(wordStart, wordLength);
@@ -249,6 +289,157 @@ bool overlapsAnyRange(int start, int length, const QVariantList &ranges)
     return false;
 }
 
+bool isEnglish(const QString &tag)
+{
+    return tag == QLatin1String("en") || tag.startsWith(QLatin1String("en-"))
+        || tag.startsWith(QLatin1String("en_"));
+}
+
+// Common English typos with exactly one intended word. Every entry is applied
+// only when the active dictionaries reject the typo AND accept the
+// replacement, so a dictionary that knows "alot" as a word disables it.
+// Deliberately absent: words that are also real words (cant, wont, wether,
+// juts) and typos with two plausible targets (im, its/it's).
+const QHash<QString, QString> &englishTypos()
+{
+    static const QHash<QString, QString> table = {
+        { QStringLiteral("teh"), QStringLiteral("the") },
+        { QStringLiteral("hte"), QStringLiteral("the") },
+        { QStringLiteral("adn"), QStringLiteral("and") },
+        { QStringLiteral("nad"), QStringLiteral("and") },
+        { QStringLiteral("taht"), QStringLiteral("that") },
+        { QStringLiteral("thta"), QStringLiteral("that") },
+        { QStringLiteral("thier"), QStringLiteral("their") },
+        { QStringLiteral("tihs"), QStringLiteral("this") },
+        { QStringLiteral("thsi"), QStringLiteral("this") },
+        { QStringLiteral("wiht"), QStringLiteral("with") },
+        { QStringLiteral("wtih"), QStringLiteral("with") },
+        { QStringLiteral("whcih"), QStringLiteral("which") },
+        { QStringLiteral("wich"), QStringLiteral("which") },
+        { QStringLiteral("waht"), QStringLiteral("what") },
+        { QStringLiteral("whta"), QStringLiteral("what") },
+        { QStringLiteral("yuo"), QStringLiteral("you") },
+        { QStringLiteral("jsut"), QStringLiteral("just") },
+        { QStringLiteral("knwo"), QStringLiteral("know") },
+        { QStringLiteral("konw"), QStringLiteral("know") },
+        { QStringLiteral("liek"), QStringLiteral("like") },
+        { QStringLiteral("mroe"), QStringLiteral("more") },
+        { QStringLiteral("ohter"), QStringLiteral("other") },
+        { QStringLiteral("peopel"), QStringLiteral("people") },
+        { QStringLiteral("poeple"), QStringLiteral("people") },
+        { QStringLiteral("shoudl"), QStringLiteral("should") },
+        { QStringLiteral("woudl"), QStringLiteral("would") },
+        { QStringLiteral("coudl"), QStringLiteral("could") },
+        { QStringLiteral("soem"), QStringLiteral("some") },
+        { QStringLiteral("somthing"), QStringLiteral("something") },
+        { QStringLiteral("thnak"), QStringLiteral("thank") },
+        { QStringLiteral("thnaks"), QStringLiteral("thanks") },
+        { QStringLiteral("wnat"), QStringLiteral("want") },
+        { QStringLiteral("wrok"), QStringLiteral("work") },
+        { QStringLiteral("abotu"), QStringLiteral("about") },
+        { QStringLiteral("agian"), QStringLiteral("again") },
+        { QStringLiteral("becuase"), QStringLiteral("because") },
+        { QStringLiteral("beacuse"), QStringLiteral("because") },
+        { QStringLiteral("becasue"), QStringLiteral("because") },
+        { QStringLiteral("recieve"), QStringLiteral("receive") },
+        { QStringLiteral("recieved"), QStringLiteral("received") },
+        { QStringLiteral("recieving"), QStringLiteral("receiving") },
+        { QStringLiteral("beleive"), QStringLiteral("believe") },
+        { QStringLiteral("belive"), QStringLiteral("believe") },
+        { QStringLiteral("wierd"), QStringLiteral("weird") },
+        { QStringLiteral("freind"), QStringLiteral("friend") },
+        { QStringLiteral("seperate"), QStringLiteral("separate") },
+        { QStringLiteral("definately"), QStringLiteral("definitely") },
+        { QStringLiteral("occured"), QStringLiteral("occurred") },
+        { QStringLiteral("occurence"), QStringLiteral("occurrence") },
+        { QStringLiteral("untill"), QStringLiteral("until") },
+        { QStringLiteral("accomodate"), QStringLiteral("accommodate") },
+        { QStringLiteral("acheive"), QStringLiteral("achieve") },
+        { QStringLiteral("adress"), QStringLiteral("address") },
+        { QStringLiteral("goverment"), QStringLiteral("government") },
+        { QStringLiteral("happend"), QStringLiteral("happened") },
+        { QStringLiteral("immediatly"), QStringLiteral("immediately") },
+        { QStringLiteral("independant"), QStringLiteral("independent") },
+        { QStringLiteral("knowlege"), QStringLiteral("knowledge") },
+        { QStringLiteral("neccessary"), QStringLiteral("necessary") },
+        { QStringLiteral("noticable"), QStringLiteral("noticeable") },
+        { QStringLiteral("occassion"), QStringLiteral("occasion") },
+        { QStringLiteral("posession"), QStringLiteral("possession") },
+        { QStringLiteral("publically"), QStringLiteral("publicly") },
+        { QStringLiteral("recomend"), QStringLiteral("recommend") },
+        { QStringLiteral("remeber"), QStringLiteral("remember") },
+        { QStringLiteral("succesful"), QStringLiteral("successful") },
+        { QStringLiteral("tommorow"), QStringLiteral("tomorrow") },
+        { QStringLiteral("tommorrow"), QStringLiteral("tomorrow") },
+        { QStringLiteral("truely"), QStringLiteral("truly") },
+        { QStringLiteral("finaly"), QStringLiteral("finally") },
+        { QStringLiteral("enviroment"), QStringLiteral("environment") },
+        { QStringLiteral("existance"), QStringLiteral("existence") },
+        { QStringLiteral("grammer"), QStringLiteral("grammar") },
+        { QStringLiteral("lenght"), QStringLiteral("length") },
+        { QStringLiteral("strenght"), QStringLiteral("strength") },
+        { QStringLiteral("libary"), QStringLiteral("library") },
+        { QStringLiteral("probaly"), QStringLiteral("probably") },
+        { QStringLiteral("similiar"), QStringLiteral("similar") },
+        { QStringLiteral("suprise"), QStringLiteral("surprise") },
+        { QStringLiteral("unfortunatly"), QStringLiteral("unfortunately") },
+        { QStringLiteral("usualy"), QStringLiteral("usually") },
+        { QStringLiteral("writting"), QStringLiteral("writing") },
+        { QStringLiteral("dont"), QStringLiteral("don't") },
+        { QStringLiteral("doesnt"), QStringLiteral("doesn't") },
+        { QStringLiteral("didnt"), QStringLiteral("didn't") },
+        { QStringLiteral("isnt"), QStringLiteral("isn't") },
+        { QStringLiteral("wasnt"), QStringLiteral("wasn't") },
+        { QStringLiteral("arent"), QStringLiteral("aren't") },
+        { QStringLiteral("werent"), QStringLiteral("weren't") },
+        { QStringLiteral("havent"), QStringLiteral("haven't") },
+        { QStringLiteral("hasnt"), QStringLiteral("hasn't") },
+        { QStringLiteral("couldnt"), QStringLiteral("couldn't") },
+        { QStringLiteral("shouldnt"), QStringLiteral("shouldn't") },
+        { QStringLiteral("wouldnt"), QStringLiteral("wouldn't") },
+        { QStringLiteral("theyre"), QStringLiteral("they're") },
+        { QStringLiteral("youre"), QStringLiteral("you're") },
+        { QStringLiteral("i'm"), QStringLiteral("I'm") },
+        { QStringLiteral("i've"), QStringLiteral("I've") },
+        { QStringLiteral("i'll"), QStringLiteral("I'll") },
+        { QStringLiteral("i'd"), QStringLiteral("I'd") },
+    };
+    return table;
+}
+
+enum class CasePattern { Lower, Capitalised, Other };
+
+CasePattern casePatternOf(const QString &word)
+{
+    bool allLower = true;
+    bool restLower = true;
+    for (int i = 0; i < word.size(); ++i) {
+        const QChar c = word.at(i);
+        if (c.isUpper()) {
+            allLower = false;
+            if (i > 0)
+                restLower = false;
+        }
+    }
+    if (allLower)
+        return CasePattern::Lower;
+    if (restLower && !word.isEmpty() && word.at(0).isUpper())
+        return CasePattern::Capitalised;
+    return CasePattern::Other;
+}
+
+QString withCasePattern(const QString &replacement, CasePattern pattern)
+{
+    if (pattern == CasePattern::Capitalised && !replacement.isEmpty())
+        return replacement.at(0).toUpper() + replacement.mid(1);
+    return replacement;
+}
+
+QString normalizedWord(const QString &word)
+{
+    return word.trimmed();
+}
+
 } // namespace
 
 SpellChecker::SpellChecker(QObject *parent)
@@ -264,19 +455,104 @@ void SpellChecker::initialize(const QString &preferredLanguage)
     resolve();
 }
 
+void SpellChecker::configure(const QString &preferredLanguage,
+                             const QStringList &extraLanguages,
+                             const QString &interfaceLanguage)
+{
+    m_preferredLanguage = spellTagToBcp47(preferredLanguage);
+    m_extraLanguages.clear();
+    for (const QString &tag : extraLanguages) {
+        const QString bcp47 = spellTagToBcp47(tag);
+        if (!bcp47.isEmpty() && !m_extraLanguages.contains(bcp47))
+            m_extraLanguages << bcp47;
+    }
+    m_interfaceLanguage = spellTagToBcp47(interfaceLanguage);
+    resolve();
+}
+
 void SpellChecker::resolve()
 {
-    QString failure;
+    std::vector<std::unique_ptr<SpellBackend>> next;
     QStringList offered;
-    std::unique_ptr<SpellBackend> next = m_factory
-        ? m_factory(m_preferredLanguage, &failure, &offered)
-        : createPlatformSpellBackend(m_preferredLanguage, &failure, &offered);
-    m_backend = std::move(next);
-    m_unavailableReason = m_backend ? QString() : failure;
-    // Kept on a failed open so the picker can still offer other languages.
-    m_languages = m_backend ? m_backend->availableLanguages() : offered;
+    QString primaryFailure;
+    m_missingLanguages.clear();
+    auto create = [this](const QString &tag, QString *failure,
+                         QStringList *languages) {
+        return m_factory ? m_factory(tag, failure, languages)
+                         : createPlatformSpellBackend(tag, failure, languages);
+    };
+    auto addOffered = [&offered](const QStringList &tags) {
+        for (const QString &tag : tags) {
+            const QString bcp47 = spellTagToBcp47(tag);
+            if (!offered.contains(bcp47))
+                offered << bcp47;
+        }
+    };
+    // A second request that resolves to a dictionary already active (the UI
+    // language "en" after the system's "en-US") adds nothing.
+    auto alreadyActive = [&next](const SpellBackend &candidate) {
+        for (const auto &b : next)
+            if (b->language() == candidate.language()
+                && b->name() == candidate.name())
+                return true;
+        return false;
+    };
+
+    QStringList languages;
+    auto primary = create(m_preferredLanguage, &primaryFailure, &languages);
+    addOffered(languages);
+    if (primary)
+        addOffered(primary->availableLanguages());
+    if (primary) {
+        next.push_back(std::move(primary));
+    } else if (!m_preferredLanguage.isEmpty()) {
+        m_missingLanguages << m_preferredLanguage;
+    }
+    // Automatic also checks the app's own language: a Lithuanian UI on an
+    // English system types both. Silent when there is no dictionary for it.
+    // Not built at all when an active dictionary already covers it ("en"
+    // after the system's "en-US"): opening a dictionary is the costly part.
+    auto covered = [&next](const QString &tag) {
+        const bool regional = tag.contains(QLatin1Char('-'));
+        for (const auto &b : next) {
+            const QString have = b->language();
+            if (regional ? have == tag
+                         : have.section(QLatin1Char('-'), 0, 0) == tag)
+                return true;
+        }
+        return false;
+    };
+    if (m_preferredLanguage.isEmpty() && !m_interfaceLanguage.isEmpty()
+        && !covered(m_interfaceLanguage)) {
+        QString ignored;
+        languages.clear();
+        auto ui = create(m_interfaceLanguage, &ignored, &languages);
+        addOffered(languages);
+        if (ui && !alreadyActive(*ui))
+            next.push_back(std::move(ui));
+    }
+    for (const QString &tag : std::as_const(m_extraLanguages)) {
+        QString failure;
+        languages.clear();
+        auto extra = create(tag, &failure, &languages);
+        addOffered(languages);
+        if (!extra) {
+            if (!m_missingLanguages.contains(tag))
+                m_missingLanguages << tag;
+            continue;
+        }
+        if (!alreadyActive(*extra))
+            next.push_back(std::move(extra));
+    }
+
+    m_unavailableReason = next.empty()
+        ? (primaryFailure.isEmpty() ? QStringLiteral("no-dictionary") : primaryFailure)
+        : QString();
+    m_languages = offered;
+    m_backends = std::move(next);
     // A different dictionary can answer differently for every word.
     m_cache.clear();
+    m_transpositionCache.clear();
     Q_EMIT availabilityChanged();
     Q_EMIT dictionaryChanged();
 }
@@ -298,19 +574,73 @@ void SpellChecker::setPreferredLanguage(const QString &tag)
     resolve();
 }
 
+void SpellChecker::setExtraLanguages(const QStringList &tags)
+{
+    QStringList normalized;
+    for (const QString &tag : tags) {
+        const QString bcp47 = spellTagToBcp47(tag);
+        if (!bcp47.isEmpty() && !normalized.contains(bcp47))
+            normalized << bcp47;
+    }
+    if (normalized == m_extraLanguages)
+        return;
+    m_extraLanguages = normalized;
+    resolve();
+}
+
+void SpellChecker::setInterfaceLanguage(const QString &tag)
+{
+    const QString normalized = spellTagToBcp47(tag);
+    if (normalized == m_interfaceLanguage)
+        return;
+    m_interfaceLanguage = normalized;
+    // Only Automatic consults it.
+    if (m_preferredLanguage.isEmpty())
+        resolve();
+}
+
+void SpellChecker::setAutocorrectEnabled(bool enabled)
+{
+    if (m_autocorrect == enabled)
+        return;
+    m_autocorrect = enabled;
+    Q_EMIT autocorrectEnabledChanged();
+}
+
+bool SpellChecker::autocorrectDefault()
+{
+    return platformAutocorrectDefault();
+}
+
 QString SpellChecker::language() const
 {
-    return m_backend ? m_backend->language() : QString();
+    return m_backends.empty() ? QString() : m_backends.front()->language();
+}
+
+QStringList SpellChecker::languages() const
+{
+    QStringList out;
+    for (const auto &b : m_backends)
+        if (!out.contains(b->language()))
+            out << b->language();
+    return out;
 }
 
 QString SpellChecker::languageLabel() const
 {
-    return labelForTag(language());
+    QStringList labels;
+    for (const QString &tag : languages())
+        labels << labelForTag(tag);
+    return labels.join(QStringLiteral(", "));
 }
 
 QString SpellChecker::backendName() const
 {
-    return m_backend ? m_backend->name() : QString();
+    QStringList names;
+    for (const auto &b : m_backends)
+        if (!names.contains(b->name()))
+            names << b->name();
+    return names.join(QLatin1Char('+'));
 }
 
 QString SpellChecker::labelForTag(const QString &tag)
@@ -328,6 +658,11 @@ QString SpellChecker::labelForTag(const QString &tag)
         label += QStringLiteral(" (") + QLocale::territoryToString(locale.territory())
             + QLatin1Char(')');
     return label;
+}
+
+bool SpellChecker::isAutocorrectBoundary(QChar c)
+{
+    return c.isSpace() || c == u',' || c == u';' || c == u'!' || c == u'?';
 }
 
 QVariantList SpellChecker::languageOptions() const
@@ -355,13 +690,33 @@ QVariantList SpellChecker::languageOptions() const
     return out;
 }
 
+void SpellChecker::installBackends(std::vector<std::unique_ptr<SpellBackend>> backends)
+{
+    m_backends.clear();
+    for (auto &b : backends)
+        if (b)
+            m_backends.push_back(std::move(b));
+    m_unavailableReason = m_backends.empty() ? QStringLiteral("no-dictionary") : QString();
+    m_languages.clear();
+    for (const auto &b : m_backends)
+        for (const QString &tag : b->availableLanguages())
+            if (!m_languages.contains(tag))
+                m_languages << tag;
+    m_cache.clear();
+    m_transpositionCache.clear();
+    Q_EMIT availabilityChanged();
+}
+
 void SpellChecker::setBackendForTest(std::unique_ptr<SpellBackend> backend)
 {
-    m_backend = std::move(backend);
-    m_unavailableReason = m_backend ? QString() : QStringLiteral("no-dictionary");
-    m_languages = m_backend ? m_backend->availableLanguages() : QStringList();
-    m_cache.clear();
-    Q_EMIT availabilityChanged();
+    std::vector<std::unique_ptr<SpellBackend>> list;
+    list.push_back(std::move(backend));
+    installBackends(std::move(list));
+}
+
+void SpellChecker::setBackendsForTest(std::vector<std::unique_ptr<SpellBackend>> backends)
+{
+    installBackends(std::move(backends));
 }
 
 void SpellChecker::setBackendFactoryForTest(BackendFactory factory)
@@ -369,14 +724,36 @@ void SpellChecker::setBackendFactoryForTest(BackendFactory factory)
     m_factory = std::move(factory);
 }
 
+bool SpellChecker::inPersonalDictionary(const QString &word) const
+{
+    if (m_personal.isEmpty())
+        return false;
+    if (m_personal.contains(word))
+        return true;
+    // A personal "matrix" also covers "Matrix" at the start of a sentence,
+    // the way a dictionary treats its own lowercase words.
+    if (!word.isEmpty() && word.at(0).isUpper()) {
+        const QString lowered = word.at(0).toLower() + word.mid(1);
+        return m_personal.contains(lowered);
+    }
+    return false;
+}
+
 bool SpellChecker::wordIsCorrect(const QString &word) const
 {
-    if (m_ignored.contains(word))
+    if (m_ignored.contains(word) || inPersonalDictionary(word))
         return true;
     const auto cached = m_cache.constFind(word);
     if (cached != m_cache.constEnd())
         return cached.value();
-    const bool correct = !m_backend || m_backend->isCorrect(word);
+    bool correct = m_backends.empty();
+    for (const auto &b : m_backends) {
+        ++m_lookups;
+        if (b->isCorrect(word)) {
+            correct = true;
+            break;
+        }
+    }
     if (m_cache.size() >= kMaxCachedWords)
         m_cache.clear();
     m_cache.insert(word, correct);
@@ -385,26 +762,42 @@ bool SpellChecker::wordIsCorrect(const QString &word) const
 
 QVariantList SpellChecker::misspelledRanges(const QString &text,
                                             int cursorPosition,
-                                            const QVariantList &skipRanges) const
+                                            const QVariantList &skipRanges,
+                                            int windowStart,
+                                            int windowEnd) const
 {
     QVariantList out;
-    if (!m_backend || !m_enabled || text.isEmpty() || text.size() > kMaxCheckedChars)
+    if (m_backends.empty() || !m_enabled || text.isEmpty())
         return out;
+    const bool windowed = windowStart >= 0 && windowEnd > windowStart;
+    if (!windowed && text.size() > kMaxCheckedChars)
+        return out;
+    if (windowed && text.size() > kMaxScannedChars)
+        return out;
+    const int from = windowed ? std::min<int>(windowStart, text.size()) : 0;
+    const int to = windowed
+        ? std::min<int>({ windowEnd, int(text.size()), from + kMaxWindowChars })
+        : -1;
 
-    forEachWord(text, [&](int start, int length) {
-        // The caret anywhere in the word, including either edge, means it is
-        // still being typed.
-        if (cursorPosition >= start && cursorPosition <= start + length)
-            return;
-        if (!skipRanges.isEmpty() && overlapsAnyRange(start, length, skipRanges))
-            return;
-        if (wordIsCorrect(text.mid(start, length)))
-            return;
-        out.append(QVariantMap{
-            { QStringLiteral("start"), start },
-            { QStringLiteral("length"), length },
-        });
-    });
+    forEachWord(
+        text,
+        [&](int start, int length) {
+            if (out.size() >= kMaxReportedRanges)
+                return;
+            // The caret anywhere in the word, including either edge, means it
+            // is still being typed.
+            if (cursorPosition >= start && cursorPosition <= start + length)
+                return;
+            if (!skipRanges.isEmpty() && overlapsAnyRange(start, length, skipRanges))
+                return;
+            if (wordIsCorrect(text.mid(start, length)))
+                return;
+            out.append(QVariantMap{
+                { QStringLiteral("start"), start },
+                { QStringLiteral("length"), length },
+            });
+        },
+        from, to);
     return out;
 }
 
@@ -415,36 +808,120 @@ QVariantMap SpellChecker::wordAt(const QString &text, int position) const
         { QStringLiteral("start"), -1 },
         { QStringLiteral("length"), 0 },
     };
-    if (text.isEmpty() || text.size() > kMaxCheckedChars)
+    if (text.isEmpty() || text.size() > kMaxScannedChars || position < 0)
         return out;
-    forEachWord(text, [&](int start, int length) {
-        if (position < start || position > start + length)
-            return;
-        // At a boundary between two words, the first wins.
-        if (out.value(QStringLiteral("start")).toInt() >= 0)
-            return;
-        out[QStringLiteral("word")] = text.mid(start, length);
-        out[QStringLiteral("start")] = start;
-        out[QStringLiteral("length")] = length;
-    });
+    // Only the chunk around `position` matters; the window keeps a long draft
+    // cheap.
+    forEachWord(
+        text,
+        [&](int start, int length) {
+            if (position < start || position > start + length)
+                return;
+            // At a boundary between two words, the first wins.
+            if (out.value(QStringLiteral("start")).toInt() >= 0)
+                return;
+            out[QStringLiteral("word")] = text.mid(start, length);
+            out[QStringLiteral("start")] = start;
+            out[QStringLiteral("length")] = length;
+        },
+        std::max(0, position - 1), position + 1);
     return out;
 }
 
 QStringList SpellChecker::suggestions(const QString &word) const
 {
-    if (!m_backend || word.isEmpty())
+    if (m_backends.empty() || word.isEmpty())
         return {};
-    return m_backend->suggest(word);
+    std::vector<QStringList> lists;
+    for (const auto &b : m_backends)
+        lists.push_back(b->suggest(word));
+    // Interleaved: each language's best guess before anyone's second.
+    QStringList out;
+    for (int rank = 0; out.size() < 16; ++rank) {
+        bool any = false;
+        for (const QStringList &list : lists) {
+            if (rank >= list.size())
+                continue;
+            any = true;
+            if (!out.contains(list.at(rank)))
+                out << list.at(rank);
+            if (out.size() >= 16)
+                break;
+        }
+        if (!any)
+            break;
+    }
+    return out;
+}
+
+QStringList SpellChecker::personalWords() const
+{
+    QStringList out(m_personal.cbegin(), m_personal.cend());
+    out.sort(Qt::CaseInsensitive);
+    return out;
+}
+
+void SpellChecker::setPersonalDictionaryPath(const QString &path)
+{
+    m_personalPath = path;
+    QSet<QString> loaded;
+    if (!path.isEmpty()) {
+        QFile file(path);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            // Bounded: a hand-edited or corrupt file cannot balloon memory.
+            while (!file.atEnd() && loaded.size() < kMaxPersonalWords) {
+                const QByteArray line = file.readLine();
+                if (line.size() > 256)
+                    continue; // not a word
+                const QString word = normalizedWord(QString::fromUtf8(line));
+                if (!word.isEmpty() && !word.startsWith(QLatin1Char('#')))
+                    loaded.insert(word);
+            }
+        }
+    }
+    m_personal = loaded;
+    Q_EMIT personalDictionaryChanged();
+    Q_EMIT dictionaryChanged();
+}
+
+void SpellChecker::savePersonalDictionary() const
+{
+    if (m_personalPath.isEmpty())
+        return;
+    QDir().mkpath(QFileInfo(m_personalPath).absolutePath());
+    QSaveFile file(m_personalPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+        return;
+    QByteArray body;
+    for (const QString &word : personalWords())
+        body += word.toUtf8() + '\n';
+    file.write(body);
+    file.commit();
 }
 
 void SpellChecker::addToDictionary(const QString &word)
 {
-    if (!m_backend || word.isEmpty())
+    const QString normalized = normalizedWord(word);
+    if (normalized.isEmpty() || normalized.contains(QLatin1Char('\n'))
+        || m_personal.contains(normalized)
+        || m_personal.size() >= kMaxPersonalWords) {
         return;
-    m_backend->addToPersonalDictionary(word);
-    // Clear the whole cache: some backends normalise case, so the stale entry
-    // may be keyed differently.
+    }
+    m_personal.insert(normalized);
+    savePersonalDictionary();
+    m_cache.remove(normalized);
+    Q_EMIT personalDictionaryChanged();
+    Q_EMIT dictionaryChanged();
+}
+
+void SpellChecker::removeFromDictionary(const QString &word)
+{
+    if (!m_personal.remove(normalizedWord(word)))
+        return;
+    savePersonalDictionary();
+    // Every cached answer about it, any case, is stale.
     m_cache.clear();
+    Q_EMIT personalDictionaryChanged();
     Q_EMIT dictionaryChanged();
 }
 
@@ -455,4 +932,199 @@ void SpellChecker::ignoreWord(const QString &word)
     m_ignored.insert(word);
     m_cache.remove(word);
     Q_EMIT dictionaryChanged();
+}
+
+void SpellChecker::rejectAutocorrection(const QString &original)
+{
+    if (!original.isEmpty())
+        m_rejectedCorrections.insert(original);
+}
+
+bool SpellChecker::onlyEnglishActive() const
+{
+    if (m_backends.empty())
+        return false;
+    for (const auto &b : m_backends)
+        if (!isEnglish(b->language()))
+            return false;
+    return true;
+}
+
+bool SpellChecker::anyEnglishActive() const
+{
+    for (const auto &b : m_backends)
+        if (isEnglish(b->language()))
+            return true;
+    return false;
+}
+
+// `replacement` when every word in it is accepted, else "".
+QString SpellChecker::acceptedOrEmpty(const QString &replacement) const
+{
+    if (replacement.isEmpty())
+        return {};
+    const QStringList parts = replacement.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    for (const QString &part : parts) {
+        bool accepted = false;
+        for (const auto &b : m_backends) {
+            ++m_lookups;
+            if (b->isCorrect(part)) {
+                accepted = true;
+                break;
+            }
+        }
+        if (!accepted)
+            return {};
+    }
+    return replacement;
+}
+
+QVariantMap SpellChecker::autocorrection(const QString &text, int boundary,
+                                         const QVariantList &skipRanges) const
+{
+    if (m_backends.empty() || !m_enabled || !m_autocorrect)
+        return {};
+    if (boundary <= 0 || boundary >= text.size() || text.size() > kMaxCheckedChars)
+        return {};
+    if (!isAutocorrectBoundary(text.at(boundary)))
+        return {};
+    // A /command's arguments are not prose.
+    if (QStringView(text).trimmed().startsWith(QLatin1Char('/')))
+        return {};
+
+    auto result = [](int start, const QString &original, const QString &replacement) {
+        return QVariantMap{
+            { QStringLiteral("start"), start },
+            { QStringLiteral("length"), original.size() },
+            { QStringLiteral("original"), original },
+            { QStringLiteral("replacement"), replacement },
+        };
+    };
+
+    // A lone "i" is a single letter, which forEachWord never reports.
+    const int iAt = boundary - 1;
+    if (text.at(iAt) == u'i' && (iAt == 0 || text.at(iAt - 1).isSpace())) {
+        if (!onlyEnglishActive() || m_rejectedCorrections.contains(QStringLiteral("i"))
+            || (!skipRanges.isEmpty() && overlapsAnyRange(iAt, 1, skipRanges))) {
+            return {};
+        }
+        // Inside code or a link destination it stays as typed.
+        const Exclusions excluded(excludedSpans(text));
+        if (excluded.overlaps(iAt, 1))
+            return {};
+        return result(iAt, QStringLiteral("i"), QStringLiteral("I"));
+    }
+
+    // The word ending exactly at the boundary, through the same rules as the
+    // underline (so code, URLs, mentions, shortcodes are never touched).
+    int start = -1;
+    int length = 0;
+    int chunkStart = boundary;
+    while (chunkStart > 0 && !text.at(chunkStart - 1).isSpace())
+        --chunkStart;
+    forEachWord(
+        text,
+        [&](int s, int l) {
+            if (s + l == boundary) {
+                start = s;
+                length = l;
+            }
+        },
+        chunkStart, boundary);
+    if (start < 0)
+        return {};
+    if (!skipRanges.isEmpty() && overlapsAnyRange(start, length, skipRanges))
+        return {};
+    const QString original = text.mid(start, length);
+    if (m_rejectedCorrections.contains(original) || wordIsCorrect(original))
+        return {};
+    const CasePattern pattern = casePatternOf(original);
+    if (pattern == CasePattern::Other)
+        return {};
+    const QString lower = original.toLower();
+
+    // 1. The English typo table. A typographic apostrophe (macOS and phone
+    // keyboards type U+2019) matches the table's ASCII one and is kept.
+    if (anyEnglishActive()) {
+        const bool curly = lower.contains(QChar(0x2019));
+        QString key = lower;
+        key.replace(QChar(0x2019), QLatin1Char('\''));
+        const auto hit = englishTypos().constFind(key);
+        if (hit != englishTypos().constEnd()) {
+            QString fix = withCasePattern(hit.value(), pattern);
+            if (acceptedOrEmpty(fix).isEmpty())
+                fix.clear();
+            if (curly)
+                fix.replace(QLatin1Char('\''), QChar(0x2019));
+            if (!fix.isEmpty())
+                return result(start, original, fix);
+        }
+    }
+
+    // 2. The platform's own autocorrect, when it has one.
+    bool native = false;
+    for (const auto &b : m_backends) {
+        if (!b->hasNativeAutoCorrection())
+            continue;
+        native = true;
+        const QString fix = b->autoCorrection(original);
+        if (!fix.isEmpty() && fix != original)
+            return result(start, original, fix);
+    }
+    if (native)
+        return {}; // the platform said no; do not second-guess it
+
+    // 3. Only an adjacent transposition ("wrold" -> "world"), only for an
+    // all-lowercase word, and only when exactly ONE swap of two neighbouring
+    // letters gives a word the dictionaries accept. Deliberately narrow (lead
+    // decision, review round 1): measured with a real en_US dictionary, the
+    // engine's best one-edit suggestion turns haha into aha, async into sync,
+    // hmmm into hmm and lolz into loll, and a Capitalised word is usually a
+    // name (Lukas, Matrixy). Checked with isCorrect() -- never suggest(),
+    // which costs 18-200 ms per dictionary on the GUI thread -- and the answer,
+    // "none" included, is cached per lowercase word until the dictionaries
+    // change.
+    if (pattern != CasePattern::Lower || length < 4 || length > 24)
+        return {};
+    const QString replacement = transpositionFor(lower);
+    if (replacement.isEmpty())
+        return {};
+    return result(start, original, replacement);
+}
+
+QString SpellChecker::transpositionFor(const QString &lower) const
+{
+    const auto cached = m_transpositionCache.constFind(lower);
+    if (cached != m_transpositionCache.constEnd())
+        return cached.value();
+    QString candidate;
+    bool ambiguous = false;
+    for (int i = 0; i + 1 < lower.size() && !ambiguous; ++i) {
+        if (lower.at(i) == lower.at(i + 1))
+            continue;
+        QString swapped = lower;
+        swapped[i] = lower.at(i + 1);
+        swapped[i + 1] = lower.at(i);
+        if (swapped == candidate)
+            continue;
+        bool accepted = false;
+        for (const auto &b : m_backends) {
+            ++m_lookups;
+            if (b->isCorrect(swapped)) {
+                accepted = true;
+                break;
+            }
+        }
+        if (!accepted)
+            continue;
+        if (candidate.isEmpty())
+            candidate = swapped;
+        else
+            ambiguous = true;
+    }
+    const QString answer = ambiguous ? QString() : candidate;
+    if (m_transpositionCache.size() >= kMaxTranspositionCache)
+        m_transpositionCache.clear();
+    m_transpositionCache.insert(lower, answer);
+    return answer;
 }

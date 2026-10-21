@@ -105,6 +105,8 @@ Requires:       %{gst_element vp8enc}
 Requires:       %{gst_element autoaudiosrc}
 Requires:       %{gst_element pipewiresrc}
 Recommends:     libenchant-2.so.2()(%{__isa_bits}bit)
+Recommends:     libhunspell-1.7.so.0()(%{__isa_bits}bit)
+Recommends:     (hunspell-en-US or myspell-en_US)
 
 %global qml_module() (qt6qml(%1) or qt6qmlimport(%1))
 Requires:       %{qml_module QtQuick}

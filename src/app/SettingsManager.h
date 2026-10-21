@@ -418,6 +418,14 @@ class SettingsManager : public QObject
                    WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
     Q_PROPERTY(QString spellCheckLanguage READ spellCheckLanguage
                    WRITE setSpellCheckLanguage NOTIFY spellCheckLanguageChanged)
+    // Languages checked as well as spellCheckLanguage (BCP-47 tags).
+    Q_PROPERTY(QStringList spellCheckExtraLanguages READ spellCheckExtraLanguages
+                   WRITE setSpellCheckExtraLanguages
+                   NOTIFY spellCheckExtraLanguagesChanged)
+    // Autocorrect: 0 = the platform's default (SpellChecker::
+    // autocorrectDefault), 1 = on, 2 = off. Any other stored value reads as 0.
+    Q_PROPERTY(int autocorrectMode READ autocorrectMode WRITE setAutocorrectMode
+                   NOTIFY autocorrectModeChanged)
     // Composer: text typed alongside an attachment is sent as its caption
     // rather than as a separate message. Device-global.
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
@@ -977,6 +985,10 @@ public:
     void setSpellCheckEnabled(bool enabled);
     QString spellCheckLanguage() const;
     void setSpellCheckLanguage(const QString &tag);
+    QStringList spellCheckExtraLanguages() const;
+    void setSpellCheckExtraLanguages(const QStringList &tags);
+    int autocorrectMode() const;
+    void setAutocorrectMode(int mode);
     void setComposerMode(const QString &mode);
     bool sendTextAsCaption() const;
     void setSendTextAsCaption(bool v);
@@ -1346,6 +1358,8 @@ Q_SIGNALS:
     void composerModeChanged();
     void spellCheckEnabledChanged();
     void spellCheckLanguageChanged();
+    void spellCheckExtraLanguagesChanged();
+    void autocorrectModeChanged();
     void sendTextAsCaptionChanged();
     void imageMetadataModeChanged();
     void emojiShortcodeAutoConvertChanged();

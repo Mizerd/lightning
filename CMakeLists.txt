@@ -1140,6 +1140,7 @@ set(APP_QML_FILES
     qml/RoomActivityDelegate.qml
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
+    qml/SpellAutocorrect.qml
     qml/MentionPopup.qml
     qml/SlashCommandPopup.qml
     qml/RoomUpgradeDialog.qml
@@ -1578,7 +1579,9 @@ function(lightning_configure_qml_test target)
     # The application's QML collector policy (src/app/QmlGcPolicy.h), applied
     # before main() so a test's engines collect the way the app's do.
     target_sources(${target} PRIVATE
-        ${PROJECT_SOURCE_DIR}/tests/QmlGcPolicyInit.cpp)
+        ${PROJECT_SOURCE_DIR}/tests/QmlGcPolicyInit.cpp
+        # A temporary XDG_DATA_HOME, so no suite touches real app data.
+        ${PROJECT_SOURCE_DIR}/tests/HermeticDataHome.cpp)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     else()
@@ -7164,6 +7167,26 @@ set(LIGHTNING_SPELL_SOURCES
 if(APPLE)
     enable_language(OBJCXX)
     list(APPEND LIGHTNING_SPELL_SOURCES src/text/SpellBackendMac.mm)
+endif()
+# Linux: where Hunspell and its dictionaries live when the platform has no
+# global library path (Nix passes store paths; see nix/package.nix). Both are
+# optional: empty means "search the usual places" (SpellBackend.cpp).
+set(LIGHTNING_HUNSPELL_LIBRARY "" CACHE STRING
+    "Absolute path of libhunspell-1.7.so.0 to try before the soname (Nix)")
+set(LIGHTNING_SPELL_DICTIONARY_DIRS "" CACHE STRING
+    "Colon-separated Hunspell dictionary directories shipped with this build")
+set(_lightning_spell_defs "")
+if(LIGHTNING_HUNSPELL_LIBRARY)
+    list(APPEND _lightning_spell_defs
+        "LIGHTNING_HUNSPELL_LIBRARY=\"${LIGHTNING_HUNSPELL_LIBRARY}\"")
+endif()
+if(LIGHTNING_SPELL_DICTIONARY_DIRS)
+    list(APPEND _lightning_spell_defs
+        "LIGHTNING_SPELL_DICTIONARY_DIRS=\"${LIGHTNING_SPELL_DICTIONARY_DIRS}\"")
+endif()
+if(_lightning_spell_defs)
+    set_source_files_properties(src/text/SpellBackend.cpp PROPERTIES
+        COMPILE_DEFINITIONS "${_lightning_spell_defs}")
 endif()
 target_sources(lightning-matrix PRIVATE ${LIGHTNING_SPELL_SOURCES})
 if(APPLE)

@@ -97,6 +97,15 @@ set -e
 assert_image_formats AppImage dist/appimage-image-format-status.txt \
     "$image_format_status" jxl
 
+# Spell checking: libhunspell and the dictionaries ride in the bundle, so it
+# must work without anything from the host (the "bundled" lines).
+set +e
+( cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen "$ROOT/$app" --spell-selftest ) \
+    > dist/appimage-spell-selftest.txt 2>&1
+spell_selftest_status=$?
+set -e
+assert_spell_selftest AppImage dist/appimage-spell-selftest.txt "$spell_selftest_status" bundled
+
 # Payload audit on the extracted squashfs.
 audit=$(mktemp -d)
 desktop_home=$(mktemp -d)

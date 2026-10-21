@@ -181,6 +181,16 @@ set -e
 # default, and zypper is asked to above.
 assert_image_formats RPM "$ROOT/dist/rpm-image-format-status.txt" "$image_format_status" jxl
 
+# Spell checking: Fedora's enchant2 pulls hunspell and hunspell-en-US; on
+# openSUSE the spec's Recommends (libhunspell + myspell-en_US) do, and zypper
+# is asked for Recommends above. English must work on a stock install.
+set +e
+(cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --spell-selftest) \
+    >"$ROOT/dist/rpm-spell-selftest.txt" 2>&1
+spell_selftest_status=$?
+set -e
+assert_spell_selftest RPM "$ROOT/dist/rpm-spell-selftest.txt" "$spell_selftest_status" system
+
 # The generated build-only key header must never ship inside the package.
 if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/rpm-contents.txt"; then
     die "RPM contains the generated GIF build-key header"

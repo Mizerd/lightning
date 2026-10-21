@@ -81,6 +81,17 @@ run_image_format_status() {
     done
 }
 
+# Spell checking uses Windows' own ISpellChecker, which Wine does not provide,
+# so at most "compiled in" (the build found <spellcheck.h>) can be asserted
+# here; the engine itself is a live Windows check. WARN-ONLY until the flag has
+# been seen to run under Wine in a rehearsal pipeline (a required entry comes
+# second); then promote `warn` to `compiled` -- see assert_spell_selftest.
+run_spell_selftest() {
+    local exe="$1" log="$2" status=0
+    timeout 60s wine64 "$exe" --spell-selftest >"$log" 2>&1 || status=$?
+    assert_spell_selftest "Windows (wine)" "$log" "$status" warn
+}
+
 run_version() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --version >"$log" 2>&1
@@ -179,6 +190,8 @@ run_call_sounds_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-call-sounds-status.log"
 run_image_format_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-image-format-status.log"
+run_spell_selftest "$STAGE/Lightning.exe" \
+    "$REPORTS/wine-portable-spell-selftest.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
 if [[ "$gif_embedded" == "true" ]]; then
     run_gif_status "$STAGE/Lightning.exe" "$REPORTS/wine-portable-gif-status.log"

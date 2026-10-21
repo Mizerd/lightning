@@ -4,7 +4,8 @@
 //
 // Used only from the thread that created it (the GUI thread).
 //
-// Written against the documented AppKit API; not yet exercised on macOS.
+// Written against the documented AppKit API; not yet exercised on macOS
+// (`--spell-selftest` in the macOS package job is the first run).
 
 #include "text/SpellBackend.h"
 
@@ -114,13 +115,25 @@ public:
         return out;
     }
 
-    void addToPersonalDictionary(const QString &word) override
+    // AppKit's own autocorrection: the replacement macOS itself would make
+    // as you type in a native text field, or nil.
+    QString autoCorrection(const QString &word) const override
     {
         @autoreleasepool {
-            // The user's own learned words, shared with every Mac app.
-            [[NSSpellChecker sharedSpellChecker] learnWord:word.toNSString()];
+            NSSpellChecker *checker = [NSSpellChecker sharedSpellChecker];
+            NSString *text = word.toNSString();
+            NSString *language = m_nsLanguage ? m_nsLanguage : [checker language];
+            if (language == nil)
+                return {};
+            NSString *correction =
+                [checker correctionForWordRange:NSMakeRange(0, text.length)
+                                       inString:text
+                                       language:language
+                         inSpellDocumentWithTag:m_tag];
+            return fromNSString(correction);
         }
     }
+    bool hasNativeAutoCorrection() const override { return true; }
 
     QString language() const override { return m_language; }
     QStringList availableLanguages() const override { return m_languages; }
@@ -149,4 +162,15 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
         return {};
     }
     return backend;
+}
+
+bool platformSpellEngineCompiledIn() { return true; }
+
+// macOS autocorrects every native text field when "Correct spelling
+// automatically" is on (the default); Lightning's own default follows it.
+bool platformAutocorrectDefault()
+{
+    @autoreleasepool {
+        return [NSSpellChecker isAutomaticSpellingCorrectionEnabled];
+    }
 }

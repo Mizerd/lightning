@@ -114,6 +114,8 @@ constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kComposerMode        = "composer/mode";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
 constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
+constexpr auto kSpellExtraLanguages = "composer/spellExtraLanguages";
+constexpr auto kAutocorrectMode     = "composer/autocorrect";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
 constexpr auto kImageMetadataMode   = "composer/imageMetadataMode";
 constexpr auto kEmojiShortcodeAutoConvert = "composer/emojiShortcodeAutoConvert";
@@ -4052,6 +4054,55 @@ void SettingsManager::setSpellCheckLanguage(const QString &tag)
     else
         m_store->setValue(kSpellCheckLanguage, normalized);
     Q_EMIT spellCheckLanguageChanged();
+}
+
+QStringList SettingsManager::spellCheckExtraLanguages() const
+{
+    QStringList out;
+    const QStringList stored = m_store->value(kSpellExtraLanguages).toStringList();
+    for (const QString &tag : stored) {
+        const QString trimmed = tag.trimmed();
+        if (!trimmed.isEmpty() && !out.contains(trimmed) && out.size() < 16)
+            out << trimmed;
+    }
+    return out;
+}
+
+void SettingsManager::setSpellCheckExtraLanguages(const QStringList &tags)
+{
+    QStringList normalized;
+    for (const QString &tag : tags) {
+        const QString trimmed = tag.trimmed();
+        if (!trimmed.isEmpty() && !normalized.contains(trimmed) && normalized.size() < 16)
+            normalized << trimmed;
+    }
+    if (spellCheckExtraLanguages() == normalized)
+        return;
+    if (normalized.isEmpty())
+        m_store->remove(kSpellExtraLanguages);
+    else
+        m_store->setValue(kSpellExtraLanguages, normalized);
+    Q_EMIT spellCheckExtraLanguagesChanged();
+}
+
+int SettingsManager::autocorrectMode() const
+{
+    // An enum, not a quantity: a value a newer build wrote falls back to the
+    // default rather than being clamped onto a neighbour.
+    const int mode = m_store->value(kAutocorrectMode, 0).toInt();
+    return (mode == 1 || mode == 2) ? mode : 0;
+}
+
+void SettingsManager::setAutocorrectMode(int mode)
+{
+    const int normalized = (mode == 1 || mode == 2) ? mode : 0;
+    if (autocorrectMode() == normalized)
+        return;
+    if (normalized == 0)
+        m_store->remove(kAutocorrectMode);
+    else
+        m_store->setValue(kAutocorrectMode, normalized);
+    Q_EMIT autocorrectModeChanged();
 }
 
 bool SettingsManager::sendTextAsCaption() const

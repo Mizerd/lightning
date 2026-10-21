@@ -198,6 +198,102 @@ _queue_selftest_soft_complain() {
     printf '  FAIL: %s\n' "$1" >&2
 }
 
+# --- spell checking ----------------------------------------------------------
+#
+# Judges a `--spell-selftest` transcript. The engines are dlopen'd (Linux) or
+# OS services (Windows, macOS) and the dictionaries are data, so only the
+# shipped artifact can say whether spelling works; a build that compiled is no
+# evidence. The command prints yes/no lines, two counts and one VERDICT:
+#
+#   VERDICT: pass         an English dictionary rejected "teh", accepted correct
+#                         words, suggested "the" and autocorrected "teh "; on
+#                         Linux EVERY dictionary bundled in the package opened
+#   VERDICT: fail         an engine and a dictionary loaded, and one of those
+#                         answers was wrong
+#   VERDICT: unavailable  no engine (not compiled in, or not loadable here)
+#
+#   $1  format label
+#   $2  path to the captured combined output
+#   $3  the command's exit status
+#   $4  mode:
+#       bundled   AppImage, Snap, Flatpak: pass required, AND every bundled
+#                 dictionary must open ("bundled languages usable: N/N") and
+#                 the ISO-8859-13 Lithuanian one must answer correctly
+#       system    deb, rpm: pass required; dictionaries come through the
+#                 package's dependencies
+#       compiled  only "spell engine compiled in: yes" is required (Windows
+#                 under Wine has no spell service, so nothing else can be)
+#       warn      nothing is required; every problem, a missing transcript or
+#                 VERDICT included, is a WARNING. For a platform whose first
+#                 run has not been seen yet: macOS (NSSpellChecker never
+#                 exercised) and Windows under Wine (the flag never run there).
+#
+# A required entry comes SECOND (CLAUDE.md §16, pipeline 224): a check is
+# promoted only after it has passed once.
+# TO PROMOTE Windows: once a non-publishing rehearsal pipeline shows
+# `spell engine compiled in: yes` and a VERDICT line in
+# reports/wine-portable-spell-selftest.log, change `warn` to `compiled` in
+# smoke-windows-wine.sh (run_spell_selftest). TO PROMOTE macOS: once the macOS
+# package job's reports/spell-selftest.txt shows `VERDICT: pass`, change `warn`
+# to `system` in validate-macos-artifacts.sh. See docs/spell-checking.md.
+assert_spell_selftest() {
+    local label="$1" log="$2" status="$3" mode="$4"
+    local complain=die
+    [[ "$mode" == warn ]] && complain=_spell_selftest_warn
+    case "$mode" in bundled|system|compiled|warn) ;; *) die "assert_spell_selftest: unknown mode '$mode'" ;; esac
+    if [[ ! -s "$log" ]]; then
+        $complain "$label: --spell-selftest produced no output at all (an older source has no such flag; the app and the packaging must land together)"
+        return 0
+    fi
+    cat "$log"
+    local clean verdict
+    clean="$(tr -d '\r' <"$log")"
+    verdict="$(grep -m1 '^VERDICT: ' <<<"$clean" | awk '{print $2}')"
+    if [[ -z "$verdict" ]]; then
+        $complain "$label: --spell-selftest printed no VERDICT line -- it crashed, hung or is an older build. The transcript is above."
+        return 0
+    fi
+    if ! grep -qx 'spell engine compiled in: yes' <<<"$clean"; then
+        $complain "$label: this build has no spelling engine compiled in at all (Windows: built without <spellcheck.h>)"
+        return 0
+    fi
+    case "$mode" in
+    compiled)
+        echo "$label: spelling engine compiled in; verdict '$verdict' not asserted here (no spell service under Wine)"
+        return 0
+        ;;
+    warn)
+        [[ "$verdict" == pass ]] || \
+            _spell_selftest_warn "$label: --spell-selftest VERDICT: $verdict (exit $status). The transcript is above."
+        return 0
+        ;;
+    bundled)
+        grep -qx 'bundled dictionaries present: yes' <<<"$clean" || \
+            die "$label: the package carries no dictionaries of its own, so on a host without them nothing is checked"
+        grep -qx 'bundled english dictionary works: yes' <<<"$clean" || \
+            die "$label: the bundled dictionaries are present but Hunspell could not use them (library missing, unreadable or wrongly encoded files)"
+        local usable
+        usable="$(grep -m1 '^bundled languages usable: ' <<<"$clean" | awk '{print $4}')"
+        [[ "$usable" =~ ^([0-9]+)/([0-9]+)$ ]] || \
+            die "$label: --spell-selftest did not report how many bundled dictionaries open"
+        (( BASH_REMATCH[2] >= 13 )) || \
+            die "$label: only ${BASH_REMATCH[2]} bundled languages were found; the package bundles 13 (English and every UI language with a Hunspell dictionary)"
+        [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] || \
+            die "$label: only $usable bundled dictionaries open; a dictionary this Qt cannot convert (an 8-bit encoding without ICU) is shipped but dead"
+        grep -qx 'bundled lithuanian dictionary works: yes' <<<"$clean" || \
+            die "$label: the bundled Lithuanian dictionary (ISO-8859-13) does not answer correctly"
+        ;;
+    esac
+    [[ "$verdict" == pass && "$status" == 0 ]] || \
+        die "$label: --spell-selftest VERDICT: $verdict (exit $status): spelling does not work in this package. The transcript above names the step that failed."
+    echo "$label: spell check self-test VERDICT: pass"
+}
+
+_spell_selftest_warn() {
+    echo "WARNING: $1" >&2
+    echo "WARNING: not yet a gate on this platform -- see assert_spell_selftest in lib.sh for how it is promoted." >&2
+}
+
 # --- the call sounds ---------------------------------------------------------
 #
 # Judges a `--call-sounds-status` transcript for every format. Warn-only:
