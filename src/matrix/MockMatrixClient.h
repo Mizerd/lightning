@@ -314,8 +314,13 @@ public:
     { m_filteredPaginationPages = pages; }
     // Startup-lifecycle hooks: hold restoration open long enough to assert on
     // it, or reject the next restore like an expired session.
+    // A negative delay answers inside restoreSession() itself, as the Rust
+    // backend does for a restore it refuses before dispatching (a keyring
+    // that cannot answer, an unresolvable record).
     void setRestoreDelayForTest(int ms) { m_restoreDelayMs = ms; }
-    void failNextRestoreForTest() { m_failNextRestore = true; }
+    void failNextRestoreForTest() { m_failRestoresLeft = 1; }
+    void failRestoresForTest(int count) { m_failRestoresLeft = count; }
+    int restoreCallsForTest() const { return m_restoreCalls; }
 
     // Read-receipt avatar hooks: serve avatar bytes through the real
     // MediaBridge -> MediaImageProvider path without the demo scene, and
@@ -391,7 +396,8 @@ private:
     /// lastPaginationFullyFiltered() like the Rust backend.
     QSet<QString> m_lastPaginationFiltered;
     int m_restoreDelayMs = 0;
-    bool m_failNextRestore = false;
+    int m_failRestoresLeft = 0;
+    int m_restoreCalls = 0;
 
     // Read-receipt-chip avatar hooks (see the public ForTest setters).
     bool m_mediaBridgeSupportedForTest = false;

@@ -182,6 +182,13 @@ class AppController : public QObject
     //
     // The identity is captured at detection time: during an add-account
     // attempt the settings' active account is still the previous one.
+    // Whether auth.lastError is the text of the failure that raised (or
+    // re-raised) the repair card, which the card already explains. Any other
+    // error (a redirect, a refused address, a wrong password for another
+    // account) is shown beside the card. Kept here, not in LoginScreen, so it
+    // survives the Loader rebuilding that screen.
+    Q_PROPERTY(bool signInErrorExplainedByCard READ signInErrorExplainedByCard
+               NOTIFY signInErrorExplainedByCardChanged)
     Q_PROPERTY(QString localSessionFailureReasonCode
                READ localSessionFailureReasonCode
                NOTIFY localSessionFailureChanged)
@@ -628,6 +635,7 @@ public:
     // or a completed repair).
     void clearLocalSessionFailure()
     { setLocalSessionFailure(QString{}, QString{}, QString{}); }
+    bool signInErrorExplainedByCard() const;
     QString localSessionFailureReasonCode() const
     { return m_localSessionFailureReason; }
     QString localSessionFailureUserId() const
@@ -852,7 +860,9 @@ public:
 public Q_SLOTS:
     void setCurrentRoomId(const QString &roomId);
     void showLogin();
-    void showMain();
+    // False when it stayed on the sign-in screen: the return-to restore failed
+    // before it could leave, and the shell would have had no session.
+    bool showMain();
     void showSettings();
     void openRoom(const QString &roomId);
     // A room link (matrix.to or matrix: URI) activated in the app. Routed to
@@ -1317,6 +1327,7 @@ Q_SIGNALS:
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
     void localSessionFailureChanged();
+    void signInErrorExplainedByCardChanged();
     // Once per requestRecoverFromBackup call. `state`: "attempted", "ok" or
     // "failed"; `message` is non-secret failure detail, never key material.
     void recoveryStateChanged(const QString &state, const QString &message);
@@ -1594,6 +1605,19 @@ private:
     // True while the previous account restores after a failed add-account
     // attempt, so its loginSucceeded does not leave the login screen.
     bool m_backgroundRestore = false;
+    // A repair card raised in the current call stack: every backend raises it
+    // and then sends that failure's loginFailed in the same call, so the
+    // failure handler reads it to know the error is the card's own. Cleared
+    // by a zero timer; the serial keeps an older timer from clearing a newer
+    // raise.
+    bool m_localSessionRaiseInFlight = false;
+    quint64 m_localSessionRaiseSerial = 0;
+    // The failure text that came with the card (empty when the last failure
+    // raised none).
+    QString m_cardExplainedError;
+    // Every loginFailed seen, so showMain() can tell its restore failed
+    // before returning.
+    quint64 m_loginFailures = 0;
 
     // Order matters: SecretStore is constructed first so SettingsManager can
     // be wired to it before any code touches accessToken() / hasSession().

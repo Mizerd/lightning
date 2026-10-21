@@ -110,10 +110,11 @@ class FakeSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString loginHomeserverPrefill MEMBER prefill NOTIFY prefillChanged)
-    Q_PROPERTY(bool settingsReadProblem MEMBER readProblem NOTIFY readProblemChanged)
+    // SettingsManager::SettingsReadProblem: 0 none, 1 unreadable, 2 accounts missing.
+    Q_PROPERTY(int settingsReadProblem MEMBER readProblem NOTIFY readProblemChanged)
 public:
     QString prefill = QStringLiteral("https://example.org");
-    bool readProblem = false;
+    int readProblem = 0;
 Q_SIGNALS:
     void prefillChanged();
     void readProblemChanged();
@@ -136,6 +137,10 @@ class FakeApp : public QObject
                    NOTIFY localSessionFailureChanged)
     Q_PROPERTY(QStringList accountRemovalLeftovers MEMBER leftovers
                    NOTIFY localSessionFailureChanged)
+    // As AppController: whether the error is the card's own text. This fixture
+    // raises its cards with their errors.
+    Q_PROPERTY(bool signInErrorExplainedByCard MEMBER explainedByCard
+                   NOTIFY localSessionFailureChanged)
 public:
     explicit FakeApp(AuthManager *auth) : m_auth(auth) {}
     QObject *authObject() const { return m_auth; }
@@ -148,11 +153,12 @@ public:
     Q_INVOKABLE bool localResetHelpsFor(const QString &) const { return false; }
     // As AppController: leaving cancels a browser sign-in still waiting,
     // whose backend answers at once.
-    Q_INVOKABLE void showMain()
+    Q_INVOKABLE bool showMain()
     {
         ++mainShown;
         if (m_auth->browserLoginInProgress())
             m_auth->cancelBrowserLogin();
+        return true;
     }
     Q_INVOKABLE void switchToAccount(const QString &userId) { switched.append(userId); }
     Q_INVOKABLE void repairLocalSession() {}
@@ -175,6 +181,7 @@ public:
     QStringList switched;
     QStringList removed;
     QStringList leftovers;
+    bool explainedByCard = true;
     int retries = 0;
     int mainShown = 0;
 
@@ -1013,9 +1020,31 @@ private slots:
     void unreadableSettingsAreSaid()
     {
         QVERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
-        m_app->settings.readProblem = true;
+        m_app->settings.readProblem = 1; // SettingsUnreadable
         Q_EMIT m_app->settings.readProblemChanged();
         QTRY_VERIFY(shown(QStringLiteral("settingsReadProblemNotice")));
+        QVERIFY(text(QStringLiteral("settingsReadProblemText"))
+                    .contains(QStringLiteral("couldn't read its saved settings")));
+        m_app->settings.readProblem = 0;
+        Q_EMIT m_app->settings.readProblemChanged();
+        QTRY_VERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
+    }
+
+    // A settings file that reads fine but lists no account while account data
+    // exists is NOT damage (SettingsManager.h: a sign-in cancelled or killed
+    // before its record was written looks the same), so its notice must not
+    // claim the settings were unreadable. It used the unreadable-file text.
+    void accountDataNoAccountListsIsNotCalledUnreadable()
+    {
+        m_app->settings.readProblem = 2; // AccountsMissing
+        Q_EMIT m_app->settings.readProblemChanged();
+        QTRY_VERIFY(shown(QStringLiteral("settingsReadProblemNotice")));
+        const QString said = text(QStringLiteral("settingsReadProblemText"));
+        QVERIFY2(!said.contains(QStringLiteral("couldn't read")), qPrintable(said));
+        QVERIFY2(said.contains(QStringLiteral("doesn't list")), qPrintable(said));
+        m_app->settings.readProblem = 0;
+        Q_EMIT m_app->settings.readProblemChanged();
+        QTRY_VERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
     }
 
     void noQmlWarnings()

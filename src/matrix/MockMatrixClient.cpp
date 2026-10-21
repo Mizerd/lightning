@@ -15,6 +15,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <functional>
 
 MockMatrixClient::MockMatrixClient(QObject *parent)
     : MatrixClient(parent)
@@ -28,7 +29,7 @@ MockMatrixClient::MockMatrixClient(QObject *parent)
     if (ok && delay >= 0)
         m_restoreDelayMs = delay;
     if (qEnvironmentVariableIsSet("LIGHTNING_MOCK_FAIL_RESTORE"))
-        m_failNextRestore = true;
+        m_failRestoresLeft = 1;
     seedMockData();
 }
 
@@ -89,10 +90,17 @@ bool MockMatrixClient::restoreSession()
     const QString uid = m_settings->userId();
     if (uid.isEmpty())
         return false;
+    ++m_restoreCalls;
     setState(Connecting);
-    if (m_failNextRestore) {
-        m_failNextRestore = false;
-        QTimer::singleShot(m_restoreDelayMs, this, [this] {
+    const auto answer = [this](std::function<void()> fn) {
+        if (m_restoreDelayMs < 0)
+            fn();
+        else
+            QTimer::singleShot(m_restoreDelayMs, this, std::move(fn));
+    };
+    if (m_failRestoresLeft > 0) {
+        --m_failRestoresLeft;
+        answer([this] {
             setState(Error);
             Q_EMIT loginFailed(QStringLiteral("mock: restore rejected"));
         });
@@ -104,7 +112,7 @@ bool MockMatrixClient::restoreSession()
     // preserving the previous account's local mutations.
     if (m_screenshotDemoMode)
         activateDemoAccount(uid);
-    QTimer::singleShot(m_restoreDelayMs, this, [this] {
+    answer([this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
         // Demo presents as "Connected" (see login()); other backends idle.

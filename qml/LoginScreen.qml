@@ -340,12 +340,19 @@ Item {
                 // Nor while the keyring cannot answer and nothing is signed
                 // in: "back" led to a shell reading "Reconnecting" for a
                 // session that had no token to reconnect with.
+                // Nor while the card names the active account and nothing is
+                // signed in (its store is gone, its keyring cannot answer):
+                // "back" can only restore that account, which fails again.
                 AppButton {
                     id: backToAppButton
                     objectName: "backToAppButton"
                     visible: app.accounts && app.accounts.hasActiveAccount
                              && !((app.localSessionFailureReasonCode === "access_token_revoked"
                                    || app.localSessionFailureReasonCode === "access_token_expired")
+                                  && app.localSessionFailureUserId
+                                     === app.accounts.activeUserId)
+                             && !(app.localSessionFailureReasonCode !== ""
+                                  && !app.loggedIn
                                   && app.localSessionFailureUserId
                                      === app.accounts.activeUserId)
                              && !(app.keyringUnavailable === true && !app.loggedIn)
@@ -357,10 +364,12 @@ Item {
                     // waiting, and that cancel's answer would otherwise be
                     // kept through the restore it starts. Held first: leaving
                     // can unload this screen, and its context with it.
+                    // A restore refused at once keeps this screen and its
+                    // error (showMain() returns false).
                     onClicked: {
                         const auth = app.auth
-                        app.showMain()
-                        auth.clearLastError()
+                        if (app.showMain())
+                            auth.clearLastError()
                     }
                 }
 
@@ -402,9 +411,10 @@ Item {
                     }
                 }
 
-                // ── Saved settings could not be read ── The account list lives
-                // in them, so this screen may be showing for an account still
-                // on this computer. Said, never repaired from here. Read
+                // ── Saved settings could not be read, or list no account
+                // while account data exists ── The account list lives in
+                // them, so this screen may be showing for an account still on
+                // this computer. Said, never repaired from here. Read
                 // undefined-safe: an older SettingsManager has no such flag.
                 Rectangle {
                     objectName: "settingsReadProblemNotice"
@@ -420,6 +430,7 @@ Item {
 
                     Label {
                         id: settingsProblemText
+                        objectName: "settingsReadProblemText"
                         x: AppTheme.spacingM
                         y: AppTheme.spacingM
                         width: parent.width - AppTheme.spacingM * 2
@@ -427,9 +438,20 @@ Item {
                         textFormat: Text.PlainText
                         lineHeight: AppTheme.lineHeightBody
                         lineHeightMode: Text.ProportionalHeight
-                        text: qsTr("Lightning couldn't read its saved settings, so "
-                                   + "accounts on this computer may not be listed. "
-                                   + "Their data has not been deleted.")
+                        // SettingsManager::SettingsReadProblem. AccountsMissing (2)
+                        // is NOT damage: a sign-in that never finished, or a
+                        // removal that failed, leaves account data with no
+                        // entry in a file that reads fine, so it must not say
+                        // the settings could not be read.
+                        text: app.settings && app.settings.settingsReadProblem === 2
+                              ? qsTr("Lightning found data on this computer for an "
+                                     + "account it doesn't list, for example from a "
+                                     + "sign-in that didn't finish. Sign in to that "
+                                     + "account to use it again. Nothing has been "
+                                     + "deleted.")
+                              : qsTr("Lightning couldn't read its saved settings, so "
+                                     + "accounts on this computer may not be listed. "
+                                     + "Their data has not been deleted.")
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
@@ -917,9 +939,10 @@ Item {
                         objectName: "loginErrorLabel"
                         // A classified reason without a dedicated card (info ===
                         // null) still needs this fallback; only a rendered card
-                        // suppresses it.
+                        // suppresses it, and only the error that card explains.
                         visible: app.auth.lastError !== ""
-                                 && (!repair.active || repair.info === null)
+                                 && (!repair.active || repair.info === null
+                                     || !app.signInErrorExplainedByCard)
                         text: app.auth.lastError
                         // Can carry a server's own error text; never markup.
                         textFormat: Text.PlainText
@@ -1128,7 +1151,8 @@ Item {
                     // browser sign-in's error during the wait included.
                     visible: !passwordForm.visible
                              && app.auth.lastError !== ""
-                             && (!repair.active || repair.info === null)
+                             && (!repair.active || repair.info === null
+                                 || !app.signInErrorExplainedByCard)
                     text: app.auth.lastError
                     textFormat: Text.PlainText
                     color: AppTheme.error

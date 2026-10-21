@@ -5,7 +5,8 @@
 //     menu over the room it had just opened;
 //   * a touch long press opens the room menu and does not open the room;
 //   * a mouse right click still opens the menu;
-//   * every right-button-only TapHandler in qml/ keeps touch out by
+//   * every TapHandler in qml/ that leaves the left button out (right, and
+//     Back/Forward or any other mouse-only button) keeps touch out by
 //     declaring its devices, so a new one cannot bring the bug back.
 
 #include <QtTest/QtTest>
@@ -164,6 +165,66 @@ private:
         QTest::newRow("classic") << 0;
     }
 
+    // Every TapHandler whose acceptedButtons leaves the left button out must
+    // declare acceptedDevices without TouchScreen. TapHandler checks buttons
+    // for mouse events only, so a finger fires every such handler: a
+    // right-button one pops a menu, and a Back/Forward-only one (mouse room
+    // history, D2) would navigate on every tap. Direct properties only:
+    // nested blocks are blanked before the check, so a child's
+    // acceptedDevices cannot satisfy its parent.
+    struct TapHandlerSweep
+    {
+        int rightOnly = 0; // non-left handlers naming the right button
+        int otherOnly = 0; // non-left handlers without it: Back, Forward, ...
+        QList<int> offendingLines; // 1-based
+    };
+    static TapHandlerSweep sweepTapHandlers(const QString &src)
+    {
+        static const QRegularExpression open(QStringLiteral("\\bTapHandler\\s*\\{"));
+        static const QRegularExpression nested(QStringLiteral("\\{[^{}]*\\}"));
+        static const QRegularExpression buttons(
+            QStringLiteral("acceptedButtons\\s*:\\s*([^\\n]+)"));
+        static const QRegularExpression devices(
+            QStringLiteral("acceptedDevices\\s*:\\s*([^\\n]+)"));
+        // Every button but the left one (AllButtons includes it).
+        static const QRegularExpression nonLeft(QStringLiteral(
+            "\\b(RightButton|MiddleButton|MidButton|BackButton|ForwardButton"
+            "|XButton[12]|ExtraButton\\d+|TaskButton)\\b"));
+        TapHandlerSweep out;
+        auto m = open.globalMatch(src);
+        while (m.hasNext()) {
+            const auto hit = m.next();
+            qsizetype i = hit.capturedEnd();
+            int depth = 1;
+            while (depth > 0 && i < src.size()) {
+                if (src.at(i) == u'{')
+                    ++depth;
+                else if (src.at(i) == u'}')
+                    --depth;
+                ++i;
+            }
+            QString flat = src.mid(hit.capturedEnd(), i - 1 - hit.capturedEnd());
+            while (flat.contains(nested))
+                flat.replace(nested, QString());
+            const auto b = buttons.match(flat);
+            if (!b.hasMatch())
+                continue;
+            const QString named = b.captured(1);
+            if (named.contains(QStringLiteral("LeftButton"))
+                || named.contains(QStringLiteral("AllButtons"))
+                || !named.contains(nonLeft))
+                continue;
+            if (named.contains(QStringLiteral("RightButton")))
+                ++out.rightOnly;
+            else
+                ++out.otherOnly;
+            const auto d = devices.match(flat);
+            if (!d.hasMatch() || d.captured(1).contains(QStringLiteral("TouchScreen")))
+                out.offendingLines << int(src.left(hit.capturedStart()).count(u'\n')) + 1;
+        }
+        return out;
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -260,63 +321,86 @@ private Q_SLOTS:
         closeRoomMenus();
     }
 
-    // Every TapHandler whose acceptedButtons names the right button and not
-    // the left must declare acceptedDevices without TouchScreen. Direct
-    // properties only: nested blocks are blanked before the check, so a
-    // child's acceptedDevices cannot satisfy its parent.
-    void everyRightButtonTapHandlerKeepsTouchOut()
+    void everyNonLeftButtonTapHandlerKeepsTouchOut()
     {
         const QString qmlDir = QStringLiteral(QML_DIR);
         QDirIterator it(qmlDir, { QStringLiteral("*.qml") }, QDir::Files,
                         QDirIterator::Subdirectories);
-        static const QRegularExpression open(QStringLiteral("\\bTapHandler\\s*\\{"));
-        static const QRegularExpression nested(QStringLiteral("\\{[^{}]*\\}"));
-        static const QRegularExpression buttons(
-            QStringLiteral("acceptedButtons\\s*:\\s*([^\\n]+)"));
-        static const QRegularExpression devices(
-            QStringLiteral("acceptedDevices\\s*:\\s*([^\\n]+)"));
-        int found = 0;
+        int rightOnly = 0;
+        int otherOnly = 0;
         QStringList offenders;
         while (it.hasNext()) {
             const QString path = it.next();
             QFile f(path);
             QVERIFY(f.open(QIODevice::ReadOnly));
-            const QString src = QString::fromUtf8(f.readAll());
-            auto m = open.globalMatch(src);
-            while (m.hasNext()) {
-                const auto hit = m.next();
-                qsizetype i = hit.capturedEnd();
-                int depth = 1;
-                while (depth > 0 && i < src.size()) {
-                    if (src.at(i) == u'{')
-                        ++depth;
-                    else if (src.at(i) == u'}')
-                        --depth;
-                    ++i;
-                }
-                QString flat = src.mid(hit.capturedEnd(), i - 1 - hit.capturedEnd());
-                while (flat.contains(nested))
-                    flat.replace(nested, QString());
-                const auto b = buttons.match(flat);
-                if (!b.hasMatch() || !b.captured(1).contains(QStringLiteral("RightButton"))
-                    || b.captured(1).contains(QStringLiteral("LeftButton")))
-                    continue;
-                ++found;
-                const auto d = devices.match(flat);
-                if (!d.hasMatch() || d.captured(1).contains(QStringLiteral("TouchScreen"))) {
-                    const int line = int(src.left(hit.capturedStart()).count(u'\n')) + 1;
-                    offenders << QStringLiteral("%1:%2")
-                                     .arg(QFileInfo(path).fileName())
-                                     .arg(line);
-                }
+            const TapHandlerSweep sweep = sweepTapHandlers(QString::fromUtf8(f.readAll()));
+            rightOnly += sweep.rightOnly;
+            otherOnly += sweep.otherOnly;
+            for (int line : sweep.offendingLines) {
+                offenders << QStringLiteral("%1:%2")
+                                 .arg(QFileInfo(path).fileName())
+                                 .arg(line);
             }
         }
-        // Twelve when this was written; a sweep that finds none is broken.
-        QVERIFY2(found >= 10, qPrintable(QStringLiteral("only %1 found").arg(found)));
+        // Twelve right-button handlers when this was written; a sweep that
+        // finds none is broken. Back/Forward ones may legitimately be none
+        // (mouse history is a C++ event filter); the sweep is proven able to
+        // see them by theSweepSeesEveryNonLeftButton below.
+        qInfo() << "non-left TapHandlers: right" << rightOnly << "other" << otherOnly;
+        QVERIFY2(rightOnly >= 10, qPrintable(QStringLiteral("only %1 found").arg(rightOnly)));
         QVERIFY2(offenders.isEmpty(),
-                 qPrintable(QStringLiteral("right-button-only TapHandlers that "
-                                           "touch also fires: ")
+                 qPrintable(QStringLiteral("TapHandlers without the left button "
+                                           "that touch also fires: ")
                             + offenders.join(QStringLiteral(", "))));
+    }
+
+    // The sweep's own rule, on handlers the tree may not contain today. It
+    // checked only right-button handlers before, so a Back/Forward-only
+    // TapHandler with no acceptedDevices passed it while every finger tap
+    // fired it.
+    void theSweepSeesEveryNonLeftButton_data()
+    {
+        QTest::addColumn<QString>("handler");
+        QTest::addColumn<bool>("offends");
+        QTest::newRow("back, no devices")
+            << QStringLiteral("acceptedButtons: Qt.BackButton\n") << true;
+        QTest::newRow("forward, no devices")
+            << QStringLiteral("acceptedButtons: Qt.ForwardButton\n") << true;
+        QTest::newRow("back and forward, no devices")
+            << QStringLiteral("acceptedButtons: Qt.BackButton | Qt.ForwardButton\n") << true;
+        QTest::newRow("extra button, no devices")
+            << QStringLiteral("acceptedButtons: Qt.ExtraButton4\n") << true;
+        QTest::newRow("middle, no devices")
+            << QStringLiteral("acceptedButtons: Qt.MiddleButton\n") << true;
+        QTest::newRow("back, touch screen named")
+            << QStringLiteral("acceptedButtons: Qt.BackButton\n"
+                              "acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen\n")
+            << true;
+        QTest::newRow("back, devices only in a nested block")
+            << QStringLiteral("acceptedButtons: Qt.BackButton\n"
+                              "onTapped: { const acceptedDevices: PointerDevice.Mouse }\n")
+            << true;
+        QTest::newRow("right, no devices")
+            << QStringLiteral("acceptedButtons: Qt.RightButton\n") << true;
+        QTest::newRow("back and forward, mouse and touchpad")
+            << QStringLiteral("acceptedButtons: Qt.BackButton | Qt.ForwardButton\n"
+                              "acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad\n")
+            << false;
+        QTest::newRow("left and back: a tap is meant to fire it")
+            << QStringLiteral("acceptedButtons: Qt.LeftButton | Qt.BackButton\n") << false;
+        QTest::newRow("all buttons")
+            << QStringLiteral("acceptedButtons: Qt.AllButtons\n") << false;
+        QTest::newRow("default buttons")
+            << QStringLiteral("onTapped: root.open()\n") << false;
+    }
+    void theSweepSeesEveryNonLeftButton()
+    {
+        QFETCH(QString, handler);
+        QFETCH(bool, offends);
+        const QString src = QStringLiteral("Item {\n    TapHandler {\n") + handler
+            + QStringLiteral("    }\n}\n");
+        const TapHandlerSweep sweep = sweepTapHandlers(src);
+        QCOMPARE(sweep.offendingLines, offends ? QList<int>{ 2 } : QList<int>{});
     }
 };
 

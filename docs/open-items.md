@@ -424,10 +424,19 @@ before the next release; the full checklist is kept in the maintainer's notes.
 - Once each, not reproduced: a 14 s quit after using the tray, and a 6.7 s GUI
   stall inside the sign-out handlers of a local session end (the same step as
   an account switch; the open account-switch freeze?).
-- Nits: "Add another account" heading on the repair page; "1 members"; the
-  status bar still says "Error" after a removal; Ctrl+, does not focus the
-  settings search; an ended video shows a black card; a redirected sign-in
-  says nothing.
+- Nits, re-checked on 24a485c5 (2026-10-20): the repair-page heading, "1
+  members", the stale "Error" after a removal, Ctrl+, focus and the ended
+  video's black card were FIXED in d1bc1b2e (0.10.0). The redirected sign-in
+  was fixed there only for add-account; with a repair card up it was still
+  silent, because any rendered card hid the sign-in error. Fixed on
+  2026-10-20: an error the card does not explain is shown beside it
+  (`AppController::signInErrorExplainedByCard`). NOT TESTED live.
+  One known residue of the "Error" nit, real and unreachable today: the
+  status text is re-derived from the client's state on a language change
+  (`refreshConnectionStatus`), and after removing an account whose restore
+  failed the client can still be in Error, so a language switch would bring
+  "Error" back. The language is changed only in Settings, which needs a
+  signed-in session, and signing in replaces the client's state first.
 
 **Test harness.** `LoginScreenQmlTest::theFieldsStayPutWhenTheWaysChange`
 fails ONLY under a parallel ctest (rounds o, p, x, y; userField at y 328

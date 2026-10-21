@@ -2651,8 +2651,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // A failed switch falls back to the previous account once, else the login
     // screen. A failed add-account restores the previous account in the
     // background, since the attempt released the shared client's session.
+    connect(m_auth.get(), &AuthManager::lastErrorChanged, this,
+            &AppController::signInErrorExplainedByCardChanged);
+    // A sign-in the user starts (password, browser, add-account) ends any
+    // claim the return-to restore had on the next failure: that failure is
+    // the attempt's, and gets the normal handling below (the return restore
+    // again), never the "return restore failed, do not retry" branch.
+    connect(m_auth.get(), &AuthManager::isLoggingInChanged, this, [this] {
+        if (m_auth->isLoggingIn())
+            m_backgroundRestore = false;
+    });
     connect(m_auth.get(), &AuthManager::loginFailed, this,
             [this](const QString &reason) {
+        ++m_loginFailures;
+        // Did this failure raise the repair card? Then its text is the card's
+        // and the login screen keeps it behind the card; otherwise (the
+        // "already signed in here" redirect, a refused address) it is shown
+        // beside it. First, before anything below can fail again inside this
+        // call and answer for itself.
+        m_cardExplainedError =
+            std::exchange(m_localSessionRaiseInFlight, false) ? reason : QString{};
+        Q_EMIT signInErrorExplainedByCardChanged();
         // showMain() cancelling a browser sign-in left behind: it restores the
         // account to return to itself, so this must not start a second one.
         if (m_abandoningBrowserSignIn)
@@ -2673,7 +2692,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             }
             return;
         }
-        if (!m_addAccountReturnTo.isEmpty() && !m_client->isLoggedIn()
+        if (m_backgroundRestore) {
+            // The return-to restore below failed, synchronously (re-entering
+            // this handler from inside its own restoreSession()) or later.
+            // Starting it again would fail the same way: a keyring that
+            // cannot answer or a store that cannot open recursed until the
+            // stack ran out, and a later failure looped for ever. The card it
+            // raised, or its error, stays on the sign-in screen.
+            qCWarning(lcApp) << "add-account return restore failed — not "
+                                "retrying it";
+            m_backgroundRestore = false;
+        } else if (!m_addAccountReturnTo.isEmpty() && !m_client->isLoggedIn()
             && m_settings->hasSavedAccount(m_addAccountReturnTo)) {
             qCInfo(lcApp) << "add-account attempt failed — restoring"
                           << "slug=" << matrix::app_data::safeUserSlug(
@@ -4674,7 +4703,7 @@ void AppController::showLogin()
     m_composer->setRoomId({});
     setCurrentScreen(LoginScreen);
 }
-void AppController::showMain()
+bool AppController::showMain()
 {
     // An add-account browser sign-in left behind: its loopback listener and
     // the server's page stay live for up to fifteen minutes, and finishing it
@@ -4691,18 +4720,31 @@ void AppController::showMain()
     // Returning from add-account: a failed attempt released the shared
     // client's session, so restore the active account first.
     if (!m_client->isLoggedIn() && !m_accountSwitching) {
-        if (!m_addAccountReturnTo.isEmpty()
-            && m_settings->hasSavedAccount(m_addAccountReturnTo)) {
-            m_settings->setActiveAccountUserId(m_addAccountReturnTo);
-        }
-        if (m_settings->hasSession())
+        // Cleared before the restore: its failure is answered here, never by
+        // the failure handler's own return-to restore.
+        const QString returnTo = std::exchange(m_addAccountReturnTo, QString{});
+        if (!returnTo.isEmpty() && m_settings->hasSavedAccount(returnTo))
+            m_settings->setActiveAccountUserId(returnTo);
+        if (m_settings->hasSession()) {
+            const quint64 failuresBefore = m_loginFailures;
             m_client->restoreSession();
+            if (m_loginFailures != failuresBefore) {
+                // Refused before it returned (a keyring that cannot answer,
+                // a store that is gone): the shell would show a session that
+                // does not exist. Stay with the card, or the error, it left.
+                qCInfo(lcApp) << "back to the app: the restore failed at once "
+                                 "— staying on the sign-in screen";
+                m_backgroundRestore = false;
+                return false;
+            }
+        }
     }
     m_addAccountReturnTo.clear();
     m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
     m_composer->setRoomId(m_currentRoomId);
     setCurrentScreen(MainScreen);
+    return true;
 }
 void AppController::showSettings()
 {
@@ -6394,6 +6436,17 @@ void AppController::setLocalSessionFailure(const QString &reasonCode,
         if (!recorded.isEmpty())
             homeserver = recorded;
     }
+    // Before the no-change return: a failure that re-raises the card already
+    // showing still came with the card, and the error it sends next in the
+    // same call is that card's own text (see the loginFailed handler).
+    if (!reasonCode.isEmpty()) {
+        m_localSessionRaiseInFlight = true;
+        const quint64 serial = ++m_localSessionRaiseSerial;
+        QTimer::singleShot(0, this, [this, serial] {
+            if (serial == m_localSessionRaiseSerial)
+                m_localSessionRaiseInFlight = false;
+        });
+    }
     if (m_localSessionFailureReason == reasonCode
         && m_localSessionFailureUserId == userId
         && m_localSessionFailureHomeserver == homeserver) {
@@ -6409,6 +6462,12 @@ void AppController::setLocalSessionFailure(const QString &reasonCode,
     m_localSessionFailureUserId = userId;
     m_localSessionFailureHomeserver = homeserver;
     Q_EMIT localSessionFailureChanged();
+}
+
+bool AppController::signInErrorExplainedByCard() const
+{
+    return !m_cardExplainedError.isEmpty() && m_auth
+           && m_auth->lastError() == m_cardExplainedError;
 }
 
 bool AppController::localResetHelpsFor(const QString &reasonCode) const

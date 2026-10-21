@@ -14,6 +14,7 @@
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QQuickItem>
+#include <QPointer>
 #include <QScopeGuard>
 
 #include <functional>
@@ -24,6 +25,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "matrix/MockMatrixClient.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
@@ -151,6 +153,24 @@ private:
     void clearFailure()
     {
         injectFailure(QString{}, QString{}, QString{});
+    }
+
+    MockMatrixClient *mock() const
+    {
+        return qobject_cast<MockMatrixClient *>(
+            m_controller->findChild<MatrixClient *>());
+    }
+
+    // Either of the screen's two error labels: under the password form, or
+    // in its place when there is no form.
+    QQuickItem *shownLoginError() const
+    {
+        for (const char *name : { "loginErrorLabel", "loginErrorLabelNoForm" }) {
+            QQuickItem *label = item(name);
+            if (label && label->isVisible())
+                return label;
+        }
+        return nullptr;
     }
 
 private slots:
@@ -903,6 +923,289 @@ private slots:
         QVERIFY(cancel);
         clickItem(cancel);
         QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
+    // A sign-in that fails without raising a card must say why even while a
+    // card about another failure is up. RustSdkMatrixClient::login()'s
+    // "already signed in on this device" redirect answers with loginFailed()
+    // and no card, and both error labels were hidden by any rendered card, so
+    // that answer was set and never shown (2026-09-30 campaign, "a redirected
+    // sign-in says nothing"). The mock's "mock-fail" password stands in for
+    // it: an interactive attempt answered by loginFailed() alone. On the
+    // unfixed screen the QTRY below times out with both labels hidden.
+    void aSignInErrorTheCardDoesNotExplainIsShownBesideIt()
+    {
+        const QString server = QStringLiteral("https://example.org");
+        injectFailure(QStringLiteral("access_token_revoked"),
+                      QStringLiteral("@alice:example.org"), server);
+        auto *card = item("loginRepairCard");
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+        QVERIFY(!shownLoginError());
+
+        m_controller->auth()->login(server, QStringLiteral("@bob:example.org"),
+                                    QStringLiteral("mock-fail"));
+        QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
+        const QString error = m_controller->auth()->lastError();
+        QVERIFY(!error.isEmpty());
+
+        // Alice's card stays: her failure is still true.
+        QVERIFY(card->isVisible());
+        QVERIFY(!m_controller->signInErrorExplainedByCard());
+        QTRY_VERIFY2(shownLoginError() != nullptr,
+                     "a sign-in error the card does not explain was hidden "
+                     "behind it");
+        QCOMPARE(shownLoginError()->property("text").toString(), error);
+    }
+
+    // A card raised with no failure after it (a removal that could not
+    // finish, a keyring the launch could not read) explains no later error.
+    // A refusal that never starts an attempt ("That is not a server address")
+    // came next and was hidden: the first version of this fix kept its
+    // bookkeeping in LoginScreen, set by the raise and cleared only by a
+    // failure or an attempt starting, so the stale mark claimed the refusal.
+    void aRefusalAfterACardRaisedAloneIsShown()
+    {
+        injectFailure(QStringLiteral("removal_incomplete"),
+                      QStringLiteral("@gone:example.org"),
+                      QStringLiteral("https://example.org"));
+        auto *card = item("loginRepairCard");
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+        QTest::qWait(20); // well past the raise's own call
+
+        m_controller->auth()->login(QStringLiteral("you@example.org"),
+                                    QStringLiteral("@bob:example.org"),
+                                    QStringLiteral("unused"));
+        const QString error = m_controller->auth()->lastError();
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!m_controller->auth()->isLoggingIn()); // refused, not attempted
+        QVERIFY(card->isVisible());
+        QTRY_VERIFY2(shownLoginError() != nullptr,
+                     "a refusal after a card raised alone was hidden behind it");
+        QCOMPARE(shownLoginError()->property("text").toString(), error);
+    }
+
+    // The other half: the error a failure sends WITH its card is that card's
+    // own text and stays behind it, including when the failure re-raises the
+    // card already showing (no change, so no localSessionFailureChanged()).
+    // Raised inside the failure's own call, as in production
+    // (failWithBlockReason() raises the card, then sends loginFailed()): the
+    // mock moves to Error immediately before its loginFailed(), and the hook
+    // raises there. Fails if the in-flight mark is set after
+    // setLocalSessionFailure()'s no-change return.
+    void anErrorThatCameWithItsCardStaysBehindIt()
+    {
+        const QString server = QStringLiteral("https://example.org");
+        const QString alice = QStringLiteral("@alice:example.org");
+        const QString reason = QStringLiteral("secret_backend_unavailable");
+        injectFailure(reason, alice, server);
+        auto *card = item("loginRepairCard");
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+        QTest::qWait(20);
+
+        int raised = 0;
+        const auto hook = connect(
+            mock(), &MatrixClient::connectionStateChanged, this,
+            [&](MatrixClient::ConnectionState state) {
+                if (state != MatrixClient::Error)
+                    return;
+                ++raised;
+                // No processEvents here: the raise and its failure share one
+                // call.
+                m_controller->setLocalSessionFailure(reason, alice, server);
+            });
+        auto unhook = qScopeGuard([hook] { QObject::disconnect(hook); });
+
+        m_controller->auth()->login(server, alice, QStringLiteral("mock-fail"));
+        QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
+        QCOMPARE(raised, 1);
+        QVERIFY(!m_controller->auth()->lastError().isEmpty());
+        QCoreApplication::processEvents();
+
+        QVERIFY(card->isVisible());
+        QVERIFY(m_controller->signInErrorExplainedByCard());
+        QVERIFY2(!shownLoginError(),
+                 "the error the card itself explains was shown beside it");
+    }
+
+    // The screen is a Loader item (Main.qml), rebuilt whenever the screen
+    // changes; what it shows beside the card must not be forgotten with it.
+    void anErrorBesideTheCardSurvivesTheScreenBeingRebuilt()
+    {
+        const QString server = QStringLiteral("https://example.org");
+        injectFailure(QStringLiteral("access_token_revoked"),
+                      QStringLiteral("@alice:example.org"), server);
+        QTRY_VERIFY(item("loginRepairCard")->isVisible());
+        m_controller->auth()->login(server, QStringLiteral("@bob:example.org"),
+                                    QStringLiteral("mock-fail"));
+        QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
+        const QString error = m_controller->auth()->lastError();
+        QTRY_VERIFY(shownLoginError() != nullptr);
+
+        QPointer<QQuickItem> before = item("loginScreen");
+        QVERIFY(before);
+        QQuickItem *loader = before->parentItem();
+        QVERIFY(loader);
+        QVERIFY(loader->setProperty("active", false));
+        QTRY_VERIFY(before.isNull());
+        QVERIFY(loader->setProperty("active", true));
+        QTRY_VERIFY(item("loginScreen") != nullptr);
+
+        QTRY_VERIFY(item("loginRepairCard")->isVisible());
+        QTRY_VERIFY2(shownLoginError() != nullptr,
+                     "the rebuilt screen hid an error the card does not explain");
+        QCOMPARE(shownLoginError()->property("text").toString(), error);
+    }
+
+    // Add-account whose return to the previous account is refused at once (a
+    // keyring that cannot answer, a store that is gone: the Rust backend
+    // refuses those inside restoreSession() and raises the card first).
+    //  * The return restore is tried ONCE. Its failure re-entered the same
+    //    handler with the account to return to still set, which restored it
+    //    again: a recursion until the stack ran out, bounded here only by
+    //    the mock's failure count (26 calls on the unfixed handler).
+    //  * The card's own text is not shown a second time beside it.
+    //  * "Back" is hidden: it could only restore that account again, and
+    //    showMain() refused at once stays on this screen instead of opening
+    //    a shell with no session.
+    void anAddAccountWhoseReturnIsRefusedAtOnceStopsWithTheCard()
+    {
+        const QString active = QStringLiteral("@return-user:mock.local");
+        const QString server = QStringLiteral("https://mock.local");
+        const QString reason = QStringLiteral("saved_session_without_store");
+        MockMatrixClient *client = mock();
+        QVERIFY(client);
+        QMetaObject::Connection hook;
+        int errors = 0; // before the guard: the hook reads it until disconnected
+        auto forget = qScopeGuard([this, active, client, &hook] {
+            QObject::disconnect(hook);
+            client->setRestoreDelayForTest(0);
+            client->failRestoresForTest(0);
+            clearFailure();
+            m_controller->settings()->clearSessionForAccount(active);
+            m_controller->auth()->logout();
+            QTest::qWaitFor([this] {
+                return !m_controller->loggedIn() && !m_controller->accountSwitching();
+            }, kSignalTimeoutMs);
+        });
+        QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
+        m_controller->auth()->login(server, QStringLiteral("return-user"),
+                                    QStringLiteral("mock-password-fixture"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTRY_VERIFY(m_controller->loggedIn());
+        m_controller->settings()->saveSession(server, active,
+                                              QStringLiteral("MOCKDEVICE"),
+                                              QStringLiteral("mock-token"), QString(),
+                                              QStringLiteral("password"), QString());
+        m_controller->settings()->setActiveAccountUserId(active);
+        m_controller->showLogin(); // add-account flow
+        QCoreApplication::processEvents();
+        auto *back = item("backToAppButton");
+        QVERIFY(back);
+        QTRY_VERIFY(back->isVisible());
+
+        // Every restore refused inside the call; the restore's failure (the
+        // second Error, after the attempt's own) raises the card first.
+        client->setRestoreDelayForTest(-1);
+        client->failRestoresForTest(25);
+        hook = connect(client, &MatrixClient::connectionStateChanged, this,
+                       [&](MatrixClient::ConnectionState state) {
+                           if (state == MatrixClient::Error && ++errors == 2)
+                               m_controller->setLocalSessionFailure(reason, active,
+                                                                    server);
+                       });
+        const int restoresBefore = client->restoreCallsForTest();
+        m_controller->auth()->login(server, QStringLiteral("newcomer"),
+                                    QStringLiteral("mock-fail"));
+        QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
+        QCoreApplication::processEvents();
+
+        QCOMPARE(client->restoreCallsForTest() - restoresBefore, 1);
+        QVERIFY(!m_controller->loggedIn());
+        QCOMPARE(m_controller->currentScreen(), AppController::LoginScreen);
+        QTRY_VERIFY(item("loginRepairCard")->isVisible());
+        QCOMPARE(m_controller->localSessionFailureUserId(), active);
+        QCOMPARE(m_controller->auth()->lastError(),
+                 QStringLiteral("mock: restore rejected"));
+        QVERIFY(m_controller->signInErrorExplainedByCard());
+        QVERIFY2(!shownLoginError(), "the card's own text was shown twice");
+        QTRY_VERIFY2(!back->isVisible(),
+                     "Back offered for the account whose restore just failed");
+
+        // Back's own action, refused again at once: no shell without a session.
+        QVERIFY(!m_controller->showMain());
+        QCOMPARE(client->restoreCallsForTest() - restoresBefore, 2);
+        QCOMPARE(m_controller->currentScreen(), AppController::LoginScreen);
+        QVERIFY(!m_controller->auth()->lastError().isEmpty());
+    }
+
+    // A sign-in started while the return-to restore is still pending: its
+    // failure is the ATTEMPT's, so it is shown as that attempt's error and
+    // gets the normal add-account handling (the return restore again). The
+    // first version of the recursion guard took any failure while that
+    // restore was pending for the restore's own, and did not restore.
+    void anAttemptDuringAPendingReturnRestoreFailsAsItsOwn()
+    {
+        const QString active = QStringLiteral("@pending-user:mock.local");
+        const QString server = QStringLiteral("https://mock.local");
+        MockMatrixClient *client = mock();
+        QVERIFY(client);
+        auto forget = qScopeGuard([this, active, client] {
+            client->setRestoreDelayForTest(0);
+            client->failRestoresForTest(0);
+            QTest::qWait(1200); // past every restore still pending
+            clearFailure();
+            m_controller->settings()->clearSessionForAccount(active);
+            m_controller->auth()->logout();
+            QTest::qWaitFor([this] {
+                return !m_controller->loggedIn() && !m_controller->accountSwitching();
+            }, kSignalTimeoutMs);
+        });
+        QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
+        m_controller->auth()->login(server, QStringLiteral("pending-user"),
+                                    QStringLiteral("mock-password-fixture"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTRY_VERIFY(m_controller->loggedIn());
+        m_controller->settings()->saveSession(server, active,
+                                              QStringLiteral("MOCKDEVICE"),
+                                              QStringLiteral("mock-token"), QString(),
+                                              QStringLiteral("password"), QString());
+        m_controller->settings()->setActiveAccountUserId(active);
+        m_controller->showLogin(); // add-account flow
+
+        // The return restore answers well after a failed attempt (60 ms).
+        client->setRestoreDelayForTest(1000);
+        const int restoresBefore = client->restoreCallsForTest();
+        m_controller->auth()->login(server, QStringLiteral("newcomer"),
+                                    QStringLiteral("mock-fail"));
+        QTRY_COMPARE(client->restoreCallsForTest() - restoresBefore, 1);
+        QVERIFY(!m_controller->loggedIn()); // the return restore is pending
+
+        QSignalSpy notices(m_controller, &AppController::errorReported);
+        m_controller->auth()->login(server, QStringLiteral("newcomer"),
+                                    QStringLiteral("mock-fail"));
+        QVERIFY(m_controller->auth()->isLoggingIn());
+        QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
+        const QString reason = QStringLiteral("mock: invalid credentials");
+
+        // Handled as the attempt's failure: the return restore again, and the
+        // reason on the status strip and on the form.
+        QCOMPARE(client->restoreCallsForTest() - restoresBefore, 2);
+        bool sawReason = false;
+        for (const auto &call : notices) {
+            if (call.at(0).toString() == reason)
+                sawReason = true;
+        }
+        QVERIFY2(sawReason, "the attempt's failure was taken for the return "
+                            "restore's and not reported");
+        QCOMPARE(m_controller->auth()->lastError(), reason);
+        QTRY_VERIFY(shownLoginError() != nullptr);
+        QCOMPARE(shownLoginError()->property("text").toString(), reason);
+
+        // Both pending restores answer; the account comes back.
+        QTRY_VERIFY(m_controller->loggedIn());
     }
 
     void noQmlWarnings()
