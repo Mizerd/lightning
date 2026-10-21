@@ -15,6 +15,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QTranslator>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -39,6 +40,38 @@ ApplicationWindow {
     function openCommand() { switcher.openCommandMode() }
 }
 )QML";
+
+} // namespace
+
+namespace {
+
+// A German-like translator with deliberately FREE word choices: the hint must
+// be built from the real labels, so no translation may break its examples.
+class FreeGermanTranslator : public QTranslator
+{
+public:
+    QString translate(const char *context, const char *sourceText,
+                      const char *disambiguation, int n) const override
+    {
+        Q_UNUSED(disambiguation);
+        Q_UNUSED(n);
+        if (qstrcmp(context, "QuickSwitcher") != 0)
+            return {};
+        const QString src = QString::fromUtf8(sourceText);
+        if (src == QLatin1String("Theme: %1"))
+            return QStringLiteral("Design: %1");
+        if (src == QLatin1String("Open %1"))
+            return QStringLiteral("%1 \u00f6ffnen");
+        if (src == QLatin1String("Switch to %1"))
+            return QStringLiteral("Zu %1 wechseln");
+        if (src == QLatin1String("Privacy & security"))
+            return QStringLiteral("Datenschutz & Sicherheit");
+        if (src == QLatin1String("Try %1"))
+            return QStringLiteral("Versuche %1");
+        return {};
+    }
+    bool isEmpty() const override { return false; }
+};
 
 } // namespace
 
@@ -246,6 +279,98 @@ private slots:
         QTRY_COMPARE(int(m_controller->settings()->theme()), 10);
         QTRY_VERIFY(!switcher()->property("visible").toBool());
         m_controller->settings()->setTheme(before);
+    }
+
+private:
+    int rowsFor(const QString &query)
+    {
+        field()->setProperty("text", query);
+        return switcher()->property("commandRows").value<QVariantList>().size();
+    }
+
+    // Every example the footer shows, typed verbatim, must find an action.
+    void checkHintExamplesWork(int minExamples)
+    {
+        QMetaObject::invokeMethod(m_root, "openCommand");
+        QTRY_VERIFY(switcher()->property("commandMode").toBool());
+        QTRY_VERIFY(commandCount() > 0);
+        const QStringList examples =
+            switcher()->property("commandHintExamples").toStringList();
+        QVERIFY2(examples.size() >= minExamples, qPrintable(examples.join('|')));
+        const QString hint = switcher()->property("commandHintText").toString();
+        for (const QString &example : examples) {
+            QVERIFY2(hint.contains(example), qPrintable(example));
+            QVERIFY2(rowsFor(example) >= 1,
+                     qPrintable(QStringLiteral("no action for hint example: ")
+                                + example));
+        }
+        field()->setProperty("text", QString());
+        closeSwitcher();
+    }
+
+private slots:
+    void everyWordMatchesInAnyOrderIgnoringCasePunctuationAndAccents()
+    {
+        QMetaObject::invokeMethod(m_root, "openCommand");
+        QTRY_VERIFY(switcher()->property("commandMode").toBool());
+        QTRY_VERIFY(commandCount() > 0);
+        QVERIFY(rowsFor(QStringLiteral("theme indigo night")) >= 1);
+        QVERIFY(rowsFor(QStringLiteral("night indigo theme")) >= 1);
+        QVERIFY(rowsFor(QStringLiteral("THEME: Indigo-Night")) >= 1);
+        QVERIFY(rowsFor(QStringLiteral("indigo-night")) >= 1);
+        QVERIFY(rowsFor(QStringLiteral("open  privacy")) >= 1);
+        QVERIFY(rowsFor(QStringLiteral("security privacy")) >= 1);
+        QCOMPARE(rowsFor(QStringLiteral("indigo zzzz")), 0);
+        // Single word keeps substring behaviour.
+        QVERIFY(rowsFor(QStringLiteral("priv")) >= 1);
+        field()->setProperty("text", QString());
+        closeSwitcher();
+    }
+
+    void hintExamplesWorkVerbatimInEnglish()
+    {
+        checkHintExamplesWork(2);
+    }
+
+    void switchExampleIsOfferedAndWorksWithAnotherAccount()
+    {
+        m_controller->settings()->saveSession(
+            QStringLiteral("https://one.example.org"),
+            QStringLiteral("@bob:example.org"), QStringLiteral("BOBDEV"),
+            QStringLiteral("bob-token-fixture"));
+        m_controller->settings()->saveSession(
+            QStringLiteral("https://two.example.org"),
+            QStringLiteral("@alice:example.org"), QStringLiteral("ALICEDEV"),
+            QStringLiteral("alice-token-fixture"));
+        m_controller->accounts()->setActiveUser(QStringLiteral("@bob:example.org"));
+        m_controller->accounts()->updateProfile(
+            QStringLiteral("@alice:example.org"), QStringLiteral("alice"),
+            QString());
+        QTRY_VERIFY(switcher()->property("hasOtherAccount").toBool());
+        FreeGermanTranslator de;
+        QVERIFY(QCoreApplication::installTranslator(&de));
+        m_engine->retranslate();
+        checkHintExamplesWork(3);
+        QVERIFY(switcher()->property("commandHintText").toString()
+                    .contains(QStringLiteral("Zu alice wechseln")));
+        QCoreApplication::removeTranslator(&de);
+        m_engine->retranslate();
+        checkHintExamplesWork(3);
+    }
+
+    void hintExamplesWorkVerbatimInAFreelyTranslatedGerman()
+    {
+        FreeGermanTranslator de;
+        QVERIFY(QCoreApplication::installTranslator(&de));
+        m_engine->retranslate();
+        QMetaObject::invokeMethod(m_root, "openCommand");
+        QTRY_VERIFY(switcher()->property("commandMode").toBool());
+        const QString hint = switcher()->property("commandHintText").toString();
+        QVERIFY2(hint.startsWith(QStringLiteral("Versuche")), qPrintable(hint));
+        closeSwitcher();
+        checkHintExamplesWork(2);
+        QCoreApplication::removeTranslator(&de);
+        m_engine->retranslate();
     }
 
     void escapeDismissesTheModal()

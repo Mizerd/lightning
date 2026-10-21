@@ -326,12 +326,50 @@ Popup {
             if (!list[i].isActive) return true
         return false
     }
-    readonly property string commandQueryLower: queryField.text.toLowerCase()
-    function actionMatches(a) {
-        if (commandQueryLower.length === 0) return true
-        var hay = (a.label + " " + (a.keywords || "")).toLowerCase()
-        return hay.indexOf(commandQueryLower) !== -1
+    // Command search folds case, accents and punctuation, and splits the
+    // query into words: an action matches when EVERY word occurs somewhere in
+    // its label or keywords, in any order ("indigo-nacht design" finds
+    // "Design: Indigo-Nacht").
+    function foldForSearch(text) {
+        var t = String(text || "").toLowerCase()
+        if (typeof t.normalize === "function")
+            t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        return t.replace(/[\s.,:;!?&|\/\\()\[\]{}<>"'`´“”„‟‘’‚‹›«»…·•\-–—_+=*#@~^%$]+/g, " ").trim()
     }
+    function queryTokens(text) {
+        var folded = foldForSearch(text)
+        return folded.length === 0 ? [] : folded.split(" ")
+    }
+    readonly property string commandQueryLower: queryField.text.toLowerCase()
+    readonly property var commandQueryTokens: queryTokens(queryField.text)
+    function actionMatches(a) {
+        var tokens = commandQueryTokens
+        if (tokens.length === 0) return true
+        var hay = foldForSearch(a.label + " " + (a.keywords || ""))
+        for (var i = 0; i < tokens.length; ++i)
+            if (hay.indexOf(tokens[i]) === -1) return false
+        return true
+    }
+    // The footer's examples are REAL action labels, never separately
+    // translated sentences, so a translation cannot drift from the matcher.
+    function commandHintLabels() {
+        var theme = "", sw = "", privacy = ""
+        for (var i = 0; i < commandActions.length; ++i) {
+            var a = commandActions[i]
+            if (theme === "" && a.id.indexOf("theme-") === 0
+                    && a.id !== "theme-match-system") theme = a.label
+            else if (sw === "" && a.id.indexOf("switch-") === 0) sw = a.label
+            else if (a.id === "settings-privacy") privacy = a.label
+        }
+        var out = []
+        if (theme !== "") out.push(theme)
+        if (sw !== "") out.push(sw)
+        if (privacy !== "") out.push(privacy)
+        return out
+    }
+    readonly property var commandHintExamples: commandHintLabels()
+    readonly property string commandHintText: commandHintExamples.length === 0 ? ""
+        : qsTr("Try %1").arg(commandHintExamples.map(l => "\u201c" + l + "\u201d").join(" \u00b7 "))
     readonly property var filteredCommandActions: commandActions.filter(actionMatches)
 
     // Rooms/People scope: a filter over the same live results, via the
@@ -1142,10 +1180,8 @@ Popup {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width
                 elide: Label.ElideRight
-                // "switch to" is only offered when another account exists.
-                text: switcher.hasOtherAccount
-                      ? qsTr("Try “theme indigo night” · “switch to alice” · “open privacy”")
-                      : qsTr("Try “theme indigo night” · “open privacy”")
+                objectName: "quickSwitcherCommandFooter"
+                text: switcher.commandHintText
                 color: AppTheme.stormTextMuted
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textMeta
