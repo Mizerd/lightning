@@ -4541,6 +4541,72 @@ if(BUILD_TESTING)
     set_tests_properties(invite-preview-card-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Breaker-swarm round (2026-10-21): the chunks' QML tests, registered in one
+    # place (MASTER-1 M3, MASTER-4 H3; CLAUDE.md s16 "a test file can be
+    # committed and never registered"). Each links the shared test library;
+    # QML_DIR and LIGHTNING_SOURCE_DIR are there for the source reads.
+    foreach(_t
+            color-picker-panel-qml:ColorPickerPanelQmlTest
+            completion-popups-polish:CompletionPopupsPolishTest
+            edit-history-dialog-qml:EditHistoryDialogQmlTest
+            keyboard-navigation-qml:KeyboardNavigationQmlTest
+            message-search-ignored:MessageSearchIgnoredTest
+            message-spoiler-selection-qml:MessageSpoilerSelectionQmlTest
+            privacy-settings-qml:PrivacySettingsQmlTest
+            quick-switcher-keyboard-qml:QuickSwitcherKeyboardQmlTest
+            room-info-keyboard-qml:RoomInfoKeyboardQmlTest
+            room-list-classic-qml:RoomListClassicQmlTest
+            room-list-default-sort:RoomListDefaultSortTest
+            room-row-menu-keyboard-qml:RoomRowMenuKeyboardQmlTest
+            shortcut-row-capture-qml:ShortcutRowCaptureQmlTest
+            space-lobby-keyboard-qml:SpaceLobbyKeyboardQmlTest
+            theme-editor-parts-qml:ThemeEditorPartsQmlTest
+            button-key-activation-qml:ButtonKeyActivationQmlTest
+            tooltip-plain-text-qml:ToolTipPlainTextQmlTest)
+        string(REPLACE ":" ";" _p "${_t}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        qt_add_executable(${_name}-test tests/${_src}.cpp)
+        lightning_configure_qml_test(${_name}-test)
+        target_link_libraries(${_name}-test PRIVATE Qt6::Test)
+        target_include_directories(${_name}-test PRIVATE src tests)
+        target_compile_definitions(${_name}-test PRIVATE
+            QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+            LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME ${_name} COMMAND ${_name}-test)
+        set_tests_properties(${_name} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_DISABLE_MPRIS=1")
+    endforeach()
+    # ...and the source contracts, which read QML/C++ as text.
+    foreach(_t
+            app-shell-contract:AppShellContractTest
+            discover-join-dialog-contract:DiscoverJoinDialogContractTest
+            qr-login-dialog-contract:QrLoginDialogContractTest
+            quick-switcher-keyboard-source:QuickSwitcherKeyboardSourceTest
+            search-keyboard-contract:SearchKeyboardContractTest
+            shortcut-row-capture-focus-contract:ShortcutRowCaptureFocusContractTest
+            space-settings-keyboard-contract:SpaceSettingsKeyboardContractTest
+            widget-dialog-focus-contract:WidgetDialogFocusContractTest)
+        string(REPLACE ":" ";" _p "${_t}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        qt_add_executable(${_name}-test tests/${_src}.cpp)
+        target_link_libraries(${_name}-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+        target_compile_definitions(${_name}-test PRIVATE
+            QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+            LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME ${_name} COMMAND ${_name}-test)
+    endforeach()
+    # C17-F07: nested-table flattening keeps text apart (the sanitizer alone).
+    qt_add_executable(message-html-c17-test
+        tests/MessageHtmlC17Test.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+    )
+    target_include_directories(message-html-c17-test PRIVATE src)
+    target_link_libraries(message-html-c17-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME message-html-c17 COMMAND message-html-c17-test)
+
     # Change password section: Password echo on every field, and the fields
     # empty with no undo history after submit, on hide and when the account
     # page takes over.
