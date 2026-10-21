@@ -1474,22 +1474,22 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location filename="../qml/AppTextField.qml" line="+83"/>
         <source>Cut</source>
-        <translation type="unfinished">Iškirpti</translation>
+        <translation>Iškirpti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy</source>
-        <translation type="unfinished">Kopijuoti</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste</source>
-        <translation type="unfinished">Įklijuoti</translation>
+        <translation>Įklijuoti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Select all</source>
-        <translation type="unfinished">Pasirinkite viską</translation>
+        <translation>Pasirinkti viską</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -1623,17 +1623,17 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+3"/>
         <source>Not listening</source>
-        <translation type="unfinished"></translation>
+        <translation>Neklausoma</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing heard</source>
-        <translation type="unfinished">Nieko negirdėti</translation>
+        <translation>Nieko negirdėti</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 percent</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 proc.</translation>
     </message>
 </context>
 <context>
@@ -2609,7 +2609,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+29"/>
         <source>Camera off</source>
-        <translation type="unfinished"></translation>
+        <translation>Kamera išjungta</translation>
     </message>
     <message>
         <location line="+148"/>
@@ -3287,7 +3287,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+64"/>
         <source>Muted</source>
-        <translation type="unfinished">Nutildyta</translation>
+        <translation>Nutildyta</translation>
     </message>
 </context>
 <context>
@@ -3959,12 +3959,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+48"/>
         <source>Saturation and brightness</source>
-        <translation type="unfinished"></translation>
+        <translation>Sodrumas ir ryškumas</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Hue</source>
-        <translation type="unfinished"></translation>
+        <translation>Atspalvis</translation>
     </message>
     <message>
         <location line="+98"/>
@@ -6544,22 +6544,22 @@ Dydis: %3</translation>
     <message>
         <location line="+73"/>
         <source>Open %1</source>
-        <translation type="unfinished">Atidaryti %1</translation>
+        <translation>Atidaryti %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Request pending for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Laukiama atsakymo dėl %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ask to join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Prašyti prisijungti prie %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Prisijungti prie %1</translation>
     </message>
     <message>
         <location line="+55"/>
@@ -6592,7 +6592,7 @@ Dydis: %3</translation>
         <location line="-262"/>
         <location line="+280"/>
         <source>Requesting…</source>
-        <translation type="unfinished"></translation>
+        <translation>Siunčiama užklausa…</translation>
     </message>
     <message>
         <location line="-279"/>
@@ -6847,12 +6847,12 @@ Dydis: %3</translation>
     <message>
         <location filename="../qml/EmojiCompletionPopup.qml" line="+93"/>
         <source>Emoji</source>
-        <translation type="unfinished">Jaustukai</translation>
+        <translation>Jaustukai</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Emoji suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>Jaustukų pasiūlymai</translation>
     </message>
 </context>
 <context>
@@ -7078,12 +7078,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+2"/>
         <source>%1 removed the room name.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 pašalino kambario pavadinimą.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 removed the room topic.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 pašalino kambario temą.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8011,7 +8011,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+67"/>
         <source>No rooms match</source>
-        <translation type="unfinished">Kambarių nerasta</translation>
+        <translation>Nėra atitinkančių kambarių</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -8039,16 +8039,16 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message numerus="yes">
         <location line="+32"/>
         <source>%n room(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n kambarys pasirinktas</numerusform>
+            <numerusform>%n kambariai pasirinkti</numerusform>
+            <numerusform>%n kambarių pasirinkta</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Clear selection</source>
-        <translation type="unfinished"></translation>
+        <translation>Išvalyti pasirinkimą</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -9531,7 +9531,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+115"/>
         <source>Sign in again</source>
-        <translation type="unfinished"></translation>
+        <translation>Prisijungti iš naujo</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -9823,7 +9823,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+20"/>
         <source>Delete saved logs?</source>
-        <translation type="unfinished"></translation>
+        <translation>Ištrinti išsaugotus žurnalus?</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
@@ -9837,17 +9837,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+33"/>
         <source>Cancel</source>
-        <translation type="unfinished">Atšaukti</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Delete</source>
-        <translation type="unfinished">Ištrinti</translation>
+        <translation>Ištrinti</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This removes every diagnostic log Lightning has kept on this computer. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tai pašalins visus diagnostikos žurnalus, kuriuos Lightning laiko šiame kompiuteryje. Veiksmo atšaukti neįmanoma.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -11079,7 +11079,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-213"/>
         <source>Double-click to copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Dukart spustelėkite, kad nukopijuotumėte</translation>
     </message>
     <message>
         <location line="+223"/>
@@ -11341,7 +11341,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+21"/>
         <source>Mention suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>Paminėjimų pasiūlymai</translation>
     </message>
     <message>
         <location line="+84"/>
@@ -12798,10 +12798,10 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+97"/>
         <source>You can pick up to %n answer(s)</source>
         <comment>poll selection cap</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Galite pasirinkti iki %n atsakymo</numerusform>
+            <numerusform>Galite pasirinkti iki %n atsakymų</numerusform>
+            <numerusform>Galite pasirinkti iki %n atsakymų</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -14262,12 +14262,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+2"/>
         <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. Your own file is never changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Prieš išsiunčiant pašalinama, kur buvo padaryta JPEG, PNG, WebP ar HEIC nuotrauka: GPS padėtis ir bet kokia įvardyta vieta (miestas, šalis, buvimo vieta) jos duomenyse. Fotoaparato ir laiko duomenys lieka. Pats paveikslėlis nekoduojamas iš naujo. Jūsų failas niekada nekeičiamas.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>TIFF, raw and JPEG XL files cannot be cleaned and are not sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>TIFF, raw ir JPEG XL failų išvalyti neįmanoma, todėl jie nesiunčiami.</translation>
     </message>
 </context>
 <context>
@@ -14414,7 +14414,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+5"/>
         <source>Remove rule %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Pašalinti taisyklę %1</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -14424,7 +14424,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+10"/>
         <source>Kind of rule</source>
-        <translation type="unfinished"></translation>
+        <translation>Taisyklės rūšis</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -14680,113 +14680,113 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+16"/>
         <location line="+27"/>
         <source>Follow the system</source>
-        <translation type="unfinished">Sekite sistemą</translation>
+        <translation>Sekti sistemą</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Lightning Light</source>
-        <translation type="unfinished">Lightning Šviesa</translation>
+        <translation>Lightning šviesi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning Dark</source>
-        <translation type="unfinished">Lightning Tamsus</translation>
+        <translation>Lightning tamsi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Graphite</source>
-        <translation type="unfinished">Grafitas</translation>
+        <translation>Grafitas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Midnight</source>
-        <translation type="unfinished">Vidurnaktis</translation>
+        <translation>Vidurnaktis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nordic</source>
-        <translation type="unfinished">Šiaurės šalių</translation>
+        <translation>Šiaurietiška</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Purple Dusk</source>
-        <translation type="unfinished">Violetinė sutema</translation>
+        <translation>Purpurinė prieblanda</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Warm</source>
-        <translation type="unfinished">Šiltas</translation>
+        <translation>Šilta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moss Light</source>
-        <translation type="unfinished">Samanų šviesa</translation>
+        <translation>Samanų šviesi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Indigo Night</source>
-        <translation type="unfinished">Indigo naktis</translation>
+        <translation>Indigo naktis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Deep Teal</source>
-        <translation type="unfinished">Giliai žalsvai mėlyna</translation>
+        <translation>Tamsi žalsvai mėlyna</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Storm</source>
-        <translation type="unfinished">Audra</translation>
+        <translation>Audra</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom theme</source>
-        <translation type="unfinished">Pasirinktinė tema</translation>
+        <translation>Pasirinktinė tema</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Modern</source>
-        <translation type="unfinished">Modernus</translation>
+        <translation>Šiuolaikinis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Bubbles</source>
-        <translation type="unfinished">Burbulai</translation>
+        <translation>Burbulai</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+15"/>
         <source>Compact</source>
-        <translation type="unfinished">Kompaktiškas</translation>
+        <translation>Kompaktiškas</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Classic</source>
-        <translation type="unfinished">Klasika</translation>
+        <translation>Klasikinis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Channels</source>
-        <translation type="unfinished">Kanalai</translation>
+        <translation>Kanalai</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>12-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>12 valandų</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>24-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>24 valandų</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cozy</source>
-        <translation type="unfinished">Patogus</translation>
+        <translation>Jaukus</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Roomy</source>
-        <translation type="unfinished">Erdvus</translation>
+        <translation>Erdvus</translation>
     </message>
 </context>
 <context>
@@ -14863,7 +14863,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>Sign-in code from the other device</source>
-        <translation type="unfinished"></translation>
+        <translation>Prisijungimo kodas iš kito įrenginio</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -14903,7 +14903,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>Two-digit confirmation code</source>
-        <translation type="unfinished"></translation>
+        <translation>Dviejų skaitmenų patvirtinimo kodas</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -15211,7 +15211,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+1"/>
         <source>Try “theme indigo night” · “open privacy”</source>
-        <translation type="unfinished"></translation>
+        <translation>Išbandykite „tema indigo naktis“ · „atidaryti privatumą“</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -17008,7 +17008,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+58"/>
         <source>%1: %2</source>
-        <translation type="unfinished">%1: %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17174,22 +17174,22 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+21"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nėra šį vardą atitinkančių narių.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No invited members.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nėra pakviestų narių.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No banned members.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nėra užblokuotų narių.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No members to show.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nėra rodytinų narių.</translation>
     </message>
     <message>
         <location line="+53"/>
@@ -17713,7 +17713,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+7"/>
         <source>New room version</source>
-        <translation type="unfinished"></translation>
+        <translation>Nauja kambario versija</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -17983,7 +17983,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+5"/>
         <source>The server is taking too long to answer. Try again in a moment, or check the server address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Serveris per ilgai neatsako. Pabandykite dar kartą po akimirkos arba patikrinkite serverio adresą.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -23108,7 +23108,7 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+766"/>
         <source>No longer ignored</source>
-        <translation type="unfinished"></translation>
+        <translation>Nebeignoruojama</translation>
     </message>
     <message>
         <location line="+400"/>
@@ -23912,7 +23912,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+123"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning nepavyko atidaryti kameros. Ją gali naudoti kita programa arba ji atjungta.</translation>
     </message>
     <message>
         <location line="+498"/>
@@ -24697,12 +24697,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+27"/>
         <source>With text selected in the message box this runs instead of “%1”; with nothing selected, “%1” runs.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pažymėjus tekstą žinutės lauke, vykdoma tai, o ne „%1“; nieko nepažymėjus, vykdoma „%1“.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>While text is selected in the message box, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Kol žinutės lauke pažymėtas tekstas, vietoje to vykdoma „%1“.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -25652,7 +25652,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+41"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nėra šį vardą atitinkančių narių.</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -25792,7 +25792,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">Nukopijuota</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -26076,7 +26076,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+33"/>
         <source>Link copied</source>
-        <translation type="unfinished"></translation>
+        <translation>Nuoroda nukopijuota</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -26197,7 +26197,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+8"/>
         <source>That is not a valid date and time (yyyy-mm-dd hh:mm).</source>
-        <translation type="unfinished"></translation>
+        <translation>Netinkama data ir laikas (mmmm-mm-dd vv:mm).</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26302,17 +26302,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+169"/>
         <source>Sticker and emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Lipdukas ir jaustukas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation type="unfinished">Jaustukai</translation>
+        <translation>Jaustukas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation type="unfinished">Lipdukas</translation>
+        <translation>Lipdukas</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -26327,7 +26327,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+0"/>
         <source>Confirm remove</source>
-        <translation type="unfinished"></translation>
+        <translation>Patvirtinti pašalinimą</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -27053,12 +27053,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-556"/>
         <source>%1 already clears every bar it is checked against. If it is listed, the colour behind it is the one to change.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 jau atitinka visus reikalavimus, pagal kuriuos tikrinama. Jei jis įtrauktas į sąrašą, keisti reikia už jo esančią spalvą.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>No lightness of %1 clears the bar without breaking another. Try changing the colour beside it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Joks %1 šviesumas neatitinka reikalavimo nesugadindamas kito. Pabandykite pakeisti šalia esančią spalvą.</translation>
     </message>
     <message>
         <location line="+884"/>
@@ -27170,7 +27170,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+47"/>
         <source>%1 was reset.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 atkurta.</translation>
     </message>
     <message>
         <location line="+97"/>
@@ -28958,7 +28958,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+53"/>
         <source>Couldn&apos;t find the first unread message</source>
-        <translation type="unfinished"></translation>
+        <translation>Nepavyko rasti pirmos neperskaitytos žinutės</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -29417,17 +29417,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/TopicText.qml" line="+102"/>
         <source>Copy</source>
-        <translation type="unfinished">Kopijuoti</translation>
+        <translation>Kopijuoti</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy link</source>
-        <translation type="unfinished"></translation>
+        <translation>Kopijuoti nuorodą</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Select all</source>
-        <translation type="unfinished">Pasirinkite viską</translation>
+        <translation>Pasirinkti viską</translation>
     </message>
 </context>
 <context>
@@ -29915,7 +29915,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+23"/>
         <source>The last check failed. Use Check for updates to try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paskutinis tikrinimas nepavyko. Norėdami bandyti dar kartą, naudokite „Tikrinti, ar yra naujinimų“.</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -30030,7 +30030,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+9"/>
         <source>Incoming verification request from %1, session %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Gauta patvirtinimo užklausa iš %1, sesija %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -30264,12 +30264,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/VideoPlayerCard.qml" line="+27"/>
         <source>Video player: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Vaizdo grotuvas: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video player</source>
-        <translation type="unfinished"></translation>
+        <translation>Vaizdo grotuvas</translation>
     </message>
     <message>
         <location line="+464"/>
@@ -30313,7 +30313,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-151"/>
         <source>Video: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Vaizdo įrašas: %1</translation>
     </message>
     <message>
         <location line="+166"/>
@@ -30599,7 +30599,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+234"/>
         <source>The microphone was disconnected. The recording was discarded.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mikrofonas buvo atjungtas. Įrašas atmestas.</translation>
     </message>
 </context>
 <context>
@@ -30612,7 +30612,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+13"/>
         <source>Seek to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Pereiti į %1</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -30630,7 +30630,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+3"/>
         <source>Playback speed %1, click for %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Atkūrimo greitis %1, spustelėkite, kad būtų %2</translation>
     </message>
 </context>
 <context>

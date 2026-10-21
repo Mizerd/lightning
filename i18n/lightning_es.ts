@@ -1465,22 +1465,22 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location filename="../qml/AppTextField.qml" line="+83"/>
         <source>Cut</source>
-        <translation type="unfinished">cortar</translation>
+        <translation>Cortar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy</source>
-        <translation type="unfinished">Copiar</translation>
+        <translation>Copiar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste</source>
-        <translation type="unfinished">Pegar</translation>
+        <translation>Pegar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Select all</source>
-        <translation type="unfinished">Seleccionar todo</translation>
+        <translation>Seleccionar todo</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -1614,17 +1614,17 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+3"/>
         <source>Not listening</source>
-        <translation type="unfinished"></translation>
+        <translation>Sin escuchar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing heard</source>
-        <translation type="unfinished">No se oye nada</translation>
+        <translation>No se oye nada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 percent</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 por ciento</translation>
     </message>
 </context>
 <context>
@@ -2600,7 +2600,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+29"/>
         <source>Camera off</source>
-        <translation type="unfinished"></translation>
+        <translation>Cámara apagada</translation>
     </message>
     <message>
         <location line="+148"/>
@@ -3275,7 +3275,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+64"/>
         <source>Muted</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciado</translation>
     </message>
 </context>
 <context>
@@ -3944,12 +3944,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+48"/>
         <source>Saturation and brightness</source>
-        <translation type="unfinished"></translation>
+        <translation>Saturación y brillo</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Hue</source>
-        <translation type="unfinished"></translation>
+        <translation>Tono</translation>
     </message>
     <message>
         <location line="+98"/>
@@ -6525,22 +6525,22 @@ Tamaño: %3</translation>
     <message>
         <location line="+73"/>
         <source>Open %1</source>
-        <translation type="unfinished">Abrir %1</translation>
+        <translation>Abrir %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Request pending for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Solicitud pendiente para %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ask to join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Pedir unirse a %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Unirse a %1</translation>
     </message>
     <message>
         <location line="+55"/>
@@ -6572,7 +6572,7 @@ Tamaño: %3</translation>
         <location line="-262"/>
         <location line="+280"/>
         <source>Requesting…</source>
-        <translation type="unfinished"></translation>
+        <translation>Solicitando…</translation>
     </message>
     <message>
         <location line="-279"/>
@@ -6827,12 +6827,12 @@ Tamaño: %3</translation>
     <message>
         <location filename="../qml/EmojiCompletionPopup.qml" line="+93"/>
         <source>Emoji</source>
-        <translation type="unfinished">Emoji</translation>
+        <translation>Emoji</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Emoji suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>Sugerencias de emoji</translation>
     </message>
 </context>
 <context>
@@ -7056,12 +7056,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+2"/>
         <source>%1 removed the room name.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 quitó el nombre de la sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 removed the room topic.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 quitó el tema de la sala.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7988,7 +7988,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+67"/>
         <source>No rooms match</source>
-        <translation type="unfinished">Ninguna sala coincide</translation>
+        <translation>Ninguna sala coincide</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -8014,15 +8014,15 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message numerus="yes">
         <location line="+32"/>
         <source>%n room(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n sala seleccionada</numerusform>
+            <numerusform>%n salas seleccionadas</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Clear selection</source>
-        <translation type="unfinished"></translation>
+        <translation>Borrar selección</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -9504,7 +9504,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+115"/>
         <source>Sign in again</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar sesión de nuevo</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -9794,7 +9794,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+20"/>
         <source>Delete saved logs?</source>
-        <translation type="unfinished"></translation>
+        <translation>¿Eliminar los registros guardados?</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
@@ -9807,17 +9807,17 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+33"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Delete</source>
-        <translation type="unfinished">Eliminar</translation>
+        <translation>Eliminar</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This removes every diagnostic log Lightning has kept on this computer. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esto elimina todos los registros de diagnóstico que Lightning ha guardado en este equipo. No se puede deshacer.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -11064,7 +11064,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="-13"/>
         <source>Double-click to copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Doble clic para copiar</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -11306,7 +11306,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+21"/>
         <source>Mention suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>Sugerencias de mención</translation>
     </message>
     <message>
         <location line="+84"/>
@@ -12759,9 +12759,9 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+97"/>
         <source>You can pick up to %n answer(s)</source>
         <comment>poll selection cap</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Puedes elegir hasta %n respuesta</numerusform>
+            <numerusform>Puedes elegir hasta %n respuestas</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -14217,12 +14217,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+2"/>
         <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. Your own file is never changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Elimina el lugar donde se tomó una foto JPEG, PNG, WebP o HEIC antes de enviarla: la posición GPS y cualquier lugar con nombre (ciudad, país, ubicación) en sus detalles. Los datos de la cámara y la hora se conservan. La imagen no se vuelve a codificar. Tu propio archivo nunca se modifica.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>TIFF, raw and JPEG XL files cannot be cleaned and are not sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>Los archivos TIFF, raw y JPEG XL no se pueden limpiar y no se envían.</translation>
     </message>
 </context>
 <context>
@@ -14367,7 +14367,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+5"/>
         <source>Remove rule %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Quitar la regla %1</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -14377,7 +14377,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+10"/>
         <source>Kind of rule</source>
-        <translation type="unfinished"></translation>
+        <translation>Tipo de regla</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -14633,113 +14633,113 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+16"/>
         <location line="+27"/>
         <source>Follow the system</source>
-        <translation type="unfinished">Sigue el sistema</translation>
+        <translation>Seguir el sistema</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Lightning Light</source>
-        <translation type="unfinished">Lightning claro</translation>
+        <translation>Lightning Claro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning Dark</source>
-        <translation type="unfinished">Lightning oscuro</translation>
+        <translation>Lightning Oscuro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Graphite</source>
-        <translation type="unfinished">Grafito</translation>
+        <translation>Grafito</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Midnight</source>
-        <translation type="unfinished">Medianoche</translation>
+        <translation>Medianoche</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nordic</source>
-        <translation type="unfinished">Nórdico</translation>
+        <translation>Nórdico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Purple Dusk</source>
-        <translation type="unfinished">Ocaso púrpura</translation>
+        <translation>Crepúsculo púrpura</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Warm</source>
-        <translation type="unfinished">Cálido</translation>
+        <translation>Cálido</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moss Light</source>
-        <translation type="unfinished"></translation>
+        <translation>Musgo claro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Indigo Night</source>
-        <translation type="unfinished"></translation>
+        <translation>Noche índigo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Deep Teal</source>
-        <translation type="unfinished"></translation>
+        <translation>Verde azulado intenso</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Storm</source>
-        <translation type="unfinished"></translation>
+        <translation>Tormenta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom theme</source>
-        <translation type="unfinished">Tema personalizado</translation>
+        <translation>Tema personalizado</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Modern</source>
-        <translation type="unfinished">Moderno</translation>
+        <translation>Moderno</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Bubbles</source>
-        <translation type="unfinished">Burbujas</translation>
+        <translation>Burbujas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+15"/>
         <source>Compact</source>
-        <translation type="unfinished">Compacto</translation>
+        <translation>Compacto</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Classic</source>
-        <translation type="unfinished">Clásico</translation>
+        <translation>Clásico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Channels</source>
-        <translation type="unfinished">Canales</translation>
+        <translation>Canales</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>12-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>12 horas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>24-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>24 horas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cozy</source>
-        <translation type="unfinished">Cómodo</translation>
+        <translation>Cómodo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Roomy</source>
-        <translation type="unfinished">Amplio</translation>
+        <translation>Amplio</translation>
     </message>
 </context>
 <context>
@@ -14816,7 +14816,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+1"/>
         <source>Sign-in code from the other device</source>
-        <translation type="unfinished"></translation>
+        <translation>Código de inicio de sesión del otro dispositivo</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -14856,7 +14856,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+1"/>
         <source>Two-digit confirmation code</source>
-        <translation type="unfinished"></translation>
+        <translation>Código de confirmación de dos dígitos</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -15164,7 +15164,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+1"/>
         <source>Try “theme indigo night” · “open privacy”</source>
-        <translation type="unfinished"></translation>
+        <translation>Prueba “tema noche índigo” · “abrir privacidad”</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -16873,7 +16873,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+58"/>
         <source>%1: %2</source>
-        <translation type="unfinished">%1: %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17019,22 +17019,22 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+58"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ningún miembro coincide con este nombre.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No invited members.</source>
-        <translation type="unfinished"></translation>
+        <translation>No hay miembros invitados.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No banned members.</source>
-        <translation type="unfinished"></translation>
+        <translation>No hay miembros vetados.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No members to show.</source>
-        <translation type="unfinished"></translation>
+        <translation>No hay miembros que mostrar.</translation>
     </message>
     <message>
         <location line="+53"/>
@@ -17656,7 +17656,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+7"/>
         <source>New room version</source>
-        <translation type="unfinished"></translation>
+        <translation>Nueva versión de la sala</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -17925,7 +17925,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+5"/>
         <source>The server is taking too long to answer. Try again in a moment, or check the server address.</source>
-        <translation type="unfinished"></translation>
+        <translation>El servidor tarda demasiado en responder. Inténtalo de nuevo en un momento o comprueba la dirección del servidor.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -22786,7 +22786,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     <message>
         <location line="+280"/>
         <source>No longer ignored</source>
-        <translation type="unfinished"></translation>
+        <translation>Ya no se ignora</translation>
     </message>
     <message>
         <location line="+139"/>
@@ -23836,7 +23836,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+123"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning no pudo abrir la cámara. Puede que otra aplicación la esté usando o que esté desconectada.</translation>
     </message>
     <message>
         <location line="+498"/>
@@ -24621,12 +24621,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+27"/>
         <source>With text selected in the message box this runs instead of “%1”; with nothing selected, “%1” runs.</source>
-        <translation type="unfinished"></translation>
+        <translation>Con texto seleccionado en el cuadro de mensaje, esto se ejecuta en lugar de “%1”; sin selección, se ejecuta “%1”.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>While text is selected in the message box, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mientras hay texto seleccionado en el cuadro de mensaje, se ejecuta “%1” en su lugar.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -25575,7 +25575,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+41"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ningún miembro coincide con este nombre.</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -25715,7 +25715,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">Copiado</translation>
+        <translation>Copiado</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -25997,7 +25997,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+33"/>
         <source>Link copied</source>
-        <translation type="unfinished"></translation>
+        <translation>Enlace copiado</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -26118,7 +26118,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+8"/>
         <source>That is not a valid date and time (yyyy-mm-dd hh:mm).</source>
-        <translation type="unfinished"></translation>
+        <translation>La fecha y la hora no son válidas (aaaa-mm-dd hh:mm).</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26223,17 +26223,17 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+169"/>
         <source>Sticker and emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Sticker y emoji</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation type="unfinished">Emoji</translation>
+        <translation>Emoji</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation type="unfinished"></translation>
+        <translation>Sticker</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -26248,7 +26248,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+0"/>
         <source>Confirm remove</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirmar eliminación</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -26961,12 +26961,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="-556"/>
         <source>%1 already clears every bar it is checked against. If it is listed, the colour behind it is the one to change.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ya cumple todos los umbrales con los que se comprueba. Si aparece en la lista, el color que hay detrás es el que hay que cambiar.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>No lightness of %1 clears the bar without breaking another. Try changing the colour beside it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ninguna luminosidad de %1 cumple el umbral sin incumplir otro. Prueba a cambiar el color contiguo.</translation>
     </message>
     <message>
         <location line="+884"/>
@@ -27077,7 +27077,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+47"/>
         <source>%1 was reset.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 se restableció.</translation>
     </message>
     <message>
         <location line="+97"/>
@@ -28848,7 +28848,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+53"/>
         <source>Couldn&apos;t find the first unread message</source>
-        <translation type="unfinished"></translation>
+        <translation>No se encontró el primer mensaje sin leer</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -29300,17 +29300,17 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../qml/TopicText.qml" line="+102"/>
         <source>Copy</source>
-        <translation type="unfinished">Copiar</translation>
+        <translation>Copiar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy link</source>
-        <translation type="unfinished">Copiar enlace</translation>
+        <translation>Copiar enlace</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Select all</source>
-        <translation type="unfinished">Seleccionar todo</translation>
+        <translation>Seleccionar todo</translation>
     </message>
 </context>
 <context>
@@ -29797,7 +29797,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+23"/>
         <source>The last check failed. Use Check for updates to try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>La última comprobación falló. Usa Buscar actualizaciones para intentarlo de nuevo.</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -29912,7 +29912,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+9"/>
         <source>Incoming verification request from %1, session %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Solicitud de verificación entrante de %1, sesión %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -30146,12 +30146,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../qml/VideoPlayerCard.qml" line="+27"/>
         <source>Video player: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproductor de vídeo: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video player</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproductor de vídeo</translation>
     </message>
     <message>
         <location line="+464"/>
@@ -30195,7 +30195,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="-151"/>
         <source>Video: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Vídeo: %1</translation>
     </message>
     <message>
         <location line="+166"/>
@@ -30481,7 +30481,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+234"/>
         <source>The microphone was disconnected. The recording was discarded.</source>
-        <translation type="unfinished"></translation>
+        <translation>El micrófono se desconectó. La grabación se descartó.</translation>
     </message>
 </context>
 <context>
@@ -30494,7 +30494,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+13"/>
         <source>Seek to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir a %1</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -30512,7 +30512,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+3"/>
         <source>Playback speed %1, click for %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Velocidad de reproducción %1, clic para %2</translation>
     </message>
 </context>
 <context>

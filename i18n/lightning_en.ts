@@ -8003,9 +8003,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+32"/>
         <source>%n room(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n room selected</numerusform>
+            <numerusform>%n rooms selected</numerusform>
         </translation>
     </message>
     <message>
@@ -12748,9 +12748,9 @@ Signing out and signing in again is the only fix.</source>
         <location line="+97"/>
         <source>You can pick up to %n answer(s)</source>
         <comment>poll selection cap</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>You can pick up to %n answer</numerusform>
+            <numerusform>You can pick up to %n answers</numerusform>
         </translation>
     </message>
     <message numerus="yes">

@@ -1465,22 +1465,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AppTextField.qml" line="+83"/>
         <source>Cut</source>
-        <translation type="unfinished">काटो</translation>
+        <translation>काटें</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy</source>
-        <translation type="unfinished">कॉपी करें</translation>
+        <translation>कॉपी करें</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Paste</source>
-        <translation type="unfinished">चिपकाएँ</translation>
+        <translation>चिपकाएँ</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Select all</source>
-        <translation type="unfinished">सभी का चयन करें</translation>
+        <translation>सभी का चयन करें</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -1614,17 +1614,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Not listening</source>
-        <translation type="unfinished"></translation>
+        <translation>सुन नहीं रहा</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing heard</source>
-        <translation type="unfinished">कुछ सुनाई नहीं दिया</translation>
+        <translation>कुछ सुनाई नहीं दिया</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 percent</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 प्रतिशत</translation>
     </message>
 </context>
 <context>
@@ -2600,7 +2600,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+29"/>
         <source>Camera off</source>
-        <translation type="unfinished"></translation>
+        <translation>कैमरा बंद है</translation>
     </message>
     <message>
         <location line="+148"/>
@@ -3275,7 +3275,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+64"/>
         <source>Muted</source>
-        <translation type="unfinished">म्यूट</translation>
+        <translation>म्यूट</translation>
     </message>
 </context>
 <context>
@@ -3944,12 +3944,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+48"/>
         <source>Saturation and brightness</source>
-        <translation type="unfinished"></translation>
+        <translation>संतृप्ति और चमक</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Hue</source>
-        <translation type="unfinished"></translation>
+        <translation>रंगत</translation>
     </message>
     <message>
         <location line="+98"/>
@@ -6525,22 +6525,22 @@ Size: %3</source>
     <message>
         <location line="+73"/>
         <source>Open %1</source>
-        <translation type="unfinished">%1 खोलें</translation>
+        <translation>%1 खोलें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Request pending for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 के लिए अनुरोध लंबित है</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ask to join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 में शामिल होने के लिए अनुरोध करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Join %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 में शामिल हों</translation>
     </message>
     <message>
         <location line="+55"/>
@@ -6572,7 +6572,7 @@ Size: %3</source>
         <location line="-262"/>
         <location line="+280"/>
         <source>Requesting…</source>
-        <translation type="unfinished"></translation>
+        <translation>अनुरोध किया जा रहा है…</translation>
     </message>
     <message>
         <location line="-279"/>
@@ -6827,12 +6827,12 @@ Size: %3</source>
     <message>
         <location filename="../qml/EmojiCompletionPopup.qml" line="+93"/>
         <source>Emoji</source>
-        <translation type="unfinished">इमोजी</translation>
+        <translation>इमोजी</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Emoji suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>इमोजी सुझाव</translation>
     </message>
 </context>
 <context>
@@ -7056,12 +7056,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>%1 removed the room name.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ने रूम का नाम हटा दिया।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 removed the room topic.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ने रूम का विषय हटा दिया।</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7988,7 +7988,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+67"/>
         <source>No rooms match</source>
-        <translation type="unfinished">कोई रूम मेल नहीं खाता</translation>
+        <translation>कोई रूम मेल नहीं खाता</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -8014,15 +8014,15 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+32"/>
         <source>%n room(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n रूम चुना गया</numerusform>
+            <numerusform>%n रूम चुने गए</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Clear selection</source>
-        <translation type="unfinished"></translation>
+        <translation>चयन साफ़ करें</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -9504,7 +9504,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+115"/>
         <source>Sign in again</source>
-        <translation type="unfinished"></translation>
+        <translation>दोबारा साइन इन करें</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -9794,7 +9794,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Delete saved logs?</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए लॉग हटाएँ?</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
@@ -9807,17 +9807,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+33"/>
         <source>Cancel</source>
-        <translation type="unfinished">रद्द करें</translation>
+        <translation>रद्द करें</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Delete</source>
-        <translation type="unfinished">हटाएँ</translation>
+        <translation>हटाएँ</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This removes every diagnostic log Lightning has kept on this computer. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>इससे Lightning द्वारा इस कंप्यूटर पर रखे गए सभी डायग्नोस्टिक लॉग हट जाएँगे। इसे वापस नहीं किया जा सकता।</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -11064,7 +11064,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-13"/>
         <source>Double-click to copy</source>
-        <translation type="unfinished"></translation>
+        <translation>कॉपी करने के लिए डबल-क्लिक करें</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -11306,7 +11306,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+21"/>
         <source>Mention suggestions</source>
-        <translation type="unfinished"></translation>
+        <translation>मेंशन सुझाव</translation>
     </message>
     <message>
         <location line="+84"/>
@@ -12759,9 +12759,9 @@ Signing out and signing in again is the only fix.</source>
         <location line="+97"/>
         <source>You can pick up to %n answer(s)</source>
         <comment>poll selection cap</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>आप अधिकतम %n उत्तर चुन सकते हैं</numerusform>
+            <numerusform>आप अधिकतम %n उत्तर चुन सकते हैं</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -14217,12 +14217,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. Your own file is never changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>भेजने से पहले JPEG, PNG, WebP या HEIC फ़ोटो में दर्ज वह जगह हटा देता है जहाँ वह खींची गई थी: GPS स्थान और ब्योरे में दिया कोई भी नामित स्थान (शहर, देश, लोकेशन)। कैमरा और समय का ब्योरा बना रहता है। तस्वीर दोबारा एन्कोड नहीं की जाती। आपकी अपनी फ़ाइल कभी नहीं बदलती।</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>TIFF, raw and JPEG XL files cannot be cleaned and are not sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>TIFF, raw और JPEG XL फ़ाइलें साफ़ नहीं की जा सकतीं और भेजी नहीं जाएँगी।</translation>
     </message>
 </context>
 <context>
@@ -14367,7 +14367,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>Remove rule %1</source>
-        <translation type="unfinished"></translation>
+        <translation>नियम %1 हटाएँ</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -14377,7 +14377,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+10"/>
         <source>Kind of rule</source>
-        <translation type="unfinished"></translation>
+        <translation>नियम का प्रकार</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -14633,113 +14633,113 @@ Signing out and signing in again is the only fix.</source>
         <location line="+16"/>
         <location line="+27"/>
         <source>Follow the system</source>
-        <translation type="unfinished">सिस्टम का पालन करें</translation>
+        <translation>सिस्टम के अनुसार</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Lightning Light</source>
-        <translation type="unfinished">Lightning लाइट</translation>
+        <translation>Lightning लाइट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning Dark</source>
-        <translation type="unfinished">Lightning डार्क</translation>
+        <translation>Lightning डार्क</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Graphite</source>
-        <translation type="unfinished">ग्रेफ़ाइट</translation>
+        <translation>ग्रेफ़ाइट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Midnight</source>
-        <translation type="unfinished">मिडनाइट</translation>
+        <translation>मिडनाइट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nordic</source>
-        <translation type="unfinished">नॉर्डिक</translation>
+        <translation>नॉर्डिक</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Purple Dusk</source>
-        <translation type="unfinished">पर्पल डस्क</translation>
+        <translation>बैंगनी संध्या</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Warm</source>
-        <translation type="unfinished">वॉर्म</translation>
+        <translation>गर्म</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moss Light</source>
-        <translation type="unfinished">मॉस लाइट</translation>
+        <translation>मॉस लाइट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Indigo Night</source>
-        <translation type="unfinished">इंडिगो नाइट</translation>
+        <translation>इंडिगो नाइट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Deep Teal</source>
-        <translation type="unfinished">डीप टील</translation>
+        <translation>गहरा टील</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Storm</source>
-        <translation type="unfinished">स्टॉर्म</translation>
+        <translation>स्टॉर्म</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom theme</source>
-        <translation type="unfinished">कस्टम थीम</translation>
+        <translation>कस्टम थीम</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Modern</source>
-        <translation type="unfinished">मॉडर्न</translation>
+        <translation>आधुनिक</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Bubbles</source>
-        <translation type="unfinished">बबल</translation>
+        <translation>बबल</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+15"/>
         <source>Compact</source>
-        <translation type="unfinished">कॉम्पैक्ट</translation>
+        <translation>सघन</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Classic</source>
-        <translation type="unfinished">क्लासिक</translation>
+        <translation>क्लासिक</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Channels</source>
-        <translation type="unfinished">चैनल</translation>
+        <translation>चैनल</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>12-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>12 घंटे</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>24-hour</source>
-        <translation type="unfinished"></translation>
+        <translation>24 घंटे</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cozy</source>
-        <translation type="unfinished">आरामदायक</translation>
+        <translation>आरामदायक</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Roomy</source>
-        <translation type="unfinished">खुला</translation>
+        <translation>खुला-खुला</translation>
     </message>
 </context>
 <context>
@@ -14816,7 +14816,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Sign-in code from the other device</source>
-        <translation type="unfinished"></translation>
+        <translation>दूसरे डिवाइस का साइन-इन कोड</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -14856,7 +14856,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Two-digit confirmation code</source>
-        <translation type="unfinished"></translation>
+        <translation>दो अंकों का पुष्टि कोड</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -15164,7 +15164,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Try “theme indigo night” · “open privacy”</source>
-        <translation type="unfinished"></translation>
+        <translation>आज़माएँ “theme indigo night” · “open privacy”</translation>
     </message>
     <message>
         <location filename="../src/models/QuickSwitcherModel.cpp" line="+212"/>
@@ -16873,7 +16873,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>%1: %2</source>
-        <translation type="unfinished">%1: %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17019,22 +17019,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस नाम से कोई सदस्य मेल नहीं खाता।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No invited members.</source>
-        <translation type="unfinished"></translation>
+        <translation>कोई आमंत्रित सदस्य नहीं।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No banned members.</source>
-        <translation type="unfinished"></translation>
+        <translation>कोई प्रतिबंधित सदस्य नहीं।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No members to show.</source>
-        <translation type="unfinished"></translation>
+        <translation>दिखाने के लिए कोई सदस्य नहीं।</translation>
     </message>
     <message>
         <location line="+53"/>
@@ -17656,7 +17656,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>New room version</source>
-        <translation type="unfinished"></translation>
+        <translation>नया रूम वर्शन</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -17925,7 +17925,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>The server is taking too long to answer. Try again in a moment, or check the server address.</source>
-        <translation type="unfinished"></translation>
+        <translation>सर्वर जवाब देने में बहुत समय ले रहा है। थोड़ी देर बाद फिर कोशिश करें, या सर्वर का पता जाँचें।</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -22786,7 +22786,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+280"/>
         <source>No longer ignored</source>
-        <translation type="unfinished"></translation>
+        <translation>अब अनदेखा नहीं</translation>
     </message>
     <message>
         <location line="+139"/>
@@ -23836,7 +23836,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+123"/>
         <source>Lightning couldn&apos;t open the camera. It may be in use by another app, or unplugged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning कैमरा नहीं खोल सका। हो सकता है वह किसी दूसरे ऐप में उपयोग में हो, या निकाला हुआ हो।</translation>
     </message>
     <message>
         <location line="+498"/>
@@ -24621,12 +24621,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+27"/>
         <source>With text selected in the message box this runs instead of “%1”; with nothing selected, “%1” runs.</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स में टेक्स्ट चुना होने पर यह “%1” की जगह चलता है; कुछ भी चुना न होने पर “%1” चलता है।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>While text is selected in the message box, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स में टेक्स्ट चुना होने पर “%1” चलता है।</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -25575,7 +25575,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+41"/>
         <source>No members match this name.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस नाम से कोई सदस्य मेल नहीं खाता।</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -25715,7 +25715,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">कॉपी हो गया</translation>
+        <translation>कॉपी हो गया</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -25997,7 +25997,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+33"/>
         <source>Link copied</source>
-        <translation type="unfinished"></translation>
+        <translation>लिंक कॉपी हो गया</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -26118,7 +26118,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+8"/>
         <source>That is not a valid date and time (yyyy-mm-dd hh:mm).</source>
-        <translation type="unfinished"></translation>
+        <translation>यह मान्य तारीख और समय नहीं है (yyyy-mm-dd hh:mm)।</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26223,17 +26223,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+169"/>
         <source>Sticker and emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>स्टिकर और इमोजी</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation type="unfinished">इमोजी</translation>
+        <translation>इमोजी</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sticker</source>
-        <translation type="unfinished">स्टिकर</translation>
+        <translation>स्टिकर</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -26248,7 +26248,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Confirm remove</source>
-        <translation type="unfinished"></translation>
+        <translation>हटाने की पुष्टि करें</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -26961,12 +26961,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-556"/>
         <source>%1 already clears every bar it is checked against. If it is listed, the colour behind it is the one to change.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 पहले से ही जाँचे जाने वाले हर मानक को पूरा करता है। यदि वह सूची में दिखे, तो उसके पीछे का रंग बदलना चाहिए।</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>No lightness of %1 clears the bar without breaking another. Try changing the colour beside it.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 की कोई भी हल्कापन-मात्रा दूसरे मानक को तोड़े बिना मानक को पूरा नहीं करती। उसके बगल का रंग बदलकर देखें।</translation>
     </message>
     <message>
         <location line="+884"/>
@@ -27077,7 +27077,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+47"/>
         <source>%1 was reset.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 रीसेट कर दिया गया।</translation>
     </message>
     <message>
         <location line="+97"/>
@@ -28848,7 +28848,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+53"/>
         <source>Couldn&apos;t find the first unread message</source>
-        <translation type="unfinished"></translation>
+        <translation>पहला अपठित संदेश नहीं मिल सका</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -29300,17 +29300,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/TopicText.qml" line="+102"/>
         <source>Copy</source>
-        <translation type="unfinished">कॉपी करें</translation>
+        <translation>कॉपी करें</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Copy link</source>
-        <translation type="unfinished">लिंक कॉपी करें</translation>
+        <translation>लिंक कॉपी करें</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Select all</source>
-        <translation type="unfinished">सभी का चयन करें</translation>
+        <translation>सभी का चयन करें</translation>
     </message>
 </context>
 <context>
@@ -29797,7 +29797,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>The last check failed. Use Check for updates to try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>पिछली जाँच विफल रही। फिर कोशिश करने के लिए “अपडेट की जाँच करें” का उपयोग करें।</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -29912,7 +29912,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+9"/>
         <source>Incoming verification request from %1, session %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 की ओर से आया सत्यापन अनुरोध, सत्र %2</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -30146,12 +30146,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/VideoPlayerCard.qml" line="+27"/>
         <source>Video player: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>वीडियो प्लेयर: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video player</source>
-        <translation type="unfinished"></translation>
+        <translation>वीडियो प्लेयर</translation>
     </message>
     <message>
         <location line="+464"/>
@@ -30195,7 +30195,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-151"/>
         <source>Video: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>वीडियो: %1</translation>
     </message>
     <message>
         <location line="+166"/>
@@ -30481,7 +30481,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+234"/>
         <source>The microphone was disconnected. The recording was discarded.</source>
-        <translation type="unfinished"></translation>
+        <translation>माइक्रोफ़ोन डिस्कनेक्ट हो गया। रिकॉर्डिंग रद्द कर दी गई।</translation>
     </message>
 </context>
 <context>
@@ -30494,7 +30494,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+13"/>
         <source>Seek to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 पर जाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -30512,7 +30512,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Playback speed %1, click for %2</source>
-        <translation type="unfinished"></translation>
+        <translation>प्लेबैक गति %1, %2 के लिए क्लिक करें</translation>
     </message>
 </context>
 <context>
