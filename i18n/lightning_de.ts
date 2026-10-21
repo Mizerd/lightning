@@ -15069,7 +15069,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+135"/>
         <source>Try %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Versuche %1</translation>
     </message>
     <message>
         <location line="+50"/>

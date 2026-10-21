@@ -15069,7 +15069,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+135"/>
         <source>Try %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Prueba %1</translation>
     </message>
     <message>
         <location line="+50"/>

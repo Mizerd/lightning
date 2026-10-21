@@ -15069,7 +15069,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+135"/>
         <source>Try %1</source>
-        <translation type="unfinished"></translation>
+        <translation>आज़माएँ %1</translation>
     </message>
     <message>
         <location line="+50"/>

@@ -15022,7 +15022,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+135"/>
         <source>Try %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Coba %1</translation>
     </message>
     <message>
         <location line="+50"/>

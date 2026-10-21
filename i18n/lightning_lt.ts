@@ -15116,7 +15116,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+135"/>
         <source>Try %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Išbandykite %1</translation>
     </message>
     <message>
         <location line="+50"/>
