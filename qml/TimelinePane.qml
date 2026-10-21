@@ -3176,6 +3176,9 @@ Rectangle {
                     stickToBottom = true
                     viewAnchorId = ""
                     viewAnchorLastY = 0
+                    // Retire any saved historical anchor immediately. This
+                    // explicit jump has no wheel gesture to save its state.
+                    app.pagination.saveFollowingLatest(app.currentRoomId)
                     positionViewAtLatest()
                     selectNewestVisibleMessage()
                     // Allow a cleared presentation window to expose row zero,

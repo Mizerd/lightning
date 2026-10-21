@@ -14,6 +14,7 @@
 #include "matrix/MockMatrixClient.h"
 #include "models/QuickSwitcherModel.h"
 #include "models/MessageComposer.h"
+#include "models/PaginationController.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 
@@ -575,6 +576,99 @@ ApplicationWindow {
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         QTest::qWait(350);
         QVERIFY(item("timelineListView")->hasActiveFocus());
+    }
+
+    void roomPickerRestoresLatestIntent_data()
+    {
+        QTest::addColumn<QString>("entry");
+        QTest::newRow("select-latest") << QStringLiteral("selection");
+        QTest::newRow("upstream-latest") << QStringLiteral("upstream");
+        QTest::newRow("preserve-history") << QStringLiteral("history");
+    }
+
+    void roomPickerRestoresLatestIntent()
+    {
+        QFETCH(QString, entry);
+        openJoinedRoom();
+        const QString roomA = m_controller->currentRoomId();
+        auto *view = item("timelineListView");
+        auto *pagination = m_controller->pagination();
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(view);
+        QVERIFY(mock);
+
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(view->hasActiveFocus());
+        QTest::qWait(50);
+        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QTRY_VERIFY(!view->property("stickToBottom").toBool());
+        // First save a genuine historical viewport, with no pending scroll
+        // timer left to incidentally save a subsequent latest jump.
+        QTest::qWait(350);
+        if (entry == QStringLiteral("selection")) {
+            QTest::keyClick(m_window, Qt::Key_Space,
+                           Qt::ControlModifier | Qt::ShiftModifier);
+            QTRY_VERIFY(view->property("stickToBottom").toBool());
+        } else if (entry == QStringLiteral("upstream")) {
+            QVERIFY(QMetaObject::invokeMethod(view, "goToLatest"));
+            QTRY_VERIFY(view->property("stickToBottom").toBool());
+        }
+        QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        QTest::qWait(350);
+
+        openSwitcher();
+        int otherRow = -1;
+        for (int row = 0; row < m_controller->quickSwitcher()->rowCount(); ++row) {
+            const auto result = m_controller->quickSwitcher()->resultAt(row);
+            if (result.value(QStringLiteral("roomId")).toString() != roomA
+                    && !result.value(QStringLiteral("isSpace")).toBool()
+                    && !result.value(QStringLiteral("isInvite")).toBool()) {
+                otherRow = row;
+                break;
+            }
+        }
+        QVERIFY(otherRow >= 0);
+        const QString roomB = m_controller->quickSwitcher()->resultAt(otherRow)
+                                  .value(QStringLiteral("roomId")).toString();
+        QVERIFY(item("quickSwitcherList")->setProperty("currentIndex", otherRow));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_controller->currentRoomId(), roomB);
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        QTest::qWait(350);
+
+        TimelineEvent incoming;
+        incoming.eventId = QStringLiteral("$arrived-while-away");
+        incoming.sender = QStringLiteral("@peer:example.org");
+        incoming.body = QStringLiteral("New message while viewing another room");
+        incoming.timestamp = QDateTime::currentDateTimeUtc();
+        mock->appendEventForTest(roomA, incoming);
+        QSignalSpy latest(pagination, &PaginationController::restoreLatestRequested);
+        QSignalSpy historical(pagination, &PaginationController::targetLocated);
+        openSwitcher();
+        int returnRow = -1;
+        for (int row = 0; row < m_controller->quickSwitcher()->rowCount(); ++row) {
+            if (m_controller->quickSwitcher()->resultAt(row)
+                    .value(QStringLiteral("roomId")).toString() == roomA) {
+                returnRow = row;
+                break;
+            }
+        }
+        QVERIFY(returnRow >= 0);
+        QVERIFY(item("quickSwitcherList")->setProperty("currentIndex", returnRow));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_controller->currentRoomId(), roomA);
+        QTRY_VERIFY(m_controller->timeline()->rowForStableId(incoming.eventId) >= 0);
+        if (entry == QStringLiteral("history")) {
+            QTRY_VERIFY(!historical.isEmpty());
+            QCOMPARE(latest.count(), 0);
+            QTRY_VERIFY(!view->property("stickToBottom").toBool());
+        } else {
+            QTRY_VERIFY(!latest.isEmpty());
+            QCOMPARE(historical.count(), 0);
+            QTRY_VERIFY(view->property("stickToBottom").toBool());
+        }
     }
 
     void roomChangesClearRememberedSelection()
