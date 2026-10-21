@@ -323,7 +323,7 @@ Item {
             return [app.shortcuts.sequenceFor("composer.focus")]
         }
         enabled: timelinePane.composerFocusable && !quickSwitcher.visible
-        onActivated: timelinePane.focusComposer()
+        onActivated: timelinePane.focusComposerForTyping()
     }
 
     Shortcut {

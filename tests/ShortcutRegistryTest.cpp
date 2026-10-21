@@ -102,6 +102,16 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        for (const QString &id : {
+                 QStringLiteral("composer.underline"),
+                 QStringLiteral("room.togglePeople") }) {
+            const QString note = roleFor(
+                registry, id, ShortcutRegistry::ShadowNoteRole);
+            QVERIFY2(note.contains(QStringLiteral("timeline")),
+                     qPrintable(id + QStringLiteral(": ") + note));
+            QVERIFY2(note.contains(QStringLiteral("selected")),
+                     qPrintable(id + QStringLiteral(": ") + note));
+        }
         QVERIFY(roleFor(registry, QStringLiteral("timeline.olderMessage"),
                         ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
         QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),

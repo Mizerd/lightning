@@ -61,7 +61,7 @@ Rectangle {
         && messageComposer.activeEditor().enabled
         && !messageComposer.activeEditor().readOnly
 
-    function focusComposer() {
+    function focusComposerForTyping() {
         if (!root.composerFocusable)
             return false
         timeline.stopEntrySelection()
@@ -3278,7 +3278,7 @@ Rectangle {
                         if (row >= 0 && navigableEventAt(row) !== ""
                                 && root.composerFocusable) {
                             beginReplyForEvent(root.keyboardSelectedEventId)
-                            root.focusComposer()
+                            root.focusComposerForTyping()
                         }
                         break
                     default: return false
