@@ -221,6 +221,14 @@ Rectangle {
             middleClickScroller.stop()
     }
 
+    // F6 target (C74-F01): the composer, when there is one to type in.
+    function focusComposer() {
+        if (!messageComposer.visible || !messageComposer.enabled)
+            return false
+        messageComposer.focusEditor()
+        return true
+    }
+
     // Member/info panel and thread panel are mutually exclusive. The exclusion
     // lives on the state properties so every open path goes through it.
     onThreadSurfaceOpenChanged: {
@@ -4376,6 +4384,39 @@ Rectangle {
                     // could later yank a reader who has taken over.
                     followLatestOnArrival = false
                     app.timelineScroll.cancel()
+                }
+
+                // Keyboard reveal (C74-F03): scroll just far enough that `row`
+                // is inside the viewport. The view is rotated 180 degrees but
+                // contentY and contentItem coordinates are not, and mapToItem
+                // accounts for the row's own counter-rotation, so the overlap
+                // test is rotation-agnostic. A row taller than the viewport
+                // shows its first-read (visually top) edge.
+                function revealRow(row) {
+                    if (!row || !row.visible || height <= 0)
+                        return false
+                    var a = row.mapToItem(timeline.contentItem, 0, 0).y
+                    var b = row.mapToItem(timeline.contentItem, 0, row.height).y
+                    var top = Math.min(a, b)
+                    var bottom = Math.max(a, b)
+                    var margin = 8
+                    var target = contentY
+                    if (bottom - top + 2 * margin > height)
+                        target = bottom - height + margin
+                    else if (top < contentY + margin)
+                        target = top - margin
+                    else if (bottom > contentY + height - margin)
+                        target = bottom - height + margin
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    target = target < lo ? lo : (target > hi ? hi : target)
+                    if (Math.abs(target - contentY) <= 0.5)
+                        return false
+                    cancelWheelMotion()
+                    contentY = target
+                    updateStickAndPaginate()
+                    scrollSettleTimer.restart()
+                    return true
                 }
 
                 // Jump to latest glides when near the bottom and stays instant

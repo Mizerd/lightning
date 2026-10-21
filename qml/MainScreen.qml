@@ -42,6 +42,79 @@ Item {
         if (event.accepted)
             shellRoot.forceActiveFocus()
     }
+    // F6 / Shift+F6 cycle the keyboard focus between the main regions: the
+    // Spaces rail, the room list, and the chat pane (its composer when a room
+    // is open, else its first tab stop) (C74-F01). Like Escape this is a Keys
+    // handler: it only sees F6 when no focused control wanted it.
+    function _descendantOf(item, ancestor) {
+        for (var it = item; it; it = it.parent) {
+            if (it === ancestor) return true
+        }
+        return false
+    }
+    // The first item inside `region` that Tab would stop on.
+    function _firstTabStop(region) {
+        var it = region
+        for (var hops = 0; hops < 400; ++hops) {
+            it = it.nextItemInFocusChain(true)
+            if (!it || it === region) return null
+            if (shellRoot._descendantOf(it, region) && it.visible && it.enabled)
+                return it
+        }
+        return null
+    }
+    // The chat pane goes to its composer when a room is open and writable;
+    // otherwise (no room, read-only room) to its first tab stop, which may be
+    // a timeline row.
+    function focusRegion(region) {
+        if (!region || !region.visible) return false
+        if (region === timelinePane && timelinePane.focusComposer())
+            return true
+        var target = shellRoot._firstTabStop(region)
+        if (!target) return false
+        target.forceActiveFocus(Qt.TabFocusReason)
+        return true
+    }
+    // The unverified-session card is a region of the F6 cycle while it shows,
+    // after the chat (MASTER-3 M3). It lives on the window overlay, outside
+    // this item, so Main.qml hands it in; and F6 pressed inside it never
+    // reaches this item's Keys, so the card asks through regionCycleRequested.
+    property Item promptRegion: null
+    function _promptRegion() {
+        var card = shellRoot.promptRegion
+        return card && card.shouldShow && card.visible ? card : null
+    }
+    Connections {
+        target: shellRoot.promptRegion
+        ignoreUnknownSignals: true
+        function onRegionCycleRequested(backward) { shellRoot.cycleRegions(backward) }
+    }
+    function cycleRegions(backward) {
+        var regions = [spacesRail, roomsPanel, timelinePane,
+                       shellRoot._promptRegion()].filter(
+            r => r && r.visible && r.width > 0)
+        if (regions.length === 0) return false
+        var focused = Window.activeFocusItem
+        var current = -1
+        for (var i = 0; i < regions.length; ++i) {
+            if (shellRoot._descendantOf(focused, regions[i])) { current = i; break }
+        }
+        for (var step = 1; step <= regions.length; ++step) {
+            var next = backward
+                ? (current < 0 ? regions.length - step
+                               : (current - step + regions.length * 2) % regions.length)
+                : (current < 0 ? step - 1 : (current + step) % regions.length)
+            if (shellRoot.focusRegion(regions[next])) return true
+        }
+        return false
+    }
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_F6
+                && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier
+                                        | Qt.MetaModifier)))
+            event.accepted = shellRoot.cycleRegions(
+                !!(event.modifiers & Qt.ShiftModifier))
+    }
     function insideComposer(item) {
         for (var it = item; it; it = it.parent) {
             if (it.objectName === "messageComposer")
@@ -585,6 +658,7 @@ Item {
         // Chat area. Settings is a full view hosted by Main.qml that hides this
         // whole shell.
         TimelinePane {
+            id: timelinePane
             objectName: "timelinePane"
             SplitView.fillWidth:  true
             SplitView.minimumWidth: 320

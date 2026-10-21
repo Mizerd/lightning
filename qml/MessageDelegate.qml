@@ -884,7 +884,64 @@ Item {
     }
     activeFocusOnTab: !isVirtualRow && !isStateActivity && !isCallEvent
                       && !isThreadKeyWait
+    // Row-to-row keyboard navigation (C74-F03). The focus chain also holds
+    // receipt avatars and overlay buttons, so walk it until the next ROW.
+    // Tab runs newest to oldest, so "forward" is up the screen.
+    function focusNeighbourRow(forward) {
+        var it = root
+        for (var hops = 0; hops < 64; ++hops) {
+            it = it.nextItemInFocusChain(forward)
+            if (!it || it === root)
+                return false
+            if (it.objectName === "messageDelegateRoot") {
+                // The chain wraps through the whole window: a row of another
+                // timeline (thread, pinned) is the end of THIS list.
+                if (it.parent !== root.parent)
+                    return false
+                if (!it.visible || !it.enabled)
+                    continue
+                it.forceActiveFocus(Qt.TabFocusReason)
+                // Nothing else scrolls the view to the new row.
+                if (root.timelineView && root.timelineView.revealRow)
+                    root.timelineView.revealRow(it)
+                return true
+            }
+        }
+        return false
+    }
+    // Keyboard focus ring (C74-F02): the row is a tab stop with no default look.
+    Rectangle {
+        objectName: "messageRowFocusRing"
+        anchors.fill: parent
+        visible: root.activeFocus
+        radius: AppTheme.radiusSm
+        color: "transparent"
+        border.width: 2
+        border.color: AppTheme.focusRing
+        z: 1000
+    }
     Keys.onPressed: (event) => {
+        // Only when the row itself holds the focus: keys bubbling up from a
+        // control inside the row (a poll option, a chip) are not row commands.
+        if (root.activeFocus
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                && (model.isImage === true || model.isSticker === true)
+                && !root.isSvgImage && model.mediaSourceAvailable === true
+                && root.timelineView && root.timelineView.openImage) {
+            // C74-F07: Return opens the viewer, like the "Open image" item.
+            root.timelineView.openImage(model.mediaKey || "", model.mediaUrl)
+            event.accepted = true
+            return
+        }
+        if (root.activeFocus
+                && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
+            if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier
+                                     | Qt.ShiftModifier | Qt.MetaModifier))
+                    && root.focusNeighbourRow(event.key === Qt.Key_Up)) {
+                event.accepted = true
+                return
+            }
+        }
         if (event.key === Qt.Key_Menu
             || (event.key === Qt.Key_F10
                 && (event.modifiers & Qt.ShiftModifier))) {

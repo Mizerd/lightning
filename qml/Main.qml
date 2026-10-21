@@ -141,6 +141,19 @@ ApplicationWindow {
         }
     }
 
+    // The last item that held the keyboard focus while the main screen (not
+    // Settings) was current: what closing Settings returns to (C74-F08).
+    property Item lastMainFocus: null
+    onActiveFocusItemChanged: {
+        var f = activeFocusItem
+        if (!f || app.currentScreen === 2)
+            return
+        for (var it = f; it; it = it.parent) {
+            if (it === settingsViewLoader)
+                return
+        }
+        lastMainFocus = f
+    }
     Component.onCompleted: {
         syncControlPalette()
         // Place first, while still hidden, so the user never sees it move.
@@ -587,7 +600,7 @@ ApplicationWindow {
     }
 
     Component { id: loginComponent;    LoginScreen {} }
-    Component { id: mainComponent;     MainScreen {} }
+    Component { id: mainComponent;     MainScreen { promptRegion: verifySessionPromptCard } }
     // Minimal restoration surface: background, wordmark, one spinner. No
     // credential fields or stale content; the saved theme is already resolved.
     Component {
@@ -656,7 +669,41 @@ ApplicationWindow {
             if (visible)
                 item.forceActiveFocus()
         }
-        onVisibleChanged: if (visible && item) item.forceActiveFocus()
+        // Closing Settings (Escape) hands the focus back instead of leaving it
+        // on an item that has just been hidden (C74-F08). The item to return to
+        // is tracked WHILE the main screen is showing (window.lastMainFocus,
+        // below), not read when Settings becomes visible: by then the shell is
+        // hiding in the same binding pass and activeFocusItem may already be
+        // null.
+        property Item returnFocusTo: null
+        property bool settingsWasShown: false
+        function restoreFocusAfterClose() {
+            var target = returnFocusTo
+            returnFocusTo = null
+            if (visible)
+                return
+            if (target && target.visible && target.enabled
+                    && target.Window.window === window) {
+                target.forceActiveFocus(Qt.OtherFocusReason)
+                return
+            }
+            if (pageLoader.item)
+                pageLoader.item.forceActiveFocus(Qt.OtherFocusReason)
+            else
+                pageLoader.forceActiveFocus(Qt.OtherFocusReason)
+        }
+        onVisibleChanged: {
+            if (visible && item) {
+                returnFocusTo = window.lastMainFocus
+                settingsWasShown = true
+                item.forceActiveFocus()
+            } else if (!visible && settingsWasShown) {
+                // After the page loader has shown again. A drop that follows
+                // no show (the loader never displayed Settings) restores nothing.
+                settingsWasShown = false
+                Qt.callLater(settingsViewLoader.restoreFocusAfterClose)
+            }
+        }
     }
     Timer {
         interval: 2500

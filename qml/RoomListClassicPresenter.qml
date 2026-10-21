@@ -164,29 +164,20 @@ Item {
             // composer grab a pointer open gets.
             Keys.onReturnPressed: (event) => rowDelegate.openFromKeyboard(event)
             Keys.onEnterPressed: (event) => rowDelegate.openFromKeyboard(event)
+            Keys.onSpacePressed: (event) => {
+                if (event.isAutoRepeat)
+                    event.accepted = true
+                else
+                    rowDelegate.openFromKeyboard(event)
+            }
             function openFromKeyboard(event) {
                 if (model.membership === "joined") {
                     root.roomActivated(model.roomId)
                     event.accepted = true
                 }
             }
-            // The full name on hover: a long one is elided in the row.
-            HoverHandler { id: rowHover }
-            ToolTip.text: model.name || ""
-            ToolTip.visible: rowHover.hovered && (model.name || "").length > 0
-            ToolTip.delay: 800
-            // The focus ring. Drawn here because RoomDelegate has none.
-            Rectangle {
-                objectName: "roomRowFocusRing"
-                anchors.fill: parent
-                anchors.margins: 1
-                z: 10
-                color: "transparent"
-                radius: AppTheme.radiusMd
-                border.width: 2
-                border.color: AppTheme.focusRing
-                visible: rowDelegate.activeFocus
-            }
+            // The full name on hover and the focus ring are RoomDelegate's
+            // own (the name only when truncated; one ring) - MASTER-3 M1.
             // Favourites are now interleaved by recency, so the model reports
             // an empty boundary; the binding stays for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId

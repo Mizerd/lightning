@@ -383,6 +383,24 @@ private Q_SLOTS:
         QVERIFY(registry.editorOverrideFor(Qt::Key_K, ctrl, true).isEmpty());
     }
 
+    // The composer yields a key a Global action also holds when nothing is
+    // selected (editorOverrideFor), so the hint on both rows must say the
+    // override applies to a selection only, not to "focus" (C75-F02).
+    void shadowNotesSayTheEditorWinsOnlyOverASelection()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        for (const QString &id : { QStringLiteral("composer.bold"),
+                                   QStringLiteral("composer.underline"),
+                                   QStringLiteral("room.togglePeople"),
+                                   QStringLiteral("shell.toggleRoomList") }) {
+            const QString note = roleFor(registry, id,
+                                         ShortcutRegistry::ShadowNoteRole);
+            QVERIFY2(note.contains(QStringLiteral("selected")),
+                     qPrintable(id + QStringLiteral(": ") + note));
+        }
+    }
+
     // Exactly two sequences appear on more than one row (Ctrl+B and Ctrl+U,
     // both designed cross-context pairs). conflictCount() cannot see a third,
     // accidental one, since cross-context pairs are legal.

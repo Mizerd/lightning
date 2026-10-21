@@ -705,6 +705,17 @@ QString ShortcutRegistry::shadowNote(int row) const
             continue;
         if (m_resolved.at(i) != mine)
             continue;
+        // The composer yields to a Global twin when nothing is selected
+        // (editorOverrideFor), so the editor action wins only over a
+        // selection. Say that, not "while the box has focus".
+        if (a.context == EditorContext && other.context == GlobalContext)
+            return tr("With text selected in the message box this runs "
+                      "instead of “%1”; with nothing selected, “%1” runs.")
+                .arg(other.description);
+        if (a.context == GlobalContext && other.context == EditorContext)
+            return tr("While text is selected in the message box, “%1” "
+                      "runs instead.")
+                .arg(other.description);
         return a.context == EditorContext
                    ? tr("While the message box has focus this runs instead of "
                         "“%1”.")

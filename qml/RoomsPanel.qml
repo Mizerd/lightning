@@ -327,6 +327,16 @@ Rectangle {
                             Layout.fillHeight: true
                             placeholderText: qsTr("Search")
                             Accessible.name: qsTr("Search rooms")
+                            // Escape clears the query, then leaves the field
+                            // so the shell's Escape (room -> overview -> Home)
+                            // is reachable again (C74-F13).
+                            Keys.onEscapePressed: (event) => {
+                                if (roomSearch.text.length > 0)
+                                    roomSearch.clear()
+                                else
+                                    root.forceActiveFocus(Qt.OtherFocusReason)
+                                event.accepted = true
+                            }
                             onTextChanged: app.roomList.searchQuery = text
                             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                             color: AppTheme.textPrimary

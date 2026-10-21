@@ -132,12 +132,6 @@ Item {
         anchors.bottomMargin: root.showGroupDivider ? 1 : 0
         // An 8px rounded highlight chip from the semantic tokens.
         radius: AppTheme.radiusMd
-        // Every row is a Tab stop and nothing else focuses one (a click does
-        // not), so activeFocus is keyboard focus; Item has no visualFocus.
-        // The one holding the keyboard says so
-        // (C06 F02: Tab moved through the list with nothing to see).
-        border.width: root.activeFocus ? 2 : 0
-        border.color: AppTheme.focusRing
         color: selected ? (hover.hovered ? AppTheme.roomSelectedHover : AppTheme.roomSelected)
              : hover.hovered ? AppTheme.roomHover
              : root.needsAttention ? AppTheme.chipAccentFill
@@ -563,7 +557,10 @@ Item {
                  || (root.isInviteRow && root.inviterUserId !== "")
         onLongPressed: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()
     }
-    // Keyboard open path, joined rooms only like right-click.
+    // The row's menu from the keyboard, joined rooms only like right-click.
+    // Return / Enter / Space open the row in the host (the Classic presenter's
+    // openFromKeyboard): a keyboard open, without the composer grab a
+    // pointer's clicked() takes (MASTER-3 M2).
     Keys.onPressed: (event) => {
         if (model.membership === "joined"
             && (event.key === Qt.Key_Menu
@@ -572,6 +569,20 @@ Item {
             roomMenu.popup()
             event.accepted = true
         }
+    }
+    // THE keyboard focus ring of a room row (C74-F02; C06's border and the
+    // presenter's second ring folded into it): every row is a Tab stop and
+    // nothing else focuses one, so activeFocus is keyboard focus.
+    Rectangle {
+        objectName: "roomRowFocusRing"
+        anchors.fill: parent
+        anchors.margins: 1
+        visible: root.activeFocus
+        radius: AppTheme.radiusMd
+        color: "transparent"
+        border.width: 2
+        border.color: AppTheme.focusRing
+        z: 50
     }
     // The menu lives in RoomActionsMenu.qml, shared with the Channels row.
     RoomActionsMenu {

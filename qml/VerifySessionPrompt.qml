@@ -35,14 +35,22 @@ Rectangle {
     objectName: "verifySessionPrompt"
 
     // The card sits last in the window's focus chain (about 70 Tab stops in),
-    // so it gets a direct way in: F6 moves focus to its primary action while it
-    // is showing. Escape on any of its buttons means "Not now".
-    Shortcut {
-        objectName: "verifySessionPromptFocusShortcut"
-        sequence: "F6"
-        enabled: root.shouldShow
-        onActivated: verifyButton.forceActiveFocus(Qt.TabFocusReason)
+    // so it gets a direct way in: while it shows it is one of the regions F6
+    // cycles through (MainScreen.cycleRegions; a window Shortcut here used to
+    // take F6 from the region cycling whenever the card was up, MASTER-3 M3).
+    // Escape on any of its buttons means "Not now".
+    signal regionCycleRequested(bool backward)
+    // F6 inside the card goes up through the overlay, never through
+    // MainScreen, so the card hands it to the shell's cycle.
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_F6
+                && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier
+                                        | Qt.MetaModifier))) {
+            root.regionCycleRequested(!!(event.modifiers & Qt.ShiftModifier))
+            event.accepted = true
+        }
     }
+    // (end of the card's F6 hand-off)
     visible: opacity > 0
     opacity: shouldShow ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 140 } }

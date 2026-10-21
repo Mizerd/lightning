@@ -63,10 +63,21 @@ private Q_SLOTS:
     }
     void theCornerPromptIsReachableByKeyboardEarly()
     {
+        // F6 reaches it as a region of the shell's F6 cycle while it shows
+        // (one F6 owner, MASTER-3 M3), not through a Shortcut of its own.
         const QString v = norm(QStringLiteral("VerifySessionPrompt.qml"));
-        QVERIFY(v.contains(QStringLiteral("sequence: \"F6\"")));
-        QVERIFY(v.contains(QStringLiteral("verifyButton.forceActiveFocus(")));
+        QVERIFY(!v.contains(QStringLiteral("sequence: \"F6\"")));
         QVERIFY(v.contains(QStringLiteral("Keys.onEscapePressed: app.dismissVerificationWarning()")));
+        // The card lives on the window overlay, outside MainScreen: Main.qml
+        // hands it in, and F6 inside it is forwarded back to the shell's
+        // cycle. KeyboardNavigationQmlTest drives both directions.
+        const QString m = norm(QStringLiteral("MainScreen.qml"));
+        QVERIFY(m.contains(QStringLiteral("property Item promptRegion: null")));
+        QVERIFY(m.contains(QStringLiteral("shellRoot._promptRegion()")));
+        QVERIFY(m.contains(QStringLiteral("function onRegionCycleRequested(backward)")));
+        QVERIFY(norm(QStringLiteral("Main.qml"))
+                    .contains(QStringLiteral("MainScreen { promptRegion: verifySessionPromptCard }")));
+        QVERIFY(v.contains(QStringLiteral("signal regionCycleRequested(bool backward)")));
     }
     void aFailedFlowDropsThePreVerificationIntro()
     {
