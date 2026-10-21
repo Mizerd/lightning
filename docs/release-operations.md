@@ -20,6 +20,9 @@ pipelines.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.10.2 | `a32229a6` | **project 6** 344, **30/30 green first attempt** (Flathub PR #3) | `docs/releases/v0.10.2.md` |
+| 0.10.1 | `712ed6dd` | **project 6** 315, 30/30 | `docs/releases/v0.10.1.md` |
+| 0.10.0 | `1e808997` | **project 6** 284, 28/28 (281 cancelled before publishing) | `docs/releases/v0.10.0.md` |
 | 0.9.6 | `e177135` | **project 6** 222, 24/25 (the red one is `report-optional-assets`, a `RELEASE_TAG: unbound variable` bug in the reporter itself on its FIRST ever run — not `allow_failure`, so the pipeline reads `failed` while the release is complete; fixed in `a051b9a`) | `docs/releases/v0.9.6.md` |
 | 0.9.5 | `8d5d0ca` | **project 6** 215, 23/24 (the red one is `macos-package-test`, `allow_failure`, and NOT a false negative: the bundle built and died on a 413 uploading, so 0.9.5 shipped with no macOS asset) | `docs/releases/v0.9.5.md` |
 | 0.9.4 | `bcea599` | **project 6** 186, **20/20 green first attempt** | `docs/releases/v0.9.4.md` |
@@ -83,7 +86,23 @@ SHA-256; the Ed25519 signature VERIFIED against the key extracted from the
 shipped `.deb` (`pnNX0yQ…`, key id `lightning-release-2026a`) with a
 one-field-changed copy REJECTED; the GitHub tag (annotated) peeling to
 `54d1bdb1`; 11 mirror assets; and the `.deb` fetched FROM GITHUB matching the
-GitLab-signed SHA-256. It is the current run.
+GitLab-signed SHA-256.
+
+0.10.2's anonymous verification bar was run on 2026-10-22 and PASSED IN
+FULL, with the vault's `verify-release.sh` under
+`nix shell nixpkgs#openssl nixpkgs#xxd nixpkgs#binutils`, its GitLab checks
+run anonymously (the project answers anonymous reads, so no token was used):
+the GitLab release `v0.10.2` at `a32229a61f1d590a1273376155fa5e8f5e18ff1c`;
+all **eleven** package links 200 with the count asserted (macOS zip among
+them); the signed manifest reading 0.10.2 / `v0.10.2` (released
+2026-10-21T18:55:19Z, expires 2027-02-18T18:55:19Z) with six artifacts all
+carrying `mirror_url` and macOS correctly ABSENT, the GitHub `update-latest`
+slot byte-identical to GitLab's pair; all six artifacts fetched from the
+mirror AND from GitLab matching the signed SHA-256; the key in the shipped
+`.deb` equal to the trusted `lightning-release-2026a` key, both signatures
+VERIFIED and a one-field-changed copy REJECTED; the GitHub release with 11
+assets, each matching `SHA256SUMS`; and the annotated GitHub tag peeling to
+`a32229a6`. It is the current run.
 
 Releases are package-first: the tag and GitLab Release are created by
 the lightning-deploy pipeline only after packages publish and verify

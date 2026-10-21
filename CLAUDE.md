@@ -26,24 +26,23 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.10.0** (`v0.10.0` -> `1e808997`),
-tagged 2026-10-01 by **project 6** pipeline **284, 28/28** (macOS attached;
-281 was cancelled before publishing so VM tests could run first). Notes in
-`docs/releases/v0.10.0.md`. **Anonymous verification bar PASSED IN FULL on
-2026-10-01** (11 links, signature verified, 11 mirror assets). **The first
-release whose pipeline opened the Flathub PR itself** (`flathub-update-pr`,
-PR #1, test build green on x86_64 + aarch64, validated in a VM, merged
-2026-10-01). Previous release: 0.9.9. Round record:
-`docs/round-history.md` and the vault note `Tasks/2026-09-30 CONTINUATION.md`.
+Latest published release: **Lightning 0.10.2** (`v0.10.2` -> `a32229a6`),
+tagged 2026-10-21 by **project 6** pipeline **344, 30/30 first attempt**
+(macOS attached; Flathub PR #3 opened by `flathub-update-pr`). Notes in
+`docs/releases/v0.10.2.md`. **Anonymous verification bar PASSED IN FULL on
+2026-10-22** (11 links, signature verified, 11 mirror assets; result in
+`docs/release-operations.md`). Before it: 0.10.1 (`712ed6dd`, pipeline 315,
+30/30) and 0.10.0 (`1e808997`, pipeline 284, 28/28, the first release whose
+pipeline opened the Flathub PR itself). Round record: `docs/round-history.md`.
 `tests/VersionConsistencyTest.cpp` compares five locations so a bump cannot
 half-land — **and there is a SIXTH it does NOT compare, the AppStream
-metainfo; see §14.** The root Flathub manifest is a SEVENTH and is re-pinned
-to `v0.10.0` / `1e808997…`, which is the post-release step
-`test-flathub-manifest-pin.py` deliberately waits for. Media from encrypted
-rooms is now kept encrypted at rest (a per-account key in the keyring; §6's
-plaintext rule holds for media).
+metainfo; see §14.** The root Flathub manifest is a SEVENTH, re-pinned to
+the new tag after each release (`test-flathub-manifest-pin.py` waits for it);
+it names `v0.10.2` / `a32229a6…`. Media from encrypted rooms is kept
+encrypted at rest (a per-account key in the keyring; §6's plaintext rule
+holds for media).
 
-**AND IT TOOK SIX ATTEMPTS TO GET THERE — five of them lost to ONE MISSING
+0.9.9 **TOOK SIX ATTEMPTS — five of them lost to ONE MISSING
 DEBIAN PACKAGE.** Pipelines 246-250 all died in `build-flatpak` on
 `E: file-read-error` / `E: filters-but-no-output`, two hints that name no
 file, and two hypotheses were built and shipped on them before the cause was
