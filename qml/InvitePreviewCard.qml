@@ -29,6 +29,51 @@ Rectangle {
     signal acceptRequested()
     signal declineRequested()
 
+    // Keyboard: the card is a Tab stop (with a visible ring, WCAG 2.4.7) and
+    // Accept and Decline follow it in the ordinary chain, so Tab and
+    // Shift+Tab can also LEAVE it (no trap, WCAG 2.1.2). Showing the card
+    // never takes focus, so arrowing down the room list onto an invite row
+    // keeps working. When the card's own buttons disable under the user (an
+    // accept or decline in flight, or an error arriving), the disabled item
+    // drops active focus; focus is pulled back to the card ONLY if it was
+    // inside the card or already lost, never from wherever else the user has
+    // moved (the list's own Accept/Reject also set `pending`; an error
+    // arrives asynchronously). The covered timeline must also be out of the
+    // Tab chain while the card is up: TimelinePane sets enabled on it
+    // (C83-F01; done in TimelinePane).
+    activeFocusOnTab: true
+    function _focusInsideOrLost() {
+        const w = card.Window.window
+        if (!w)
+            return false
+        let f = w.activeFocusItem
+        if (f === null || f === w.contentItem)
+            return true
+        for (; f; f = f.parent)
+            if (f === card)
+                return true
+        return false
+    }
+    function focusCard() {
+        if (visible && _focusInsideOrLost())
+            forceActiveFocus(Qt.TabFocusReason)
+    }
+    onPendingChanged: if (pending) focusCard()
+    onErrorTextChanged: if (errorText !== "") focusCard()
+
+    // The card's own Tab stop shows a ring, inside its bounds.
+    Rectangle {
+        objectName: "invitePreviewFocusRing"
+        anchors.fill: parent
+        anchors.margins: 2
+        radius: AppTheme.radiusLg
+        color: "transparent"
+        border.color: AppTheme.accent
+        border.width: 2
+        visible: card.activeFocus
+        z: 1
+    }
+
     // Swallow input so nothing reaches the timeline underneath.
     MouseArea {
         anchors.fill: parent
@@ -106,6 +151,7 @@ Rectangle {
             Layout.topMargin: AppTheme.spacingS
             spacing: AppTheme.spacingS
             AppButton {
+                id: acceptButton
                 objectName: "invitePreviewAccept"
                 kind: "primary"
                 text: qsTr("Accept")
@@ -114,6 +160,7 @@ Rectangle {
                 onClicked: card.acceptRequested()
             }
             AppButton {
+                id: declineButton
                 objectName: "invitePreviewDecline"
                 kind: "danger"
                 text: qsTr("Decline")

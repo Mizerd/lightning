@@ -4528,6 +4528,17 @@ if(BUILD_TESTING)
     set_tests_properties(app-locale-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # InvitePreviewCard: keyboard focus ring and Tab reachability.
+    qt_add_executable(invite-preview-card-qml-test
+        tests/InvitePreviewCardQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(invite-preview-card-qml-test)
+    target_link_libraries(invite-preview-card-qml-test PRIVATE Qt6::Test)
+    add_test(NAME invite-preview-card-qml COMMAND invite-preview-card-qml-test)
+    set_tests_properties(invite-preview-card-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Change password section: Password echo on every field, and the fields
     # empty with no undo history after submit, on hide and when the account
     # page takes over.

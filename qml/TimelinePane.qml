@@ -2278,6 +2278,7 @@ Rectangle {
             // rows take zero height. See docs/timeline-scrolling.md.
             Flickable {
                 id: timeline
+                enabled: !root.invitePreview
                 // Media band: the row index range allowed to fetch pictures now
                 // (MessageDelegate.mediaInBand). Not bound to contentY, which
                 // would re-run a comparison in every row on every scroll frame;
@@ -5718,6 +5719,7 @@ Rectangle {
             // bottom of a room already read (break-it B060, B033).
             AbstractButton {
                 id: jumpToFirstUnreadButton
+                enabled: !root.invitePreview
                 objectName: "jumpToFirstUnreadButton"
                 // Centred, except once the room's true start is loaded: the
                 // "Beginning of conversation" label is centred at the very
@@ -5842,6 +5844,7 @@ Rectangle {
             // AbstractButton so click() and visible drive the scroll tests.
             AbstractButton {
                 id: jumpToLatestButton
+                enabled: !root.invitePreview
                 objectName: "jumpToLatestButton"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
