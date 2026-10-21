@@ -4612,7 +4612,8 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // Inline video never survives a room switch: its row is destroyed. The
     // voice/audio player is app-owned and keeps playing (the floating
     // mini-player carries it while its room is elsewhere), so it takes
-    // audibility back.
+    // audibility back. Video positions are NOT forgotten here: the cover
+    // offers to resume when the reader comes back.
     m_playback->stopAll();
     m_voicePlayback->reclaimAudibility();
     // Queued speculative fetches belong to the destroyed delegates; dropping
@@ -7063,6 +7064,9 @@ void AppController::onLoggedOut()
     m_voicePlayback->stop();
     resetVoicePrefetch();
     m_playback->stopAll();
+    // Where each video stopped belongs to this account. AFTER stopAll():
+    // a playing card remembers its position synchronously on that stop.
+    m_playback->forgetResumePositions();
     // Unsent clipboard images belong to the session. The composers release
     // them individually; this sweep catches anything left behind.
     m_stagedImages.clear();
@@ -7253,6 +7257,9 @@ void AppController::clearCrossAccountCaches()
     // player holds an open handle into the previous account's cache.
     m_voicePlayback->stop();
     m_playback->stopAll();
+    // The previous account's video positions go with it; after stopAll(),
+    // which makes a playing card remember its position synchronously.
+    m_playback->forgetResumePositions();
     resetVoicePrefetch();
     m_mediaBridge->clear();
     // Finished and failed download notices belong to the previous account.

@@ -6119,6 +6119,16 @@ if(BUILD_TESTING)
         set_tests_properties(media-browser-tile-qml PROPERTIES
             SKIP_RETURN_CODE 77
             ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
+        # The inline video card, its control bar and the expanded view: one
+        # speed for every bar, the speed menu's direction, the narrow-card
+        # layout, the keyboard map, the remembered position and the end of an
+        # expanded video (scripts/test-video-player.sh; silent, no sound
+        # server).
+        add_test(NAME video-player-qml
+            COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-video-player.sh)
+        set_tests_properties(video-player-qml PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
     endif()
 
     # Lightning's own file chooser (Linux without a portal): the folder

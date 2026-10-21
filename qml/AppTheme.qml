@@ -56,6 +56,15 @@ QtObject {
     // Includes the UI font's optical correction so text size and font choice
     // stay independent (Manrope, the default, has factor 1.0).
     function scaled(px) { return Math.round(px * textScale * uiFontOptical) }
+    // A media clock position, "m:ss". A position FLOORS (at 25.7 s you have
+    // not reached 0:26); a total rounds and is each player's own. Shared by the
+    // video bar and the video covers' "Resume from" hints.
+    function clockPosition(ms) {
+        var total = Math.floor(Math.max(0, ms || 0) / 1000)
+        var m = Math.floor(total / 60)
+        var sec = total % 60
+        return m + ":" + (sec < 10 ? "0" : "") + sec
+    }
 
     // Shared height of the top header strip (room list, room header, side
     // panel) so the rule beneath them lines up across the whole window.
@@ -1277,6 +1286,12 @@ QtObject {
     readonly property color scrimBorder:         "#33FFFFFF"
     readonly property color scrimInkStrong:      "#E6FFFFFF"
     readonly property color scrimInkMuted:       "#94A3B8"
+    // Success / failure text on the scrim (the media viewers' save notice).
+    // The theme's success/danger inks are tuned for the theme's own surface
+    // and fall to ~2.6:1 on this always-dark one in light themes; these clear
+    // 4.5:1 on _scrimBase (#111111): 10.5:1 and 10.3:1.
+    readonly property color scrimSuccessInk:     "#63D6A3"
+    readonly property color scrimDangerInk:      "#FFA7AF"
 
     // ---- Storm surface language ---- Shared tokens for menus, popovers,
     // pickers, dialogs and Settings. Under Storm they carry the Storm literals;

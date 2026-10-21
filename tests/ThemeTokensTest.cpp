@@ -228,6 +228,7 @@ private Q_SLOTS:
             QStringLiteral("scrimSurfaceHover"), QStringLiteral("scrimBorder"),
             QStringLiteral("scrimInk"), QStringLiteral("scrimInkStrong"),
             QStringLiteral("scrimInkMuted"),
+            QStringLiteral("scrimSuccessInk"), QStringLiteral("scrimDangerInk"),
             // Focus / overlay
             QStringLiteral("focusRing"), QStringLiteral("overlayScrim"),
             // Storm namespace (theme-routed; bolt ink pairs with bolt fills)
@@ -410,6 +411,10 @@ private Q_SLOTS:
             // its opaque equivalent _scrimBase stands in.
             { "scrimInk", "_scrimBase", 4.5 },
             { "scrimInkMuted", "_scrimBase", 4.5 },
+            // The media viewers' save notice (the theme's success/danger fell
+            // to ~2.6:1 here in light themes).
+            { "scrimSuccessInk", "_scrimBase", 4.5 },
+            { "scrimDangerInk", "_scrimBase", 4.5 },
             // Controls/badges (large or bold UI text): ≥ 3:1.
             { "_onAccent", "_accentBlue", 3.0 },
             // Ink on accent for every theme: once storm* routes,

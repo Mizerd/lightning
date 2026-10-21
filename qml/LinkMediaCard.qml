@@ -33,6 +33,19 @@ Item {
 
     readonly property bool isVideo: (root.preview.mediaKind || "") === "video"
     readonly property string mediaKey: root.preview.mediaKey || ""
+    // Where the inline player stopped in this session, or whether it played to
+    // the end (MediaPlaybackController; the same store the timeline's video
+    // cover reads). Through the revision: a call alone binds to nothing.
+    readonly property real resumeMs: {
+        var revision = app.playback.resumeRevision
+        return root.isVideo && app.playback.videoResumePosition
+               ? app.playback.videoResumePosition(root.mediaKey) : 0
+    }
+    readonly property bool watched: {
+        var revision = app.playback.resumeRevision
+        return root.isVideo && app.playback.videoFinished
+               ? app.playback.videoFinished(root.mediaKey) : false
+    }
     readonly property real mediaSize: root.preview.mediaSize || 0
     // The fetch found it over the cap (the size was not declared up front).
     property bool fetchTooLarge: false
@@ -243,8 +256,9 @@ Item {
             }
         }
 
-        // Play or View.
+        // Play or View; Replay once the video was watched to the end.
         Rectangle {
+            id: playAffordance
             objectName: "linkMediaPlayAffordance"
             visible: !root.tooLarge
             anchors.centerIn: parent
@@ -254,9 +268,33 @@ Item {
             color: AppTheme.overlayScrim
             Icon {
                 anchors.centerIn: parent
-                name: root.isVideo ? "play_arrow" : "zoom_in"
+                name: !root.isVideo ? "zoom_in"
+                      : root.watched ? "refresh" : "play_arrow"
                 size: 26
                 color: AppTheme.scrimInk
+            }
+        }
+        Rectangle {
+            objectName: "linkMediaResumeChip"
+            visible: playAffordance.visible && root.resumeMs > 0
+                     && !root.playerActive
+            anchors.top: playAffordance.bottom
+            anchors.topMargin: AppTheme.spacing6
+            anchors.horizontalCenter: parent.horizontalCenter
+            radius: 3
+            color: AppTheme.overlayScrim
+            width: Math.min(linkResumeLabel.implicitWidth + 12,
+                            parent.width - 12)
+            height: linkResumeLabel.implicitHeight + 4
+            Label {
+                id: linkResumeLabel
+                anchors.centerIn: parent
+                width: Math.min(implicitWidth, parent.width - 12)
+                text: qsTr("Resume from %1").arg(AppTheme.clockPosition(root.resumeMs))
+                color: AppTheme.scrimInk
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightStrong
+                elide: Label.ElideRight
             }
         }
 
@@ -352,11 +390,18 @@ Item {
     Keys.onEnterPressed: root.activate()
     Keys.onSpacePressed: root.activate()
     Accessible.role: Accessible.Button
+    // A screen reader's "press" is the same action as a click.
+    Accessible.onPressAction: root.activate()
     Accessible.name: root.tooLarge
         ? qsTr("%1 too large to show here, open %2 in browser")
               .arg(root.kindText).arg(root.preview.host || "")
         : (root.isVideo
-           ? qsTr("Play video %1").arg(root.captionText)
+           ? (root.watched
+              ? qsTr("Replay video %1").arg(root.captionText)
+              : root.resumeMs > 0
+                ? qsTr("Resume video %1 from %2").arg(root.captionText)
+                      .arg(AppTheme.clockPosition(root.resumeMs))
+                : qsTr("Play video %1").arg(root.captionText))
            : qsTr("View image %1").arg(root.captionText))
           + (root.needsConsent ? ". " + root.consentText : "")
     Rectangle {

@@ -10,7 +10,17 @@ import MatrixClient
 // Audibility goes through app.playback (one audible card at a time; room or
 // account switches force a stop). Fills the geometry the cover reserved, so
 // playback never reflows the timeline.
-Item {
+//
+// A forced stop is not a lost place: the position is remembered for the
+// session (app.playback.rememberVideoPosition, by media key) and the next Play
+// resumes there, as Telegram and Discord do. The expanded view stays open at
+// the end with a Replay; inline, the end returns to the cover, which then
+// offers Replay.
+//
+// A FocusScope, so `activeFocus` on the card says whether keyboard focus is
+// anywhere inside it: the host reads that on close to hand focus back to the
+// cover (a plain Item reports only its own focus, never a descendant's).
+FocusScope {
     id: root
     objectName: "videoPlayerCard"
 
@@ -18,6 +28,15 @@ Item {
     property string mediaKey: ""
     property string ownerKey: ""
     property string filename: ""
+    // For the expanded view's header: who sent it and when. Plain text.
+    property string senderName: ""
+    property var timestamp: null
+    // The cover's picture, shown by the expanded view once the video ends
+    // (some backends clear the frame at the end). Empty when there is none.
+    property string posterSource: ""
+    // Whether the expanded view offers Download (the host performs it).
+    property bool canSave: false
+    signal saveRequested()
     // The event's declared length (info.duration), 0 when absent; the bar
     // shows it until the player knows its own.
     property real declaredDurationMs: 0
@@ -48,16 +67,44 @@ Item {
     // The key with a fetch outstanding for this card, so reset/destruction can
     // cancel the download.
     property string fetchingKey: ""
+    // The media key the player's source belongs to, recorded when the source
+    // is set: delegate reuse changes mediaKey BEFORE resetPlayback runs, and
+    // the position must be remembered under the video it belongs to.
+    property string sourceKey: ""
+    // Where to resume once the player can seek; 0 when nothing is pending.
+    property real pendingResumeMs: 0
+    // Why the failure panel shows: "" (the media), or "audio" when the play
+    // gate gave up because the sound system never became ready.
+    property string failureReason: ""
+    // The video reached its end while the expanded view was open: the view
+    // stays, holding the poster and a Replay.
+    property bool ended: false
+    // Pulse-backend SIGABRT protection (pwcrash): with the `qtAudio` context
+    // property, play only once Qt's PulseAudio connection is ready. A card or
+    // bar loaded alone (tests) has no qtAudio and plays directly.
+    function gatedPlay(p) {
+        if (typeof qtAudio !== "undefined" && qtAudio) qtAudio.play(p)
+        else p.play()
+    }
+    function cancelGatedPlay(p) {
+        if (typeof qtAudio !== "undefined" && qtAudio) qtAudio.cancelPlay(p)
+    }
 
     function start() {
         var url = app.mediaBridge.playableSource(root.mediaKey)
         if (url.length > 0) {
             fetchState = "idle"
+            failureReason = ""
             fetchingKey = ""
+            sourceKey = root.mediaKey
+            pendingResumeMs = app.playback.videoResumePosition
+                    ? app.playback.videoResumePosition(root.mediaKey) : 0
             player.source = url
+            root.applySessionRate()
             pinFile()
             app.playback.acquire(root.ownerKey)
-            player.play()
+            root.gatedPlay(player)
+            root.applyPendingResume()
         } else if (app.mediaBridge.failureCategory(root.fetchCacheKey)
                    .length > 0) {
             // A failure mark means no fetch was dispatched (an earlier
@@ -93,17 +140,50 @@ Item {
     // An explicit retry clears the failure mark first, or playableSource stays
     // blocked.
     function retryFetch() {
+        failureReason = ""
         app.mediaBridge.retry(fetchCacheKey)
         fetchState = "idle"
         start()
     }
+    // The session's video speed: a resumed or new player starts at the
+    // speed last chosen, and the bars show the player's real rate.
+    function applySessionRate() {
+        var r = app.playback.videoPlaybackRate
+        if (r !== undefined && r > 0 && player.playbackRate !== r)
+            player.playbackRate = r
+    }
+    function applyPendingResume() {
+        if (pendingResumeMs <= 0 || !player.seekable)
+            return
+        player.position = pendingResumeMs
+        pendingResumeMs = 0
+    }
+    // Remember where this video stopped, under the key its source belongs
+    // to. Nothing while a resume is still pending (the player never got
+    // there, and the stored place stays), after the end (markVideoFinished
+    // has spoken), or after a failure.
+    function rememberPosition() {
+        if (sourceKey.length === 0 || ended || pendingResumeMs > 0
+                || fetchState === "failed" || !app.playback.rememberVideoPosition)
+            return
+        app.playback.rememberVideoPosition(sourceKey, player.position,
+                                           player.duration)
+    }
     function resetPlayback() {
+        rememberPosition()
+        // Cleared before the expanded view closes, so its closed handler
+        // (which finishes an ENDED video inline) does not run a second reset
+        // from inside this one.
+        ended = false
         // A forced reset also closes the expanded view, which borrows this
         // player.
         if (videoOverlay.opened)
             videoOverlay.close()
+        root.cancelGatedPlay(player)
         player.stop()
         player.source = ""
+        sourceKey = ""
+        pendingResumeMs = 0
         unpinFile()
         cancelFetch()
         fetchState = "idle"
@@ -112,26 +192,45 @@ Item {
     // Reached at end of playback. Some backends clear the video sink once the
     // stream ends rather than holding the last decoded frame, which is the
     // literal black card this was reported as; nothing here can rely on
-    // VideoOutput still showing anything. Closing the inline player exactly
+    // VideoOutput still showing anything. Inline, closing the player exactly
     // like the explicit close button reveals MessageDelegate's own cover —
-    // thumbnail and Play glyph included — so the poster and a replay
-    // affordance are what the user sees, the same as the cover before Play
-    // was first pressed. Its own name (not inlined into onMediaStatusChanged)
-    // so a test can drive it directly: a real decoder reaching EndOfMedia
-    // needs a real codec, which this test tree cannot assume.
+    // thumbnail and, since the video is marked watched, a Replay glyph. In the
+    // expanded view the view STAYS: it used to snap shut and drop the user
+    // back in the timeline; now it holds the poster and a Replay, as every
+    // mainstream player does. Its own name (not inlined into
+    // onMediaStatusChanged) so a test can drive it directly: a real decoder
+    // reaching EndOfMedia needs a real codec, which this test tree cannot
+    // assume.
     function handleEndOfMedia() {
+        if (sourceKey.length > 0 && app.playback.markVideoFinished)
+            app.playback.markVideoFinished(sourceKey)
+        ended = true
+        if (videoOverlay.opened)
+            return
         resetPlayback()
         closeRequested()
+    }
+    function replay() {
+        ended = false
+        app.playback.acquire(root.ownerKey)
+        player.position = 0
+        root.gatedPlay(player)
     }
     // Delegate reuse: never keep the previous event's position, source or
     // audibility.
     onMediaKeyChanged: resetPlayback()
     onRowOnScreenChanged: {
-        if (!rowOnScreen && player.playbackState === MediaPlayer.PlayingState)
+        if (rowOnScreen)
+            return
+        // A play still waiting on the gate must not start off screen either.
+        root.cancelGatedPlay(player)
+        if (player.playbackState === MediaPlayer.PlayingState)
             player.pause()
     }
     Component.onCompleted: start()
     Component.onDestruction: {
+        rememberPosition()
+        cancelGatedPlay(player)
         unpinFile()
         cancelFetch()
         app.playback.release(root.ownerKey)
@@ -169,27 +268,51 @@ Item {
     }
     // One toggle for tap, control bar and Space key, all through the audibility
     // claim.
+    // Keyboard focus into the controls (a key opened the player: the key map
+    // must work at once, and the cover that had focus is gone).
+    function focusControls() {
+        controls.focusPlayButton()
+    }
     function togglePlayPause() {
         if (player.playbackState === MediaPlayer.PlayingState) {
+            root.cancelGatedPlay(player)
             player.pause()
             return
         }
         app.playback.acquire(root.ownerKey)
-        player.play()
+        root.gatedPlay(player)
     }
 
     Connections {
         target: app.playback
         function onAudibleOwnerChanged() {
-            if (!app.playback.owns(root.ownerKey)
-                && player.playbackState === MediaPlayer.PlayingState)
-                player.pause()
+            // Also a play still waiting on the gate: it lost audibility.
+            if (!app.playback.owns(root.ownerKey)) {
+                root.cancelGatedPlay(player)
+                if (player.playbackState === MediaPlayer.PlayingState)
+                    player.pause()
+            }
         }
         // Space toggles whatever is audible, which includes video cards.
         function onTogglePlayPauseRequested(ownerKey) {
             if (ownerKey !== root.ownerKey || !root.ready)
                 return
+            if (root.ended) {
+                root.replay()
+                return
+            }
             root.togglePlayPause()
+        }
+    }
+    // The gate gave up on a play (the audio backend never became ready):
+    // show the failure and its Retry rather than a card that never starts.
+    Connections {
+        target: typeof qtAudio !== "undefined" ? qtAudio : null
+        function onPlayGivenUp(p) {
+            if (p !== player)
+                return
+            root.failureReason = "audio"
+            root.fetchState = "failed"
         }
     }
     // A forced stop (room/account switch, sign-out) drops the source: the temp
@@ -213,6 +336,14 @@ Item {
         onMediaStatusChanged: {
             if (mediaStatus === MediaPlayer.EndOfMedia)
                 root.handleEndOfMedia()
+            else if (mediaStatus === MediaPlayer.LoadedMedia
+                     || mediaStatus === MediaPlayer.BufferedMedia)
+                root.applyPendingResume()
+        }
+        onSeekableChanged: root.applyPendingResume()
+        onPlaybackStateChanged: {
+            if (playbackState === MediaPlayer.PlayingState)
+                root.ended = false
         }
     }
 
@@ -314,7 +445,13 @@ Item {
             visible: root.fetchState === "failed"
             spacing: AppTheme.spacing8
             Label {
-                text: qsTr("This video cannot be played")
+                objectName: "videoFailedText"
+                text: root.failureReason === "audio"
+                      ? qsTr("The sound system is not ready, so the video cannot start yet")
+                      : qsTr("This video cannot be played")
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                Layout.maximumWidth: Math.max(80, root.width - 24)
                 // On the black letterbox, not a theme surface.
                 color: AppTheme.scrimInkMuted
                 font.pixelSize: AppTheme.textMeta
@@ -346,9 +483,12 @@ Item {
                 root.resetPlayback()
                 root.closeRequested()
             }
+            // An open speed menu or volume popup counts as engagement: the
+            // menu takes the hover, and the bar faded out from under it.
             readonly property bool shown:
                 player.playbackState !== MediaPlayer.PlayingState
                 || cardHover.hovered || controls.activeFocus
+                || controls.menuOpen || cornerClose.activeFocus
             visible: opacity > 0
             opacity: shown ? 1.0 : 0.0
             Behavior on opacity {
@@ -356,10 +496,54 @@ Item {
                 NumberAnimation { duration: 160 }
             }
         }
+
+        // A compact bar (narrow, e.g. a portrait video) gives its close
+        // button up so the seek track keeps its width; it lives in the
+        // card's top-right corner, shown together with the bar.
+        IconButton {
+            id: cornerClose
+            objectName: "videoCardCloseButton"
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: AppTheme.spacing6
+            visible: controls.compact && controls.visible
+            opacity: controls.opacity
+            iconName: "close"
+            iconSize: 16
+            implicitWidth: 28; implicitHeight: 28
+            radius: 14
+            restingColor: AppTheme.overlayScrim
+            iconColorOverride: AppTheme.scrimInk
+            Accessible.name: qsTr("Close player")
+            onClicked: {
+                root.resetPlayback()
+                root.closeRequested()
+            }
+        }
     }
 
     VideoViewerOverlay {
         id: videoOverlay
         declaredDurationMs: root.declaredDurationMs
+        title: root.filename
+        senderName: root.senderName
+        timestamp: root.timestamp
+        canSave: root.canSave
+        mediaKey: root.mediaKey
+        posterSource: root.posterSource
+        ended: root.ended
+        onSaveRequested: root.saveRequested()
+        onReplayRequested: root.replay()
+    }
+    // Closing the expanded view after the end finishes inline, as a video
+    // that ended inline does: back to the cover, which offers Replay.
+    Connections {
+        target: videoOverlay
+        function onClosed() {
+            if (!root.ended)
+                return
+            root.resetPlayback()
+            root.closeRequested()
+        }
     }
 }

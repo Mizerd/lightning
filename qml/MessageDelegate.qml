@@ -6429,6 +6429,107 @@ Item {
                 var s = total % 60
                 return m + ":" + (s < 10 ? "0" : "") + s
             }
+            // Where the player stopped in this session (a room switch stops
+            // it): Play resumes there, and the cover says so. A video watched
+            // to the end offers Replay. Read through the controller's
+            // revision, because a function call alone binds to nothing.
+            readonly property real resumeMs: {
+                var revision = app.playback.resumeRevision
+                return app.playback.videoResumePosition
+                       ? app.playback.videoResumePosition(model.mediaKey || "")
+                       : 0
+            }
+            readonly property bool watched: {
+                var revision = app.playback.resumeRevision
+                return app.playback.videoFinished
+                       ? app.playback.videoFinished(model.mediaKey || "")
+                       : false
+            }
+            // Play (or retry the poster, or open externally): the cover's
+            // one action, for a tap and for Space/Return alike.
+            function activate() {
+                if (videoBox.bridgeFailed) {
+                    videoBox.refreshBridgeSource()
+                    return
+                }
+                if (videoBox.playbackAvailable)
+                    videoBox.playerActive = true
+                else if (model.mediaUrl
+                         && model.mediaUrl.toString().length > 0)
+                    app.media.openExternal(model.mediaUrl)
+            }
+            // Set when a key opened the player: once it has loaded, focus
+            // moves into its controls (the cover that held it is hidden, and
+            // the next Space would otherwise reach the timeline and page it).
+            property bool openedByKey: false
+            onPlayerActiveChanged: if (!playerActive) openedByKey = false
+            // The cover's keys. With the player up and focus still here (it
+            // was opened by a click), Space and K toggle it rather than pass
+            // on to the timeline; other keys pass on. A selecting row takes
+            // no action.
+            function activateFromKey(event) {
+                if (!root.rowActionsEnabled) {
+                    event.accepted = false
+                    return
+                }
+                const toggleKey = event.key === Qt.Key_Space
+                                  || event.key === Qt.Key_K
+                if (videoBox.playerActive) {
+                    if (!toggleKey || !videoPlayerLoader.item) {
+                        event.accepted = false
+                        return
+                    }
+                    if (videoPlayerLoader.item.ready)
+                        videoPlayerLoader.item.togglePlayPause()
+                    event.accepted = true
+                    return
+                }
+                if (event.key === Qt.Key_K) {
+                    event.accepted = false
+                    return
+                }
+                // Set before activate(): the Loader loads synchronously
+                // inside it and reads the flag. Cleared again when nothing
+                // was opened (a retry, an external open), so a later mouse
+                // Play does not pull focus into the player.
+                videoBox.openedByKey = true
+                videoBox.activate()
+                if (!videoBox.playerActive)
+                    videoBox.openedByKey = false
+                event.accepted = true
+            }
+            // The cover is a button for the keyboard and screen readers: it
+            // says what Play will do, including where it resumes.
+            readonly property string coverName:
+                model.mediaFilename || model.body || qsTr("video")
+            activeFocusOnTab: !videoBox.playerActive && root.rowActionsEnabled
+            Keys.onPressed: (event) => {
+                if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier
+                                       | Qt.MetaModifier))
+                    return
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space || event.key === Qt.Key_K)
+                    videoBox.activateFromKey(event)
+            }
+            Accessible.role: Accessible.Button
+            // A screen reader's "press" is the same action as a tap.
+            Accessible.onPressAction: {
+                if (!videoBox.playerActive && root.rowActionsEnabled)
+                    videoBox.activate()
+            }
+            Accessible.name: videoBox.watched
+                ? qsTr("Replay %1").arg(videoBox.coverName)
+                : videoBox.resumeMs > 0
+                  ? qsTr("Resume %1 from %2").arg(videoBox.coverName)
+                        .arg(AppTheme.clockPosition(videoBox.resumeMs))
+                  : qsTr("Play %1").arg(videoBox.coverName)
+            function saveVideo() {
+                if (root.timelineView && root.timelineView.saveMedia)
+                    root.timelineView.saveMedia(model.mediaKey || "",
+                                                 model.mediaFilename || "",
+                                                 model.mediaMimetype || "",
+                                                 false)
+            }
 
             // Stable placeholder (surface tone, type icon, filename) when there
             // is no bridge, the fetch failed, or no poster exists; the play
@@ -6489,15 +6590,41 @@ Item {
                 visible: status === Image.Ready
             }
             // Play affordance + type identity, over thumbnail or skeleton.
+            // Replay once the video was watched to the end.
             Rectangle {
+                id: videoPlayCircle
                 anchors.centerIn: parent
                 width: 44; height: 44; radius: 22
                 color: AppTheme.overlayScrim
                 Icon {
+                    objectName: "videoCoverGlyph"
                     anchors.centerIn: parent
-                    name: "play_arrow"
+                    name: videoBox.watched ? "refresh" : "play_arrow"
                     size: 26
                     color: AppTheme.scrimInk
+                }
+            }
+            Rectangle {
+                objectName: "videoResumeChip"
+                visible: videoBox.resumeMs > 0 && !videoBox.playerActive
+                anchors.top: videoPlayCircle.bottom
+                anchors.topMargin: AppTheme.spacing6
+                anchors.horizontalCenter: parent.horizontalCenter
+                radius: 3
+                color: AppTheme.overlayScrim
+                width: Math.min(resumeLabel.implicitWidth + 12,
+                                videoBox.width - 12)
+                height: resumeLabel.implicitHeight + 4
+                Label {
+                    id: resumeLabel
+                    anchors.centerIn: parent
+                    width: Math.min(implicitWidth, parent.width - 12)
+                    text: qsTr("Resume from %1")
+                          .arg(AppTheme.clockPosition(videoBox.resumeMs))
+                    color: AppTheme.scrimInk
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    font.weight: AppTheme.weightStrong
+                    elide: Label.ElideRight
                 }
             }
             Rectangle {
@@ -6543,32 +6670,32 @@ Item {
                 ToolTip.text: qsTr("Download")
                 ToolTip.visible: hovered
                 ToolTip.delay: 600
-                onClicked: {
-                    if (root.timelineView && root.timelineView.saveMedia)
-                        root.timelineView.saveMedia(model.mediaKey || "",
-                                                     model.mediaFilename || "",
-                                                     model.mediaMimetype || "",
-                                                     false)
-                }
+                onClicked: videoBox.saveVideo()
             }
             TapHandler {
                 enabled: !videoBox.playerActive && root.rowActionsEnabled
-                onTapped: {
-                    if (videoBox.bridgeFailed) {
-                        videoBox.refreshBridgeSource()
-                        return
-                    }
-                    if (videoBox.playbackAvailable)
-                        videoBox.playerActive = true
-                    else if (model.mediaUrl
-                             && model.mediaUrl.toString().length > 0)
-                        app.media.openExternal(model.mediaUrl)
-                }
+                onTapped: videoBox.activate()
+            }
+            Rectangle {
+                objectName: "videoCoverFocusRing"
+                anchors.fill: parent
+                radius: AppTheme.radiusSm
+                color: "transparent"
+                border.width: 2
+                border.color: AppTheme.focusRing
+                visible: videoBox.activeFocus && !videoBox.playerActive
             }
             // The inline player replaces the cover in place (same box).
             Loader {
+                id: videoPlayerLoader
                 anchors.fill: parent
                 active: videoBox.playerActive
+                onLoaded: {
+                    if (!videoBox.openedByKey)
+                        return
+                    videoBox.openedByKey = false
+                    item.focusControls()
+                }
                 visible: active
                 sourceComponent: VideoPlayerCard {
                     mediaKey: model.mediaKey || ""
@@ -6577,7 +6704,22 @@ Item {
                     filename: model.mediaFilename || ""
                     declaredDurationMs: model.mediaDurationMs || 0
                     rowOnScreen: root.rowOnScreen
-                    onCloseRequested: videoBox.playerActive = false
+                    senderName: model.senderDisplayName || model.sender || ""
+                    timestamp: model.timestamp || null
+                    // The cover's picture without the rounded-corner mask.
+                    posterSource: videoBox.usesBridge && !videoBox.bridgeFailed
+                                  ? videoBox.bridgeSource : ""
+                    canSave: videoBox.playbackAvailable
+                    onSaveRequested: videoBox.saveVideo()
+                    onCloseRequested: {
+                        // Focus inside the closing player goes back to the
+                        // cover, not to nowhere. The card is a FocusScope,
+                        // so this is true for focus on any of its controls.
+                        const hadFocus = activeFocus
+                        videoBox.playerActive = false
+                        if (hadFocus)
+                            videoBox.forceActiveFocus(Qt.TabFocusReason)
+                    }
                 }
             }
         }

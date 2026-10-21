@@ -298,8 +298,11 @@ Popup {
             if (cacheKey === viewer.bridgeCacheKey)
                 viewer.bridgeFailed = true
         }
-        function onSaveFinished(ok, message) {
-            if (viewer.opened) {
+        // Only this picture's save: another download finishing elsewhere is
+        // not this view's answer.
+        function onSaveFinished(ok, message, mediaKey) {
+            if (viewer.opened && viewer.current !== null
+                    && mediaKey === (viewer.current.mediaKey || "")) {
                 saveNotice.text = message
                 saveNotice.ok = ok
                 saveNoticeTimer.restart()
@@ -998,22 +1001,28 @@ Popup {
         }
 
         // ── Footer: save feedback + position ──
+        // Shown while a save answer is up even when zoomed in ("Save image
+        // as…" is in the context menu), so a download's confirmation is never
+        // hidden with the rest of the chrome.
         RowLayout {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: AppTheme.spacing8
             visible: opacity > 0
-            opacity: chrome.shown ? 1.0 : 0.0
+            opacity: chrome.shown || saveNotice.text.length > 0 ? 1.0 : 0.0
             Behavior on opacity {
                 enabled: !AppTheme.reducedMotion
                 NumberAnimation { duration: 180 }
             }
             Label {
                 id: saveNotice
+                objectName: "imageViewerSaveNotice"
                 property bool ok: true
                 visible: text.length > 0
-                color: ok ? AppTheme.success : AppTheme.danger
+                // Scrim inks: the theme's success/danger are tuned for the
+                // theme surface, not for this always-dark one.
+                color: ok ? AppTheme.scrimSuccessInk : AppTheme.scrimDangerInk
                 font.pixelSize: AppTheme.textMeta
                 Timer {
                     id: saveNoticeTimer

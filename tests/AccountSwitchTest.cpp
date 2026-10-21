@@ -12,6 +12,7 @@
 #include "auth/AuthManager.h"
 #include "calls/SfuCallController.h"
 #include "matrix/MockMatrixClient.h"
+#include "media/MediaPlaybackController.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
 #include "spaces/RailLayoutStore.h"
@@ -555,6 +556,52 @@ private Q_SLOTS:
         QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
+    }
+
+    // Where a video stopped is remembered across a room switch (the cover
+    // offers to resume) and forgotten with the account: a switch or a
+    // sign-out leaves the next account nothing to resume or replay.
+    void videoPositionsGoWithTheAccountNotTheRoom()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        MediaPlaybackController *playback = app.playback();
+        const QString clip = QStringLiteral("$clip:one.example");
+        const QString watched = QStringLiteral("$watched:one.example");
+
+        app.setCurrentRoomId(QStringLiteral("!mock-room:mock.local"));
+        playback->rememberVideoPosition(clip, 55000, 180000);
+        playback->markVideoFinished(watched);
+        // A room switch keeps them.
+        app.setCurrentRoomId(QString());
+        QCOMPARE(playback->videoResumePosition(clip), qint64(55000));
+        QVERIFY(playback->videoFinished(watched));
+
+        // An account switch forgets them.
+        app.switchToAccount(kBob);
+        QTRY_VERIFY(!app.accountSwitching());
+        QCOMPARE(playback->videoResumePosition(clip), qint64(0));
+        QVERIFY(!playback->videoFinished(watched));
+
+        // So does a plain sign-out, which bypasses clearCrossAccountCaches()
+        // when no account is left to fall back to (so this half fails if only
+        // the switch path forgets).
+        playback->rememberVideoPosition(clip, 55000, 180000);
+        playback->markVideoFinished(watched);
+        app.settings()->clearSessionForAccount(kAlice);
+        app.settings()->clearSessionForAccount(kBob);
+        app.auth()->logout();
+        QTRY_COMPARE(playback->videoResumePosition(clip), qint64(0));
+        QVERIFY(!playback->videoFinished(watched));
     }
 
     void failedAddAccountRestoresPreviousAccount()

@@ -29,6 +29,7 @@
 #include "models/MessageComposer.h"
 #include "matrix/MockMatrixClient.h"
 #include "media/MediaBridge.h"
+#include "media/MediaPlaybackController.h"
 #include "media/MediaVisibilityStore.h"
 #include "models/TimelineModel.h"
 
@@ -556,25 +557,39 @@ private Q_SLOTS:
         QVERIFY(video->implicitHeight() <= 440.0 + 0.5);
 
         // With the inline player active, every control of the adaptive bar
-        // lies inside the card. At 260 px the bar is in tight mode.
+        // lies inside the card. At 260 px the bar is compact (the time on
+        // its own line, close in the card's corner) and tight (no speed), so
+        // the seek track stays scrubbable: it was ~45 px wide (design review
+        // 2026-10-20, U6).
         QVERIFY(video->setProperty("playerActive", true));
         QCoreApplication::processEvents();
         auto *bar = video->findChild<QQuickItem *>(
             QStringLiteral("videoControlBar"));
         QVERIFY(bar != nullptr);
+        auto *card = video->findChild<QQuickItem *>(
+            QStringLiteral("videoPlayerCard"));
+        QVERIFY(card != nullptr);
+        QVERIFY(bar->property("compact").toBool());
+        auto *seek = bar->findChild<QQuickItem *>(
+            QStringLiteral("videoSeekSlider"));
+        QVERIFY(seek != nullptr);
+        QVERIFY2(seek->width() >= 120.0,
+                 qPrintable(QStringLiteral("the seek track is %1 px")
+                                .arg(seek->width())));
         const QStringList required = {
             QStringLiteral("videoPlayPauseButton"),
             QStringLiteral("videoSeekSlider"),
             QStringLiteral("videoTimeLabel"),
             QStringLiteral("videoExpandButton"),
-            QStringLiteral("videoCloseButton"),
+            // Close lives in the card's corner while the bar is compact.
+            QStringLiteral("videoCardCloseButton"),
             // The volume control stays visible at the narrowest card (its
             // level would otherwise only be reachable fullscreen), without
             // pushing the row outside the 260 px card.
             QStringLiteral("videoMuteButton"),
         };
         for (const QString &name : required) {
-            auto *control = bar->findChild<QQuickItem *>(name);
+            auto *control = card->findChild<QQuickItem *>(name);
             QVERIFY2(control, qPrintable(name));
             QVERIFY2(control->isVisible(), qPrintable(name));
             const QPointF topLeft =
@@ -587,12 +602,17 @@ private Q_SLOTS:
             QVERIFY2(bottomRight.y() <= video->height() + 0.5,
                      qPrintable(name));
         }
-        // Tight mode collapses only the speed control.
+        // Tight mode collapses the speed control; the bar's own close gave
+        // way to the corner one.
         auto *speed = bar->findChild<QQuickItem *>(
             QStringLiteral("videoSpeedButton"));
         QVERIFY(speed);
         QVERIFY2(!speed->isVisible(),
                  "speed is what yields to the overflow menu in a tight card");
+        auto *barClose = bar->findChild<QQuickItem *>(
+            QStringLiteral("videoCloseButton"));
+        QVERIFY(barClose);
+        QVERIFY(!barClose->isVisible());
 
         // The volume control reaches its slider, not just mute.
         auto *volume = bar->findChild<QQuickItem *>(
@@ -688,6 +708,130 @@ private Q_SLOTS:
         QTRY_VERIFY(!video->property("playerActive").toBool());
         QTRY_VERIFY(video->findChild<QQuickItem *>(
                         QStringLiteral("videoPlayerCard")) == nullptr);
+    }
+
+    // The cover says where a stopped video will resume, and a watched one
+    // offers Replay (design review 2026-10-20, U4: a room switch sent the
+    // video back to 0:00 with nothing to say so). Driven through the real
+    // MediaPlaybackController the card writes to; the cover follows it live.
+    void theVideoCoverOffersResumeAndReplay()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        const QString key = QStringLiteral("$video-resume");
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaDurationMs"), 180000);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), key);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        auto *chip = video->findChild<QQuickItem *>(
+            QStringLiteral("videoResumeChip"));
+        auto *glyph = video->findChild<QQuickItem *>(
+            QStringLiteral("videoCoverGlyph"));
+        QVERIFY2(chip && glyph, "the cover has no resume chip or glyph");
+        QVERIFY(!chip->isVisible());
+        QCOMPARE(glyph->property("name").toString(),
+                 QStringLiteral("play_arrow"));
+
+        MediaPlaybackController *playback = controller.playback();
+        playback->rememberVideoPosition(key, 55400, 180000);
+        QTRY_VERIFY(chip->isVisible());
+        bool saysWhere = false;
+        for (auto *child : chip->findChildren<QQuickItem *>()) {
+            if (child->property("text").toString().contains(
+                    QStringLiteral("0:55")))
+                saysWhere = true;
+        }
+        QVERIFY2(saysWhere, "the resume chip does not name 0:55");
+
+        playback->markVideoFinished(key);
+        QTRY_VERIFY(!chip->isVisible());
+        QCOMPARE(glyph->property("name").toString(),
+                 QStringLiteral("refresh"));
+
+        // Another account: nothing to resume or replay.
+        playback->forgetResumePositions();
+        QTRY_COMPARE(glyph->property("name").toString(),
+                     QStringLiteral("play_arrow"));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // The cover is a keyboard button that says what Play will do (review
+    // F3: it had no focus and no name, so a keyboard user could not start a
+    // video at all). Space starts it; the name follows the resume store.
+    void theVideoCoverIsAKeyboardButtonThatSaysWhatPlayDoes()
+    {
+        AppController controller(AppController::MockBackend);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setSupportsMediaBridgeForTest(true);
+        QVariantMap fixture = baseFixture(controller);
+        const QString key = QStringLiteral("$video-keys");
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaDurationMs"), 180000);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), key);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        QVERIFY2(video->activeFocusOnTab(),
+                 "the video cover is not a Tab stop");
+        const auto name = [video] {
+            return QQmlProperty(video, QStringLiteral("Accessible.name"),
+                                qmlContext(video)).read().toString();
+        };
+        QCOMPARE(name(), QStringLiteral("Play clip.mp4"));
+        MediaPlaybackController *playback = controller.playback();
+        playback->rememberVideoPosition(key, 55400, 180000);
+        QTRY_COMPARE(name(), QStringLiteral("Resume clip.mp4 from 0:55"));
+        playback->markVideoFinished(key);
+        QTRY_COMPARE(name(), QStringLiteral("Replay clip.mp4"));
+
+        video->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(video->hasActiveFocus());
+        QTest::keyClick(d.window.get(), Qt::Key_Space);
+        QTRY_VERIFY2(video->property("playerActive").toBool(),
+                     "Space on the focused cover did not start the video");
+        // The keys move with it (review R2-1): the cover is hidden now, and
+        // focus left there sent the next Space to the timeline, which paged.
+        QTRY_VERIFY(video->findChild<QQuickItem *>(
+                        QStringLiteral("videoControlBar")) != nullptr);
+        auto *bar = video->findChild<QQuickItem *>(
+            QStringLiteral("videoControlBar"));
+        QTRY_VERIFY2(bar->hasActiveFocus(),
+                     "a player opened by Space left focus on the hidden "
+                     "cover");
+
+        // Closed from the keyboard (Space on the close button), focus comes
+        // back to the cover rather than to nowhere (review R3-1).
+        auto *close = bar->findChild<QQuickItem *>(
+            QStringLiteral("videoCloseButton"));
+        QVERIFY(close != nullptr);
+        QVERIFY(close->isVisible());
+        close->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(close->hasActiveFocus());
+        QTest::keyClick(d.window.get(), Qt::Key_Space);
+        QTRY_VERIFY(!video->property("playerActive").toBool());
+        QTRY_VERIFY2(video->hasActiveFocus(),
+                     "closing the player from the keyboard lost focus");
     }
 
     // Play whose fetch cannot start ends in the failure panel with Retry, not
