@@ -76,6 +76,9 @@ Rectangle {
     implicitHeight: Math.max(AppTheme.chipHeight,
                              chipContent.implicitHeight + 2 * AppTheme.spacing2)
     radius: AppTheme.chipRadius
+    // A chip is a labelled status, not decoration: expose its text.
+    Accessible.role: Accessible.StaticText
+    Accessible.name: root.label
     color: {
         if (storm)
             return _boltChip ? AppTheme.bolt

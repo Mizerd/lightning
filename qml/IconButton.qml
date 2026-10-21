@@ -75,6 +75,29 @@ AbstractButton {
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
     Accessible.role: Accessible.Button
+    // Return and Enter press a focused icon button like Space (see AppButton).
+    Keys.onReturnPressed: (event) => root._activateFromKey(event)
+    Keys.onEnterPressed: (event) => root._activateFromKey(event)
+    function _activateFromKey(event) {
+        if (event.isAutoRepeat) {
+            // Holding Return must not fire a confirming button repeatedly
+            // (Space does not repeat either).
+            event.accepted = true
+            return
+        }
+        if (!root.enabled || !root.visible)
+            return
+        event.accepted = true
+        // click() takes Qt's own path: pressed/released, nextCheckState,
+        // an bound Action, then clicked(). Older Qt without it falls back.
+        if (typeof root.click === "function") {
+            root.click()
+        } else {
+            if (root.checkable)
+                root.toggle()
+            root.clicked()
+        }
+    }
 
     contentItem: Icon {
         name: root.iconName

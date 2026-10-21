@@ -6510,6 +6510,18 @@ if(BUILD_TESTING)
     set_tests_properties(control-system PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Keyboard, focus and accessibility contract of the base controls
+    # (Return/Enter, combo page keys, switch focus, text-field edit menu).
+    qt_add_executable(base-controls-keyboard-qml-test
+        tests/BaseControlsKeyboardQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(base-controls-keyboard-qml-test)
+    target_link_libraries(base-controls-keyboard-qml-test PRIVATE Qt6::Test)
+    add_test(NAME base-controls-keyboard-qml COMMAND base-controls-keyboard-qml-test)
+    set_tests_properties(base-controls-keyboard-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Button styles, offscreen pixel checks: A bare with hover tint, B the
     # accent-soft chip, C the accent fill, keyboard focus ring.
     qt_add_executable(button-system-test

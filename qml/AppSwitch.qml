@@ -21,6 +21,9 @@ Item {
     implicitWidth: 36
     implicitHeight: 20
     activeFocusOnTab: true
+    // Focus came from a click and no key has been pressed since.
+    property bool _mouseFocus: false
+    onActiveFocusChanged: if (!activeFocus) _mouseFocus = false
 
     Accessible.role: Accessible.CheckBox
     Accessible.checkable: true
@@ -28,18 +31,21 @@ Item {
     Accessible.onToggleAction: if (root.enabled) root.toggled()
 
     Keys.onSpacePressed: (event) => {
+        root._mouseFocus = false
         if (root.enabled) {
             root.toggled()
             event.accepted = true
         }
     }
     Keys.onReturnPressed: (event) => {
+        root._mouseFocus = false
         if (root.enabled) {
             root.toggled()
             event.accepted = true
         }
     }
     Keys.onEnterPressed: (event) => {
+        root._mouseFocus = false
         if (root.enabled) {
             root.toggled()
             event.accepted = true
@@ -49,7 +55,14 @@ Item {
     TapHandler {
         id: tapHandler
         enabled: root.enabled
-        onTapped: root.toggled()
+        onTapped: {
+            // A click gives the switch keyboard focus, like a native checkbox,
+            // so Space right afterwards toggles it. The ring stays a keyboard
+            // cue: a mouse-given focus does not draw it.
+            root._mouseFocus = true
+            root.forceActiveFocus(Qt.MouseFocusReason)
+            root.toggled()
+        }
     }
     HoverHandler {
         id: hoverHandler
@@ -107,6 +120,6 @@ Item {
         color: "transparent"
         border.width: 2
         border.color: AppTheme.bolt
-        visible: root.activeFocus && root.enabled
+        visible: root.activeFocus && root.enabled && !root._mouseFocus
     }
 }

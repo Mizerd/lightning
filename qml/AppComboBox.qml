@@ -113,6 +113,63 @@ ComboBox {
     onCurrentIndexChanged: { root._current = currentIndex; root._openTurn() }
     Component.onCompleted: root._openTurn()
 
+    // Return and Enter open a focused, closed combo like Space does. With the
+    // popup open they stay Qt's: choose the highlighted row.
+    Keys.onReturnPressed: (event) => root._openFromKey(event)
+    Keys.onEnterPressed: (event) => root._openFromKey(event)
+    function _openFromKey(event) {
+        if (event.isAutoRepeat) {
+            event.accepted = true
+            return
+        }
+        if (!root.enabled)
+            return
+        if (root.popup.visible) {
+            // Explicitly Qt's: it chooses the highlighted row on release.
+            event.accepted = false
+            return
+        }
+        event.accepted = true
+        root._swallowKeyRelease = true
+        root.popup.open()
+    }
+    // Qt's ComboBox closes an open popup on the RELEASE of Return/Enter, which
+    // would shut the list this very key press just opened. Eat that one release.
+    property bool _swallowKeyRelease: false
+    // The release may never reach us (Tab, window deactivation, popup focus);
+    // a stale flag would eat the NEXT release, i.e. a row choice.
+    onActiveFocusChanged: if (!root.activeFocus) root._swallowKeyRelease = false
+    Connections {
+        target: root.popup
+        function onClosed() { root._swallowKeyRelease = false }
+    }
+    Keys.onReleased: (event) => {
+        if (root._swallowKeyRelease
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            root._swallowKeyRelease = false
+            event.accepted = true
+        }
+    }
+
+    // PageUp/PageDown move the highlight a page of rows, like Home and End
+    // move it to the ends. Only while the list is open.
+    Keys.onPressed: (event) => {
+        if (!root.popup.visible
+                || (event.key !== Qt.Key_PageUp && event.key !== Qt.Key_PageDown))
+            return
+        var page = Math.max(1, Math.floor(comboPopup.height
+                                          / AppTheme.menuItemHeight) - 1)
+        // incrementCurrentIndex/decrementCurrentIndex move the HIGHLIGHT while
+        // the popup is open (they are what Up and Down call).
+        for (var i = 0; i < page; ++i) {
+            if (event.key === Qt.Key_PageDown)
+                root.incrementCurrentIndex()
+            else
+                root.decrementCurrentIndex()
+        }
+        event.accepted = true
+    }
+
     implicitHeight: AppTheme.buttonHeight
     font.pixelSize: AppTheme.textBody
     hoverEnabled: true

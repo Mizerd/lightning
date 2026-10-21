@@ -59,6 +59,53 @@ TextField {
         }
     }
 
+    // Right-click opens the themed edit menu. Without this Qt shows its own
+    // square, unthemed native menu (and on Qt before 6.9 none at all). The
+    // MouseArea takes only the right button, so left clicks, selection drags
+    // and touch reach the field untouched.
+    MouseArea {
+        objectName: "textFieldContextArea"
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onClicked: (mouse) => {
+            root.forceActiveFocus(Qt.PopupFocusReason)
+            textFieldEditMenu.popup(mouse.x, mouse.y)
+        }
+    }
+    AppMenu {
+        id: textFieldEditMenu
+        objectName: "textFieldEditMenu"
+        menuWidth: AppTheme.menuWidthFlyout
+        readonly property bool _secret:
+            root.echoMode !== TextInput.Normal
+        AppMenuItem {
+            objectName: "textFieldCut"
+            text: qsTr("Cut")
+            enabled: !root.readOnly && !textFieldEditMenu._secret
+                     && root.selectedText.length > 0
+            onTriggered: root.cut()
+        }
+        AppMenuItem {
+            objectName: "textFieldCopy"
+            text: qsTr("Copy")
+            enabled: !textFieldEditMenu._secret && root.selectedText.length > 0
+            onTriggered: root.copy()
+        }
+        AppMenuItem {
+            objectName: "textFieldPaste"
+            text: qsTr("Paste")
+            enabled: !root.readOnly && root.canPaste
+            onTriggered: root.paste()
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            objectName: "textFieldSelectAll"
+            text: qsTr("Select all")
+            enabled: root.length > 0
+            onTriggered: root.selectAll()
+        }
+    }
+
     Icon {
         visible: root.searchIcon
         anchors.left: parent.left

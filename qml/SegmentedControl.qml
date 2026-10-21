@@ -71,6 +71,22 @@ RowLayout {
             ToolTip.visible: enabled && hovered && ToolTip.text.length > 0
             ToolTip.delay: 400
             onClicked: root.activated(segValue)
+            // Return and Enter select a focused segment like Space does.
+            Keys.onReturnPressed: (event) => segment._selectFromKey(event)
+            Keys.onEnterPressed: (event) => segment._selectFromKey(event)
+            function _selectFromKey(event) {
+                if (event.isAutoRepeat) {
+                    event.accepted = true
+                    return
+                }
+                if (!segment.enabled)
+                    return
+                event.accepted = true
+                if (typeof segment.click === "function")
+                    segment.click()
+                else
+                    segment.clicked()
+            }
 
             contentItem: Label {
                 id: segText
