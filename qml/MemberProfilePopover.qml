@@ -448,8 +448,8 @@ Popup {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: accessibleName.length > 0 ? accessibleName : label
-        Keys.onReturnPressed: clicked()
-        Keys.onEnterPressed: clicked()
+        Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
+        Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
         // Icon-only chips (the overflow) name themselves on hover.
         ToolTip.text: accessibleName
         ToolTip.visible: hovered && label.length === 0 && accessibleName.length > 0
@@ -978,8 +978,8 @@ Popup {
                 Accessible.name: qsTr("Start or open a direct message with %1")
                                  .arg(root.visibleName)
                 onClicked: root.startOrOpenDm()
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
+                Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
+                Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
 
                 // Spacer-centred: a control stretches its contentItem, so
                 // centerIn on the layout does nothing. The one bolt fill on
@@ -1368,8 +1368,8 @@ Popup {
                                               ? AppTheme.focusRing
                                               : AppTheme.stormBorderStrong
                             }
-                            Keys.onReturnPressed: clicked()
-                            Keys.onEnterPressed: clicked()
+                            Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
+                            Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
                             // Confirm first: promoting someone to your own
                             // level cannot be undone, since Matrix refuses
                             // changes at or above your own level.
@@ -1415,17 +1415,17 @@ Popup {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Item { Layout.fillWidth: true }
-                            Button {
+                            AppButton {
                                 objectName: "profileIgnoreConfirmCancel"
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                storm: true
+                                kind: "secondary"
                                 text: qsTr("Cancel")
                                 onClicked: ignoreConfirm.close()
                             }
-                            Button {
+                            AppButton {
                                 objectName: "profileIgnoreConfirmAccept"
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                storm: true
+                                kind: "danger"
                                 text: qsTr("Ignore")
                                 onClicked: {
                                     ignoreConfirm.close()
@@ -1538,17 +1538,17 @@ Popup {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Item { Layout.fillWidth: true }
-                            Button {
+                            AppButton {
                                 objectName: "profileRoleConfirmCancel"
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                storm: true
+                                kind: "secondary"
                                 text: qsTr("Cancel")
                                 onClicked: roleConfirm.close()
                             }
-                            Button {
+                            AppButton {
                                 objectName: "profileRoleConfirmAccept"
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                storm: true
+                                kind: roleConfirm.selfDemotion ? "danger" : "primary"
                                 text: roleConfirm.selfDemotion
                                       ? qsTr("Lower my role")
                                       : qsTr("Change role")
@@ -1649,8 +1649,8 @@ Popup {
                                              ? AppTheme.stormDangerBorder
                                              : AppTheme.stormBorderStrong)
                         }
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
+                        Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
                         onClicked: {
                             root.modError = ""
                             root.modAction = modelData.op
@@ -1756,8 +1756,6 @@ Popup {
                     AppButton {
                         id: modConfirmButton
                         objectName: "profileModConfirmButton"
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
                         Layout.fillWidth: true
                         text: root.modAction === "kick" ? qsTr("Remove")
                             : root.modAction === "ban" ? qsTr("Ban")
@@ -1783,8 +1781,6 @@ Popup {
                     }
                     AppButton {
                         Layout.fillWidth: true
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
                         text: qsTr("Cancel")
                         storm: true
                         enabled: app.roomInfo

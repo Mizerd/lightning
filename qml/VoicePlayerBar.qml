@@ -195,9 +195,6 @@ Rectangle {
             implicitWidth: 30; implicitHeight: 30
             iconSize: 17
             focusPolicy: Qt.StrongFocus
-            // Return and Enter act as Space does (C21-F01).
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: root.voice.fetchState === "fetching"
                       ? "schedule"
                       : (root.voice.playing ? "pause" : "play_arrow")
@@ -215,9 +212,6 @@ Rectangle {
             visible: root.voice.hasNext
             size: "md"
             focusPolicy: Qt.StrongFocus
-            // Return and Enter act as Space does (C21-F01).
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "chevron_right"
             readonly property string actionLabel: qsTr("Next voice message")
             Accessible.name: actionLabel
@@ -230,9 +224,6 @@ Rectangle {
             objectName: "voicePlayerBarPopOut"
             size: "md"
             focusPolicy: Qt.StrongFocus
-            // Return and Enter act as Space does (C21-F01).
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "open_in_full"
             readonly property string actionLabel:
                 qsTr("Pop out the player")
@@ -246,9 +237,6 @@ Rectangle {
             objectName: "voicePlayerBarStop"
             size: "md"
             focusPolicy: Qt.StrongFocus
-            // Return and Enter act as Space does (C21-F01).
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "close"
             readonly property string actionLabel: qsTr("Stop playback")
             Accessible.name: actionLabel

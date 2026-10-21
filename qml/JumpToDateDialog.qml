@@ -223,8 +223,6 @@ Dialog {
                 text: qsTr("Cancel")
                 kind: "ghost"
                 onClicked: root.close()
-                Keys.onReturnPressed: (event) => { root.close(); event.accepted = true }
-                Keys.onEnterPressed: (event) => { root.close(); event.accepted = true }
             }
             AppButton {
                 objectName: "jumpToDateConfirm"
@@ -232,10 +230,6 @@ Dialog {
                 kind: "primary"
                 enabled: !root.customInvalid && !root.asking
                 onClicked: root.submit()
-                // AbstractButton reacts to Space only; Return is the dialog's
-                // primary action.
-                Keys.onReturnPressed: (event) => { clicked(); event.accepted = true }
-                Keys.onEnterPressed: (event) => { clicked(); event.accepted = true }
             }
         }
     }

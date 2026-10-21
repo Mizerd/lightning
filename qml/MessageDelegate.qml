@@ -4093,33 +4093,14 @@ Item {
                         kind: "secondary"
                         text: qsTr("Cancel")
                         onClicked: destructiveConfirm.close()
-                        // AbstractButton activates on Space only; Return
-                        // must do what the focused button says.
-                        // Not on auto-repeat: the Return that opened the
-                        // dialog may still be held when it takes focus.
-                        Keys.onReturnPressed: (event) => {
-                            if (!event.isAutoRepeat) clicked()
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            if (!event.isAutoRepeat) clicked()
-                            event.accepted = true
-                        }
+                        // Return does what the focused button says, and
+                        // never on auto-repeat (the Return that opened the
+                        // dialog may still be held): AppButton itself.
                     }
                     AppButton {
                         objectName: "messageDestructiveConfirmAccept"
                         kind: "dangerPrimary"
                         text: destructiveConfirm.acceptText
-                        // Not on auto-repeat: the Return that opened the
-                        // dialog may still be held when it takes focus.
-                        Keys.onReturnPressed: (event) => {
-                            if (!event.isAutoRepeat) clicked()
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            if (!event.isAutoRepeat) clicked()
-                            event.accepted = true
-                        }
                         onClicked: {
                             destructiveConfirm.close()
                             if (destructiveConfirm.action)

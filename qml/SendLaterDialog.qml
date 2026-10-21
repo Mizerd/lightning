@@ -243,8 +243,6 @@ Dialog {
                     kind: "primary"
                     enabled: !root.customInvalid
                     onClicked: root.submit()
-                    Keys.onReturnPressed: if (enabled) root.submit()
-                    Keys.onEnterPressed: if (enabled) root.submit()
                 }
             }
         }

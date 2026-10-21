@@ -51,14 +51,22 @@ private Q_SLOTS:
         QVERIFY(end > fn && end - fn < 200);
         QVERIFY(r.contains(QStringLiteral("row.finishCapture()\n                    return")));
     }
-    // C68-F06: Enter and keypad Enter activate both buttons.
+    // C68-F06: Enter and keypad Enter activate both buttons. They are
+    // AppButtons, which answer both keys at the type (C02); a handler of
+    // their own would fire each press twice (MASTER-1 H1), so none remains.
+    // ButtonKeyActivationQmlTest drives the type.
     void enterActivatesTheButtons()
     {
         const QString r = readRow();
+        for (const char *id : { "id: changeButton", "id: resetButton" }) {
+            const int at = r.indexOf(QLatin1String(id));
+            QVERIFY2(at > 0, id);
+            const int open = r.lastIndexOf(QStringLiteral("AppButton {"), at);
+            QVERIFY2(open > 0 && at - open < 300, id);
+        }
+        QVERIFY(!r.contains(QStringLiteral("activateOnReturn: false")));
         for (const char *k : { "Keys.onReturnPressed", "Keys.onEnterPressed" })
-            QCOMPARE(r.count(QLatin1String(k)), 2);
-        QVERIFY(r.contains(QStringLiteral("changeButton.clicked()")));
-        QVERIFY(r.contains(QStringLiteral("resetButton.clicked()")));
+            QCOMPARE(r.count(QLatin1String(k)), 0);
     }
 };
 

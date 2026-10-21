@@ -266,9 +266,8 @@ GridLayout {
             text: row.capturing ? qsTr("Cancel") : qsTr("Change")
             onClicked: row.capturing ? row.finishCapture() : row.beginCapture()
             onActiveFocusChanged: if (activeFocus) row.revealInFlickable(changeButton)
-            // Qt buttons activate on Space only; Enter must too.
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) changeButton.clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) changeButton.clicked() }
+            // Return/Enter activate it like Space (AppButton), never on
+            // auto-repeat.
             Accessible.description: row.capturing
                 ? qsTr("Cancel capturing a new shortcut for %1").arg(row.description)
                 : qsTr("Capture a new shortcut for %1").arg(row.description)
@@ -282,8 +281,6 @@ GridLayout {
             // Hidden rather than disabled when already default.
             visible: !row.isDefault
             onActiveFocusChanged: if (activeFocus) row.revealInFlickable(resetButton)
-            Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) resetButton.clicked() }
-            Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) resetButton.clicked() }
             text: qsTr("Reset")
             onClicked: {
                 row.captureError = ""

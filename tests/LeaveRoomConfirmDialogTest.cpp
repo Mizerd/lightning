@@ -196,6 +196,37 @@ private slots:
         QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("!r:x"));
     }
 
+    // C06-F01 with Return (recheck N5): on a focused Leave button with no
+    // ring, Return confirms nothing and moves the focus to Cancel, exactly
+    // as Space does.
+    void aRinglessReturnOnLeaveMovesToCancel()
+    {
+        QSignalSpy spy(m_dlg, SIGNAL(confirmed(QString)));
+        QMetaObject::invokeMethod(m_dlg, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("!r:x")),
+                                  Q_ARG(QVariant, QStringLiteral("Den")),
+                                  Q_ARG(QVariant, 3),
+                                  Q_ARG(QVariant, QStringLiteral("public")),
+                                  Q_ARG(QVariant, QVariant(0)));
+        QTRY_VERIFY(m_dlg->property("opened").toBool());
+        auto *window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(window);
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        auto *leave = m_dlg->findChild<QQuickItem *>(QStringLiteral("leaveRoomConfirmButton"));
+        auto *cancel = m_dlg->findChild<QQuickItem *>(QStringLiteral("leaveRoomConfirmCancel"));
+        QVERIFY(leave && cancel);
+        leave->forceActiveFocus(Qt::OtherFocusReason);
+        QTRY_VERIFY(leave->hasActiveFocus());
+        QVERIFY(!leave->property("visualFocus").toBool());
+        QTest::keyClick(window, Qt::Key_Return);
+        QCOMPARE(spy.size(), 0);
+        QVERIFY(m_dlg->property("visible").toBool());
+        QTRY_VERIFY(cancel->hasActiveFocus());
+        QMetaObject::invokeMethod(m_dlg, "close");
+        QTRY_VERIFY(!m_dlg->property("visible").toBool());
+    }
+
     // The two hosts share this component; a private copy would let the
     // wording drift again.
     void bothHostsUseTheSharedDialog()

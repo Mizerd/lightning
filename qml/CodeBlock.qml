@@ -264,18 +264,8 @@ Rectangle {
                 Accessible.name: qsTr("Copy code")
                 Accessible.onPressAction: root.copyCode()
                 onClicked: root.copyCode()
-                // AbstractButton triggers on Space only; Return and the
-                // keypad Enter are the other keys a focused button answers to.
-                // click() runs the button's own press/release/clicked path;
-                // a held key does not re-copy.
-                Keys.onReturnPressed: (e) => {
-                    if (!e.isAutoRepeat) copyButton.click()
-                    e.accepted = true
-                }
-                Keys.onEnterPressed: (e) => {
-                    if (!e.isAutoRepeat) copyButton.click()
-                    e.accepted = true
-                }
+                // Return and the keypad Enter copy too: IconButton answers
+                // them itself (a held key does not re-copy).
 
                 // The icon alone says nothing to a pointer user.
                 ToolTip {

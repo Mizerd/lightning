@@ -644,9 +644,6 @@ Item {
                     implicitWidth: 30; implicitHeight: 30
                     iconSize: 17
                     focusPolicy: Qt.StrongFocus
-                    // Return and Enter act as Space does (C21-F01).
-                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: root.voice.fetchState === "fetching"
                               ? "schedule"
                               : (root.voice.playing ? "pause" : "play_arrow")
@@ -664,9 +661,6 @@ Item {
                     visible: card.tier === "regular" && root.voice.hasNext
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
-                    // Return and Enter act as Space does (C21-F01).
-                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "chevron_right"
                     readonly property string actionLabel:
                         qsTr("Next voice message")
@@ -680,9 +674,6 @@ Item {
                     objectName: "voiceMiniPlayerDock"
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
-                    // Return and Enter act as Space does (C21-F01).
-                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "close_fullscreen"
                     readonly property string actionLabel:
                         qsTr("Dock the player under the header")
@@ -696,9 +687,6 @@ Item {
                     objectName: "voiceMiniPlayerStop"
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
-                    // Return and Enter act as Space does (C21-F01).
-                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "close"
                     readonly property string actionLabel: qsTr("Stop playback")
                     Accessible.name: actionLabel
@@ -755,9 +743,6 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             size: "md"
                             focusPolicy: Qt.StrongFocus
-                            // Return and Enter act as Space does (C21-F01).
-                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             iconName: "refresh"
                             readonly property string actionLabel:
                                 qsTr("Play from the start")
@@ -773,9 +758,6 @@ Item {
                             fill: true
                             size: "xl"
                             focusPolicy: Qt.StrongFocus
-                            // Return and Enter act as Space does (C21-F01).
-                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             iconName: root.voice.fetchState === "fetching"
                                       ? "schedule"
                                       : (root.voice.playing ? "pause"
@@ -795,9 +777,6 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             size: "md"
                             focusPolicy: Qt.StrongFocus
-                            // Return and Enter act as Space does (C21-F01).
-                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
-                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             enabled: root.voice.hasNext
                             opacity: enabled ? 1 : 0.4
                             iconName: "chevron_right"

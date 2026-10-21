@@ -153,20 +153,9 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
-        // A Button answers Space only; Return / Enter did nothing in any
-        // dialog button (C06 F03). They press the focused button, so Cancel
-        // (the default) closes and a Tab-ed-to Leave room confirms.
-        Keys.onPressed: (event) => {
-            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                    && !event.isAutoRepeat) {
-                var item = root.contentItem.Window.activeFocusItem
-                if (item && typeof item.click === "function"
-                        && typeof item.kind === "string") {
-                    item.click()
-                    event.accepted = true
-                }
-            }
-        }
+        // Return / Enter press the focused button (AppButton answers them,
+        // C06 F03), so Cancel (the default) closes and a Tab-ed-to Leave
+        // room confirms.
         Label {
             objectName: "leaveRoomConfirmBody"
             Layout.fillWidth: true
@@ -199,15 +188,17 @@ Dialog {
                 // Space / Return that finds it focused any other way (live
                 // report C06 F01: Space left the room 3/3 with no ring
                 // anywhere) is swallowed and the focus goes back to Cancel.
+                // Return/Enter: AppButton's keysNeedVisualFocus (its own
+                // handler runs first); Space: here.
+                keysNeedVisualFocus: true
                 Keys.onPressed: (event) => {
-                    if (!visualFocus
-                            && (event.key === Qt.Key_Space
-                                || event.key === Qt.Key_Return
-                                || event.key === Qt.Key_Enter)) {
+                    if (!visualFocus && event.key === Qt.Key_Space) {
                         event.accepted = true
                         cancelButton.forceActiveFocus(Qt.TabFocusReason)
                     }
                 }
+                // Return/Enter without the ring: the same move as Space.
+                onKeyRefusedWithoutRing: cancelButton.forceActiveFocus(Qt.TabFocusReason)
                 onClicked: {
                     var id = root.pendingRoomId
                     root.close()

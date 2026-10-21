@@ -178,19 +178,20 @@ Item {
     // does, instead of bubbling here and sending the staged files (C42-F01,
     // C42-D09). Plain Return only: Ctrl/Shift+Return keep their send/newline
     // meaning, and nothing outside this composer is affected.
-    function _pressFocusedButton(modifiers) {
+    function _pressFocusedButton(modifiers, autoRepeat) {
         if ((modifiers & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0)
             return false
         var it = root.Window.activeFocusItem
         if (!it || it === root || typeof it.click !== "function"
                 || typeof it.clicked === "undefined")
             return false
-        if (it.enabled)
+        // A held Return presses it once, like AppButton (recheck N5).
+        if (it.enabled && !autoRepeat)
             it.click()
         return true
     }
     Keys.onReturnPressed: (event) => {
-        if (root._pressFocusedButton(event.modifiers)) {
+        if (root._pressFocusedButton(event.modifiers, event.isAutoRepeat)) {
             event.accepted = true
             return
         }
@@ -204,7 +205,7 @@ Item {
         root.submitComposer()
     }
     Keys.onEnterPressed: (event) => {
-        if (root._pressFocusedButton(event.modifiers)) {
+        if (root._pressFocusedButton(event.modifiers, event.isAutoRepeat)) {
             event.accepted = true
             return
         }

@@ -78,7 +78,19 @@ AbstractButton {
     // Return and Enter press a focused icon button like Space (see AppButton).
     Keys.onReturnPressed: (event) => root._activateFromKey(event)
     Keys.onEnterPressed: (event) => root._activateFromKey(event)
+    // An instance with its own Return behaviour turns this off: an instance's
+    // Keys.onReturnPressed does NOT replace this one, both run (one Return
+    // would otherwise act twice).
+    property bool activateOnReturn: true
+    // A confirming button a stray key must not trigger (Leave room, Close
+    // room): Return/Enter act only while the focus ring shows (C06-F01).
+    property bool keysNeedVisualFocus: false
+    // Return/Enter refused for want of a visible ring: the owner may move the
+    // focus somewhere safe, as its Space guard does.
+    signal keyRefusedWithoutRing()
     function _activateFromKey(event) {
+        if (!root.activateOnReturn)
+            return
         if (event.isAutoRepeat) {
             // Holding Return must not fire a confirming button repeatedly
             // (Space does not repeat either).
@@ -88,6 +100,10 @@ AbstractButton {
         if (!root.enabled || !root.visible)
             return
         event.accepted = true
+        if (root.keysNeedVisualFocus && !root.visualFocus) {
+            root.keyRefusedWithoutRing()
+            return
+        }
         // click() takes Qt's own path: pressed/released, nextCheckState,
         // an bound Action, then clicked(). Older Qt without it falls back.
         if (typeof root.click === "function") {

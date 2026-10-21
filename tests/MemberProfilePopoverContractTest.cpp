@@ -434,15 +434,27 @@ private slots:
         QVERIFY(popover);
         QTRY_VERIFY(popover->property("opened").toBool());
 
-        bool foundAdminChip = false;
-        for (QObject *candidate : popover->findChildren<QObject *>()) {
-            if (candidate->property("label").toString() == QStringLiteral("Administrator")
-                && candidate->property("visible").toBool()) {
-                foundAdminChip = true;
-                break;
+        // In the open room the live power level outranks the snapshot the
+        // caller passed (C35): the mock's Carol is an ordinary member there,
+        // so drive the live role the way _refreshRole would for a level-100
+        // member, and check the chip follows it both ways.
+        const auto adminChipShown = [popover] {
+            for (QObject *candidate : popover->findChildren<QObject *>()) {
+                if (candidate->property("label").toString() == QStringLiteral("Administrator")
+                    && candidate->property("visible").toBool()) {
+                    return true;
+                }
             }
-        }
-        QVERIFY(foundAdminChip);
+            return false;
+        };
+        const QString live = popover->property("liveRole").toString();
+        if (live.isEmpty())
+            QVERIFY(adminChipShown()); // no live level: the snapshot shows
+        popover->setProperty("liveRole", QStringLiteral("administrator"));
+        QVERIFY(adminChipShown());
+        popover->setProperty("liveRole", QStringLiteral("member"));
+        QVERIFY(!adminChipShown());
+        popover->setProperty("liveRole", live);
 
         // "(you)" only for the own-account member.
         QMetaObject::invokeMethod(m_root, "openFor",
@@ -996,23 +1008,62 @@ private slots:
         }
         // Per button, not in aggregate: each anchor must carry BOTH handlers
         // within its own block.
-        for (const char *anchor : { "objectName: \"profileIgnoreConfirmCancel\"",
-                                    "objectName: \"profileIgnoreConfirmAccept\"",
-                                    "objectName: \"profileRoleConfirmCancel\"",
-                                    "objectName: \"profileRoleConfirmAccept\"",
-                                    "id: modConfirmButton",
-                                    "id: roleButton", "id: modButton" }) {
+        for (const char *anchor : { "id: roleButton", "id: modButton" }) {
             const QString a = QString::fromLatin1(anchor);
             const int at = src.indexOf(a);
             QVERIFY2(at > 0, qPrintable(a + QStringLiteral(" not found")));
-            const QString block = src.mid(at, 1800);
-            QVERIFY2(block.contains(QStringLiteral("Keys.onReturnPressed: clicked()"))
-                         && block.contains(QStringLiteral("Keys.onEnterPressed: clicked()")),
+            // The anchor's own element, brace-balanced (the blocks grew
+            // past any fixed window as focus rings and labels landed).
+            int open = at, depth = 0;
+            while (open > 0) {
+                --open;
+                if (src[open] == QLatin1Char('}'))
+                    ++depth;
+                else if (src[open] == QLatin1Char('{') && depth-- == 0)
+                    break;
+            }
+            int close = open;
+            for (int d = 0; close < src.size(); ++close) {
+                if (src[close] == QLatin1Char('{'))
+                    ++d;
+                else if (src[close] == QLatin1Char('}') && --d == 0)
+                    break;
+            }
+            const QString block = src.mid(open, close - open + 1);
+            QVERIFY2(block.contains(QStringLiteral("Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }"))
+                         && block.contains(QStringLiteral("Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")),
                      qPrintable(a + QStringLiteral(" does not activate on Return/Enter")));
         }
+        // The kick/ban confirm is an AppButton: Return and Enter activate it
+        // at the type (C02), and a handler of its own would fire it twice
+        // (MASTER-1 H1). ButtonKeyActivationQmlTest covers the type.
+        {
+            const int at = src.indexOf(QStringLiteral("id: modConfirmButton"));
+            QVERIFY(at > 0);
+            const int open = src.lastIndexOf(QStringLiteral("AppButton {"), at);
+            QVERIFY2(open > 0 && at - open < 200, "modConfirmButton is not an AppButton");
+            const QString block = src.mid(at, 1800);
+            const int next = block.indexOf(QStringLiteral("Button {"));
+            const QString own = next > 0 ? block.left(next) : block;
+            QVERIFY2(!own.contains(QStringLiteral("Keys.onReturnPressed")),
+                     "modConfirmButton has its own Return handler");
+        }
+        // The ignore and role confirms are AppButtons (recheck N2): Return
+        // and Enter at the type, a held Return never repeats a click
+        // (ButtonKeyActivationQmlTest), and no handler of their own.
+        for (const char *name : { "profileIgnoreConfirmCancel", "profileIgnoreConfirmAccept",
+                                  "profileRoleConfirmCancel", "profileRoleConfirmAccept" }) {
+            const QString a = QStringLiteral("objectName: \"%1\"").arg(QLatin1String(name));
+            const int at = src.indexOf(a);
+            QVERIFY2(at > 0, name);
+            const int open = src.lastIndexOf(QStringLiteral("AppButton {"), at);
+            QVERIFY2(open > 0 && at - open < 120, qPrintable(QStringLiteral("%1 is not an AppButton").arg(QLatin1String(name))));
+            const int next = src.indexOf(QStringLiteral("Button {"), at);
+            QVERIFY2(!src.mid(at, next - at).contains(QStringLiteral("Keys.onReturnPressed")), name);
+        }
         // Chip, Message and the modal Cancel share the file-wide floor.
-        QVERIFY(src.count(QStringLiteral("Keys.onReturnPressed: clicked()")) >= 10);
-        QVERIFY(src.count(QStringLiteral("Keys.onEnterPressed: clicked()")) >= 10);
+        QVERIFY(src.count(QStringLiteral("Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")) >= 4);
+        QVERIFY(src.count(QStringLiteral("Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")) >= 4);
         QVERIFY(src.contains(QStringLiteral("onAccepted: if (modConfirmButton.enabled) modConfirmButton.clicked()")));
         // F02: the open edge drops focus from the previously used button.
         QVERIFY(src.contains(QStringLiteral("contentItem.forceActiveFocus()")));

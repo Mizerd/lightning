@@ -319,15 +319,6 @@ Rectangle {
                     tipSuppressed = true
                     root.togglePlay()
                 }
-                // Return and Enter act as Space does (C21-D09).
-                Keys.onReturnPressed: (event) => {
-                    event.accepted = true
-                    if (enabled) clicked()
-                }
-                Keys.onEnterPressed: (event) => {
-                    event.accepted = true
-                    if (enabled) clicked()
-                }
                 ToolTip {
                     objectName: "audioPlayPauseTip"
                     parent: playButton

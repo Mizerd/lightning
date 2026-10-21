@@ -390,11 +390,9 @@ Rectangle {
                         // the menu's header (C04-F06).
                         ToolTip.visible: hovered && !roomListSortMenu.opened
                         ToolTip.delay: 500
-                        // Enter, KP_Enter, the Menu key and Shift+F10 open the
-                        // menu as Space does (C04-F05); the Menu key used to
-                        // fall through to the search field's edit menu.
-                        Keys.onReturnPressed: (event) => { sortBtn.clicked(); event.accepted = true }
-                        Keys.onEnterPressed: (event) => { sortBtn.clicked(); event.accepted = true }
+                        // Return/Enter (IconButton), the Menu key and Shift+F10
+                        // open the menu as Space does (C04-F05); the Menu key
+                        // used to fall through to the search field's edit menu.
                         Keys.onMenuPressed: (event) => { sortBtn.clicked(); event.accepted = true }
                         Keys.onPressed: (event) => {
                             if (event.key === Qt.Key_F10
@@ -454,8 +452,6 @@ Rectangle {
                         ToolTip.visible: hovered && !roomListAddMenu.opened
                         ToolTip.delay: 500
                         // As the sort button beside it (C04-F05, F06).
-                        Keys.onReturnPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
-                        Keys.onEnterPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
                         Keys.onMenuPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
                         Keys.onPressed: (event) => {
                             if (event.key === Qt.Key_F10
