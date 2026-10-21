@@ -31,6 +31,7 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWindow>
+#include <QPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTextBlock>
@@ -317,7 +318,8 @@ private Q_SLOTS:
             QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited").arg(layout)))
                 << layout << false << 1000 << QStringLiteral("thread-edited");
             // A one-line caption puts the summary card and "edited" marker at
-            // the SAME HEIGHT as the band beside the card (measured: band y
+            // the SAME HEIGHT as the notice beside the card (measured on the
+            // old 300x84 notice: band y
             // 34-118, summary y 88-124), so only their horizontal clearance
             // keeps the notice off them.
             QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited-short").arg(layout)))
@@ -344,7 +346,7 @@ private Q_SLOTS:
         f[QStringLiteral("isOwn")] = own;
         f[QStringLiteral("showSenderIdentity")] = false;
         f[QStringLiteral("isFile")] = true;
-        f[QStringLiteral("mediaFilename")] = QStringLiteral("original-name.exe");
+        f[QStringLiteral("mediaFilename")] = QStringLiteral("original-name.pdf");
         const bool threadEdited = caption.startsWith(QLatin1String("thread-edited"));
         f[QStringLiteral("body")] = caption == QLatin1String("thread-edited-short")
             ? QStringLiteral("Caption line\n").repeated(2)
@@ -352,7 +354,7 @@ private Q_SLOTS:
                                    || caption == QLatin1String("thread-edited"))
             ? QStringLiteral("Caption line\n").repeated(12)
             : caption == QLatin1String("wide") ? QString(2000, QLatin1Char('W'))
-                                              : QStringLiteral("original-name.exe");
+                                              : QStringLiteral("original-name.pdf");
         if (caption == QLatin1String("reactions"))
             f[QStringLiteral("reactions")] = reactions(120);
         if (threadEdited) {
@@ -403,16 +405,20 @@ private Q_SLOTS:
         };
         auto *card = findVisual(d.root, QStringLiteral("fileCard"));
         auto *referenceCard = findVisual(reference.root, QStringLiteral("fileCard"));
-        auto *notice = findVisual(d.root, QStringLiteral("attachmentDownloadNotice"));
+        // A row builds its notice only while it has a download (a Loader in
+        // MessageDelegate): a file card with no download carries none, so it
+        // adds no Text and no geometry bindings to the timeline.
+        const QString noticeName = QStringLiteral("attachmentDownloadNotice");
+        QVERIFY(!findVisual(d.root, noticeName));
+        QVERIFY(!findVisual(reference.root, noticeName));
         auto *body = findVisual(d.root, QStringLiteral("messageBody"));
         auto *referenceBody = findVisual(reference.root, QStringLiteral("messageBody"));
         auto *bar = forceActionBar(d.root);
         auto *pile = findVisual(d.root, QStringLiteral("readReceiptRow"));
-        QVERIFY(card && referenceCard && notice && body && referenceBody && bar && pile);
+        QVERIFY(card && referenceCard && body && referenceBody && bar && pile);
         auto rect = [](QQuickItem *item, QQuickItem *in) {
             return item->mapRectToItem(in, item->boundingRect());
         };
-        QVERIFY(!notice->isVisible());
         QCOMPARE(d.root->height(), reference.root->height());
         QCOMPARE(body->width(), referenceBody->width());
         QCOMPARE(rect(body, d.root), rect(referenceBody, reference.root));
@@ -425,20 +431,31 @@ private Q_SLOTS:
         const QRectF captionRectBefore = rect(body, d.root);
         const QRectF cardBefore = rect(card, d.root);
         QVERIFY(heightBefore > 0);
+        // A harmless type: a file that can run programs is never beside its
+        // card (its warning is the pane card's; tst_AttachmentDownloadNotice).
         app.downloads()->download(QStringLiteral("rail-file"),
-                                  QStringLiteral("original-name.exe"), {});
+                                  QStringLiteral("original-name.pdf"), {});
         QVERIFY(!app.downloads()->items().isEmpty());
-        // Thread-and-edited rows: the summary card and "edited" marker sit
-        // below the band in the tall row (y >= 275) and beside it, at the
-        // same height, in the short one (y 88-124 against band 34-118). The
-        // notice fits in both because it starts right of the content column
-        // that holds them (measured x >= 360, summary right edge x 260); the
-        // `occupied` loop asserts no overlap, and the short row's proof below
-        // asserts that clearance. (The notice's height changes with the
-        // download's state, 84 while active and 16 once settled, so the
-        // vertical overlap is not asserted.)
+        // Unloaded again when the download is dismissed: hold it weakly.
+        QPointer<QQuickItem> notice;
+        QTRY_VERIFY((notice = findVisual(d.root, noticeName)) != nullptr);
+        QVERIFY(!findVisual(reference.root, noticeName));
+        // C3b (live, 2026-10-18): the notice is a 34px strip beside the card,
+        // so it fits a PLAIN file-card row (57px Modern, 77 Bubbles, 56
+        // Compact), which the old 300x84 notice under the toolbar's band never
+        // did ("none" was expected false here and every live trial showed the
+        // corner). It takes the band centred on the card or, in a taller row,
+        // the band just below the toolbar's, right of the content column
+        // (left of an own bubble). At 1000px every row has one (a "wide"
+        // caption ends at the 760px column, leaving x 772-996 below the
+        // toolbar's band). At 520px the toolbar's band covers the centred one
+        // and only Compact's tall row (card from x 8) leaves 156px below it.
+        // Reactions and the thread summary sit under the content, never
+        // beside the card; the `occupied` loop asserts no overlap, and the
+        // short thread row's proof below asserts the horizontal clearance.
+        // Measured on these delegates: 2026-10-18-fx2 notes.
         const bool fits = width == 1000
-            && (caption == QLatin1String("tall") || threadEdited);
+            || (layout == 2 && caption == QLatin1String("tall"));
         QTRY_COMPARE(notice->isVisible(), fits);
         QTRY_COMPARE(paneCount(), fits ? 0 : 1);
         QCOMPARE(int(notice->isVisible()) + paneCount(), 1);
@@ -460,17 +477,13 @@ private Q_SLOTS:
         if (caption == QLatin1String("reactions")) {
             QVERIFY(!body->isVisible()); // the reproducer is file-only
             QCOMPARE(occupied.size(), 121); // every reaction plus the Add chip
-            const QRectF candidate = rect(notice, d.root);
-            // Prove that row bounds/toolbar/receipts alone would accept this
-            // band, and that an actual chip occupies it after wrapping.
-            QVERIFY(d.root->boundingRect().adjusted(4, 4, -4, -4).contains(candidate));
-            QVERIFY(!rect(bar, d.root).intersects(candidate));
-            QVERIFY(!rect(pile, d.root).adjusted(-8, -8, 8, 8).intersects(candidate));
+            // Wrapped over several lines, all under the card: the band beside
+            // the card stays free, so the notice is there and touches none.
             QVERIFY(occupied.last()->y() > occupied.first()->y() + 2 * occupied.first()->height());
-            QVERIFY(std::any_of(occupied.cbegin(), occupied.cend(), [&](QQuickItem *chip) {
-                return rect(chip, d.root).intersects(candidate);
+            QVERIFY(notice->isVisible());
+            QVERIFY(std::none_of(occupied.cbegin(), occupied.cend(), [&](QQuickItem *chip) {
+                return rect(chip, d.root).intersects(rect(notice, d.root));
             }));
-            QVERIFY(!notice->property("fits").toBool());
         }
         if (threadEdited) {
             auto *summary = findVisual(d.root, QStringLiteral("threadSummaryCard"));
@@ -496,6 +509,8 @@ private Q_SLOTS:
             else
                 QVERIFY(band.left() > cardBefore.right());
             QVERIFY(band.top() >= cardBefore.top());
+            // Beside the card: the two bands meet.
+            QVERIFY(band.top() < cardBefore.bottom() && band.bottom() > cardBefore.top());
             QVERIFY(!rect(bar, d.root).intersects(band));
             QVERIFY(!rect(pile, d.root).intersects(band));
             QVERIFY(!rect(body, d.root).intersects(band));
@@ -508,16 +523,21 @@ private Q_SLOTS:
         // Scroll the whole row away: exactly the pane owns the item. No
         // height/width/anchor adjustment is needed when ownership changes.
         view->setProperty("contentY", 2500);
+        // Still built (the row still has the download), just not claiming.
+        QVERIFY(notice);
         QTRY_VERIFY(!notice->isVisible());
         QTRY_COMPARE(paneCount(), 1);
         QCOMPARE(d.root->height(), heightBefore);
         view->setProperty("contentY", 0);
+        QVERIFY(notice);
         QTRY_COMPARE(notice->isVisible(), fits);
         QTRY_COMPARE(paneCount(), fits ? 0 : 1);
         const int id = app.downloads()->items().value(0).toMap()
                            .value(QStringLiteral("id")).toInt();
         app.downloads()->dismiss(id);
-        QTRY_VERIFY(!notice->isVisible());
+        // Nothing left to show: the row unloads its notice altogether.
+        QTRY_VERIFY(notice.isNull());
+        QVERIFY(!findVisual(d.root, noticeName));
         QTRY_COMPARE(paneCount(), 0);
         QCOMPARE(d.root->height(), heightBefore);
         QCOMPARE(d.root->implicitHeight(), implicitBefore);

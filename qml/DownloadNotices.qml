@@ -7,7 +7,8 @@ import QtQuick
 //
 // A row's notice CLAIMS a key while it is eligible (on screen, expanded, a
 // file card with enough empty space beside it, the item is its own primary
-// media). The same event can be on
+// media, not a file type that can run programs); it shows that key's newest
+// download. The same event can be on
 // screen in the main timeline AND the thread panel or context view, so the
 // claims are arbitrated: the surface the click came from (`begin`) wins, else
 // main, thread, context in that order. `revision` moves on every change so
@@ -18,6 +19,10 @@ QtObject {
     // Moved on every change to claims or origins; bindings read it.
     property int revision: 0
     property var origin: ({})   // mediaKey -> surface the click came from
+    // Download ids that have been shown beside their file card. Such a
+    // download keeps the card's rule wherever it is shown later: it stays
+    // until opened or dismissed, so the pane card never times it out.
+    property var shownBeside: ({})
     property var claims: ({})   // mediaKey -> [{token, surface}]
     property var _tick: ({ n: 0 })
 
@@ -42,6 +47,20 @@ QtObject {
         _bump()
     }
 
+    // No revision bump: it is called from a notice's own change handler, and
+    // a bump there re-enters the `owned` binding that fired it (a binding
+    // loop). None is needed either: the record matters only once the item is
+    // on the pane card again, and that takes a claim release, which bumps.
+    function markShownBeside(id) {
+        if (id === undefined || id === null)
+            return
+        registry.shownBeside[id] = true
+    }
+    function wasShownBeside(id) {
+        var rev = registry.revision
+        return registry.shownBeside[id] === true
+    }
+
     function _rank(surface) {
         return surface === "main" ? 0 : surface === "thread" ? 1
              : surface === "context" ? 2 : 3
@@ -63,12 +82,21 @@ QtObject {
         return best.token
     }
 
-    // The items no row shows: the fallback card's content.
+    // The items no row shows: the fallback card's content. A row's notice
+    // shows only the NEWEST download of its key (AttachmentDownloadNotice
+    // .item: the last of that key in app.downloads order), so an older save
+    // of the same file stays here.
     function unclaimed(items) {
         var rev = registry.revision
+        var list = items || []
+        var newest = {}
+        for (var i = 0; i < list.length; ++i)
+            newest[list[i].mediaKey] = list[i].id
         var out = []
-        for (var i = 0; i < (items || []).length; ++i) {
-            if (owner(items[i].mediaKey) === "") out.push(items[i])
+        for (var j = 0; j < list.length; ++j) {
+            var it = list[j]
+            if (owner(it.mediaKey) === "" || newest[it.mediaKey] !== it.id)
+                out.push(it)
         }
         return out
     }
@@ -77,6 +105,7 @@ QtObject {
     // next. Claims are rebuilt by the rows themselves.
     function reset() {
         registry.origin = ({})
+        registry.shownBeside = ({})
         _bump()
     }
 }

@@ -2255,10 +2255,20 @@ Rectangle {
                     // loading late between the reader and the live edge would
                     // grow below the reader and move them. Only history beyond
                     // 2.5 viewports waits.
-                    var last = viewRowAtContentY(contentY + h * 2.5)
+                    // Open is a GEOMETRY fact: the far edge lies past the
+                    // content. Not "the last row found is the last row":
+                    // viewRowAtContentY answers only rows the Column lays out,
+                    // so with the oldest loaded rows hidden (room activity
+                    // off) it is below count - 1 even with the edge beyond
+                    // everything, the band read closed, growth stopped asking
+                    // and history-fill pictures stayed grey until a gesture
+                    // (the 2026-09-29 defect, back through a side door).
+                    var far = contentY + h * 2.5
+                    var last = viewRowAtContentY(far)
                     mediaBandFirstRow = 0
-                    mediaBandLastRow = last < 0 ? count - 1 : last
-                    mediaBandOpen = mediaBandLastRow >= count - 1
+                    mediaBandOpen = far >= contentHeight
+                    mediaBandLastRow = (mediaBandOpen || last < 0)
+                                       ? count - 1 : last
                 }
                 // Content grew under an open band: re-derive it at most every
                 // 100 ms, and never mid-gesture (the settle does that). Once the
@@ -2914,8 +2924,29 @@ Rectangle {
                     return row < 0 || row >= count
                             ? null : rowRepeater.itemAt(row)
                 }
-                // Binary search over real geometry; rows are in ascending y.
-                // Hidden rows have zero height and are never the answer.
+                // A row the Column does not lay out: a positioner skips a
+                // child that is invisible OR has no width or height (Qt's
+                // documented rule), which is every hidden room-activity row,
+                // collapsed group member, suppressed divider and thread root
+                // here (they are visible with height 0, or invisible). Its y
+                // is whatever it was last given, 0 if it was never laid out,
+                // so it says nothing about where anything is. (A hidden
+                // COLUMN hides every row; visibility alone is then not held
+                // against them, as before.)
+                function rowSkippedByLayout(item) {
+                    return !item || item.height <= 0 || item.width <= 0
+                           || (rowColumn.visible && !item.visible)
+                }
+                // Binary search over real geometry: the rows the Column lays
+                // out are in ascending y, and only those are searched. A
+                // hidden row is never the answer, and its stale y must not
+                // steer the search either: hidden activity rows at y 0 once
+                // pulled the answer up to a hidden row far above the
+                // viewport, so viewportOldestRow named rows nobody could see
+                // (seen live 2026-10-20: 34 for a physical top on row 23;
+                // rows 27-34 were collapsed activity: visible, height 0, y 0).
+                // A probe that lands on a hidden row uses the nearest laid-out
+                // row at or below it; a run of hidden rows costs its length.
                 function viewRowAtContentY(y) {
                     var lo = 0
                     var hi = count - 1
@@ -2927,10 +2958,21 @@ Rectangle {
                             hi = mid - 1
                             continue
                         }
-                        if (item.y > y) {
-                            hi = mid - 1
+                        var probe = mid
+                        while (probe >= lo && rowSkippedByLayout(item)) {
+                            --probe
+                            item = probe >= lo ? rowRepeater.itemAt(probe)
+                                               : null
+                        }
+                        if (probe < lo) {
+                            // [lo, mid] holds no laid-out row: none of it can
+                            // be the answer.
+                            lo = mid + 1
+                        } else if (item.y > y) {
+                            hi = probe - 1
                         } else {
-                            best = mid
+                            // probe+1..mid are hidden: never the answer.
+                            best = probe
                             lo = mid + 1
                         }
                     }

@@ -1035,35 +1035,74 @@ Item {
             || (!model.isImage && model.isSticker !== true
                 && model.isVideo !== true && model.isAudio !== true
                 && model.isFile === true))
+    // Only a file-card row looks: every other row is [] without scanning the
+    // download list each time it changes.
     readonly property var attachmentDownloads:
-        typeof app !== "undefined" && app && app.downloads
+        root.fileCardRow
+        && typeof app !== "undefined" && app && app.downloads
         && (model.mediaKey || "") !== ""
         ? app.downloads.items.filter(function(item) {
             return item.mediaKey === model.mediaKey
         }) : []
-    AttachmentDownloadNotice {
-        id: attachmentNotice
-        items: root.attachmentDownloads
-        mediaKey: model.mediaKey || ""
-        surface: root.timelineView && root.timelineView.downloadSurface
-                 ? root.timelineView.downloadSurface : "main"
-        eligible: root.rowOnScreen && mediaBox.visible && root.fileCardRow
-                  && mediaLoader.item !== null
-        row: root
-        attachment: mediaBox
-        ownBubble: root.bubbleMode && model.isOwn === true
-        contentItems: root.bubbleMode ? [bubble] : bubbleContent.children
-        collisionItems: {
-            // Metadata (thread summary/edited marker) and previews are also
-            // covered by contentItems. Reactions are separate layout siblings;
-            // test each chip so the Flow's empty trailing space stays usable.
-            var items = [metaRow, previewLoader]
-            for (var i = 0; i < reactionsFlow.children.length; ++i)
-                items.push(reactionsFlow.children[i])
-            return items
+    // The notice exists only while this row has a download to show. Every
+    // other row (nearly all of them) carries an inactive Loader and nothing
+    // else: no notice, no Text, no geometry bindings. That matters beyond
+    // memory: a Text created holding "" observes the viewport for life, and
+    // one such observer anywhere in the timeline makes Qt walk the whole row
+    // tree on every contentY change (docs/timeline-scrolling.md, "Shipped
+    // 1"; timelineRowsCarryNoPermanentViewportObservers). Unloading destroys
+    // the notice, whose Component.onDestruction releases its claim, so the
+    // pane card takes the item back. Placement is in this row's coordinates:
+    // the Loader stays at the row's origin and adds no offset.
+    Loader {
+        id: attachmentNoticeLoader
+        objectName: "attachmentDownloadNoticeLoader"
+        z: 2
+        // Not for a file that can run programs either: the notice shows the
+        // newest download of its key and never claims a risky one (its
+        // warning is the pane card's), so it would be built for nothing.
+        active: root.fileCardRow && (model.mediaKey || "") !== ""
+                && root.attachmentDownloads.length > 0
+                && root.attachmentDownloads[root.attachmentDownloads.length - 1]
+                       .risky !== true
+        sourceComponent: AttachmentDownloadNotice {
+            items: root.attachmentDownloads
+            mediaKey: model.mediaKey || ""
+            surface: root.timelineView && root.timelineView.downloadSurface
+                     ? root.timelineView.downloadSurface : "main"
+            // rowOnScreen is the pane's ACTIVATION range, one viewport of
+            // slack on each side: a row just scrolled off still has it, and
+            // its notice would keep the download where nobody can see it,
+            // with the pane card empty (seen live, 2026-10-20). The room
+            // timeline also publishes the rows really on screen
+            // (viewportNewestRow..viewportOldestRow, view rows like `index`,
+            // updated with that range and never bound to contentY); only this
+            // notice reads them, so the other rows pay nothing. A host
+            // without them (thread panel, context view) has an exact,
+            // geometric rowOnScreen of its own.
+            eligible: root.rowOnScreen && mediaBox.visible && root.fileCardRow
+                      && mediaLoader.item !== null
+                      && (!root.timelineView
+                          || root.timelineView.viewportOldestRow === undefined
+                          || (index >= root.timelineView.viewportNewestRow
+                              && index <= root.timelineView.viewportOldestRow))
+            row: root
+            attachment: mediaBox
+            ownBubble: root.bubbleMode && model.isOwn === true
+            contentItems: root.bubbleMode ? [bubble] : bubbleContent.children
+            collisionItems: {
+                // Metadata (thread summary/edited marker) and previews are
+                // also covered by contentItems. Reactions are separate layout
+                // siblings; test each chip so the Flow's empty trailing space
+                // stays usable.
+                var items = [metaRow, previewLoader]
+                for (var i = 0; i < reactionsFlow.children.length; ++i)
+                    items.push(reactionsFlow.children[i])
+                return items
+            }
+            toolbar: messageActionBarLoader
+            receipts: receiptRow
         }
-        toolbar: messageActionBarLoader
-        receipts: receiptRow
     }
 
     // Read-receipt rail clearance. The facepile paints upward from the row's

@@ -16,7 +16,9 @@ import MatrixClient
 // "Saved" under the file's name, never the id.
 //
 // The list is app.downloads.items, owned by C++, so it survives a room
-// switch. The attachment delegate owns placement and viewport visibility.
+// switch. PaneDownloadsCard places this card and feeds it the downloads no
+// row shows; a row's own AttachmentDownloadNotice (a separate one-line strip)
+// shows the download its file card claims (DownloadNotices).
 Rectangle {
     id: card
     objectName: "downloadsCard"
@@ -76,9 +78,13 @@ Rectangle {
                 // visibility: a scrolled-away or hidden host stops it), so an
                 // outcome nobody saw is never dismissed unseen; it is shown
                 // once, for the full interval, when it next appears.
+                // Not for a download that was shown beside its file card
+                // (keepUntilDismissed, set by PaneDownloadsCard): that one
+                // stays until the user opens or dismisses it.
                 Timer {
                     interval: card.dismissAfterMs
-                    running: row.done && !cardHover.hovered && card.visible
+                    running: row.done && row.modelData.keepUntilDismissed !== true
+                             && !cardHover.hovered && card.visible
                     onTriggered: app.downloads.dismiss(row.modelData.id)
                 }
 

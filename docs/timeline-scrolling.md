@@ -348,8 +348,22 @@ a recompute (100 ms, throttled with `start()`, never during a gesture); a
 reset marks it open so the new room's rows get one. Nothing is bound to
 contentY. Measured on Xvfb over 36 gestures: frame times, anchor counters,
 pagination and in-gesture recomputes (0) identical before and after.
-Follow-up: `viewRowAtContentY()` overshoots because rows the Column never
-positions keep y = 0; in the band it only widens it.
+`viewRowAtContentY()` used to overshoot: a Column does not position a child
+that is invisible OR has no width or height (a collapsed activity group's
+members are visible with height 0), and such rows keep y = 0, so the search
+named rows a viewport away as the viewport's top (live 2026-10-20:
+`viewportOldestRow` 34 for a physical top on row 23). That kept a download
+notice's claim on a row nobody could see (the download was shown nowhere) and
+could make `firstUnreadOnScreen` read true for a marker above the viewport. It
+now skips every row the Column does not lay out (`rowSkippedByLayout`) and
+never returns one. **The band depends on it**: the last row it can name is the
+last LAID-OUT row, below `count - 1` whenever the oldest loaded rows are
+hidden, so `mediaBandOpen` is a geometry fact (`contentY + 2.5 viewports >=
+contentHeight`), never `lastRow >= count - 1`; reading it from the row index
+closed the band with its far edge past the content and brought this section's
+grey placeholders back (`aBandWhoseOldestRowsAreHiddenStaysOpenForTheHistoryFill`,
+`viewportRowsIgnoreHiddenRoomActivity`,
+`firstUnreadAboveHiddenRoomActivityIsNotOnScreen`).
 
 **A LOG LINE THAT CANNOT TELL "NOTHING HAPPENED" FROM "WE THREW EVERYTHING
 AWAY" IS NOT A LOG LINE.** A room open made fourteen back-paginations that each

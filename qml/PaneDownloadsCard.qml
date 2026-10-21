@@ -4,7 +4,9 @@ import MatrixClient
 // The pane-level fallback for downloads that no timeline row shows: a save
 // started from the image viewer, media history, a non-primary gallery item, a
 // collapsed-embed row, or a row that is off screen, not a file card, or has
-// insufficient empty space beside its card. Every
+// insufficient empty space beside its card, an older download of a file
+// whose row shows a newer one, and every file whose type can run programs
+// (its warning needs a sentence a row's one-line notice has no room for). Every
 // download is shown in exactly one place: its row's AttachmentDownloadNotice
 // when that row is on screen and claims it (DownloadNotices), otherwise here.
 // This also carries the risky-file warning and failures for those paths.
@@ -26,9 +28,16 @@ DownloadsCard {
     // The source of truth; items no row claims are shown. `revision` is read
     // so a claim change re-evaluates this binding.
     property var allItems: app && app.downloads ? app.downloads.items : []
+    // A download that was shown beside its file card keeps that card's rule
+    // here: it stays until opened or dismissed (keepUntilDismissed stops the
+    // ten-second expiry). Only a download that never had a card, such as a
+    // save from the image viewer, expires on its own.
     items: {
         var rev = DownloadNotices.revision
-        return DownloadNotices.unclaimed(pane.allItems)
+        return DownloadNotices.unclaimed(pane.allItems).map(function(it) {
+            return DownloadNotices.wasShownBeside(it.id)
+                ? Object.assign({}, it, { keepUntilDismissed: true }) : it
+        })
     }
     readonly property int margin: AppTheme.spacing12
 

@@ -22,6 +22,9 @@
 #include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTimer>
+#include <QPointer>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 
 #include <QBuffer>
 #include <QImage>
@@ -749,6 +752,56 @@ QtObject {
         return {};
     }
 
+    // Hidden room activity between two runs of messages: rows the Column does
+    // not lay out, whose y is stale (0 when never shown). Oldest to newest.
+    static QList<TimelineEvent> hiddenActivitySandwich(const QString &roomId,
+                                                       bool withMarker)
+    {
+        QList<TimelineEvent> events =
+            textFixture(roomId, 20, QStringLiteral("vpold"),
+                        QStringLiteral("older message"), /*baseSecondsAgo=*/40000);
+        for (int i = 0; i < 10; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$vphidden%1").arg(i);
+            e.itemId = QStringLiteral("uid-vphidden%1").arg(i);
+            e.roomId = roomId;
+            e.type = TimelineEvent::StateChange;
+            e.stateKind = QStringLiteral("membership");
+            e.sender = QStringLiteral("@bob:mock.local");
+            e.senderDisplayName = QStringLiteral("Bob");
+            e.body = QStringLiteral("membership churn");
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(-20000 + i * 30);
+            events.append(e);
+        }
+        if (withMarker) {
+            TimelineEvent marker;
+            marker.roomId = roomId;
+            marker.type = TimelineEvent::ReadMarker;
+            events.append(marker);
+        }
+        events.append(textFixture(roomId, 25, QStringLiteral("vpnew"),
+                                  QStringLiteral("newer message"),
+                                  /*baseSecondsAgo=*/7200));
+        return events;
+    }
+
+    // The row really at a content y: the last laid-out row starting at or
+    // before it.
+    // A linear walk, the reference the pane's binary search must agree with.
+    static int laidOutRowAt(QQuickItem *timeline, qreal y)
+    {
+        const int count = timeline->property("count").toInt();
+        int best = -1;
+        for (int row = 0; row < count; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            // What a Column lays out: visible, with a width and a height.
+            if (item && item->isVisible() && item->width() > 0
+                && item->height() > 0 && item->y() <= y)
+                best = row;
+        }
+        return best;
+    }
+
 private Q_SLOTS:
     // The room-activity component materializes typed child rows, not just an
     // expansion flag.
@@ -1213,6 +1266,386 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("%1 permanent viewport observers:\n%2")
                                 .arg(observers.size())
                                 .arg(observers.join(QStringLiteral("\n")))));
+    }
+
+    // The download notice beside a file card is the one per-row object that
+    // exists only on demand. With fx2's first version it was built in EVERY
+    // row and carried two empty Texts each (its status label, and the empty
+    // leading Icon AppButton always builds): 90 observers in the case above.
+    // Here ONE file-card row has a live download: that row alone builds the
+    // notice, it adds no observer either (the case above cannot see a notice
+    // that only exists with a download), and when the row stops showing it
+    // the item goes back to the pane card, the row itself staying alive.
+    void aDownloadingFileRowAloneBuildsItsNoticeAndObservesNothing()
+    {
+        QTemporaryDir folder;
+        QVERIFY(folder.isValid());
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        // Straight into a scratch folder, never a dialog; restored after, as
+        // every case here shares one settings file.
+        SettingsManager *settings = controller.settings();
+        const bool askedBefore = settings->alwaysAskWhereToSave();
+        const QString folderBefore = settings->downloadFolder();
+        const auto restore = qScopeGuard([&] {
+            settings->setAlwaysAskWhereToSave(askedBefore);
+            settings->setDownloadFolder(folderBefore);
+        });
+        settings->setAlwaysAskWhereToSave(false);
+        settings->setDownloadFolder(folder.path());
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(1100, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        // Plain rows, two of them FILE CARDS, and the newest file card is
+        // the one downloading: a file card without a download builds nothing.
+        const QString key = QStringLiteral("mxc-probe-downloading");
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-3600);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$dl%1").arg(i);
+            e.itemId = QStringLiteral("uid-dl%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("download notice probe %1").arg(i);
+            e.timestamp = base.addSecs(i * 60);
+            events.append(e);
+        }
+        const auto fileRow = [&](const QString &id, const QString &mediaKey,
+                                 int minute) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$") + id;
+            e.itemId = QStringLiteral("uid-") + id;
+            e.roomId = roomId;
+            e.type = TimelineEvent::File;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("probe.pdf");
+            e.mediaFilename = QStringLiteral("probe.pdf");
+            e.mediaMimetype = QStringLiteral("application/pdf");
+            e.mediaSize = 3000000;
+            e.mediaKey = mediaKey;
+            e.timestamp = base.addSecs(minute * 60);
+            return e;
+        };
+        events.append(fileRow(QStringLiteral("dl-idle"),
+                              QStringLiteral("mxc-probe-idle"), 40));
+        events.append(fileRow(QStringLiteral("dl-busy"), key, 41));
+        const int busyIndex = int(events.size()) - 1;
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 20,
+                                 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            findVisualChildren(timeline, QStringLiteral("fileCard")).size(),
+            qsizetype(2), 5000);
+        const QString notice = QStringLiteral("attachmentDownloadNotice");
+        // Both file cards are built and neither has a notice: no download yet.
+        QCOMPARE(findVisualChildren(timeline, notice).size(), qsizetype(0));
+
+        controller.downloads()->download(key, QStringLiteral("probe.pdf"),
+                                         QStringLiteral("application/pdf"));
+        QCOMPARE(controller.downloads()->items().size(), qsizetype(1));
+        // Exactly one notice, in the downloading row.
+        QTRY_COMPARE_WITH_TIMEOUT(findVisualChildren(timeline, notice).size(),
+                                  qsizetype(1), 5000);
+        QPointer<QQuickItem> built = findVisualChildren(timeline, notice).first();
+        QCOMPARE(built->property("mediaKey").toString(), key);
+        QPointer<QQuickItem> row =
+            qvariant_cast<QQuickItem *>(built->property("row"));
+        QVERIFY(row);
+        QCOMPARE(row->objectName(), QStringLiteral("messageDelegateRoot"));
+
+        auto *pane = root->findChild<QQuickItem *>(
+            QStringLiteral("paneDownloadsCard"));
+        QVERIFY(pane != nullptr);
+        const auto paneCount = [&] {
+            QQmlExpression count(qmlContext(pane), pane,
+                                 QStringLiteral("items.length"));
+            return count.evaluate().toInt();
+        };
+        // Shown in exactly one place, wherever the row's geometry put it.
+        QTRY_COMPARE_WITH_TIMEOUT(int(built->isVisible()) + paneCount(), 1,
+                                  5000);
+
+        int totalItems = 0;
+        const auto observersIn = [&](QQuickItem *top) {
+            QStringList found;
+            std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+                ++totalItems;
+                if (item->flags() & QQuickItem::ItemObservesViewport) {
+                    QStringList chain;
+                    const QQuickItem *up = item;
+                    for (int d = 0; d < 6 && up; ++d) {
+                        QString seg = QString::fromLatin1(
+                                          up->metaObject()->className())
+                                          .section(QLatin1Char('_'), 0, 0);
+                        if (!up->objectName().isEmpty())
+                            seg += QLatin1Char('#') + up->objectName();
+                        chain.prepend(seg);
+                        up = up->parentItem();
+                    }
+                    found << chain.join(QStringLiteral(" > "));
+                }
+                const auto children = item->childItems();
+                for (QQuickItem *c : children)
+                    walk(c);
+            };
+            walk(top);
+            return found;
+        };
+        // The notice is really built (its own Texts exist), and still no row,
+        // this one included, carries a viewport observer.
+        QVERIFY(!findVisualChildren(built, QStringLiteral("downloadNoticeStatus"))
+                     .isEmpty());
+        QVERIFY(!findVisualChildren(built, QStringLiteral("downloadDismissButton"))
+                     .isEmpty()
+                || !findVisualChildren(built, QStringLiteral("downloadCancelButton"))
+                        .isEmpty());
+        QStringList observers = observersIn(timeline);
+        QVERIFY2(totalItems > 200,
+                 qPrintable(QStringLiteral("only %1 items instantiated")
+                                .arg(totalItems)));
+        QVERIFY2(observers.isEmpty(),
+                 qPrintable(QStringLiteral("%1 permanent viewport observers "
+                                           "with a download:\n%2")
+                                .arg(observers.size())
+                                .arg(observers.join(QLatin1Char('\n')))));
+
+        // Scrolled just past the downloading row: off screen, but still inside
+        // the pane's activation range (rowOnScreen has a viewport of slack on
+        // each side). The download must go to the pane card, not stay in a
+        // notice nobody can see (seen live, 2026-10-20: shown nowhere). And
+        // scrolled back, it returns beside its card.
+        QQmlExpression indexOf(qmlContext(row), row, QStringLiteral("index"));
+        const int rowIndex = indexOf.evaluate().toInt();
+        QVERIFY(!indexOf.hasError());
+        QQmlExpression minY(qmlContext(timeline), timeline,
+                            QStringLiteral("wheelMinY()"));
+        const qreal bottomY = minY.evaluate().toReal();
+        QVERIFY(!minY.hasError());
+        // The published viewport rows settle a layout pass after the reset
+        // (measured: 31..31 with the Column's first, estimated geometry,
+        // then 0..14): sample only once they name this on-screen row.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("viewportNewestRow").toInt() <= rowIndex
+                && timeline->property("viewportOldestRow").toInt() >= rowIndex,
+            5000);
+        QTRY_COMPARE_WITH_TIMEOUT(int(built->isVisible()) + paneCount(), 1,
+                                  5000);
+        const bool besideBefore = built->isVisible();
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        timeline->setProperty("contentY", row->y() + row->height() + 40);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("viewportNewestRow").toInt() > rowIndex, 5000);
+        QVERIFY2(row->property("rowOnScreen").toBool(),
+                 "the row left the activation range: the case lost its point");
+        QTRY_COMPARE_WITH_TIMEOUT(paneCount(), 1, 5000);
+        QVERIFY(built);
+        QVERIFY(!built->isVisible());
+        timeline->setProperty("contentY", bottomY);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("viewportNewestRow").toInt() <= rowIndex
+                && timeline->property("viewportOldestRow").toInt() >= rowIndex,
+            5000);
+        QVERIFY(built);
+        QTRY_COMPARE_WITH_TIMEOUT(built->isVisible(), besideBefore, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(paneCount(), besideBefore ? 0 : 1, 5000);
+
+        // The row stops being one that shows a download (its media key goes):
+        // the Loader unloads the notice, its claim is released, and the pane
+        // card shows the item. The row itself is the same object throughout,
+        // so this is the Loader letting go, not the row being rebuilt.
+        TimelineEvent changed = events.at(busyIndex);
+        changed.mediaKey.clear();
+        mock->changeEventAtForTest(roomId, busyIndex, changed);
+        QTRY_VERIFY_WITH_TIMEOUT(built.isNull(), 5000);
+        QVERIFY2(row, "the row was rebuilt; the case must exercise the Loader");
+        QCOMPARE(findVisualChildren(timeline, notice).size(), qsizetype(0));
+        QTRY_COMPARE_WITH_TIMEOUT(paneCount(), 1, 5000);
+        totalItems = 0;
+        observers = observersIn(timeline);
+        QVERIFY2(observers.isEmpty(),
+                 qPrintable(observers.join(QLatin1Char('\n'))));
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
+    // viewportNewestRow/viewportOldestRow are the rows really on screen. Rows
+    // hidden by the room-activity setting are not laid out and keep a stale y
+    // (0 here, never shown), and the binary search behind both used to land
+    // on them: seen live, viewportOldestRow 34 for a physical top on row 23,
+    // so a row a viewport away counted as on screen.
+    // Two shapes of a row the Column does not lay out. Room activity OFF:
+    // the ten state rows are invisible. ON (the live failure, 2026-10-20):
+    // they collapse into one group whose leader (the oldest, view row 34) is
+    // laid out and whose nine members are VISIBLE with height 0 and y 0, so a
+    // search that skips only invisible rows still lands on them.
+    void viewportRowsIgnoreHiddenRoomActivity_data()
+    {
+        QTest::addColumn<bool>("roomActivity");
+        QTest::addColumn<int>("notLaidOut");
+        QTest::newRow("activity-off-invisible") << false << 10;
+        QTest::newRow("activity-on-collapsed-zero-height") << true << 9;
+    }
+    void viewportRowsIgnoreHiddenRoomActivity()
+    {
+        QFETCH(bool, roomActivity);
+        QFETCH(int, notLaidOut);
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const bool activityBefore = controller.settings()->showRoomActivity();
+        const auto restore = qScopeGuard([&] {
+            controller.settings()->setShowRoomActivity(activityBefore);
+        });
+        controller.settings()->setShowRoomActivity(roomActivity);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            hiddenActivitySandwich(roomId, /*withMarker=*/false),
+            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+
+        // View rows: 0-24 the newer messages, 25-34 the activity, 35-54 the
+        // older messages. Proof the fixture has the shape it names: rows not
+        // laid out, and for the collapsed group, visible ones at y 0.
+        int hidden = 0;
+        int visibleZero = 0;
+        for (int row = 25; row < 35; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            if (item && (!item->isVisible() || item->height() <= 0))
+                ++hidden;
+            if (item && item->isVisible() && item->height() <= 0
+                && item->y() <= 0)
+                ++visibleZero;
+        }
+        QCOMPARE(hidden, notLaidOut);
+        if (roomActivity)
+            QCOMPARE(visibleZero, notLaidOut);
+
+        // At the live edge, and parked with the physical top inside the newer
+        // run: both ends must name the laid-out row that holds them.
+        const qreal height = timeline->property("height").toReal();
+        const qreal topMargin = timeline->property("topMargin").toReal();
+        const auto check = [&](const char *where) {
+            const qreal contentY = timeline->property("contentY").toReal();
+            const qreal topY = contentY + std::max<qreal>(0, height - topMargin - 1);
+            const int expectedOldest = laidOutRowAt(timeline, topY);
+            const int expectedNewest =
+                laidOutRowAt(timeline, std::max<qreal>(0, contentY));
+            QTRY_COMPARE_WITH_TIMEOUT(
+                timeline->property("viewportOldestRow").toInt(),
+                expectedOldest, 3000);
+            QCOMPARE(timeline->property("viewportNewestRow").toInt(),
+                     std::max(0, expectedNewest));
+            QVERIFY2(expectedOldest >= 0 && expectedOldest < 25,
+                     qPrintable(QStringLiteral("%1: the physical top is not "
+                                               "in the newer run (row %2)")
+                                    .arg(QLatin1String(where))
+                                    .arg(expectedOldest)));
+        };
+        check("live edge");
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QQuickItem *row20 = itemAtViewRow(timeline, 20);
+        QVERIFY(row20 != nullptr);
+        timeline->setProperty(
+            "contentY", row20->y() + row20->height() / 2
+                            - std::max<qreal>(0, height - topMargin - 1));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("viewportNewestRow").toInt() > 0, 3000);
+        check("parked");
+    }
+
+    // The first-unread pill's "marker is on screen" reads viewportOldestRow.
+    // A marker just above the viewport, with hidden room activity above it,
+    // is NOT on screen (the pill must offer the jump); scrolled to, it is.
+    void firstUnreadAboveHiddenRoomActivityIsNotOnScreen_data()
+    {
+        QTest::addColumn<bool>("roomActivity");
+        QTest::newRow("activity-off-invisible") << false;
+        QTest::newRow("activity-on-collapsed-zero-height") << true;
+    }
+    void firstUnreadAboveHiddenRoomActivityIsNotOnScreen()
+    {
+        QFETCH(bool, roomActivity);
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const bool activityBefore = controller.settings()->showRoomActivity();
+        const auto restore = qScopeGuard([&] {
+            controller.settings()->setShowRoomActivity(activityBefore);
+        });
+        controller.settings()->setShowRoomActivity(roomActivity);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            hiddenActivitySandwich(roomId, /*withMarker=*/true),
+            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        QCOMPARE(controller.timeline()->readMarkerRow(), 30);
+        // View row of the marker: after the 25 newer messages.
+        QCOMPARE(timeline->property("firstUnreadViewRow").toInt(), 25);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+
+        // Premise: 25 messages are taller than the viewport, so at the live
+        // edge the marker is above it.
+        QQuickItem *markerRow = itemAtViewRow(timeline, 25);
+        QVERIFY(markerRow != nullptr);
+        const qreal height = timeline->property("height").toReal();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("viewportOldestRow").toInt() >= 0, 3000);
+        QVERIFY2(markerRow->y()
+                     > timeline->property("contentY").toReal() + height,
+                 "fixture: the marker is on screen at the live edge");
+        QTest::qWait(100);
+        QVERIFY2(!timeline->property("firstUnreadOnScreen").toBool(),
+                 qPrintable(QStringLiteral("the marker a viewport away counts "
+                                           "as on screen (oldest row %1)")
+                                .arg(timeline->property("viewportOldestRow")
+                                         .toInt())));
+        QVERIFY(!timeline->property("firstUnreadBelow").toBool());
+
+        // Scrolled so the marker is mid-viewport: on screen.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        timeline->setProperty("contentY", markerRow->y() - height / 2);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("firstUnreadOnScreen").toBool(), 3000);
     }
 
     // Jump-to-latest glides from nearby (motion engine engaged, follow-latest
@@ -9539,6 +9972,125 @@ private Q_SLOTS:
                      "the band no longer closes")
                      .arg(beyond)
                      .arg(timeline->property("mediaBandLastRow").toInt())));
+    }
+
+    // The same 2026-09-29 defect through a side door: with room activity off
+    // the OLDEST loaded rows can be hidden (never laid out), so the last row
+    // the band's search can name is below count - 1 even though the band's
+    // far edge lies past all the content. Openness read from that row
+    // index said "closed", growth stopped re-deriving the band, and the
+    // history fill's pictures stayed grey until a gesture. Openness is a
+    // geometry fact now (far edge >= contentHeight).
+    void aBandWhoseOldestRowsAreHiddenStaysOpenForTheHistoryFill()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const bool activityBefore = controller.settings()->showRoomActivity();
+        const auto restore = qScopeGuard([&] {
+            controller.settings()->setShowRoomActivity(activityBefore);
+        });
+        controller.settings()->setShowRoomActivity(false);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+
+        // Oldest first: three hidden state rows, then two messages.
+        QList<TimelineEvent> seed;
+        for (int i = 0; i < 3; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$bandhidden%1").arg(i);
+            e.itemId = QStringLiteral("uid-bandhidden%1").arg(i);
+            e.roomId = roomId;
+            e.type = TimelineEvent::StateChange;
+            e.stateKind = QStringLiteral("membership");
+            e.sender = QStringLiteral("@bob:mock.local");
+            e.senderDisplayName = QStringLiteral("Bob");
+            e.body = QStringLiteral("membership churn");
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(-9000 + i * 30);
+            seed.append(e);
+        }
+        seed.append(textFixture(roomId, 2, QStringLiteral("bandseed"),
+                                QStringLiteral("seed"), /*baseSecondsAgo=*/7200));
+
+        // One history page, landing after the open has settled, with a
+        // picture among a few messages: all of it within the band's reach.
+        QList<TimelineEvent> page =
+            textFixture(roomId, 6, QStringLiteral("bandolder"),
+                        QStringLiteral("older history"), /*baseSecondsAgo=*/30000);
+        TimelineEvent image;
+        image.eventId = QStringLiteral("$bandimage");
+        image.itemId = QStringLiteral("uid-bandimage");
+        image.roomId = roomId;
+        image.type = TimelineEvent::Image;
+        image.sender = QStringLiteral("@alice:mock.local");
+        image.senderDisplayName = QStringLiteral("Alice");
+        image.body = QStringLiteral("picture.png");
+        image.mediaFilename = QStringLiteral("picture.png");
+        image.mediaMimetype = QStringLiteral("image/png");
+        image.mediaWidth = 320;
+        image.mediaHeight = 200;
+        image.mediaKey = QStringLiteral("mxc-band-image");
+        image.timestamp = QDateTime::currentDateTimeUtc().addSecs(-25000);
+        page.append(image);
+        page.append(textFixture(roomId, 3, QStringLiteral("bandnewer"),
+                                QStringLiteral("older history"),
+                                /*baseSecondsAgo=*/24000));
+        mock->setPaginationDelayForTest(5000);
+        mock->setPaginationChunkForTest(page);
+
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId, seed,
+            /*paginationPages=*/1, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+
+        // Premise: the oldest loaded rows are not laid out, the content is
+        // shorter than the viewport, and the page is still in flight.
+        QTRY_COMPARE_WITH_TIMEOUT(timeline->property("count").toInt(), 5,
+                                  kSignalTimeoutMs);
+        for (int row = 2; row < 5; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            QVERIFY(item != nullptr);
+            QVERIFY2(!item->isVisible() || item->height() <= 0,
+                     "premise: the oldest rows must be hidden");
+        }
+        QVERIFY2(timeline->property("contentHeight").toReal()
+                     < timeline->property("height").toReal(),
+                 "premise: the seed must not fill the viewport");
+        QVERIFY2(controller.pagination()->busy(),
+                 "premise: the history page landed before the band settled");
+        // Let the band settle on the short content (not asserted here: the
+        // observable is the picture below).
+        QTest::qWait(400);
+        const bool openBefore = timeline->property("mediaBandOpen").toBool();
+
+        // The page lands. Nothing is scrolled, clicked or resized.
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 15,
+                                 15000);
+        QVERIFY(waitForRowsToStopArriving(controller));
+        QQuickItem *imageRow = nullptr;
+        const int count = timeline->property("count").toInt();
+        for (int row = 0; row < count && !imageRow; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            if (!item)
+                continue;
+            QQmlExpression isImage(qmlContext(item), item,
+                                   QStringLiteral("model.isImage === true"));
+            if (isImage.evaluate().toBool())
+                imageRow = item;
+        }
+        QVERIFY2(imageRow != nullptr, "the picture row was never built");
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            imageRow->property("mediaInBand").toBool(),
+            qPrintable(QStringLiteral("the picture is outside the band "
+                                      "[0..%1] without a gesture (band read "
+                                      "%2 on the short content)")
+                           .arg(timeline->property("mediaBandLastRow").toInt())
+                           .arg(openBefore ? "open" : "closed")),
+            kSignalTimeoutMs);
     }
 
     // Browser autoscroll: a quick middle click latches. The next click ends
