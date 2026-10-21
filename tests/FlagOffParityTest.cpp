@@ -22,6 +22,9 @@
 //     QT_QPA_PLATFORM=offscreen ./flag-off-parity-test aSwitchMatchesTheGolden
 //   (one command line)
 // then commit that file with Phase 1.
+// Re-recorded once since, for a deliberate change outside Labs: the search
+// filter asks for the ignore list at login (MASTER-2 L2), which adds exactly
+// one client:ignoredUsersReceived line and moves nothing else.
 
 #ifndef FLAG_OFF_GOLDEN_CAPTURE
 #include "support/LabsAppHarness.h"

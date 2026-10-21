@@ -549,15 +549,21 @@ Rectangle {
 
         // Scrollable criteria, with the action footer outside.
         ScrollView {
+            id: criteriaScroll
             visible: root.filterEditing
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            // Air between the header rule and the first heading.
+            topPadding: AppTheme.spacing12
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             contentWidth: availableWidth
 
             ColumnLayout {
-                width: parent.width
+                // availableWidth, not parent.width: the content item's own
+                // width is not the viewport once the scrollbar takes room, and
+                // the controls then hug the right edge (C31-F09).
+                width: criteriaScroll.availableWidth
                 spacing: AppTheme.spacing16
 
                 SearchMemberSection {

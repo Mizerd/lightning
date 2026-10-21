@@ -60,6 +60,21 @@ Rectangle {
             })
         }
     }
+    // Take keyboard focus when the list can hold it: the live timeline
+    // underneath stays in the Tab chain, so without this a keyboard user
+    // tabbed through all of it and never reached the list or "Jump to latest".
+    // The list is invisible until the state is Ready, and forceActiveFocus on
+    // an invisible item is a no-op, so the visible edge alone is not enough:
+    // the Ready edge takes focus too.
+    function takeFocus() {
+        if (view.visible && app.eventContext.state === ContextController.Ready)
+            list.forceActiveFocus(Qt.TabFocusReason)
+    }
+    onVisibleChanged: Qt.callLater(view.takeFocus)
+    Connections {
+        target: app.eventContext
+        function onStateChanged() { Qt.callLater(view.takeFocus) }
+    }
     Shortcut {
         sequence: "Escape"
         enabled: view.visible
@@ -131,6 +146,30 @@ Rectangle {
                 leftMargin: AppTheme.spacing12
                 rightMargin: AppTheme.spacing12
                 boundsBehavior: Flickable.StopAtBounds
+
+                // Keyboard scrolling: a Flickable has no key handling of its
+                // own. Arrows step, Page keys move a viewport, Home and End
+                // go to the oldest and newest loaded rows.
+                activeFocusOnTab: true
+                Keys.onPressed: (event) => {
+                    var step = 48
+                    var page = Math.max(step, list.height - step)
+                    var top = -list.topMargin
+                    var bottom = list.contentHeight + list.bottomMargin
+                                 - list.height
+                    function go(y) {
+                        list.contentY = Math.max(top, Math.min(bottom, y))
+                        event.accepted = true
+                    }
+                    if (event.key === Qt.Key_Down) go(list.contentY + step)
+                    else if (event.key === Qt.Key_Up) go(list.contentY - step)
+                    else if (event.key === Qt.Key_PageDown)
+                        go(list.contentY + page)
+                    else if (event.key === Qt.Key_PageUp)
+                        go(list.contentY - page)
+                    else if (event.key === Qt.Key_Home) go(top)
+                    else if (event.key === Qt.Key_End) go(bottom)
+                }
 
                 // MessageDelegate view contract (see ThreadPanel). Read-only:
                 // the delegate hides its action bar, reactions, reply and menu.

@@ -48,6 +48,29 @@ MessageSearchController::MessageSearchController(QObject *parent)
             [this] { dispatch(/*nextPage=*/false); });
 }
 
+namespace {
+constexpr const char *kIgnoredUsersProperty = "lightningIgnoredUsers";
+// The op id of our own pending ask, cleared by a newer push.
+constexpr const char *kIgnoredAskOpProperty = "lightningIgnoredAskOp";
+// Our ask that a push overtook: its answer is dropped.
+constexpr const char *kIgnoredStaleOpProperty = "lightningIgnoredStaleOp";
+// Our latest ask's op id. Op ids rise monotonically per client, so an answer
+// to any EARLIER request (another surface's, or one still in flight from the
+// previous account across a sign-out) is no fresher than ours: dropped.
+constexpr const char *kIgnoredFloorProperty = "lightningIgnoredFloorOp";
+
+bool hasIgnoredUsers(const QObject *o)
+{
+    return !o->property(kIgnoredUsersProperty).toStringList().isEmpty();
+}
+
+bool isIgnoredSender(const QObject *o, const QString &sender)
+{
+    return !sender.isEmpty()
+        && o->property(kIgnoredUsersProperty).toStringList().contains(sender);
+}
+}
+
 void MessageSearchController::setClient(MatrixClient *client)
 {
     if (m_client == client)
@@ -106,11 +129,66 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexAllProgress, this,
             &MessageSearchController::onIndexAllProgress);
+    // The ignored-user list (m.ignored_user_list) arrives from the same two
+    // signals ModerationController listens to. Held on the QObject as a
+    // dynamic property rather than a member only because this change may not
+    // touch the header; it is read in matchesFilters().
+    setProperty(kIgnoredUsersProperty, QStringList());
+    setProperty(kIgnoredAskOpProperty, QVariant());
+    setProperty(kIgnoredStaleOpProperty, QVariant());
+    connect(m_client, &MatrixClient::ignoredUsersChanged, this,
+            [this](const QStringList &users) {
+        setProperty(kIgnoredUsersProperty, users);
+        // A push is newer than any answer still in flight to our own ask:
+        // that answer must not put the older list back.
+        const QVariant ask = property(kIgnoredAskOpProperty);
+        if (ask.isValid())
+            setProperty(kIgnoredStaleOpProperty, ask);
+        setProperty(kIgnoredAskOpProperty, QVariant());
+    });
+    connect(m_client, &MatrixClient::ignoredUsersReceived, this,
+            [this](quint64 opId, bool ok, const QStringList &users) {
+        const QVariant floor = property(kIgnoredFloorProperty);
+        if (opId != 0 && floor.isValid() && opId < floor.toULongLong())
+            return;
+        const QVariant stale = property(kIgnoredStaleOpProperty);
+        if (opId != 0 && stale.isValid() && stale.toULongLong() == opId) {
+            setProperty(kIgnoredStaleOpProperty, QVariant());
+            return;
+        }
+        const QVariant ask = property(kIgnoredAskOpProperty);
+        if (opId != 0 && ask.isValid() && ask.toULongLong() == opId)
+            setProperty(kIgnoredAskOpProperty, QVariant());
+        // Anyone else's read (the ignore settings, a session's replay) is as
+        // fresh as a push.
+        if (ok)
+            setProperty(kIgnoredUsersProperty, users);
+    });
+    // Asked, not only pushed: the SDK's ignore-list subscriber yields on a
+    // CHANGE, so a session that resumes with an unchanged list may never push
+    // one, and the filter would stay empty until the next change
+    // (MASTER-2 L2).
+    const auto askIgnoredUsers = [this] {
+        if (m_client && m_client->supportsIgnoredUsers()) {
+            const quint64 op = m_client->requestIgnoredUsers();
+            setProperty(kIgnoredAskOpProperty,
+                        op != 0 ? QVariant::fromValue<qulonglong>(op) : QVariant());
+            if (op != 0)
+                setProperty(kIgnoredFloorProperty, QVariant::fromValue<qulonglong>(op));
+        }
+    };
+    connect(m_client, &MatrixClient::loginSucceeded, this,
+            [askIgnoredUsers](const QString &) { askIgnoredUsers(); });
+    if (m_client->isLoggedIn())
+        askIgnoredUsers();
     // One account's search results must never surface under another's, and
     // neither may its index-all progress or a pending offer.
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
         clear();
         resetIndexAll();
+        setProperty(kIgnoredUsersProperty, QStringList());
+        setProperty(kIgnoredAskOpProperty, QVariant());
+        setProperty(kIgnoredStaleOpProperty, QVariant());
     });
     // Holds already in force carry over to a new backend.
     if (m_indexAllHold != 0)
@@ -684,7 +762,8 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     // The Matrix search API cannot express mentions, dates, content kinds,
     // links or pinned state. Scan a small bounded number of server pages so a
     // filtered page is useful without walking whole histories.
-    const bool hasClientFilters = !m_mentionUsers.isEmpty()
+    const bool hasClientFilters = hasIgnoredUsers(this)
+        || !m_mentionUsers.isEmpty()
         || !m_contentTypes.isEmpty()
         || m_pinnedMode == QLatin1String("pinned")
         || m_pinnedMode == QLatin1String("not_pinned")
@@ -763,6 +842,11 @@ QStringList MessageSearchController::ignoredFilters() const
 bool MessageSearchController::matchesFilters(const QVariantMap &row,
                                              bool local) const
 {
+    // An ignored user's messages are hidden everywhere, search included, and
+    // in both sources (the homeserver does not apply the ignore list to
+    // /search results).
+    if (isIgnoredSender(this, row.value(QStringLiteral("sender")).toString()))
+        return false;
     if (!m_fromUsers.isEmpty()
         && !m_fromUsers.contains(row.value(QStringLiteral("sender")).toString()))
         return false;

@@ -42,6 +42,11 @@ Dialog {
         app.messageSearch.clear()
     }
 
+    function activateCurrent() {
+        if (resultsList.currentIndex >= 0)
+            root.activateResult(resultsList.currentIndex)
+    }
+
     function activateResult(row) {
         var r = app.messageSearch.rowAt(row)
         if (!r.roomId || !r.eventId)
@@ -96,6 +101,16 @@ Dialog {
             text: app.messageSearch.query
             onTextChanged: app.messageSearch.query = text
             onAccepted: app.messageSearch.search()
+            // Down moves into the results, so a keyboard user can reach them
+            // without tabbing past the toggle and the close button.
+            Keys.onDownPressed: (event) => {
+                if (resultsList.count > 0) {
+                    resultsList.currentIndex = Math.max(
+                        0, resultsList.currentIndex)
+                    resultsList.forceActiveFocus(Qt.TabFocusReason)
+                    event.accepted = true
+                }
+            }
         }
 
         SegmentedControl {
@@ -144,6 +159,32 @@ Dialog {
             model: app.messageSearch
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             keyNavigationEnabled: true
+            // Focusable and part of the Tab chain: rows used to answer a
+            // TapHandler only, so nothing could reach or open one by key.
+            activeFocusOnTab: true
+            currentIndex: 0
+            highlightMoveDuration: 0
+            Keys.onReturnPressed: root.activateCurrent()
+            Keys.onEnterPressed: root.activateCurrent()
+            Keys.onPressed: (event) => {
+                if (resultsList.count === 0)
+                    return
+                var page = Math.max(1, Math.floor(
+                    resultsList.height / 56))
+                if (event.key === Qt.Key_PageDown)
+                    resultsList.currentIndex = Math.min(
+                        resultsList.count - 1, resultsList.currentIndex + page)
+                else if (event.key === Qt.Key_PageUp)
+                    resultsList.currentIndex = Math.max(
+                        0, resultsList.currentIndex - page)
+                else if (event.key === Qt.Key_Home)
+                    resultsList.currentIndex = 0
+                else if (event.key === Qt.Key_End)
+                    resultsList.currentIndex = resultsList.count - 1
+                else
+                    return
+                event.accepted = true
+            }
             onAtYEndChanged: {
                 if (atYEnd && app.messageSearch.canLoadMore)
                     app.messageSearch.loadMore()
@@ -164,8 +205,14 @@ Dialog {
                 width: resultsList.width
                 height: resultCol.implicitHeight + AppTheme.spacing8 * 2
                 radius: AppTheme.radiusMd
-                color: resultHover.hovered ? AppTheme.stormSelection
-                                           : "transparent"
+                readonly property bool keyFocused:
+                    resultsList.activeFocus && ListView.isCurrentItem
+                color: resultHover.hovered || keyFocused
+                       ? AppTheme.stormSelection : "transparent"
+                // Keyboard focus ring, drawn inside the row's bounds.
+                border.width: keyFocused ? 2 : 0
+                border.color: AppTheme.bolt
+                objectName: "globalSearchResultRow"
                 HoverHandler { id: resultHover }
                 TapHandler {
                     onTapped: root.activateResult(resultRow.index)
