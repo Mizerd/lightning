@@ -28,6 +28,7 @@
 #include "models/MessageComposer.h"
 #include "models/TimelineModel.h"
 #include "spaces/SpaceManager.h"
+#include "threads/ThreadController.h"
 
 namespace {
 
@@ -203,6 +204,33 @@ private Q_SLOTS:
         QVERIFY2(!m_controller->composer()->isEditing(),
                  "Escape did not cancel the edit");
         QCOMPARE(m_controller->currentRoomId(), kRoom);
+    }
+
+    // C46 F03: with a thread panel open, Escape in the message box cancels the
+    // pending edit FIRST. The panel's own Escape Shortcut is matched before
+    // the box's key handler and used to close the panel, leaving the edit
+    // armed so the next Return saved it.
+    void anEditBesideAnOpenThreadPanelKeepsTheFirstEscape()
+    {
+        openRoomWithComposerFocused();
+        m_controller->thread()->openThread(kRoom,
+                                           QStringLiteral("$escape-thread-root"));
+        QTRY_VERIFY(m_controller->thread()->active());
+        QVERIFY(QMetaObject::invokeMethod(item("messageComposer"), "focusEditor"));
+        m_controller->composer()->beginEdit(QStringLiteral("$mine"),
+                                            QStringLiteral("draft"));
+        QVERIFY(m_controller->composer()->isEditing());
+
+        escape();
+        QVERIFY2(!m_controller->composer()->isEditing(),
+                 "Escape did not cancel the edit");
+        QVERIFY2(m_controller->thread()->active(),
+                 "the first Escape closed the thread panel instead of the edit");
+
+        escape();
+        QVERIFY2(!m_controller->thread()->active(),
+                 "the second Escape should close the panel");
+        m_controller->thread()->close();
     }
 
     // The room-list search is a text field of its own: Escape there must not

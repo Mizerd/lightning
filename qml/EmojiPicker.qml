@@ -197,6 +197,7 @@ AnchoredPopup {
         if (tonePopup.variants.length === 0)
             return
         var p = cellItem.mapToItem(picker.contentItem, 0, cellItem.height)
+        tonePopup.originCell = cellItem
         tonePopup.x = Math.max(0, Math.min(p.x,
                                            picker.contentItem.width
                                            - tonePopup.width))
@@ -235,6 +236,15 @@ AnchoredPopup {
             placeAtPoint()
         search.text = ""
         app.emojiCatalog.searchText = ""
+        // A reaction picker opens on what the reader reacts with most, not on
+        // whichever category the composer picker was last left on.
+        if (reactionMode) {
+            app.emojiCatalog.category = "Recently Used"
+            // Recents the catalogue cannot resolve are dropped by rebuild(),
+            // so a non-empty MRU can still give an empty grid: test the grid.
+            if (app.emojiCatalog.count === 0)
+                app.emojiCatalog.category = "Smileys & Emotion"
+        }
         previewEmoji = ""
         previewName = ""
         previewCell = null
@@ -530,6 +540,7 @@ AnchoredPopup {
 
         // ── Row 2: category icon rail ──
         ScrollView {
+            id: railScroll
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
             Layout.rightMargin: AppTheme.spacing12
@@ -541,6 +552,12 @@ AnchoredPopup {
             clip: true
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AlwaysOff }
             ScrollBar.horizontal: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
+            // On a window narrower than the rail the last icons are off the
+            // end: the wheel and keyboard focus must be able to reach them.
+            SmoothWheelArea {
+                axis: "horizontal"
+                scrollTarget: railScroll.contentItem as Flickable
+            }
             Row {
                 id: categoryRow
                 spacing: AppTheme.spacing2
@@ -549,8 +566,11 @@ AnchoredPopup {
                     delegate: AbstractButton {
                         id: categoryCell
                         required property string modelData
+                        // No category while a query is active: the results span
+                        // all of them.
                         readonly property bool selected:
-                            app.emojiCatalog.category === modelData
+                            search.text.length === 0
+                            && app.emojiCatalog.category === modelData
                         // 10 × 28 + 9 × 2 = 298, so the whole rail fits at the
                         // minimum gutter width.
                         implicitWidth: 28
@@ -560,6 +580,17 @@ AnchoredPopup {
                         Accessible.role: Accessible.RadioButton
                         Accessible.name: modelData
                         Accessible.checked: categoryCell.selected
+                        onActiveFocusChanged: {
+                            var f = railScroll.contentItem as Flickable
+                            if (!activeFocus || !f)
+                                return
+                            if (categoryCell.x < f.contentX)
+                                f.contentX = categoryCell.x
+                            else if (categoryCell.x + categoryCell.width
+                                     > f.contentX + f.width)
+                                f.contentX = categoryCell.x + categoryCell.width
+                                             - f.width
+                        }
                         ToolTip.text: modelData
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
@@ -720,6 +751,8 @@ AnchoredPopup {
                 MenuSectionLabel {
                     Layout.fillWidth: true
                     text: picker.sectionHeading
+                    // Wheel over the heading scrolls the grid below it.
+                    SmoothWheelArea { scrollTarget: emojiGrid }
                 }
 
                 Item {
@@ -741,7 +774,9 @@ AnchoredPopup {
                         cellWidth: Math.floor(width / columns)
                         cellHeight: AppTheme.emojiCellSize
                         model: app.emojiCatalog
-                        keyNavigationWraps: true
+                        // No wrap: Up from the first row returns to the search
+                        // field (see the cell's key handler).
+                        keyNavigationWraps: false
                         activeFocusOnTab: true
                         boundsBehavior: Flickable.StopAtBounds
                         // The shared bar; Basic's uses palette.mid.
@@ -749,6 +784,54 @@ AnchoredPopup {
                         // Same wheel/touchpad feel as the room timeline;
                         // see qml/SmoothWheelArea.qml.
                         SmoothWheelArea {}
+
+                        // Home/End/Page keys and Up off the first row. True
+                        // when the key was used.
+                        function navigate(key, ctrl) {
+                            var n = count
+                            if (n <= 0)
+                                return false
+                            var cols = columns
+                            var page = Math.max(1, Math.floor(height / cellHeight) - 1) * cols
+                            var to = currentIndex
+                            switch (key) {
+                            case Qt.Key_Up:
+                                if (currentIndex >= cols)
+                                    return false
+                                search.forceActiveFocus()
+                                return true
+                            case Qt.Key_Home:
+                                to = ctrl ? 0 : currentIndex - currentIndex % cols
+                                break
+                            case Qt.Key_End:
+                                to = ctrl ? n - 1
+                                    : Math.min(n - 1, currentIndex - currentIndex % cols + cols - 1)
+                                break
+                            case Qt.Key_PageUp:
+                                to = Math.max(0, currentIndex - page)
+                                break
+                            case Qt.Key_PageDown:
+                                to = Math.min(n - 1, currentIndex + page)
+                                break
+                            default:
+                                return false
+                            }
+                            currentIndex = to
+                            positionViewAtIndex(to, GridView.Contain)
+                            return true
+                        }
+                        // A new bucket (category click or a query) starts at
+                        // its first emoji, not where the previous one was
+                        // scrolled. Deferred: the model resets after the signal.
+                        function resetToStart() {
+                            currentIndex = 0
+                            positionViewAtBeginning()
+                        }
+                        Connections {
+                            target: app.emojiCatalog
+                            function onCategoryChanged() { Qt.callLater(emojiGrid.resetToStart) }
+                            function onSearchTextChanged() { Qt.callLater(emojiGrid.resetToStart) }
+                        }
 
                         delegate: Item {
                             id: cell
@@ -760,7 +843,10 @@ AnchoredPopup {
                             required property string accessibleLabel
                             width: emojiGrid.cellWidth
                             height: emojiGrid.cellHeight
-                            activeFocusOnTab: true
+                            // Not a Tab stop: the grid is ONE (arrows move
+                            // inside it), or a keyboard user would have to Tab
+                            // through every emoji to leave it.
+                            activeFocusOnTab: false
                             // Arrow keys move currentIndex; this gives the
                             // current cell active focus so its Keys handlers
                             // and ring work.
@@ -842,12 +928,15 @@ AnchoredPopup {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onPressAndHold: if (cell.hasSkinTones)
                                                     cell.openVariants()
+                                // Right-click only opens tones; on a cell with
+                                // none it is consumed and does nothing.
                                 onClicked: (mouse) => {
-                                    if (mouse.button === Qt.RightButton
-                                            && cell.hasSkinTones)
-                                        cell.openVariants()
-                                    else
+                                    if (mouse.button === Qt.RightButton) {
+                                        if (cell.hasSkinTones)
+                                            cell.openVariants()
+                                    } else {
                                         picker.choose(cell.emoji)
+                                    }
                                 }
                             }
                             // Variants open the picker's one shared tone popup;
@@ -859,14 +948,32 @@ AnchoredPopup {
                             Keys.onEnterPressed: picker.choose(emoji)
                             Keys.onSpacePressed: picker.choose(emoji)
                             Keys.onMenuPressed: if (hasSkinTones) openVariants()
+                            // Unhandled keys must stay unaccepted: a handler
+                            // accepts by default, which swallowed Escape and
+                            // the popup could not be closed from the grid.
                             Keys.onPressed: (event) => {
+                                event.accepted = false
                                 if (event.key === Qt.Key_V && event.modifiers & Qt.AltModifier
                                         && hasSkinTones) {
                                     openVariants()
                                     event.accepted = true
+                                    return
                                 }
+                                if (event.modifiers & (Qt.AltModifier | Qt.MetaModifier))
+                                    return
+                                if (emojiGrid.navigate(event.key,
+                                        !!(event.modifiers & Qt.ControlModifier)))
+                                    event.accepted = true
                             }
                         }
+                    }
+
+                    // Middle-click autoscroll, as in the timeline and room list.
+                    MiddleClickScroller {
+                        objectName: "emojiGridMiddleClickScroller"
+                        anchors.fill: parent
+                        z: 1
+                        view: emojiGrid
                     }
 
                     Label {
@@ -902,6 +1009,7 @@ AnchoredPopup {
             Layout.rightMargin: AppTheme.spacing12
             Layout.topMargin: AppTheme.spacing8
             Layout.bottomMargin: AppTheme.spacing8
+            SmoothWheelArea { scrollTarget: emojiGrid }
 
             RowLayout {
                 anchors.fill: parent
@@ -1006,6 +1114,8 @@ AnchoredPopup {
         id: tonePopup
         objectName: "emojiTonePopup"
         property var variants: []
+        // The cell the strip was opened from; focus goes back to it on close.
+        property Item originCell: null
         parent: picker.contentItem
         padding: 4
         // Columns bounded by the space available: the picker can be narrower
@@ -1050,8 +1160,20 @@ AnchoredPopup {
             picker.toneOpened()
         }
         onClosed: {
-            if (picker.visible && !picker.compact)
-                search.forceActiveFocus()
+            if (picker.visible && !picker.compact) {
+                var origin = tonePopup.originCell
+                if (origin && origin.GridView.view === emojiGrid
+                        && emojiGrid.currentItem === origin)
+                    origin.forceActiveFocus()
+                else
+                    search.forceActiveFocus()
+            }
+            tonePopup.originCell = null
+            // showName() wrote a tone into the footer preview; nothing else
+            // clears it when the strip was opened from a non-current cell.
+            picker.previewEmoji = ""
+            picker.previewName = ""
+            picker.previewCell = null
             picker.toneClosed()
         }
         background: Item {
@@ -1113,8 +1235,15 @@ AnchoredPopup {
                         }
                     }
                     Accessible.name: modelData.name
-                    ToolTip.text: modelData.name
-                    ToolTip.visible: hovered
+                    // The tone's name goes to the footer preview line: a
+                    // tooltip here sat over the base row and overhung the
+                    // picker's edge.
+                    function showName() {
+                        picker.previewEmoji = modelData.emoji
+                        picker.previewName = modelData.name
+                    }
+                    onHoveredChanged: if (hovered) showName()
+                    onVisualFocusChanged: if (visualFocus) showName()
                     onClicked: {
                         app.emojiCatalog.preferredTone = modelData.tone
                         tonePopup.close()

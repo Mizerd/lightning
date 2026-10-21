@@ -516,6 +516,77 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.last().roomId, kRoom);
     }
 
+    // C46 F06: saving an edit without changing the text sends no edit event
+    // (it only added "(edited)") and still leaves edit mode. Fails on the old
+    // code: one "edit" send is recorded and the first QVERIFY flips.
+    void anUnchangedEditSendsNothingAndLeavesEditMode()
+    {
+        m_composer->beginEdit(QStringLiteral("$same"),
+                              QStringLiteral("unchanged"));
+        QVERIFY(m_composer->isEditing());
+        // The banner quotes the message being edited (C46 F07).
+        QCOMPARE(m_composer->editOriginalText(), QStringLiteral("unchanged"));
+        m_composer->send();
+        QVERIFY2(m_client->sends.isEmpty(),
+                 "an unchanged edit was sent to the server");
+        QVERIFY(!m_composer->isEditing());
+        QCOMPARE(m_composer->text(), QString());
+
+        // A real change still goes out.
+        m_composer->beginEdit(QStringLiteral("$changed"),
+                              QStringLiteral("unchanged"));
+        m_composer->setText(QStringLiteral("changed"));
+        m_composer->send();
+        QCOMPARE(m_client->sends.size(), 1);
+        QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
+    }
+
+    // C46 review item 1: the rich composer saves through sendPrepared, which
+    // had no unchanged-edit guard. Fails on the old code: one "edit" send is
+    // recorded and the first QVERIFY2 flips.
+    void anUnchangedRichEditSendsNothing()
+    {
+        m_composer->beginEdit(QStringLiteral("$rich"),
+                              QStringLiteral("same body"));
+        m_composer->sendPrepared(QStringLiteral("same body"), QString(),
+                                 QStringList());
+        QVERIFY2(m_client->sends.isEmpty(),
+                 "an unchanged rich edit was sent to the server");
+        QVERIFY(!m_composer->isEditing());
+
+        // Formatting-only change must still go out.
+        m_composer->beginEdit(QStringLiteral("$rich2"),
+                              QStringLiteral("same body"));
+        m_composer->sendPrepared(QStringLiteral("same body"),
+                                 QStringLiteral("<b>same body</b>"),
+                                 QStringList());
+        QCOMPARE(m_client->sends.size(), 1);
+        QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
+
+        // Removing formatting while keeping the words must also go out.
+        m_client->sends.clear();
+        m_composer->beginEdit(QStringLiteral("$rich3"),
+                              QStringLiteral("same body"),
+                              QStringLiteral("<b>same body</b>"));
+        m_composer->sendPrepared(QStringLiteral("same body"), QString(),
+                                 QStringList());
+        QCOMPARE(m_client->sends.size(), 1);
+        QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
+    }
+
+    // C46 review item 1: a plain-lane save of a FORMATTED original with the
+    // text untouched is not "unchanged" (it would drop the formatting); the
+    // guard must not swallow it. Fails if the guard compares text alone.
+    void aPlainSaveOfAFormattedOriginalIsNotDiscarded()
+    {
+        m_composer->beginEdit(QStringLiteral("$fmt"),
+                              QStringLiteral("bold"),
+                              QStringLiteral("<b>bold</b>"));
+        m_composer->send();
+        QCOMPARE(m_client->sends.size(), 1);
+        QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
+    }
+
 private:
     RecordingClient *m_client = nullptr;
     MessageComposer *m_composer = nullptr;

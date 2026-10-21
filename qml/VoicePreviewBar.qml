@@ -102,7 +102,10 @@ Rectangle {
             iconSize: root.compact ? 14 : 15
             Accessible.name: root.playing ? qsTr("Pause the preview")
                                           : qsTr("Play the recording back")
-            ToolTip.text: Accessible.name
+            // Bound to the state itself, not to Accessible.name: a visible
+            // tooltip kept the text it opened with after a pause.
+            ToolTip.text: root.playing ? qsTr("Pause the preview")
+                                       : qsTr("Play the recording back")
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: {
@@ -177,8 +180,25 @@ Rectangle {
             Accessible.role: Accessible.Graphic
             Accessible.name: qsTr("Recording waveform")
         }
+        // The widest the label gets ("m:ss / m:ss"), so the pill does not
+        // change width, and move the play button, when playback starts.
+        TextMetrics {
+            id: timeWidest
+            font: timeLabel.font
+            text: {
+                var total = root.durationMs > 0 ? root.durationMs
+                                                : preview.duration
+                // Worst-case digits ("8" is the widest in proportional
+                // fonts) so "0:08 / 0:06" can never overflow the slot.
+                var t = root.formatDuration(total).replace(/[0-9]/g, "8")
+                return t + " / " + t
+            }
+        }
         Label {
+            id: timeLabel
             objectName: "voicePreviewTime"
+            Layout.preferredWidth: Math.ceil(timeWidest.advanceWidth)
+            horizontalAlignment: Text.AlignRight
             text: {
                 // While playing, the position; otherwise the full length.
                 var total = root.durationMs > 0 ? root.durationMs

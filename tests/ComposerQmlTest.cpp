@@ -1384,6 +1384,49 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
+    // C42-F01/D09: Return on a focused toolbar button presses THAT button;
+    // it used to bubble to the composer's root handler and send the staged
+    // files. Old code: the queue is sent (count 0) and the menu stays shut.
+    void returnOnAFocusedToolbarButtonPressesItAndSendsNothing()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *composer = m_controller->property("composer").value<QObject *>();
+        QVERIFY(composer);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString txt = writeFile(dir, QStringLiteral("queued.txt"),
+                                      QByteArrayLiteral("queued"));
+        QMetaObject::invokeMethod(composer, "addAttachment",
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(txt)));
+        auto *queue = composer->property("attachments").value<QObject *>();
+        QVERIFY(queue);
+        QTRY_COMPARE(queue->property("count").toInt(), 1);
+
+        // Narrow, so the button opens its menu (a wide row with polls
+        // unsupported would open a native file dialog instead).
+        const int restoreWidth = m_window->width();
+        m_window->setWidth(360);
+        QTest::qWait(150);
+        auto *attach = item("composerAttachButton");
+        QVERIFY(attach);
+        attach->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(attach->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTest::qWait(150);
+        QCOMPARE(queue->property("count").toInt(), 1);
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("composerAttachMenu"));
+        QVERIFY(menu);
+        QVERIFY2(menu->property("visible").toBool(),
+                 "Return did not press the focused attach button");
+        QMetaObject::invokeMethod(menu, "close");
+        m_window->setWidth(restoreWidth);
+        QMetaObject::invokeMethod(queue, "clearAll");
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
     // In a narrow row the formatting toggle is offered from the overflow menu,
     // or an open toolbar could not be put away.
     void aNarrowRowStillOffersTheFormattingToggle()
@@ -2075,6 +2118,234 @@ private slots:
                      path);
         }
         QCOMPARE(m_warnings, QStringList{});
+    }
+
+    // ---- C37 keyboard fixes. Each fails on the unfixed composer, and each
+    // runs against BOTH editors: the markdown and the rich editor carry
+    // separate copies of every key handler. ----
+
+    // The numeric keypad's Enter is delivered as Key_Enter, a signal the
+    // editors did not handle, so it inserted a newline instead of sending.
+    void keypadEnterSendsLikeReturn_data() { modeColumn(); }
+    void keypadEnterSendsLikeReturn()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        QTest::keyClick(m_window, Qt::Key_H);
+        QTest::keyClick(m_window, Qt::Key_I);
+        QCOMPARE(m_controller->composer()->text().trimmed(), QStringLiteral("hi"));
+        QTest::keyClick(m_window, Qt::Key_Enter, Qt::KeypadModifier);
+        QTest::qWait(80);
+        QCOMPARE(m_controller->composer()->text().trimmed(), QString());
+    }
+
+    // A chat message never wants a literal tab, and swallowing Tab trapped
+    // keyboard users in the editor.
+    void tabLeavesTheEditorAndInsertsNoTab_data() { modeColumn(); }
+    void tabLeavesTheEditorAndInsertsNoTab()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        QTest::keyClick(m_window, Qt::Key_A);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTest::qWait(40);
+        QCOMPARE(m_controller->composer()->text().trimmed(), QStringLiteral("a"));
+        QVERIFY(!editor->property("activeFocus").toBool());
+    }
+
+    // Escape with only the emoji popup open used to fall through (and, in the
+    // app, leave the conversation); it closes the popup and nothing else.
+    void escapeClosesTheEmojiPopup_data() { modeColumn(); }
+    void escapeClosesTheEmojiPopup()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        for (const char c : { ':', 's', 'm', 'i' })
+            QTest::keyClick(m_window, c);
+        QTest::qWait(80);
+        auto *emoji = m_root->findChild<QObject *>(
+            QStringLiteral("emojiCompletionPopup"));
+        QVERIFY(emoji);
+        QVERIFY(emoji->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTest::qWait(40);
+        QVERIFY(!emoji->property("visible").toBool());
+    }
+
+    // The Menu key opened Qt's built-in unthemed menu; it opens the
+    // composer's own, as does Shift+F10. The spell rows that are hidden must
+    // also be disabled or keyboard navigation steps through them.
+    void menuKeyAndShiftF10OpenTheComposerMenu_data() { modeColumn(); }
+    void menuKeyAndShiftF10OpenTheComposerMenu()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        auto *menu = m_root->findChild<QObject *>(
+            QStringLiteral("composerEditMenu"));
+        QVERIFY(menu);
+        QVERIFY(!menu->property("visible").toBool());
+        QTest::keyClick(m_window, Qt::Key_Menu);
+        QTest::qWait(80);
+        QVERIFY(menu->property("visible").toBool());
+        QMetaObject::invokeMethod(menu, "close");
+        QTest::qWait(80);
+        QVERIFY(!menu->property("visible").toBool());
+        QMetaObject::invokeMethod(editor, "forceActiveFocus");
+        QTest::keyClick(m_window, Qt::Key_F10, Qt::ShiftModifier);
+        QTest::qWait(80);
+        QVERIFY(menu->property("visible").toBool());
+        QMetaObject::invokeMethod(menu, "close");
+        QTest::qWait(40);
+        for (const char *name : { "composerSpellSuggestion0",
+                                  "composerSpellSuggestion4",
+                                  "composerSpellAdd", "composerSpellIgnore" }) {
+            auto *row = m_root->findChild<QObject *>(QLatin1String(name));
+            QVERIFY2(row, name);
+            QVERIFY2(!row->property("visible").toBool(), name);
+            QVERIFY2(!row->property("enabled").toBool(), name);
+        }
+    }
+
+    // "Send as message" is the way past a refused slash command; for the size
+    // refusal it re-sends the same body and the banner returns. The composer
+    // says which refusal it is (commandErrorBypassable), so a body that
+    // merely starts with "/" does not get the button either.
+    void sendAsMessageIsOnlyOfferedForARefusedCommand()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        auto *composer = m_controller->composer();
+        auto *btn = item("composerSendAnywayButton");
+        QVERIFY(btn);
+
+        // Oversize, and beginning with "/" like a pasted path.
+        input->setProperty("text",
+                           QStringLiteral("/") + QString(70000, QLatin1Char('a')));
+        QTest::qWait(30);
+        composer->send();
+        QTest::qWait(30);
+        QVERIFY(!composer->commandError().isEmpty());
+        QVERIFY(!composer->commandErrorBypassable());
+        QVERIFY(!btn->isVisible());
+        input->setProperty("text", QString());
+        QTest::qWait(30);
+
+        // A known command refused for its arguments: the button must show.
+        input->setProperty("text", QStringLiteral("/me"));
+        QTest::qWait(30);
+        composer->send();
+        QTest::qWait(30);
+        QVERIFY(!composer->commandError().isEmpty());
+        QVERIFY(composer->commandErrorBypassable());
+        QVERIFY(btn->isVisible());
+        input->setProperty("text", QString());
+    }
+
+    // F09: every formatting button that is shown must lie inside the card at
+    // every width, rich mode included (its two extra chips are what overflow).
+    void everyShownToolbarButtonLiesInsideTheCard()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        const int restoreWidth = m_window->width();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        QVERIFY(settings);
+        const QString previousMode = settings->composerMode();
+        auto *bar = item("composerBar");
+        auto *card = item("composerCard");
+        QVERIFY(bar && card);
+        bar->setProperty("toolbarExpanded", true);
+        settings->setComposerMode(QStringLiteral("rich"));
+        QTest::qWait(150);
+        int checked = 0;
+        QStringList clipped;
+        for (int w : { 900, 760, 640, 520, 440, 420, 400, 380, 360, 340, 320 }) {
+            m_window->setWidth(w);
+            QTest::qWait(150);
+            const QRectF cardRect = sceneRect(card);
+            for (const char *name : { "composerFormat_bold", "composerFormat_italic",
+                                      "composerFormat_strike", "composerFormat_code",
+                                      "composerFormat_link", "composerFormat_list",
+                                      "composerFormat_quote",
+                                      "composerFormat_underline",
+                                      "composerFormat_orderedlist",
+                                      "composerModeToggle" }) {
+                auto *button = item(name);
+                if (!button || !button->isVisible())
+                    continue;
+                ++checked;
+                const QRectF r = sceneRect(button);
+                if (r.right() > cardRect.right() + 0.5)
+                    clipped << QStringLiteral("%1 px: %2 ends %3 past the card")
+                                   .arg(w).arg(QLatin1String(name))
+                                   .arg(r.right() - cardRect.right(), 0, 'f', 1);
+            }
+        }
+        settings->setComposerMode(previousMode);
+        bar->setProperty("toolbarExpanded", false);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+        QVERIFY2(checked > 50, "too few toolbar buttons were measured");
+        QVERIFY2(clipped.isEmpty(), qPrintable(clipped.join(QLatin1Char('\n'))));
+    }
+
+private:
+    // Switches the composer to `mode`, focuses its editor and returns it.
+    // Restores the mode and clears the draft on destruction.
+    struct ModeScope {
+        SettingsManager *settings;
+        QString previous;
+        MessageComposer *composer;
+        ~ModeScope()
+        {
+            composer->clear();
+            settings->setComposerMode(previous);
+            QTest::qWait(60);
+        }
+    };
+
+    QQuickItem *editorFor(const QString &mode)
+    {
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        settings->setComposerMode(mode);
+        QTest::qWait(120);
+        auto *editor = item(mode == QLatin1String("rich")
+                                ? "composerRichInput" : "composerInput");
+        if (editor) {
+            m_controller->composer()->clear();
+            QMetaObject::invokeMethod(editor, "forceActiveFocus");
+            QTest::qWait(40);
+        }
+        return editor;
+    }
+
+    void modeColumn()
+    {
+        QTest::addColumn<QString>("mode");
+        QTest::newRow("markdown") << QStringLiteral("markdown");
+        QTest::newRow("rich") << QStringLiteral("rich");
     }
 };
 

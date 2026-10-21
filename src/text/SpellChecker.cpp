@@ -498,11 +498,41 @@ void SpellChecker::resolve()
         return false;
     };
 
+    // A provider with a dictionary file but no word data (the host's hspell
+    // for Hebrew) accepts EVERY word, and a word is correct when ANY active
+    // language accepts it - so one such dictionary silently turns all
+    // checking off. A dictionary that takes a nonsense string is not a
+    // dictionary: every creation path below refuses it here.
+    // Nonsense in several scripts, and ALL must be accepted: a working
+    // dictionary may pass words outside its own script unjudged (hunspell's
+    // "not representable in this dictionary's encoding", a Russian or Hindi
+    // provider handed Latin text), so one Latin probe would discard real
+    // non-Latin dictionaries (MASTER-1 M4).
+    auto acceptsEverything = [](const SpellBackend &b) {
+        static const QStringList nonsense = {
+            QStringLiteral("qzxwvjkq"),
+            QStringLiteral("\u0449\u0437\u0445\u044a\u0436\u043a\u0449"),   // Cyrillic
+            QStringLiteral("\u03be\u03c8\u03b6\u03c6\u03c9\u03be\u03c8"),   // Greek
+            QStringLiteral("\u05e5\u05e7\u05d6\u05e9\u05da\u05e5\u05e7"),   // Hebrew
+            QStringLiteral("\u0636\u0638\u0630\u0634\u0636\u0638\u0630"),   // Arabic
+            QStringLiteral("\u0919\u091e\u0922\u0923\u0919\u091e"),         // Devanagari
+        };
+        for (const QString &word : nonsense) {
+            if (!b.isCorrect(word))
+                return false;
+        }
+        return true;
+    };
+
     QStringList languages;
     auto primary = create(m_preferredLanguage, &primaryFailure, &languages);
     addOffered(languages);
     if (primary)
         addOffered(primary->availableLanguages());
+    if (primary && acceptsEverything(*primary)) {
+        primary.reset();
+        primaryFailure = QStringLiteral("no-dictionary");
+    }
     if (primary) {
         next.push_back(std::move(primary));
     } else if (!m_preferredLanguage.isEmpty()) {
@@ -528,7 +558,7 @@ void SpellChecker::resolve()
         languages.clear();
         auto ui = create(m_interfaceLanguage, &ignored, &languages);
         addOffered(languages);
-        if (ui && !alreadyActive(*ui))
+        if (ui && !acceptsEverything(*ui) && !alreadyActive(*ui))
             next.push_back(std::move(ui));
     }
     for (const QString &tag : std::as_const(m_extraLanguages)) {
@@ -537,6 +567,11 @@ void SpellChecker::resolve()
         auto extra = create(tag, &failure, &languages);
         addOffered(languages);
         if (!extra) {
+            if (!m_missingLanguages.contains(tag))
+                m_missingLanguages << tag;
+            continue;
+        }
+        if (acceptsEverything(*extra)) {
             if (!m_missingLanguages.contains(tag))
                 m_missingLanguages << tag;
             continue;
@@ -662,7 +697,13 @@ QString SpellChecker::labelForTag(const QString &tag)
 
 bool SpellChecker::isAutocorrectBoundary(QChar c)
 {
-    return c.isSpace() || c == u',' || c == u';' || c == u'!' || c == u'?';
+    return c.isSpace() || c == u',' || c == u';' || c == u'!' || c == u'?'
+        || c == u')' || c == u'"' || c == QChar(0x201D);
+}
+
+bool SpellChecker::isAutocorrectBoundaryText(const QString &typed) const
+{
+    return typed.size() == 1 && isAutocorrectBoundary(typed.at(0));
 }
 
 QVariantList SpellChecker::languageOptions() const

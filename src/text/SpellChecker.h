@@ -142,6 +142,8 @@ public:
     // Characters after which autocorrect may act: whitespace and , ; ! ?
     // Not '.' (domains, file names) and not ':' (emoji shortcodes).
     static bool isAutocorrectBoundary(QChar c);
+    // The same predicate for QML, so the editor's pre-filter cannot drift.
+    Q_INVOKABLE bool isAutocorrectBoundaryText(const QString &typed) const;
 
     // [{start, length}, ...], the composers' mention-range shape. The word
     // containing `cursorPosition` (-1 for none) and anything overlapping

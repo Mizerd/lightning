@@ -22,6 +22,9 @@ Dialog {
     property string packId: ""
     property string packName: ""
     property bool canManage: false
+    /// The control that opened the dialog; it gets the focus back on close
+    /// (C41-D04, C41-F09).
+    property Item restoreTo: null
 
     /// The last outcome, in the user's words rather than the bridge's category.
     property string notice: ""
@@ -33,7 +36,14 @@ Dialog {
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
     parent: Overlay.overlay
-    anchors.centerIn: parent
+    // Centred on a NOMINAL height, not the live one: the dialog's own height
+    // moves with the notice and the delete confirmation, and a centring
+    // anchor re-centred it on every change so the button under the pointer
+    // moved (C41-D03).
+    readonly property real nominalHeight: 520
+    x: parent ? Math.round((parent.width - width) / 2) : 0
+    y: parent ? Math.max(AppTheme.spacing24,
+                         Math.round((parent.height - nominalHeight) / 2)) : 0
     width: Math.min(520, parent ? parent.width - AppTheme.spacing24 * 2 : 520)
     padding: AppTheme.spacing16
 
@@ -46,8 +56,17 @@ Dialog {
         nameField.text = name
         renamingShortcode = ""
         confirmingDelete = false
+        removingShortcode = ""
         open()
     }
+
+    onClosed: {
+        if (restoreTo)
+            restoreTo.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    /// The image whose Remove was pressed once; the second press removes it.
+    property string removingShortcode: ""
 
     /// The image being renamed, by current shortcode. One at a time, in place,
     /// so only one field competes for Return.
@@ -95,6 +114,7 @@ Dialog {
         target: root.stickers
         function onEditFinished(ok, category, shortcode) {
             root.renamingShortcode = ""
+            root.removingShortcode = ""
             root.confirmingDelete = false
             root.noticeIsError = !ok
             if (ok) {
@@ -158,7 +178,7 @@ Dialog {
         Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            visible: root.canManage
+            visible: root.canManage && root.packId !== "user"
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textMeta
             text: qsTr("Leave the name empty to use the default — for a "
@@ -199,14 +219,36 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // The images
+        // The images. The band keeps its height when the pack is empty or
+        // shrinks, so the dialog does not collapse around the footer.
+        Item {
+        Layout.fillWidth: true
+        Layout.preferredHeight: 280
         ListView {
             id: imageList
             objectName: "stickerPackEditorList"
-            Layout.fillWidth: true
-            Layout.preferredHeight: 280
+            anchors.fill: parent
             clip: true
-            model: root.stickers ? root.stickers.images : null
+            // Every image of the pack, not the picker's usage-narrowed grid.
+            model: root.stickers ? root.stickers.editorImages : null
+            // Arrow keys do not move a hidden current item under a focused
+            // button; paging is done here (C41-F11).
+            keyNavigationEnabled: false
+            Keys.onPressed: (event) => {
+                var page = Math.max(44, imageList.height - 44)
+                var maxY = Math.max(0, imageList.contentHeight - imageList.height)
+                if (event.key === Qt.Key_PageDown)
+                    imageList.contentY = Math.min(maxY, imageList.contentY + page)
+                else if (event.key === Qt.Key_PageUp)
+                    imageList.contentY = Math.max(0, imageList.contentY - page)
+                else if (event.key === Qt.Key_Home)
+                    imageList.contentY = 0
+                else if (event.key === Qt.Key_End)
+                    imageList.contentY = maxY
+                else
+                    return
+                event.accepted = true
+            }
             ScrollBar.vertical: AppScrollBar {}
             SmoothWheelArea {}
 
@@ -216,6 +258,12 @@ Dialog {
                 required property string shortcode
                 required property string url
                 required property bool isEmoticon
+                required property bool isSticker
+
+                // A focused control inside a row brings the row into view.
+                function reveal() {
+                    ListView.view.positionViewAtIndex(index, ListView.Contain)
+                }
 
                 width: ListView.view.width
                 height: 44
@@ -289,6 +337,13 @@ Dialog {
                             value: renameField.problem
                             when: renameField.visible
                         }
+                        // The first Escape cancels the edit; the dialog stays
+                        // (C41-F10).
+                        Keys.onEscapePressed: (event) => {
+                            root.renamingShortcode = ""
+                            event.accepted = true
+                        }
+                        onActiveFocusChanged: if (activeFocus) imageRow.reveal()
                         onVisibleChanged: {
                             if (visible) {
                                 text = imageRow.shortcode
@@ -301,7 +356,20 @@ Dialog {
                                 root.packId, imageRow.shortcode, text)
                     }
 
+                    // Which kind the image is, so a pack's emoji are not
+                    // mistaken for stickers (and vice versa).
+                    Label {
+                        textFormat: Text.PlainText
+                        text: imageRow.isEmoticon
+                              ? (imageRow.isSticker ? qsTr("Sticker and emoji")
+                                                    : qsTr("Emoji"))
+                              : qsTr("Sticker")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textMeta
+                    }
+
                     AppButton {
+                        onActiveFocusChanged: if (activeFocus) imageRow.reveal()
                         text: root.renamingShortcode === imageRow.shortcode
                               ? qsTr("Save") : qsTr("Rename")
                         kind: "ghost"
@@ -320,25 +388,37 @@ Dialog {
                         }
                     }
                     AppButton {
-                        text: qsTr("Remove")
-                        kind: "ghost"
+                        objectName: "stickerRemoveButton"
+                        onActiveFocusChanged: if (activeFocus) imageRow.reveal()
+                        // Two presses, like Delete pack: a removal is not
+                        // undoable and sat one stray click away (C41-D03).
+                        readonly property bool armed:
+                            root.removingShortcode === imageRow.shortcode
+                        text: armed ? qsTr("Confirm remove") : qsTr("Remove")
+                        kind: armed ? "danger" : "ghost"
                         size: "sm"
                         visible: root.canManage
                         enabled: !root.busy
-                        onClicked: root.stickers.removeImageFromPack(
-                            root.packId, imageRow.shortcode)
+                        onClicked: {
+                            if (armed)
+                                root.stickers.removeImageFromPack(
+                                    root.packId, imageRow.shortcode)
+                            else
+                                root.removingShortcode = imageRow.shortcode
+                        }
                     }
                 }
             }
         }
 
         Label {
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
+            objectName: "stickerPackEditorEmpty"
+            anchors.centerIn: parent
             visible: imageList.count === 0
             text: qsTr("This pack has no images.")
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textBody
+        }
         }
 
         // Footer

@@ -630,6 +630,15 @@ void MessageComposer::sendBypassingCommands()
 void MessageComposer::sendInternal(bool allowCommands)
 {
     if (!m_canSend || !m_client) return;
+    // An edit saved with the text it was opened with changes nothing: sending
+    // it would add an "(edited)" mark for no difference (C46 F06). Only when
+    // the original carried no formatting: re-saving a formatted message
+    // through the plain lane would change it, so that still goes out.
+    if (!m_editingEventId.isEmpty() && m_editSeedHtml.isEmpty()
+        && m_text == m_editSeedText) {
+        finishSuccessfulSend();
+        return;
+    }
     // Expand inserted @-mentions into matrix.to markdown links and collect the
     // MXIDs for m.mentions. Without mentions this is just the trimmed text.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
@@ -693,6 +702,15 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
 {
     if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
         return;
+    // Rich-mode twin of the guard in sendInternal: an edit saved with the text
+    // (and formatting) it was opened with sends nothing (C46 F06).
+    // Empty html is "unchanged" only when the seed had none either: removing
+    // formatting while keeping the words is a real edit.
+    if (!m_editingEventId.isEmpty() && body == m_editSeedText
+        && html == m_editSeedHtml) {
+        finishSuccessfulSend();
+        return;
+    }
     if (refuseIfTooLarge(body, html))
         return;
     // An unformatted rich-mode message uses the plain lane: the body is sent
@@ -930,7 +948,7 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
     const SlashCommands::Outcome outcome =
         SlashCommands::execute(parsed, mentionIds, actions);
     if (!outcome.error.isEmpty()) {
-        setCommandError(outcome.error);
+        setCommandError(outcome.error, /*bypassable=*/true);
         return true;
     }
     if (outcome.retireDraft)
@@ -972,11 +990,12 @@ void MessageComposer::setCommandPermissions(const QVariantMap &permissions)
     Q_EMIT commandCompletionsChanged();
 }
 
-void MessageComposer::setCommandError(const QString &error)
+void MessageComposer::setCommandError(const QString &error, bool bypassable)
 {
-    if (m_commandError == error)
+    if (m_commandError == error && m_commandErrorBypassable == bypassable)
         return;
     m_commandError = error;
+    m_commandErrorBypassable = bypassable;
     Q_EMIT commandErrorChanged();
 }
 
@@ -1254,6 +1273,8 @@ void MessageComposer::beginReply(const QString &eventId,
                                   const QString &mediaKey)
 {
     m_editingEventId.clear();
+    m_editSeedText.clear();
+    m_editSeedHtml.clear();
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId = eventId;
@@ -1286,6 +1307,8 @@ void MessageComposer::beginEdit(const QString &eventId,
     // body. Recover the refs from either, or the edit would drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
     m_text = recovered.text;
+    m_editSeedText = m_text;
+    m_editSeedHtml = sanitizedHtml;
     m_mentionRefs = recovered.refs;
     if (m_mentionRefs.isEmpty() && !sanitizedHtml.isEmpty()) {
         m_mentionRefs =
@@ -1301,6 +1324,8 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
                                         const QString &preview)
 {
     m_editingEventId.clear();
+    m_editSeedText.clear();
+    m_editSeedHtml.clear();
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId.clear();
@@ -1323,6 +1348,8 @@ void MessageComposer::cancelReplyOrEdit()
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
     m_editingEventId.clear();
+    m_editSeedText.clear();
+    m_editSeedHtml.clear();
     m_editingTimelineId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();

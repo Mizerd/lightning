@@ -32,9 +32,11 @@ Dialog {
         message = snapshot || ({})
         choice = "30m"
         editingId = ""
-        var now = new Date()
-        customDate.text = Qt.formatDate(now, "yyyy-MM-dd")
-        customTime.text = Qt.formatTime(new Date(now.getTime() + 60 * 60 * 1000), "HH:mm")
+        // Date and time come from ONE instant (now + 1 h): taking the date
+        // from now and the time from now + 1 h opened a PAST time after 23:00.
+        var suggested = new Date(Date.now() + 60 * 60 * 1000)
+        customDate.text = Qt.formatDate(suggested, "yyyy-MM-dd")
+        customTime.text = Qt.formatTime(suggested, "HH:mm")
         if (scheduler)
             scheduler.probeSupport()
         open()
@@ -42,6 +44,32 @@ Dialog {
     readonly property bool hasMessage: !!message && !!message.body
                                        && message.body.length > 0
     readonly property string roomId: hasMessage ? message.roomId : app.currentRoomId
+
+    // Schedules the composed message for the chosen time. Shared by the
+    // Schedule button and Return in the date/time fields.
+    function submit() {
+        if (!root.hasMessage || root.customInvalid)
+            return
+        var at = root.sendAtMs()
+        if (at < 0)
+            return
+        var id = root.scheduler.schedule(root.message, at)
+        if (id.length > 0) {
+            app.composer.clear()
+            root.close()
+        }
+    }
+
+    // Commits an edited body. The editor is closed BEFORE the controller is
+    // told: updateText emits pendingChanged, which rebuilds `roomPending` and
+    // destroys the delegate this runs from, so anything after the call (the
+    // `root` id included) no longer resolves there and the editor stayed open.
+    function commitEdit(entryId, text) {
+        var body = text.trim()
+        root.editingId = ""
+        if (body.length > 0)
+            root.scheduler.updateText(entryId, text, "")
+    }
 
     function sendAtMs() {
         var now = new Date()
@@ -162,6 +190,7 @@ Dialog {
                     Layout.fillWidth: true
                     placeholderText: qsTr("yyyy-mm-dd")
                     inputMask: "9999-99-99"
+                    onAccepted: root.submit()
                 }
                 AppTextField {
                     id: customTime
@@ -170,6 +199,7 @@ Dialog {
                     Layout.preferredWidth: 90
                     placeholderText: qsTr("hh:mm")
                     inputMask: "99:99"
+                    onAccepted: root.submit()
                 }
             }
             Label {
@@ -212,16 +242,9 @@ Dialog {
                     text: qsTr("Schedule")
                     kind: "primary"
                     enabled: !root.customInvalid
-                    onClicked: {
-                        var at = root.sendAtMs()
-                        if (at < 0)
-                            return
-                        var id = root.scheduler.schedule(root.message, at)
-                        if (id.length > 0) {
-                            app.composer.clear()
-                            root.close()
-                        }
-                    }
+                    onClicked: root.submit()
+                    Keys.onReturnPressed: if (enabled) root.submit()
+                    Keys.onEnterPressed: if (enabled) root.submit()
                 }
             }
         }
@@ -298,15 +321,12 @@ Dialog {
                     }
                     AppTextField {
                         id: editField
+                        objectName: "sendLaterEditField"
                         visible: root.editingId === modelData.id
                         storm: true
                         Layout.fillWidth: true
                         text: modelData.body
-                        onAccepted: {
-                            if (text.trim().length > 0)
-                                root.scheduler.updateText(modelData.id, text, "")
-                            root.editingId = ""
-                        }
+                        onAccepted: root.commitEdit(modelData.id, text)
                     }
                     Label {
                         visible: (modelData.error || "").length > 0
@@ -331,14 +351,12 @@ Dialog {
                             storm: true
                             kind: "ghost"
                             size: "sm"
+                            objectName: "sendLaterEditToggle"
                             text: root.editingId === modelData.id ? qsTr("Done") : qsTr("Edit text")
                             enabled: !modelData.busy
                             onClicked: {
                                 if (root.editingId === modelData.id) {
-                                    if (editField.text.trim().length > 0)
-                                        root.scheduler.updateText(modelData.id,
-                                                                  editField.text, "")
-                                    root.editingId = ""
+                                    root.commitEdit(modelData.id, editField.text)
                                 } else {
                                     root.editingId = modelData.id
                                 }

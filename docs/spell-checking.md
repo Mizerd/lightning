@@ -77,6 +77,14 @@ what the platform can check right now, each dictionary once (distribution
 aliases such as `es_MX -> es_ES` collapse; a regional request still resolves
 through its language).
 
+A dictionary that accepts a nonsense probe word (a provider with a dictionary
+file but no word data, e.g. hspell for Hebrew on some hosts) is never
+activated, whether it is the primary, the interface language or an extra one:
+a word is correct when ANY active language accepts it, so one such dictionary
+would silence all checking. A refused extra or explicit primary is listed as
+missing; a refused automatic primary reports `no-dictionary` when nothing else
+is active.
+
 ### Personal dictionary and Ignore
 
 `Add to dictionary` writes Lightning's own word list,
@@ -95,7 +103,8 @@ system's "Correct spelling automatically" (Discord, Element desktop, Slack and
 Telegram desktop do not autocorrect, and Windows leaves it off for hardware
 keyboards). Setting `composer/autocorrect`: 0 = platform default, 1 = on,
 2 = off. It acts only when ONE character was typed and it is whitespace or
-`, ; ! ?` (not `.`, which starts domains and file names, nor `:`, which starts
+`, ; ! ? ) "` or a closing curly quote (not `.`, which starts domains and
+file names, nor `:`, which starts
 shortcodes), on the word ending there, when every active dictionary rejects
 it, never inside code, URLs, paths, mentions, shortcodes or a `/command`
 draft, never on Ignored, personal or previously reverted words. Sources, in

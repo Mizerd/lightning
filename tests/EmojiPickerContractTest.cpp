@@ -5,6 +5,7 @@
 // EmojiUiContractTest.cpp and re-checks the invariants it relies on.
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QtTest>
 
 namespace {
@@ -14,6 +15,18 @@ QString read(const QString &path)
     if (!f.open(QIODevice::ReadOnly))
         return {};
     return QString::fromUtf8(f.readAll());
+}
+QString pickerSource()
+{
+    return read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+}
+QString between(const QString &src, const QString &from, const QString &to)
+{
+    const int a = src.indexOf(from);
+    if (a < 0)
+        return {};
+    const int b = src.indexOf(to, a + from.size());
+    return b < 0 ? src.mid(a) : src.mid(a, b - a);
 }
 }
 
@@ -465,6 +478,141 @@ private Q_SLOTS:
         QVERIFY(!composer.contains(QStringLiteral("gifPicker.anchorPoint")));
         QVERIFY(!composer.contains(QStringLiteral("emojiPicker.anchorPoint")));
         QVERIFY(!thread.contains(QStringLiteral("threadGifPicker.anchorPoint")));
+    }
+
+    // ── C39 round 1: keyboard, wheel, autoscroll and reset contracts ──
+    // Source scans over EmojiPicker.qml, each pinning one reported defect.
+
+    // C39-F05: the grid is ONE tab stop. A per-cell stop made Tab walk every
+    // emoji (160 in Smileys) before leaving.
+    void theGridIsOneTabStopNotOnePerCell()
+    {
+        const QString src = pickerSource();
+        const QString cell = between(src, QStringLiteral("id: cell"),
+                                     QStringLiteral("Accessible.name: accessibleLabel"));
+        QVERIFY2(!cell.isEmpty(), "the emoji cell delegate moved");
+        QVERIFY2(!cell.contains(QStringLiteral("activeFocusOnTab: true")),
+                 "a cell must not be a Tab stop");
+        QVERIFY(cell.contains(QStringLiteral("activeFocusOnTab: false")));
+    }
+
+    // C39-F06: the cell's generic key handler accepts by default, which hid
+    // Escape from the popup's CloseOnEscape. It must opt out first.
+    void theCellKeyHandlerDoesNotSwallowEscape()
+    {
+        // F06 CAUSE UNVERIFIED: that Keys.onPressed accepts by default is a
+        // hypothesis (Qt resets the event first). This only pins the opt-out.
+        const QString src = pickerSource();
+        const QRegularExpression re(QStringLiteral(
+            "Keys\\.onPressed:\\s*\\(event\\)\\s*=>\\s*\\{\\s*event\\.accepted\\s*=\\s*false"));
+        QVERIFY2(re.match(src).hasMatch(), "the cell's Keys.onPressed must start "
+                                           "with event.accepted = false");
+    }
+
+    // C39-F07 and D06: Page/Home/End and Up off the first row.
+    void theGridHandlesPageHomeEndAndUpFromRowZero()
+    {
+        const QString src = pickerSource();
+        for (const char *key : {"Qt.Key_PageUp", "Qt.Key_PageDown", "Qt.Key_Home",
+                                "Qt.Key_End", "Qt.Key_Up"}) {
+            QVERIFY2(src.contains(QLatin1String("case ") + QLatin1String(key) + ':'),
+                     key);
+        }
+        QVERIFY(src.contains(QStringLiteral("keyNavigationWraps: false")));
+        QVERIFY(!src.contains(QStringLiteral("keyNavigationWraps: true")));
+        // Up from row 0 lands in the search field.
+        QVERIFY(between(src, QStringLiteral("case Qt.Key_Up:"),
+                        QStringLiteral("case Qt.Key_Home:"))
+                    .contains(QStringLiteral("search.forceActiveFocus()")));
+    }
+
+    // C39-F04: a right press on a cell with no skin tones is consumed and
+    // does nothing; it must not fall through to choose().
+    void rightClickOnAPlainEmojiDoesNotPick()
+    {
+        const QString src = pickerSource();
+        QVERIFY2(QRegularExpression(QStringLiteral(
+                     "mouse\\.button\\s*===\\s*Qt\\.RightButton\\)\\s*\\{\\s*if\\s*\\(cell\\.hasSkinTones"))
+                     .match(src).hasMatch(),
+                 "right-click must open tones or do nothing");
+    }
+
+    // C39-F01: middle-click autoscroll over the grid, like the timeline.
+    void theGridHasMiddleClickAutoscroll()
+    {
+        const QString src = pickerSource();
+        const QString block = between(src, QStringLiteral("MiddleClickScroller {"),
+                                      QStringLiteral("}"));
+        QVERIFY2(!block.isEmpty(), "no MiddleClickScroller in the picker");
+        QVERIFY(block.contains(QStringLiteral("view: emojiGrid")));
+    }
+
+    // C39-F08: wheel over the heading and the footer scrolls the grid, and the
+    // category rail scrolls horizontally for a narrow picker (D04).
+    void wheelOutsideTheGridStillScrollsIt()
+    {
+        const QString src = pickerSource();
+        QVERIFY2(src.count(QStringLiteral("scrollTarget: emojiGrid")) >= 2,
+                 "heading and footer need a wheel handler targeting the grid");
+        QVERIFY(src.contains(QStringLiteral("scrollTarget: railScroll.contentItem")));
+    }
+
+    // C39-D01: a new category or query starts at its first emoji.
+    void aNewBucketStartsAtItsFirstEmoji()
+    {
+        const QString src = pickerSource();
+        QVERIFY(src.contains(QStringLiteral("function resetToStart()")));
+        QVERIFY(src.contains(QStringLiteral("positionViewAtBeginning()")));
+        QVERIFY(src.contains(QStringLiteral("function onCategoryChanged()")));
+        QVERIFY(src.contains(QStringLiteral("function onSearchTextChanged()")));
+    }
+
+    // C39-D05: no category is highlighted while a query is active.
+    void theRailIsDeselectedWhileSearching()
+    {
+        const QString src = pickerSource();
+        QVERIFY(QRegularExpression(QStringLiteral(
+                    "search\\.text\\.length\\s*===\\s*0\\s*&&\\s*app\\.emojiCatalog\\.category\\s*===\\s*modelData"))
+                    .match(src).hasMatch());
+    }
+
+    // C39-D07 and D09: the tone strip returns focus to its cell and names the
+    // tone in the footer instead of a tooltip.
+    void theToneStripReturnsFocusAndUsesTheFooter()
+    {
+        const QString src = pickerSource();
+        const QString tone = src.mid(src.indexOf(QStringLiteral("id: tonePopup")));
+        QVERIFY(tone.contains(QStringLiteral("origin.forceActiveFocus()")));
+        QVERIFY(!tone.contains(QStringLiteral("ToolTip.text: modelData.name")));
+        QVERIFY(tone.contains(QStringLiteral("picker.previewName = modelData.name")));
+    }
+
+    // C39-D08: a reaction picker opens on recents, not the last category.
+    void aReactionPickerOpensOnRecents()
+    {
+        const QString src = pickerSource();
+        const QString open = between(src, QStringLiteral("onAboutToShow: {"),
+                                     QStringLiteral("background: Item {"));
+        QVERIFY(open.contains(QStringLiteral("if (reactionMode)")));
+        QVERIFY(open.contains(QStringLiteral("\"Recently Used\"")));
+        // The MRU may hold only entries rebuild() drops: test the grid, not
+        // recentEmoji.length, and fall back when it is empty.
+        QVERIFY2(!open.contains(QStringLiteral("recentEmoji")),
+                 "must not decide on the raw MRU length");
+        QVERIFY(QRegularExpression(QStringLiteral(
+                    "emojiCatalog\\.count\\s*===\\s*0")).match(open).hasMatch());
+    }
+
+    // C39 r2 (review D09 regression): closing the tone strip clears the
+    // footer preview its tone tiles wrote.
+    void closingTheToneStripClearsTheFooterPreview()
+    {
+        const QString src = pickerSource();
+        const QString closed = between(src, QStringLiteral("onClosed: {"),
+                                       QStringLiteral("background: Item {"));
+        QVERIFY(closed.contains(QStringLiteral("picker.previewEmoji = \"\"")));
+        QVERIFY(closed.contains(QStringLiteral("picker.previewName = \"\"")));
+        QVERIFY(closed.contains(QStringLiteral("picker.previewCell = null")));
     }
 };
 QTEST_MAIN(EmojiPickerContractTest)

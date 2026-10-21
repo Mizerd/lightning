@@ -31,17 +31,31 @@ Popup {
 
     readonly property int count: completions ? completions.length : 0
     readonly property int rowH: AppTheme.scaled(34)
+    readonly property int headerH: AppTheme.scaled(24)
     readonly property int visibleRows: Math.max(1, Math.min(count, 7))
 
     width: Math.max(240, Math.min(anchorWidth, 360))
-    height: visibleRows * rowH + padding * 2
+    height: headerH + visibleRows * rowH + padding * 2
     x: parent ? Math.max(AppTheme.spacing4,
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : 0
-    y: Math.max(AppTheme.spacing4, anchorInputTop.y - height - AppTheme.spacing4)
+    // Above the input, but never outside the overlay: a window shrunk under an
+    // open popup must not leave it below the visible area.
+    y: {
+        var above = Math.max(AppTheme.spacing4,
+                             anchorInputTop.y - height - AppTheme.spacing4)
+        return parent ? Math.max(AppTheme.spacing4,
+                                 Math.min(above, parent.height - height
+                                                 - AppTheme.spacing4))
+                      : above
+    }
 
     onCompletionsChanged: currentIndex = 0
+
+    // Popup-level on purpose: a list scrolled under a parked pointer hands the
+    // hover to another row's handler, which must not look like fresh motion.
+    property point lastHoverScenePos: Qt.point(-1, -1)
 
     function move(delta) {
         if (count === 0)
@@ -56,28 +70,85 @@ Popup {
     function moveUp() { move(-1) }
     function moveDown() { move(1) }
 
+    // Same family as MentionPopup and SlashCommandPopup: Storm panel, header,
+    // selection chip and a Return keycap on the selected row.
     background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.border
+        objectName: "emojiCompletionPopupSurface"
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         border.width: 1
-        radius: AppTheme.radiusMd
+        radius: AppTheme.menuRadius
     }
 
-    contentItem: ListView {
+    contentItem: Column {
+        spacing: 0
+
+        Label {
+            objectName: "emojiCompletionPopupHeader"
+            width: parent.width
+            height: root.headerH
+            verticalAlignment: Text.AlignVCenter
+            textFormat: Text.PlainText
+            elide: Label.ElideRight
+            text: qsTr("Emoji")
+            font.family: AppTheme.monoFont
+            font.pixelSize: AppTheme.fontChip
+            font.weight: Font.DemiBold
+            font.letterSpacing: AppTheme.trackingStorm
+            font.capitalization: Font.AllUppercase
+            color: AppTheme.stormTextFaint
+        }
+
+    ListView {
         id: list
         objectName: "emojiCompletionList"
+        width: parent.width
+        height: root.visibleRows * root.rowH
         model: root.completions
         clip: true
+        boundsBehavior: Flickable.StopAtBounds
         interactive: count > root.visibleRows
+        Accessible.role: Accessible.List
+        Accessible.name: qsTr("Emoji suggestions")
         ScrollBar.vertical: AppScrollBar {}
+        SmoothWheelArea {}
         delegate: ItemDelegate {
+            id: emojiRow
             required property int index
             required property var modelData
             width: ListView.view.width
             height: root.rowH
             highlighted: index === root.currentIndex
             readonly property bool isUnicode: modelData.kind === "unicode"
+            hoverEnabled: true
             onClicked: root.chosen(modelData)
+            // The row a click will accept is the row that is highlighted.
+            // Only REAL pointer motion counts: a list scrolled by the keyboard
+            // under a parked pointer re-issues hover for the row beneath it.
+            HoverHandler {
+                cursorShape: Qt.PointingHandCursor
+                onPointChanged: {
+                    if (!hovered)
+                        return
+                    var p = point.scenePosition
+                    if (Math.abs(p.x - root.lastHoverScenePos.x) < 1
+                            && Math.abs(p.y - root.lastHoverScenePos.y) < 1)
+                        return
+                    root.lastHoverScenePos = p
+                    root.currentIndex = emojiRow.index
+                }
+            }
+            Accessible.role: Accessible.ListItem
+            Accessible.name: ":" + modelData.shortcode + ": "
+                             + (isUnicode ? (modelData.emoji || "") + " "
+                                            + (modelData.name || "")
+                                          : (modelData.packName || ""))
+            Accessible.selected: index === root.currentIndex
+            background: Rectangle {
+                radius: AppTheme.menuItemRadius
+                color: emojiRow.highlighted ? AppTheme.stormSelection
+                                            : "transparent"
+            }
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
                 // The image, resolved through the authenticated media path as
@@ -129,7 +200,7 @@ Popup {
                     // alias: never markup either way.
                     textFormat: Text.PlainText
                     text: ":" + modelData.shortcode + ":"
-                    color: AppTheme.textPrimary
+                    color: AppTheme.stormText
                     font.pixelSize: AppTheme.textBody
                     elide: Label.ElideRight
                 }
@@ -137,12 +208,24 @@ Popup {
                     objectName: "emojiCompletionMeta"
                     textFormat: Text.PlainText
                     text: isUnicode ? (modelData.name || "") : (modelData.packName || "")
-                    color: AppTheme.textMuted
+                    color: AppTheme.legibleInkOn(
+                        AppTheme.textMuted,
+                        AppTheme.flatten(emojiRow.highlighted
+                                         ? AppTheme.stormSelection
+                                         : "transparent", AppTheme.stormPanel))
                     font.pixelSize: AppTheme.textMeta
                     elide: Label.ElideRight
                     Layout.maximumWidth: 110
                 }
+                MenuKeycap {
+                    objectName: "emojiCompletionKeycap"
+                    Layout.alignment: Qt.AlignVCenter
+                    visible: emojiRow.highlighted
+                    iconName: "keyboard_return"
+                    active: true
+                }
             }
         }
+    }
     }
 }

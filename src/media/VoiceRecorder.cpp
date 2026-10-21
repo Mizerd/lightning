@@ -125,6 +125,10 @@ bool VoiceRecorder::ensureCaptureChain()
         m_session->setRecorder(m_recorder.get());
         connect(m_recorder.get(), &QMediaRecorder::durationChanged,
                 this, &VoiceRecorder::durationChanged);
+        // A microphone unplugged mid-recording produces silence for the rest
+        // of the clip and nothing reports it (the recorder raises no error).
+        // Watch the device list for the one this recording started on.
+        watchInputDevices();
         connect(m_recorder.get(), &QMediaRecorder::recorderStateChanged,
                 this, [this](QMediaRecorder::RecorderState state) {
                     if (state != QMediaRecorder::StoppedState)
@@ -172,6 +176,66 @@ bool VoiceRecorder::ensureCaptureChain()
                 });
     }
     return true;
+}
+
+void VoiceRecorder::watchInputDevices()
+{
+    if (m_devices)
+        return;
+    m_devices = std::make_unique<QMediaDevices>();
+    connect(m_devices.get(), &QMediaDevices::audioInputsChanged, this, [this] {
+        QList<InputInfo> infos;
+        for (const QAudioDevice &device : QMediaDevices::audioInputs())
+            infos.append({device.id(), device.isDefault()});
+        inputDevicesChanged(infos);
+    });
+}
+
+QMediaDevices *VoiceRecorder::watchInputDevicesForTest()
+{
+    watchInputDevices();
+    return m_devices.get();
+}
+
+bool VoiceRecorder::inputStillPresent(const QByteArray &id, bool wasDefault,
+                                      const QList<InputInfo> &inputs)
+{
+    for (const InputInfo &input : inputs) {
+        if (input.id == id)
+            return true;
+        if (wasDefault && input.isDefault)
+            return true;
+    }
+    return false;
+}
+
+void VoiceRecorder::inputDevicesChanged(const QList<InputInfo> &inputs)
+{
+    if (m_state != State::Recording || m_recordingDeviceId.isEmpty())
+        return;
+    if (inputStillPresent(m_recordingDeviceId, m_recordingWasDefault, inputs))
+        return;
+    qCWarning(lcVoice, "the capture device disappeared during recording");
+    // stop() finalizes; finishWithWaveform then discards the clip and reports
+    // failed(), the one signal every owner answers by releasing the recorder.
+    m_endedByDisconnect = true;
+    stop();
+}
+
+void VoiceRecorder::setRecordingForTest(const QByteArray &deviceId,
+                                        const QString &activeFile,
+                                        qint64 durationMs)
+{
+    m_state = State::Recording;
+    m_recordingDeviceId = deviceId;
+    m_activeFile = activeFile;
+    m_activeMime = QStringLiteral("audio/ogg");
+    m_finalDurationMs = durationMs;
+}
+
+void VoiceRecorder::finishForTest()
+{
+    finishWithWaveform({});
 }
 
 qint64 VoiceRecorder::durationMs() const
@@ -262,6 +326,10 @@ bool VoiceRecorder::beginRecording()
     }
     m_state = State::Recording;
     m_paused = false;
+    m_endedByDisconnect = false;
+    m_recordingDeviceId = m_audioInput ? m_audioInput->device().id()
+                                       : QByteArray();
+    m_recordingWasDefault = m_audioInput && m_audioInput->device().isDefault();
     // A new recording gets the full cap back.
     m_maxDurationGuard.setInterval(static_cast<int>(kMaxDurationMs));
     m_maxDurationGuard.start();
@@ -383,7 +451,10 @@ void VoiceRecorder::stop()
     m_state = State::Processing;
     m_processingGuard.start();
     Q_EMIT stateChanged();
-    m_recorder->stop(); // finalization continues in recorderStateChanged
+    // No capture chain only in the headless test seam, which finishes the
+    // clip itself through finishForTest().
+    if (m_recorder)
+        m_recorder->stop(); // finalization continues in recorderStateChanged
 }
 
 void VoiceRecorder::beginWaveformExtraction()
@@ -475,6 +546,17 @@ void VoiceRecorder::finishWithWaveform(const QList<int> &waveform)
         discardActiveFile();
         m_state = State::Idle;
         Q_EMIT stateChanged();
+        return;
+    }
+    if (m_endedByDisconnect) {
+        // The owner (composer, thread panel) ends its voice ownership only
+        // from ready() and failed(); failed() releases it with a notice and
+        // nothing may send a clip cut short by an unplugged microphone.
+        discardActiveFile();
+        m_state = State::Idle;
+        Q_EMIT stateChanged();
+        Q_EMIT failed(tr("The microphone was disconnected. The recording was "
+                         "discarded."));
         return;
     }
     const QString file = m_activeFile;

@@ -4891,6 +4891,16 @@ if(BUILD_TESTING)
     set_tests_properties(poll-text-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Create poll dialog keyboard/focus/preview behaviour (swarm C44).
+    qt_add_executable(create-poll-dialog-keys-test
+        tests/CreatePollDialogKeysTest.cpp
+    )
+    lightning_configure_qml_test(create-poll-dialog-keys-test)
+    target_include_directories(create-poll-dialog-keys-test PRIVATE src)
+    add_test(NAME create-poll-dialog-keys COMMAND create-poll-dialog-keys-test)
+    set_tests_properties(create-poll-dialog-keys PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Conversation-area UX (2026-10-07): the room-info background group and
     # its empty preview, Reply in thread on the hover bar, the row hover and
     # reaction outlines on every preset, the call bar's order and device menus
@@ -5414,6 +5424,32 @@ if(BUILD_TESTING)
     target_link_libraries(voice-recorder-test
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME voice-recorder COMMAND voice-recorder-test)
+
+    # C43: a vanished microphone ends a recording; preview pill contracts.
+    qt_add_executable(voice-fix-c43-test
+        tests/VoiceFixC43Test.cpp
+        src/media/VoiceRecorder.h
+        src/media/VoiceRecorder.cpp
+        src/media/QtAudioGate.h
+        src/media/QtAudioGate.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(voice-fix-c43-test PRIVATE src)
+    target_link_libraries(voice-fix-c43-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+    add_test(NAME voice-fix-c43 COMMAND voice-fix-c43-test)
+
+    # C43: the preview pill keeps its width (and its play button its place)
+    # when playback starts; the real VoicePreviewBar, offscreen.
+    qt_add_executable(voice-preview-width-qml-test
+        tests/VoicePreviewWidthQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(voice-preview-width-qml-test)
+    target_link_libraries(voice-preview-width-qml-test PRIVATE Qt6::Test)
+    add_test(NAME voice-preview-width-qml COMMAND voice-preview-width-qml-test)
+    set_tests_properties(voice-preview-width-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Inline playback coordinator: one audible owner, owner-checked release,
     # stopAll generation for room/account switches.
@@ -6044,6 +6080,19 @@ if(BUILD_TESTING)
     target_link_libraries(creation-dialog-qml-test PRIVATE Qt6::Test)
     add_test(NAME creation-dialog-qml COMMAND creation-dialog-qml-test)
     set_tests_properties(creation-dialog-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # SendLaterDialog through the keyboard on the real dialog: Return in the
+    # date/time fields and on Schedule, Return committing a pending entry's
+    # edit (the delegate is rebuilt mid-handler), a future prefill.
+    qt_add_executable(send-later-dialog-qml-test
+        tests/SendLaterDialogQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(send-later-dialog-qml-test)
+    target_link_libraries(send-later-dialog-qml-test PRIVATE Qt6::Test)
+    add_test(NAME send-later-dialog-qml COMMAND send-later-dialog-qml-test)
+    set_tests_properties(send-later-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The DISPLAY / WAYLAND_DISPLAY preflight fires only on Unix-like

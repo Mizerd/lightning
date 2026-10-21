@@ -2065,6 +2065,64 @@ private Q_SLOTS:
                  "its own scaled-stop binding produces, so the stored width "
                  "creeps a stop narrower on every interface-size round trip");
     }
+
+    // C46 F01/D03: Basic's AbstractButton activates on Space only, so the
+    // delete confirm could not be committed from the keyboard with Return.
+    // Fails on the old tree: AppButton has no Keys handler, the confirm dialog
+    // gives Cancel no focus.
+    void aFocusedAppButtonActivatesOnReturnAndTheDeleteConfirmFocusesCancel()
+    {
+        const QString button = read(QStringLiteral("AppButton.qml"));
+        QVERIFY(!button.isEmpty());
+        QVERIFY2(button.contains(QStringLiteral("Keys.onReturnPressed:"))
+                     && button.contains(QStringLiteral("Keys.onEnterPressed:")),
+                 "AppButton does not activate on Return/Enter");
+        QVERIFY2(button.contains(QStringLiteral("root.clicked()")),
+                 "the Return handler never emits clicked()");
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY2(delegate.contains(QStringLiteral(
+                     "onOpened: confirmCancelButton.forceActiveFocus()"))
+                     && delegate.contains(QStringLiteral(
+                            "id: confirmCancelButton")),
+                 "the destructive confirm does not focus Cancel on open");
+    }
+
+    // C46 F03: the timeline pane's Escape Shortcut is matched before the
+    // message box's key handler, so it must cancel a pending edit itself
+    // before closing any panel.
+    void theEscapeShortcutCancelsAPendingEditBeforeClosingAPanel()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int shortcutAt = pane.indexOf(QStringLiteral(
+            "// Escape closes the room info panel first"));
+        QVERIFY(shortcutAt >= 0);
+        const int handlerAt = pane.indexOf(QStringLiteral("onActivated: {"),
+                                           shortcutAt);
+        const int editAt = pane.indexOf(
+            QStringLiteral("else if (app.composer.isEditing)"), handlerAt);
+        const int infoAt = pane.indexOf(
+            QStringLiteral("else if (root.infoOpen)"), handlerAt);
+        QVERIFY2(editAt > handlerAt && editAt < infoAt,
+                 "the Escape Shortcut closes a panel before it cancels a "
+                 "pending edit");
+    }
+
+    // C46 F04/D01: Up in an empty thread box edits the thread's newest own
+    // message from both thread editors.
+    void theThreadComposerEditsItsLastOwnMessageOnUp()
+    {
+        const QString panel = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(panel.contains(QStringLiteral(
+            "function editLastOwnThreadMessage()")));
+        QCOMPARE(panel.count(QStringLiteral(
+                     "panel.editLastOwnThreadMessage()")), 2);
+        QVERIFY(panel.contains(QStringLiteral("app.thread.model")));
+        // Never replaces a main-composer draft (C46 review item 3).
+        const int fn = panel.indexOf(QStringLiteral(
+            "function editLastOwnThreadMessage()"));
+        QVERIFY(panel.mid(fn, 600).contains(QStringLiteral(
+            "app.composer.text.length > 0")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

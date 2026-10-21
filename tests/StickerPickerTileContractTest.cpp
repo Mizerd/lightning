@@ -42,6 +42,16 @@ QString mediaBridgeCpp()
     return readFile(QStringLiteral(LIGHTNING_SRC_DIR "/media/MediaBridge.cpp"));
 }
 
+QString editorQml()
+{
+    return readFile(QStringLiteral(QML_DIR "/StickerPackEditor.qml"));
+}
+
+QString settingsQml()
+{
+    return readFile(QStringLiteral(QML_DIR "/StickerPacksSettings.qml"));
+}
+
 } // namespace
 
 class StickerPickerTileContractTest : public QObject
@@ -118,6 +128,58 @@ private slots:
                  "a tile would never pick up its thumbnail bytes");
         QVERIFY2(qml.contains(QStringLiteral("\"mxcimg:\"")),
                  "StickerPicker.qml no longer builds the \"mxcimg:\" key");
+    }
+
+    // The editor's delegate needs every role it declares, and it must list the
+    // un-narrowed model (C41-F07) and read permission from the manager's rule,
+    // not the model role that is false for the account's own pack (C41-D01).
+    void thePackEditorAndSettingsUseTheRightSources()
+    {
+        const QString editor = editorQml();
+        const QString settings = settingsQml();
+        QVERIFY2(!editor.isEmpty(), "StickerPackEditor.qml could not be read");
+        QVERIFY2(!settings.isEmpty(), "StickerPacksSettings.qml could not be read");
+
+        QSet<QString> served{ QStringLiteral("index") };
+        for (const QByteArray &name : StickerImageModel().roleNames())
+            served.insert(QString::fromUtf8(name));
+        static const QRegularExpression re(
+            QStringLiteral(R"(required\s+property\s+\w+\s+(\w+))"));
+        int found = 0;
+        auto it = re.globalMatch(editor);
+        while (it.hasNext()) {
+            const QString name = it.next().captured(1);
+            ++found;
+            QVERIFY2(served.contains(name), qPrintable(name));
+        }
+        QVERIFY2(found >= 5, "the scan regex has drifted");
+
+        QVERIFY2(editor.contains(QStringLiteral("stickers.editorImages")),
+                 "the editor must list editorImages, not the usage-narrowed grid");
+        QVERIFY2(!editor.contains(QStringLiteral("stickers.images")),
+                 "the editor reads the narrowed `images` model again");
+        QVERIFY2(settings.contains(QStringLiteral("canManagePack(packRow.packId)")),
+                 "Settings must ask the manager whether the pack is manageable");
+        QVERIFY2(!settings.contains(QStringLiteral("packRow.canManage)")),
+                 "Settings passes the ROOM permission role to the editor again");
+    }
+
+    // Keyboard behaviour added for C41-F03/F04/F09/F10/F11, as text: Escape
+    // cancels an inline rename before it can close the dialog, focus goes
+    // back to the opener, the grid takes Home/End/Page/Space and a focused
+    // pack tile draws a ring.
+    void theKeyboardPathsAreWired()
+    {
+        const QString editor = editorQml();
+        const QString picker = pickerQml();
+        QVERIFY(!editor.isEmpty() && !picker.isEmpty());
+        QVERIFY(editor.contains(QStringLiteral("Keys.onEscapePressed")));
+        QVERIFY(editor.contains(QStringLiteral("restoreTo.forceActiveFocus")));
+        QVERIFY(editor.contains(QStringLiteral("positionViewAtIndex")));
+        QVERIFY(picker.contains(QStringLiteral("Keys.onSpacePressed")));
+        QVERIFY(picker.contains(QStringLiteral("Qt.Key_PageDown")));
+        QVERIFY(picker.contains(QStringLiteral("Qt.Key_End")));
+        QVERIFY(picker.contains(QStringLiteral("packTile.visualFocus")));
     }
 };
 

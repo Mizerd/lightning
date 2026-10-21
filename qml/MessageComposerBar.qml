@@ -65,6 +65,11 @@ Item {
     // width to avoid a binding loop. theModeChipNeverPaintsOutsideTheCard pins
     // it.
     readonly property bool compactToolbarRow: root.width > 0 && root.width < 420
+    // Narrower still, even without the mode chip the nine rich-mode buttons
+    // run past the card (6 px at 320). The two text chips only rich mode adds
+    // move into the overflow menu below this. everyShownToolbarButtonLiesInsideTheCard
+    // pins it.
+    readonly property bool tightToolbarRow: root.width > 0 && root.width < 360
 
     // A voice recording is in progress. Derived from app.voiceOwner, never
     // assigned: the recorder is shared with the thread composer, and a local
@@ -110,7 +115,85 @@ Item {
             return (modifiers & Qt.ControlModifier) !== 0
         return (modifiers & Qt.ShiftModifier) === 0
     }
+    // The Menu key (and Shift+F10) open the same themed menu as a right-click,
+    // at the caret, instead of Qt's built-in unthemed one whose Paste is
+    // text-only.
+    function openEditMenuAtCaret(editor) {
+        var r = editor.cursorRectangle
+        root.focusEditor()
+        root.prepareSpellMenu(r.x, r.y + r.height / 2)
+        composerEditMenu.popup(editor, r.x, r.y + r.height)
+    }
+    function _plainReturn(event) {
+        // While a completion popup is open, Return picks
+        // the highlighted entry.
+        if (commandPopup.visible && !commandPopup.returnSends) {
+            commandPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (mentionPopup.visible) {
+            mentionPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (emojiPopup.visible) {
+            emojiPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (!root._returnShouldSend(event.modifiers)) {
+            event.accepted = false
+            return
+        }
+        event.accepted = true
+        app.composer.send()
+        root.focusEditor()
+    }
+    function _richReturn(event) {
+        if (commandPopup.visible && !commandPopup.returnSends) {
+            commandPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (mentionPopup.visible) {
+            mentionPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (emojiPopup.visible) {
+            emojiPopup.accept()
+            event.accepted = true
+            return
+        }
+        if (!root._returnShouldSend(event.modifiers)) {
+            event.accepted = false
+            return
+        }
+        event.accepted = true
+        root.submitComposer()
+        richInput.forceActiveFocus()
+    }
+    // Return/Enter on a focused toolbar or tray button presses it, as Space
+    // does, instead of bubbling here and sending the staged files (C42-F01,
+    // C42-D09). Plain Return only: Ctrl/Shift+Return keep their send/newline
+    // meaning, and nothing outside this composer is affected.
+    function _pressFocusedButton(modifiers) {
+        if ((modifiers & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0)
+            return false
+        var it = root.Window.activeFocusItem
+        if (!it || it === root || typeof it.click !== "function"
+                || typeof it.clicked === "undefined")
+            return false
+        if (it.enabled)
+            it.click()
+        return true
+    }
     Keys.onReturnPressed: (event) => {
+        if (root._pressFocusedButton(event.modifiers)) {
+            event.accepted = true
+            return
+        }
         if (!root._returnShouldSend(event.modifiers)
                 || !app.composer.hasAttachments
                 || !app.composer.canSend) {
@@ -121,6 +204,10 @@ Item {
         root.submitComposer()
     }
     Keys.onEnterPressed: (event) => {
+        if (root._pressFocusedButton(event.modifiers)) {
+            event.accepted = true
+            return
+        }
         if (!root._returnShouldSend(event.modifiers)
                 || !app.composer.hasAttachments
                 || !app.composer.canSend) {
@@ -1925,7 +2012,10 @@ Item {
                             text: qsTr("Send as message")
                             kind: "ghost"
                             size: "sm"
+                            // Only a refused slash command can be sent as
+                            // text; the size refusal returns for the same body.
                             visible: app.composer.canSend
+                                     && app.composer.commandErrorBypassable
                             onClicked: app.composer.sendBypassingCommands()
                         }
                     }
@@ -1960,8 +2050,11 @@ Item {
                                         || qsTr("someone"))
                     }
                     readonly property string bodyText: {
+                        // Which message is being edited: a one-line quote of
+                        // its original text, like the reply bar (C46 F07).
                         if (app.composer.isEditing)
-                            return ""
+                            return root.previewLine(
+                                app.composer.editOriginalText)
                         if (app.composer.inThread)
                             return root.previewLine(app.composer.threadPreview)
                         return root.previewLine(app.composer.replyingToPreview)
@@ -2196,7 +2289,7 @@ Item {
                     // has no underline or numbered-list glyphs.
                     AppButton {
                         objectName: "composerFormat_underline"
-                        visible: root.richMode
+                        visible: root.richMode && !root.tightToolbarRow
                         kind: "ghost"
                         size: "sm"
                         // The 72px minimum is for worded buttons; here it would
@@ -2215,7 +2308,7 @@ Item {
                     }
                     AppButton {
                         objectName: "composerFormat_orderedlist"
-                        visible: root.richMode
+                        visible: root.richMode && !root.tightToolbarRow
                         kind: "ghost"
                         size: "sm"
                         minWidth: 0
@@ -2477,30 +2570,8 @@ Item {
                                 richAutocorrect.cursorMoved()
                                 richSpellTimer.restart()
                             }
-                            Keys.onReturnPressed: (event) => {
-                                if (commandPopup.visible && !commandPopup.returnSends) {
-                                    commandPopup.accept()
-                                    event.accepted = true
-                                    return
-                                }
-                                if (mentionPopup.visible) {
-                                    mentionPopup.accept()
-                                    event.accepted = true
-                                    return
-                                }
-                                if (emojiPopup.visible) {
-                                    emojiPopup.accept()
-                                    event.accepted = true
-                                    return
-                                }
-                                if (!root._returnShouldSend(event.modifiers)) {
-                                    event.accepted = false
-                                    return
-                                }
-                                event.accepted = true
-                                root.submitComposer()
-                                richInput.forceActiveFocus()
-                            }
+                            Keys.onReturnPressed: (event) => root._richReturn(event)
+                            Keys.onEnterPressed: (event) => root._richReturn(event)
                             Keys.onShortcutOverride: (event) => {
                                 if (root._composerFormatFor(event.key,
                                                             event.modifiers) !== "")
@@ -2552,8 +2623,18 @@ Item {
                                     emojiPopup.accept()
                                     event.accepted = true
                                 } else {
-                                    event.accepted = false
+                                    // A chat message never wants a literal tab, and
+                                    // swallowing Tab trapped keyboard users in the editor:
+                                    // move on, as Shift+Tab already does.
+                                    event.accepted = true
+                                    var next = richInput.nextItemInFocusChain(true)
+                                    if (next && next !== richInput)
+                                        next.forceActiveFocus(Qt.TabFocusReason)
                                 }
+                            }
+                            Keys.onMenuPressed: (event) => {
+                                event.accepted = true
+                                root.openEditMenuAtCaret(richInput)
                             }
                             Keys.onEscapePressed: (event) => {
                                 if (commandPopup.visible) {
@@ -2563,6 +2644,10 @@ Item {
                                 } else if (mentionPopup.visible) {
                                     mentionPopup.tokenActive = false
                                     mentionPopup.close()
+                                    event.accepted = true
+                                } else if (emojiPopup.visible) {
+                                    root.emojiPopupDismissed = true
+                                    emojiPopup.close()
                                     event.accepted = true
                                 } else if (app.composer.isReplying
                                            || app.composer.isEditing
@@ -2574,6 +2659,12 @@ Item {
                                 }
                             }
                             Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_F10
+                                        && (event.modifiers & Qt.ShiftModifier)) {
+                                    event.accepted = true
+                                    root.openEditMenuAtCaret(richInput)
+                                    return
+                                }
                                 if (richAutocorrect.handleKey(event))
                                     return
                                 var timelineAction =
@@ -2717,32 +2808,10 @@ Item {
                         }
                         // A reflow moves every underline.
                         onWidthChanged: spellTimer.restart()
-                        Keys.onReturnPressed: (event) => {
-                            // While a completion popup is open, Return picks
-                            // the highlighted entry.
-                            if (commandPopup.visible && !commandPopup.returnSends) {
-                                commandPopup.accept()
-                                event.accepted = true
-                                return
-                            }
-                            if (mentionPopup.visible) {
-                                mentionPopup.accept()
-                                event.accepted = true
-                                return
-                            }
-                            if (emojiPopup.visible) {
-                                emojiPopup.accept()
-                                event.accepted = true
-                                return
-                            }
-                            if (!root._returnShouldSend(event.modifiers)) {
-                                event.accepted = false
-                                return
-                            }
-                            event.accepted = true
-                            app.composer.send()
-                            root.focusEditor()
-                        }
+                        // Return and the numeric keypad's Enter are one key to
+                        // the composer (QML delivers them as separate signals).
+                        Keys.onReturnPressed: (event) => root._plainReturn(event)
+                        Keys.onEnterPressed: (event) => root._plainReturn(event)
                         Keys.onShortcutOverride: (event) => {
                             if (root._composerFormatFor(event.key,
                                                         event.modifiers) !== "")
@@ -2791,8 +2860,18 @@ Item {
                                 emojiPopup.accept()
                                 event.accepted = true
                             } else {
-                                event.accepted = false
+                                // A chat message never wants a literal tab, and
+                                // swallowing Tab trapped keyboard users in the editor:
+                                // move on, as Shift+Tab already does.
+                                event.accepted = true
+                                var next = input.nextItemInFocusChain(true)
+                                if (next && next !== input)
+                                    next.forceActiveFocus(Qt.TabFocusReason)
                             }
+                        }
+                        Keys.onMenuPressed: (event) => {
+                            event.accepted = true
+                            root.openEditMenuAtCaret(input)
                         }
                         Keys.onEscapePressed: (event) => {
                             // Escape closes an open completion popup without
@@ -2805,6 +2884,10 @@ Item {
                             } else if (mentionPopup.visible) {
                                 mentionPopup.tokenActive = false
                                 mentionPopup.close()
+                                event.accepted = true
+                            } else if (emojiPopup.visible) {
+                                root.emojiPopupDismissed = true
+                                emojiPopup.close()
                                 event.accepted = true
                             } else if (app.composer.isReplying
                                        || app.composer.isEditing
@@ -2841,6 +2924,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion0"
                                 visible: root.spellMenuSuggestions.length > 0
+                                enabled: visible
                                 text: visible ? root.spellMenuSuggestions[0] : ""
                                 onTriggered: root.applySpellSuggestion(
                                                  root.spellMenuSuggestions[0])
@@ -2848,6 +2932,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion1"
                                 visible: root.spellMenuSuggestions.length > 1
+                                enabled: visible
                                 text: visible ? root.spellMenuSuggestions[1] : ""
                                 onTriggered: root.applySpellSuggestion(
                                                  root.spellMenuSuggestions[1])
@@ -2855,6 +2940,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion2"
                                 visible: root.spellMenuSuggestions.length > 2
+                                enabled: visible
                                 text: visible ? root.spellMenuSuggestions[2] : ""
                                 onTriggered: root.applySpellSuggestion(
                                                  root.spellMenuSuggestions[2])
@@ -2862,6 +2948,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion3"
                                 visible: root.spellMenuSuggestions.length > 3
+                                enabled: visible
                                 text: visible ? root.spellMenuSuggestions[3] : ""
                                 onTriggered: root.applySpellSuggestion(
                                                  root.spellMenuSuggestions[3])
@@ -2869,6 +2956,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion4"
                                 visible: root.spellMenuSuggestions.length > 4
+                                enabled: visible
                                 text: visible ? root.spellMenuSuggestions[4] : ""
                                 onTriggered: root.applySpellSuggestion(
                                                  root.spellMenuSuggestions[4])
@@ -2876,6 +2964,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellAdd"
                                 visible: root.spellMenuWord !== ""
+                                enabled: visible
                                 text: qsTr("Add to dictionary")
                                 onTriggered: app.spell.addToDictionary(
                                                  root.spellMenuWord)
@@ -2883,6 +2972,7 @@ Item {
                             AppMenuItem {
                                 objectName: "composerSpellIgnore"
                                 visible: root.spellMenuWord !== ""
+                                enabled: visible
                                 text: qsTr("Ignore")
                                 onTriggered: app.spell.ignoreWord(
                                                  root.spellMenuWord)
@@ -2916,6 +3006,12 @@ Item {
                             }
                         }
                         Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_F10
+                                    && (event.modifiers & Qt.ShiftModifier)) {
+                                event.accepted = true
+                                root.openEditMenuAtCaret(input)
+                                return
+                            }
                             // Backspace or Ctrl+Z right after an autocorrection
                             // puts the typed word back.
                             if (plainAutocorrect.handleKey(event))
@@ -3350,6 +3446,24 @@ Item {
                     app.settings.composerMode =
                         root.richMode ? "markdown" : "rich"
             }
+        }
+        // The rich-only chips the toolbar drops when it is too narrow for them.
+        AppMenuItem {
+            objectName: "composerOverflowUnderlineItem"
+            text: qsTr("Underline")
+            visible: root.richMode && root.tightToolbarRow
+            height: visible ? implicitHeight : 0
+            enabled: visible && app.currentRoomId !== ""
+                     && root.inlineFormatAvailable
+            onTriggered: root.applyFormat("underline")
+        }
+        AppMenuItem {
+            objectName: "composerOverflowOrderedListItem"
+            text: qsTr("Numbered list")
+            visible: root.richMode && root.tightToolbarRow
+            height: visible ? implicitHeight : 0
+            enabled: visible && app.currentRoomId !== ""
+            onTriggered: root.applyFormat("orderedlist")
         }
         AppMenuItem {
             objectName: "composerOverflowEmojiItem"

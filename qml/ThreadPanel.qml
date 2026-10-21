@@ -177,13 +177,10 @@ Rectangle {
     Connections {
         target: app.thread
         function onListStateChanged() {
+            // A list that finished loading empty drops a pending request
+            // (C30; then a fresh open below may ask again).
             if (!app.thread.listLoading && threadListView.count === 0)
                 panel._focusListPending = false
-        }
-    }
-    Connections {
-        target: app.thread
-        function onListStateChanged() {
             if (app.thread.listOpen && !app.thread.active) {
                 if (!panel._focusListPending && !panel._listWasOpen)
                     panel._focusListPending = true
@@ -1713,6 +1710,12 @@ Rectangle {
                                             threadRichInput)
                                         event.accepted = true; return
                                     }
+                                    if (event.key === Qt.Key_Up
+                                            && !(event.modifiers
+                                                 & ~Qt.KeypadModifier)
+                                            && panel.editLastOwnThreadMessage()) {
+                                        event.accepted = true; return
+                                    }
                                     var richFormatAction =
                                         app.shortcuts.editorActionForKey(
                                             event.key, event.modifiers)
@@ -1974,6 +1977,12 @@ Rectangle {
                                         && event.modifiers === Qt.NoModifier) {
                                     panel.leaveComposerForward(
                                         threadComposerInput)
+                                    event.accepted = true; return
+                                }
+                                if (event.key === Qt.Key_Up
+                                        && !(event.modifiers
+                                             & ~Qt.KeypadModifier)
+                                        && panel.editLastOwnThreadMessage()) {
                                     event.accepted = true; return
                                 }
                                 var threadFormatAction =
@@ -2914,6 +2923,36 @@ Rectangle {
             threadMentionPopup.close()
             Qt.callLater(function () { threadComposerInput.forceActiveFocus() })
         }
+    }
+    // Up in an empty thread box edits the newest own message of THIS thread,
+    // as Up does in the room's message box (C46 F04/D01). The edit itself lives
+    // in the room composer (one edit state); beginEdit() hands it the
+    // keyboard. Bounded at 200 source rows.
+    readonly property int editLastThreadScanRows: 200
+    function editLastOwnThreadMessage() {
+        if (app.thread.state !== ThreadController.Ready
+                || app.thread.hasAttachments || app.composer.isEditing
+                // beginEdit replaces the room composer's text: never over a draft
+                || app.composer.text.length > 0)
+            return false
+        var empty = panel.richMode
+            ? threadRichInput.getText(0, threadRichInput.length).trim().length === 0
+            : threadComposerInput.text.length === 0
+        if (!empty)
+            return false
+        var m = app.thread.model
+        if (!m)
+            return false
+        var oldest = Math.max(0, m.count - panel.editLastThreadScanRows)
+        for (var row = m.count - 1; row >= oldest; --row) {
+            var id = m.eventIdAt(row)
+            if (id === "" || !m.canEditEvent(id))
+                continue
+            app.composer.beginEdit(id, m.visibleTextForEvent(id),
+                                   m.sanitizedHtmlForEvent(id), m.roomId)
+            return true
+        }
+        return false
     }
     function sendComposerText() {
         if (app.thread.state !== ThreadController.Ready)

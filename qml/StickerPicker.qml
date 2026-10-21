@@ -191,6 +191,7 @@ AnchoredPopup {
             // Manage the selected pack. The editor is read-only when this
             // account may not write it, so members can still see its contents.
             IconButton {
+                id: manageButton
                 objectName: "stickerManageButton"
                 storm: true
                 size: "md"
@@ -211,6 +212,7 @@ AnchoredPopup {
                     if (!pack || !pack.packId)
                         return
                     packEditor.stickers = picker.stickers
+                    packEditor.restoreTo = manageButton
                     packEditor.openFor(pack.packId, pack.displayName,
                                        pack.canManage)
                 }
@@ -276,6 +278,19 @@ AnchoredPopup {
                 ToolTip.delay: 500
                 readonly property bool current:
                     packTile.packId === picker.stickers.selectedPackId
+
+                // Keyboard focus ring (C41-F03): the selected-state border alone
+                // left a focused, unselected tile invisible.
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    z: 1
+                    radius: AppTheme.radiusControl + 2
+                    color: "transparent"
+                    border.color: AppTheme.bolt
+                    border.width: 2
+                    visible: packTile.visualFocus
+                }
 
                 background: Rectangle {
                     anchors.fill: parent
@@ -379,6 +394,28 @@ AnchoredPopup {
             }
             Keys.onReturnPressed: if (grid.currentIndex >= 0)
                                       picker.choose(grid.currentIndex)
+            // Space sends, and Home/End/Page move the current tile, as in a
+            // file view (C41-F04). Four columns; a page is the visible rows.
+            Keys.onSpacePressed: if (grid.currentIndex >= 0)
+                                     picker.choose(grid.currentIndex)
+            Keys.onPressed: (event) => {
+                if (grid.count <= 0)
+                    return
+                var cols = Math.max(1, Math.floor(grid.width / grid.cellWidth))
+                var page = Math.max(1, Math.floor(grid.height / grid.cellHeight)) * cols
+                var at = Math.max(0, grid.currentIndex)
+                if (event.key === Qt.Key_Home)
+                    grid.currentIndex = 0
+                else if (event.key === Qt.Key_End)
+                    grid.currentIndex = grid.count - 1
+                else if (event.key === Qt.Key_PageDown)
+                    grid.currentIndex = Math.min(grid.count - 1, at + page)
+                else if (event.key === Qt.Key_PageUp)
+                    grid.currentIndex = Math.max(0, at - page)
+                else
+                    return
+                event.accepted = true
+            }
             Keys.onEnterPressed: if (grid.currentIndex >= 0)
                                      picker.choose(grid.currentIndex)
 

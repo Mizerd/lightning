@@ -39,8 +39,16 @@ Popup {
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : anchorInputTop.x
-    y: Math.max(AppTheme.spacing4,
-                anchorInputTop.y - height - AppTheme.spacing4)
+    // Above the input, but never outside the overlay (window shrunk under an
+    // open popup).
+    y: {
+        var above = Math.max(AppTheme.spacing4,
+                             anchorInputTop.y - height - AppTheme.spacing4)
+        return parent ? Math.max(AppTheme.spacing4,
+                                 Math.min(above, parent.height - height
+                                                 - AppTheme.spacing4))
+                      : above
+    }
 
     onCountChanged: {
         if (currentIndex >= count)
@@ -51,6 +59,11 @@ Popup {
             close()
     }
     onOpened: currentIndex = 0
+
+    // Last pointer position (scene) that moved the highlight. Popup-level, not
+    // per row: a list scrolled under a parked pointer hands the hover to a
+    // DIFFERENT row's MouseArea, which would otherwise look like fresh motion.
+    property point lastHoverScenePos: Qt.point(-1, -1)
 
     function moveDown() {
         if (count > 0)
@@ -132,6 +145,11 @@ Popup {
             currentIndex: root.currentIndex
             // The list follows the keyboard; the popup never takes focus.
             interactive: contentHeight > height
+            Accessible.role: Accessible.List
+            Accessible.name: qsTr("Commands")
+
+            // The timeline's wheel feel; a burst of notches reaches the end.
+            SmoothWheelArea {}
 
             ScrollBar.vertical: AppScrollBar {
                 thin: true
@@ -162,6 +180,7 @@ Popup {
                 Accessible.role: Accessible.ListItem
                 Accessible.name: "/" + modelData.name + " "
                                  + (modelData.description || "")
+                Accessible.selected: selected
 
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
@@ -221,8 +240,24 @@ Popup {
                     active: true
                 }
                 MouseArea {
+                    objectName: "slashCommandRowMouse_" + index
                     anchors.fill: parent
                     enabled: rowEnabled
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    // The row a click will accept is the row that is
+                    // highlighted. Only REAL pointer motion counts: when the
+                    // keyboard scrolls the list under a parked pointer Qt
+                    // re-issues hover for the row now beneath it, and acting
+                    // on that would steal the selection back.
+                    onPositionChanged: function (mouse) {
+                        var p = mapToItem(null, mouse.x, mouse.y)
+                        if (Math.abs(p.x - root.lastHoverScenePos.x) < 1
+                                && Math.abs(p.y - root.lastHoverScenePos.y) < 1)
+                            return
+                        root.lastHoverScenePos = p
+                        root.currentIndex = index
+                    }
                     onClicked: {
                         root.currentIndex = index
                         root.accept()

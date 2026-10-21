@@ -24,6 +24,18 @@ Dialog {
     // QML-tracked dependency, so bindings reading answerTexts() read this too.
     property int answerRevision: 0
     function bumpAnswerRevision() { answerRevision = answerRevision + 1 }
+    // Removal lives here, not in the delegate: a statement after remove() in
+    // the delegate's handler runs in a destroyed context ("root is not
+    // defined"), so the revision bump must not be written there.
+    function removeAnswer(i) {
+        answerModel.remove(i)
+        bumpAnswerRevision()
+    }
+    // Focus the answer field of row i (after the Repeater has built it).
+    function focusAnswer(i) {
+        var item = answerRepeater.itemAt(i)
+        if (item && item.answerField) item.answerField.forceActiveFocus()
+    }
 
     function openDialog() {
         resetAll()
@@ -187,6 +199,7 @@ Dialog {
         // answers never push the title or buttons off screen) ──
         Flickable {
             id: pollBodyFlick
+            objectName: "pollBodyFlick"
             Layout.fillWidth: true
             Layout.fillHeight: true
             implicitHeight: pollBody.implicitHeight
@@ -198,6 +211,53 @@ Dialog {
             // Same wheel/touchpad feel as the room timeline; see
             // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
+
+            // Keep the focused control visible, and let Page keys scroll the
+            // body when a field leaves them unhandled.
+            function ensureVisible(item) {
+                if (!item || !pollBody.visible) return
+                for (var p = item; p; p = p.parent) {
+                    if (p === pollBody) break
+                }
+                if (!p) return
+                var top = item.mapToItem(contentItem, 0, 0).y
+                var bottom = top + item.height
+                var maxY = Math.max(0, contentHeight - height)
+                if (top < contentY)
+                    contentY = Math.max(0, top - AppTheme.spacing8)
+                else if (bottom > contentY + height)
+                    contentY = Math.min(maxY, bottom - height + AppTheme.spacing8)
+            }
+            // A row created by the same handler that focuses it has no
+            // geometry yet (layout polish is deferred), so measuring at the
+            // focus change would read y=0 and jump the body to the top. The
+            // measurement waits for layout, and runs again whenever the
+            // content height moves while that item still holds focus.
+            Timer {
+                id: ensureTimer
+                interval: 0
+                onTriggered: pollBodyFlick.ensureFocusedVisible()
+            }
+            function ensureFocusedVisible() {
+                var w = pollBodyFlick.Window.window
+                if (w) ensureVisible(w.activeFocusItem)
+            }
+            onContentHeightChanged: ensureTimer.restart()
+            Connections {
+                target: pollBodyFlick.Window.window
+                ignoreUnknownSignals: true
+                function onActiveFocusItemChanged() { ensureTimer.restart() }
+            }
+            Keys.onPressed: (event) => {
+                var maxY = Math.max(0, contentHeight - height)
+                if (event.key === Qt.Key_PageDown) {
+                    contentY = Math.min(maxY, contentY + height * 0.9)
+                    event.accepted = true
+                } else if (event.key === Qt.Key_PageUp) {
+                    contentY = Math.max(0, contentY - height * 0.9)
+                    event.accepted = true
+                }
+            }
 
             RowLayout {
                 id: pollBody
@@ -229,6 +289,8 @@ Dialog {
                         id: answerRepeater
                         model: root.answerModel
                         delegate: Rectangle {
+                            id: answerDelegate
+                            readonly property alias answerField: answerFieldItem
                             Layout.fillWidth: true
                             radius: AppTheme.radiusTile
                             color: "transparent"
@@ -242,6 +304,7 @@ Dialog {
                                 anchors.margins: AppTheme.spacing4
                                 spacing: AppTheme.spacing8
                                 AppTextField {
+                                    id: answerFieldItem
                                     storm: true
                                     objectName: "pollAnswerField"
                                     Layout.fillWidth: true
@@ -253,12 +316,21 @@ Dialog {
                                             index, "answerText", text)
                                         root.bumpAnswerRevision()
                                     }
+                                    // Enter walks the list: it adds a row after
+                                    // the last answer and moves focus to the
+                                    // next row, so sending always needs the
+                                    // Send button (or Enter in the question /
+                                    // the final row of a full list).
                                     onAccepted: {
-                                        if (index === root.answerModel.count - 1
-                                            && root.answerModel.count < root.maxAnswers)
+                                        var last = root.answerModel.count - 1
+                                        if (index < last) {
+                                            root.focusAnswer(index + 1)
+                                        } else if (root.answerModel.count < root.maxAnswers) {
                                             root.answerModel.append({ answerText: "" })
-                                        else if (root.formValid)
+                                            root.focusAnswer(index + 1)
+                                        } else if (root.formValid) {
                                             root.submit()
+                                        }
                                     }
                                 }
                                 IconButton {
@@ -271,10 +343,7 @@ Dialog {
                                     // rows only clear.
                                     enabled: root.answerModel.count > 2
                                     Accessible.name: qsTr("Remove answer %1").arg(index + 1)
-                                    onClicked: {
-                                        root.answerModel.remove(index)
-                                        root.bumpAnswerRevision()
-                                    }
+                                    onClicked: root.removeAnswer(index)
                                 }
                             }
                         }
@@ -416,12 +485,18 @@ Dialog {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 220
+                        // The body Flickable sizes from the form/preview
+                        // implicit heights; without this the preview's content
+                        // never reached it and long polls were clipped.
+                        implicitHeight: pollPreviewContent.implicitHeight
+                                        + AppTheme.spacing12 * 2
                         radius: AppTheme.radiusLg
                         color: AppTheme.stormInset
                         border.width: 1
                         border.color: AppTheme.stormBorder
 
                         ColumnLayout {
+                            id: pollPreviewContent
                             anchors.fill: parent
                             anchors.margins: AppTheme.spacing12
                             spacing: AppTheme.spacing8

@@ -59,6 +59,7 @@ StickerPackManager::StickerPackManager(QObject *parent)
     : QObject(parent)
     , m_packs(new StickerPackModel(this))
     , m_images(new StickerImageModel(this))
+    , m_editorImages(new StickerImageModel(this))
 {
 }
 
@@ -658,6 +659,7 @@ void StickerPackManager::onLoggedOut()
     m_savedUrls.clear();
     m_packs->clear();
     m_images->clear();
+    m_editorImages->clear();
     if (!m_selectedPackId.isEmpty()) {
         m_selectedPackId.clear();
         Q_EMIT selectedPackIdChanged();
@@ -716,6 +718,7 @@ void StickerPackManager::rebuildImages()
     const int row = m_packs->indexOfPack(m_selectedPackId);
     if (row < 0) {
         m_images->clear();
+        m_editorImages->clear();
         return;
     }
     const bool wantSticker = m_usage != QLatin1String("emoticon");
@@ -727,6 +730,7 @@ void StickerPackManager::rebuildImages()
             narrowed.append(image);
     }
     m_images->reset(narrowed);
+    m_editorImages->reset(pack.images);
 }
 
 // -- Shortcode validation ----------------------------------------------------

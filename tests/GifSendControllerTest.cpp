@@ -464,6 +464,10 @@ void GifSendControllerTest::localFavoritePngSendCarriesTruthfulMimeAndFilename()
     QCOMPARE(client->sends.first().mime, QStringLiteral("image/png"));
     QVERIFY(client->sends.first().filename.endsWith(QStringLiteral(".png")));
     QVERIFY(!client->sends.first().filename.endsWith(QStringLiteral(".gif")));
+    // The content hash is not a name: it became the body and room-list
+    // preview. (C40-F04; old code gave "local-9999...9.png".)
+    QCOMPARE(client->sends.first().filename, QStringLiteral("image.png"));
+    QVERIFY(!client->sends.first().filename.contains(hash.left(8)));
     QCOMPARE(client->sends.first().bytes, png); // exact bytes, never transcoded
     QCOMPARE(client->sends.first().w, 48);
     QCOMPARE(client->sends.first().h, 32);

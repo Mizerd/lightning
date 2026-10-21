@@ -37,6 +37,13 @@ QString GifSendController::safeFilename(const gif::GifResult &r, const QString &
     const QString provider = r.provider.isEmpty() ? QStringLiteral("gif")
                                                   : r.provider;
     const QString suffix = ext.isEmpty() ? QStringLiteral("gif") : ext;
+    // A saved-from-chat copy's id is its content hash: as a filename it is
+    // noise, and it becomes the body other clients and the room-list preview
+    // show. Name it by kind, like an id-less result.
+    if (r.provider == QLatin1String("local"))
+        return (suffix == QLatin1String("gif") ? QStringLiteral("animated.")
+                                               : QStringLiteral("image."))
+               + suffix;
     return id.isEmpty()
         ? QStringLiteral("animated.") + suffix
         : provider + QLatin1Char('-') + id + QLatin1Char('.') + suffix;

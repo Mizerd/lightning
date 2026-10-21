@@ -63,8 +63,16 @@ Popup {
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : anchorInputTop.x
-    y: Math.max(AppTheme.spacing4,
-                anchorInputTop.y - height - AppTheme.spacing4)
+    // Above the input, but never outside the overlay (window shrunk under an
+    // open popup).
+    y: {
+        var above = Math.max(AppTheme.spacing4,
+                             anchorInputTop.y - height - AppTheme.spacing4)
+        return parent ? Math.max(AppTheme.spacing4,
+                                 Math.min(above, parent.height - height
+                                                 - AppTheme.spacing4))
+                      : above
+    }
 
     // Set by the composer while an @-token is at the caret. The popup is shown
     // only when it has something to offer: matches, or a member list that is
@@ -197,6 +205,8 @@ Popup {
             boundsBehavior: Flickable.StopAtBounds
             interactive: contentHeight > height
             Accessible.role: Accessible.List
+            Accessible.name: qsTr("Mention suggestions")
+            SmoothWheelArea {}
 
             delegate: Rectangle {
                 id: rowDelegate
@@ -248,8 +258,12 @@ Popup {
                         Layout.alignment: Qt.AlignVCenter
                         spacing: 0
                         Label {
+                            objectName: "mentionName"
                             Layout.fillWidth: true
-                            textFormat: Text.RichText
+                            // StyledText, not RichText: it keeps the <font>
+                            // tint and, unlike RichText, honours elide, so a
+                            // long name ends in an ellipsis before the keycap.
+                            textFormat: Text.StyledText
                             text: root.highlightedName(
                                 root.nameFor(model), root.query,
                                 rowDelegate.isSelected ? AppTheme.bolt

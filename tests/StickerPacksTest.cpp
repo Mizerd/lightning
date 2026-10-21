@@ -313,6 +313,33 @@ private Q_SLOTS:
         QCOMPARE(manager.usablePackCount(), 2);
     }
 
+    // The pack editor lists editorImages. `images` is narrowed to the usage
+    // the picker shows, so editing through it hid a pack's emoji (and made an
+    // emoji-only pack read "no images"): C41-D01 / C41-F07.
+    void theEditorListsEveryImageWhateverTheGridUsageIs()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+
+        QCOMPARE(manager.images()->count(), 1);
+        QCOMPARE(manager.editorImages()->count(), 2);
+        manager.setUsage(QStringLiteral("emoticon"));
+        QCOMPARE(manager.images()->count(), 1);
+        QCOMPARE(manager.editorImages()->count(), 2);
+
+        // An emoji-only pack: the grid is empty, the editor is not.
+        QVariantList only;
+        only.append(pack(QStringLiteral("user"), QStringLiteral("user"),
+                         QStringLiteral("Your pack"),
+                         { image(QStringLiteral("bolt"), kMxcA, false, true) }));
+        manager.setUsage(QStringLiteral("sticker"));
+        manager.applySnapshotForTest(kRoom, false, only);
+        QCOMPARE(manager.images()->count(), 0);
+        QCOMPARE(manager.editorImages()->count(), 1);
+    }
+
     void anUnknownPackIdIsRefusedRatherThanMappedToTheFirstPack()
     {
         FakeClient client;

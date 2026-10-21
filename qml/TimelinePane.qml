@@ -571,6 +571,12 @@ Rectangle {
         onActivated: {
             if (root.findOpen)
                 root.closeFind()
+            // A pending edit in the main message box is cancelled before any
+            // panel closes: this Shortcut is matched before the message
+            // box's own Escape handler, so without it the panel closed and
+            // the edit stayed armed for the next Return (C46 F03).
+            else if (app.composer.isEditing)
+                app.composer.cancelReplyOrEdit()
             else if (root.infoOpen) {
                 root.infoOpen = false
                 root.rememberMemberPanel()

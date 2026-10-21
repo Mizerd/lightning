@@ -50,6 +50,11 @@ class StickerPackManager : public QObject
     Q_PROPERTY(bool loaded READ loaded NOTIFY stateChanged)
     Q_PROPERTY(StickerPackModel *packs READ packs CONSTANT)
     Q_PROPERTY(StickerImageModel *images READ images CONSTANT)
+    // EVERY image of the selected pack, stickers and emoji alike, in pack
+    // order. The pack editor lists this: `images` is narrowed to the usage the
+    // picker shows, so editing through it hid the other kind and made an
+    // emoji-only pack look empty.
+    Q_PROPERTY(StickerImageModel *editorImages READ editorImages CONSTANT)
     // Selected pack id, or "" before the first snapshot. An id not in the
     // snapshot is refused rather than mapped to another pack.
     Q_PROPERTY(QString selectedPackId READ selectedPackId WRITE setSelectedPackId
@@ -94,6 +99,7 @@ public:
     bool editing() const { return m_editOp != 0; }
     StickerPackModel *packs() const { return m_packs; }
     StickerImageModel *images() const { return m_images; }
+    StickerImageModel *editorImages() const { return m_editorImages; }
     QString selectedPackId() const { return m_selectedPackId; }
     void setSelectedPackId(const QString &id);
     QString usage() const { return m_usage; }
@@ -362,6 +368,7 @@ private:
     MatrixClient *m_client = nullptr;
     StickerPackModel *m_packs = nullptr;
     StickerImageModel *m_images = nullptr;
+    StickerImageModel *m_editorImages = nullptr;
 
     QString m_activeRoomId;
     // The room the current snapshot was taken for; compared for staleness.

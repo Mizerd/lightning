@@ -113,6 +113,9 @@ ColumnLayout {
             AppSwitch {
                 objectName: "stickerPackUseEverywhereSwitch"
                 visible: packRow.source === "room"
+                ToolTip.text: qsTr("Use everywhere")
+                ToolTip.visible: _hot && !useEverywhereLabel.visible
+                ToolTip.delay: 500
                 enabled: section.available
                          && !section.stickers.togglingRoomPack
                          && !section.stickers.loading
@@ -123,13 +126,17 @@ ColumnLayout {
                     packRow.packId, !packRow.enabledGlobally)
             }
             Label {
-                visible: packRow.source === "room"
+                id: useEverywhereLabel
+                // Dropped on a narrow page so the pack's name keeps its room
+                // (C41-F14); the switch keeps its accessible name and tooltip.
+                visible: packRow.source === "room" && section.width >= 460
                 text: qsTr("Use everywhere")
                 color: AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.textMeta
             }
 
             AppButton {
+                id: manageButton
                 objectName: "stickerPackManageButton"
                 text: qsTr("Manage")
                 kind: "ghost"
@@ -140,8 +147,12 @@ ColumnLayout {
                     // The editor edits whichever pack the manager has selected.
                     section.stickers.selectedPackId = packRow.packId
                     editor.stickers = section.stickers
+                    editor.restoreTo = manageButton
+                    // The manager's rule, not the model role: the role is the
+                    // ROOM permission and is false for the account's own pack,
+                    // which is always writable (C41-D01, C41-F06).
                     editor.openFor(packRow.packId, packRow.displayName,
-                                   packRow.canManage)
+                                   section.stickers.canManagePack(packRow.packId))
                 }
             }
         }

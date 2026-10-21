@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAudioDecoder>
+#include <QByteArray>
 #include <QList>
 #include <QObject>
 #include <QPointer>
@@ -13,6 +14,7 @@
 class QMediaCaptureSession;
 class QAudioInput;
 class QMediaRecorder;
+class QMediaDevices;
 namespace lightning::media {
 class QtAudioGate;
 }
@@ -94,6 +96,31 @@ public:
     {
         m_startNowForTest = std::move(start);
     }
+    /// The input list changed: a recording whose device is gone is STOPPED,
+    /// its clip discarded and failed() emitted once (never ready(): that is
+    /// every consumer's "send it", and owners release the recorder only from
+    /// ready()/failed()).
+    struct InputInfo {
+        QByteArray id;
+        bool isDefault = false;
+    };
+    /// Whether a recording started on `id` still has its input: the id is
+    /// listed, or the recording followed the system default and some input is
+    /// the default now (a re-listed default under a new id is no disconnect).
+    static bool inputStillPresent(const QByteArray &id, bool wasDefault,
+                                  const QList<InputInfo> &inputs);
+    void inputDevicesChanged(const QList<InputInfo> &inputs);
+    /// Test seam: creates the device watch ensureCaptureChain installs, so a
+    /// test can emit audioInputsChanged() on it.
+    QMediaDevices *watchInputDevicesForTest();
+    /// Test seam: a recording on `deviceId` whose finished clip is
+    /// `activeFile`; stop() then enters Processing and finishForTest() plays
+    /// the part of the recorder's stopped edge.
+    void setRecordingForTest(const QByteArray &deviceId,
+                             const QString &activeFile = QString(),
+                             qint64 durationMs = 0);
+    void finishForTest();
+    bool endedByDisconnect() const { return m_endedByDisconnect; }
     int startNowCallsForTest() const { return m_startNowCalls; }
 
 Q_SIGNALS:
@@ -108,6 +135,7 @@ Q_SIGNALS:
     void failed(const QString &message);
 
 private:
+    void watchInputDevices();
     enum class State { Idle, Recording, Processing };
 
     bool ensureCaptureChain();
@@ -132,6 +160,10 @@ private:
     std::unique_ptr<QTemporaryDir> m_dir;
     std::unique_ptr<QMediaCaptureSession> m_session;
     std::unique_ptr<QAudioInput> m_audioInput;
+    std::unique_ptr<QMediaDevices> m_devices;
+    QByteArray m_recordingDeviceId;
+    bool m_recordingWasDefault = false;
+    bool m_endedByDisconnect = false;
     std::unique_ptr<QMediaRecorder> m_recorder;
     std::unique_ptr<QAudioDecoder> m_decoder;
     QTimer m_maxDurationGuard;

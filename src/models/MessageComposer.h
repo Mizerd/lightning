@@ -32,6 +32,9 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString replyingToPreview READ replyingToPreview NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyingToMediaKey READ replyingToMediaKey NOTIFY replyStateChanged)
     Q_PROPERTY(QString editingEventId READ editingEventId NOTIFY editStateChanged)
+    /// The text of the message being edited, as it was when the edit began
+    /// (the banner quotes it, C46 F07). Meaningful only while isEditing.
+    Q_PROPERTY(QString editOriginalText READ editOriginalText NOTIFY editStateChanged)
     Q_PROPERTY(bool isReplying READ isReplying NOTIFY replyStateChanged)
     Q_PROPERTY(bool isEditing READ isEditing NOTIFY editStateChanged)
     Q_PROPERTY(QString threadRootId READ threadRootId NOTIFY threadStateChanged)
@@ -67,6 +70,11 @@ class MessageComposer : public QObject
     // enforces.
     Q_PROPERTY(QString commandError READ commandError
                    NOTIFY commandErrorChanged)
+    // True only when commandError is a refused slash command, i.e. when
+    // sendBypassingCommands can get past it. The size refusal sets the same
+    // commandError and sending the same body as text is refused again.
+    Q_PROPERTY(bool commandErrorBypassable READ commandErrorBypassable
+                   NOTIFY commandErrorChanged)
     Q_PROPERTY(QVariantList commandCompletions READ commandCompletions
                    NOTIFY commandCompletionsChanged)
     Q_PROPERTY(QVariantMap commandPermissions READ commandPermissions
@@ -93,6 +101,7 @@ public:
     QString editingEventId()    const { return m_editingEventId; }
     QString threadRootId()      const { return m_threadRootId; }
     QString threadPreview()     const { return m_threadPreview; }
+    QString editOriginalText() const { return m_editSeedText; }
     bool isReplying() const { return !m_replyingToEventId.isEmpty(); }
     bool isEditing()  const { return !m_editingEventId.isEmpty(); }
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
@@ -302,6 +311,10 @@ public:
                                         int selectionEnd) const;
 
     QString commandError() const { return m_commandError; }
+    bool commandErrorBypassable() const
+    {
+        return !m_commandError.isEmpty() && m_commandErrorBypassable;
+    }
     QVariantList commandCompletions() const;
     QVariantMap commandPermissions() const { return m_commandPermissions; }
     void setCommandPermissions(const QVariantMap &permissions);
@@ -365,7 +378,7 @@ private:
     // converts here, under the same code-span and custom-pack-shadow rules as
     // maybeAutoConvertShortcodeBeforeCursor. A no-op without a resolver.
     QString convertUnicodeShortcodesForSend(const QString &text) const;
-    void setCommandError(const QString &error);
+    void setCommandError(const QString &error, bool bypassable = false);
     // stopTyping + cancelReplyOrEdit + clear: the tail shared by every
     // successful send and content-sending command.
     void finishSuccessfulSend();
@@ -409,6 +422,10 @@ private:
     /// The timeline holding `m_editingEventId` (a composite for a thread-panel
     /// edit). Empty means this composer's room.
     QString m_editingTimelineId;
+    /// The text beginEdit() seeded the box with; an edit saved with this text
+    /// unchanged sends nothing (C46 F06).
+    QString m_editSeedText;
+    QString m_editSeedHtml;
     /// Where an edit must be sent: the recorded timeline, or this composer's
     /// room when none was recorded.
     QString editTargetTimelineId() const
@@ -432,6 +449,9 @@ private:
     bool    m_canSend = false;
     bool    m_typingActive = false;
     bool    m_typingEnabled = true;
+    // Whether m_commandError is a refused slash command (see
+    // commandErrorBypassable), as opposed to the size refusal.
+    bool    m_commandErrorBypassable = false;
     QTimer  m_typingRefresh;
 
     // Drafts. The debounce is stopped before every room change and the save

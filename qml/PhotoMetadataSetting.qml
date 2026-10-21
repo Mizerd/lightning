@@ -22,6 +22,9 @@ ColumnLayout {
         objectName: "imageMetadataCombo"
         storm: true
         Layout.fillWidth: true
+        // A combo's implicit width is its widest option; a zero minimum lets
+        // a narrow settings column shrink it instead of overflowing the card.
+        Layout.minimumWidth: 0
         textRole: "label"
         valueRole: "value"
         Accessible.name: qsTr("Photo details removed when sending")
@@ -67,9 +70,26 @@ ColumnLayout {
                         + "taken before it is sent: GPS position and any "
                         + "named place (city, country, location) in its "
                         + "details. Camera and time details stay. The "
-                        + "picture itself is not re-encoded. TIFF, raw and "
-                        + "JPEG XL files cannot be cleaned and are not "
-                        + "sent. Your own file is never changed.")
+                        + "picture itself is not re-encoded. Your own file "
+                        + "is never changed.")
         }
+    }
+    // The one consequence a reader must not miss gets its own line and ink
+    // (C42-D07): files that cannot be cleaned are refused, not sent as-is.
+    // Shown whenever cleaning is on; "keep everything" sends them untouched.
+    Label {
+        objectName: "imageMetadataRefusal"
+        visible: section.available
+                 && app.settings.imageMetadataMode !== "keep"
+        Layout.fillWidth: true
+        Layout.leftMargin: AppTheme.spacing4
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        lineHeight: AppTheme.lineHeightBody
+        lineHeightMode: Text.ProportionalHeight
+        color: AppTheme.warning
+        font.pixelSize: AppTheme.textMeta
+        text: qsTr("TIFF, raw and JPEG XL files cannot be cleaned and are "
+                   + "not sent.")
     }
 }

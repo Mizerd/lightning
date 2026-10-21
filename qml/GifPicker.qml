@@ -129,6 +129,8 @@ AnchoredPopup {
     // delivered as two clicks) can still arrive. Reset on the next open, not on
     // close.
     property bool activated: false
+    // True only while onClosed empties the search field (C40-F10).
+    property bool clearingField: false
     function choose(resultOrRow) {
         if (activated)
             return
@@ -194,7 +196,16 @@ AnchoredPopup {
             gif.showTrending()
         Qt.callLater(searchField.forceActiveFocus)
     }
-    onClosed: gif.reset()
+    onClosed: {
+        gif.reset()
+        // The controller's query is gone; the field must agree on reopen
+        // (C40-F10). textChanged is synchronous, so the guard keeps the
+        // clear from reaching setQueryText -> showTrending, which would start
+        // a provider request on the controller that was just reset.
+        picker.clearingField = true
+        searchField.clear()
+        picker.clearingField = false
+    }
     onTabChanged: grid.currentIndex = -1
 
     // Select a provider id or a local list id. Only a provider id may reach
@@ -259,7 +270,11 @@ AnchoredPopup {
                 // outside this Rectangle.
                 anchors.leftMargin: -picker.leftInset
                 anchors.topMargin: -picker.topInset
-                acceptedButtons: Qt.AllButtons
+                // Left and right only: the context menus this barrier guards
+                // against open on those. Middle (autoscroll, which refuses to
+                // start over a MouseArea that takes it) and Back/Forward
+                // (room history) pass through (C40-F02, F07).
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
             }
         }
         // Popover shadow. Effect and source must be siblings, hence the Item
@@ -338,7 +353,7 @@ AnchoredPopup {
                 placeholderText: qsTr("Search %1").arg(picker.gif.providerName)
                 Accessible.name: qsTr("Search GIFs")
                 selectByMouse: true
-                onTextChanged: picker.gif.setQueryText(text)
+                onTextChanged: if (!picker.clearingField) picker.gif.setQueryText(text)
                 Keys.onDownPressed: {
                     grid.forceActiveFocus()
                     if (grid.currentIndex < 0 && grid.count > 0)
@@ -540,7 +555,10 @@ AnchoredPopup {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            cellWidth: Math.floor(width / 3)
+            // The attached scrollbar sits inside the view's right edge, so the
+            // gutter is reserved INSIDE it: three columns fit left of the bar
+            // and a click on the bar never reaches a tile (C40-F01, D03).
+            cellWidth: Math.floor((width - AppTheme.scrollbarWidth) / 3)
             cellHeight: cellWidth
             cacheBuffer: cellWidth * 2   // bounded off-screen retention
             model: picker.activeModel
@@ -878,6 +896,19 @@ AnchoredPopup {
                             visible: saveButton.visualFocus
                         }
                     }
+                    // The keyboard-current ring, above the media: the border
+                    // on the panel itself is covered by the still and the
+                    // animation (C40-F06).
+                    Rectangle {
+                        objectName: "gifTileCurrentRing"
+                        anchors.fill: parent
+                        z: 10
+                        radius: AppTheme.radiusThumb
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.bolt
+                        visible: tile.current && grid.activeFocus
+                    }
                     HoverHandler { id: tileHover }
                 }
             }
@@ -885,7 +916,43 @@ AnchoredPopup {
             Keys.onReturnPressed: if (currentIndex >= 0) picker.choose(currentIndex)
             Keys.onEnterPressed: if (currentIndex >= 0) picker.choose(currentIndex)
             Keys.onSpacePressed: if (currentIndex >= 0) picker.choose(currentIndex)
+            // QQuickGridView binds arrows only (C40-F06, D02).
+            Keys.onPressed: (event) => {
+                if (count <= 0)
+                    return
+                if (event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier
+                                       | Qt.AltModifier | Qt.MetaModifier))
+                    return
+                var cols = 3
+                var rows = Math.max(1, Math.floor(height / cellHeight))
+                var i = currentIndex < 0 ? 0 : currentIndex
+                if (event.key === Qt.Key_Home)
+                    i = 0
+                else if (event.key === Qt.Key_End)
+                    i = count - 1
+                else if (event.key === Qt.Key_PageDown)
+                    i = Math.min(count - 1, i + cols * rows)
+                else if (event.key === Qt.Key_PageUp)
+                    i = Math.max(0, i - cols * rows)
+                else
+                    return
+                currentIndex = i
+                positionViewAtIndex(i, GridView.Contain)
+                event.accepted = true
+            }
         }
+    }
+
+    // Middle-click autoscroll over the grid, a sibling of the view like the
+    // timeline's and the room list's (C40-F02).
+    MiddleClickScroller {
+        objectName: "gifGridMiddleClickScroller"
+        x: grid.x
+        y: grid.y
+        width: grid.width
+        height: grid.height
+        z: 1
+        view: grid
     }
 
     // ── State overlay, covering exactly the grid area (pickerColumn

@@ -25,6 +25,11 @@ Item {
 
     Accessible.role: Accessible.ProgressBar
     Accessible.name: qsTr("Microphone level")
+    // Qt Quick has no Accessible.value; the description carries the reading.
+    Accessible.description: !root.active
+        ? qsTr("Not listening")
+        : (root.shown <= 0 ? qsTr("Nothing heard")
+                           : qsTr("%1 percent").arg(Math.round(root.shown * 10) * 10))
 
     // Decays rather than snapping down, so a single word stays visible; rises
     // at once, so a word is never late.

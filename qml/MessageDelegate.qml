@@ -3995,6 +3995,9 @@ Item {
             property string body: ""
             property string acceptText: ""
             property var action: null
+            // Cancel holds focus on open: the safe default for a destructive
+            // confirm, and it lets Return/Escape act without a Tab first.
+            onOpened: confirmCancelButton.forceActiveFocus()
             title: destructiveConfirm.heading
             contentItem: ColumnLayout {
                 spacing: AppTheme.spacing12
@@ -4011,6 +4014,7 @@ Item {
                     // AppButton so the destructive action uses `dangerPrimary`
                     // and geometry comes from the AppTheme ladder.
                     AppButton {
+                        id: confirmCancelButton
                         objectName: "messageDestructiveConfirmCancel"
                         kind: "secondary"
                         text: qsTr("Cancel")

@@ -738,6 +738,153 @@ private Q_SLOTS:
         QCOMPARE(checker.languages(), QStringList{ QStringLiteral("en-US") });
     }
 
+    // C47-F01: a dictionary with no word data accepts every word, and "any
+    // active language accepts it" would then switch all checking off.
+    void anExtraLanguageThatAcceptsEverythingIsReportedMissing()
+    {
+        class AcceptAll : public FakeBackend
+        {
+        public:
+            AcceptAll() : FakeBackend({}) {}
+            bool isCorrect(const QString &) const override { return true; }
+        };
+        SpellChecker checker;
+        checker.setBackendFactoryForTest(
+            [](const QString &tag, QString *failure,
+               QStringList *offered) -> std::unique_ptr<SpellBackend> {
+                *offered = { QStringLiteral("en-US"), QStringLiteral("he-IL") };
+                if (tag.startsWith(QStringLiteral("he"))) {
+                    auto b = std::make_unique<AcceptAll>();
+                    b->m_language = QStringLiteral("he-IL");
+                    return b;
+                }
+                if (tag.isEmpty() || tag.startsWith(QStringLiteral("en"))) {
+                    auto b = std::make_unique<FakeBackend>(
+                        QStringList{ QStringLiteral("hello") });
+                    b->m_language = QStringLiteral("en-US");
+                    return b;
+                }
+                *failure = QStringLiteral("no-dictionary");
+                return {};
+            });
+        checker.configure(QString(), { QStringLiteral("he-IL") }, QString());
+        QCOMPARE(checker.missingLanguages(), QStringList{ QStringLiteral("he-IL") });
+        QCOMPARE(checker.misspelledRanges(QStringLiteral("hello zzqq")).size(), 1);
+    }
+
+    // MASTER-1 M4: a working dictionary that passes words outside its own
+    // script unjudged (a Russian one handed Latin text) is NOT one that
+    // accepts everything. Old probe (one Latin nonsense word): the Russian
+    // dictionary was dropped as "missing".
+    void aDictionaryThatOnlyJudgesItsOwnScriptStaysActive()
+    {
+        class CyrillicOnly : public FakeBackend
+        {
+        public:
+            CyrillicOnly() : FakeBackend({ QStringLiteral("\u043f\u0440\u0438\u0432\u0435\u0442") }) {}
+            bool isCorrect(const QString &word) const override
+            {
+                bool cyrillic = false;
+                for (const QChar c : word)
+                    cyrillic = cyrillic || (c.unicode() >= 0x0400 && c.unicode() <= 0x04FF);
+                return !cyrillic || FakeBackend::isCorrect(word);
+            }
+        };
+        SpellChecker checker;
+        checker.setBackendFactoryForTest(
+            [](const QString &tag, QString *failure,
+               QStringList *offered) -> std::unique_ptr<SpellBackend> {
+                *offered = { QStringLiteral("en-US"), QStringLiteral("ru-RU") };
+                if (tag.startsWith(QStringLiteral("ru"))) {
+                    auto b = std::make_unique<CyrillicOnly>();
+                    b->m_language = QStringLiteral("ru-RU");
+                    return b;
+                }
+                if (tag.isEmpty() || tag.startsWith(QStringLiteral("en"))) {
+                    auto b = std::make_unique<FakeBackend>(
+                        QStringList{ QStringLiteral("hello") });
+                    b->m_language = QStringLiteral("en-US");
+                    return b;
+                }
+                *failure = QStringLiteral("no-dictionary");
+                return {};
+            });
+        checker.configure(QString(), { QStringLiteral("ru-RU") }, QString());
+        QVERIFY2(checker.missingLanguages().isEmpty(),
+                 qPrintable(checker.missingLanguages().join(QLatin1Char(','))));
+        QVERIFY(checker.languages().contains(QStringLiteral("ru-RU")));
+    }
+
+    // C47 r2: the accept-everything refusal sits in resolve(), so the
+    // interface-language and primary paths get it too.
+    void aUiOrPrimaryDictionaryThatAcceptsEverythingIsNotActivated()
+    {
+        class AcceptAll : public FakeBackend
+        {
+        public:
+            AcceptAll() : FakeBackend({}) {}
+            bool isCorrect(const QString &) const override { return true; }
+        };
+        auto factory = [](const QString &tag, QString *failure,
+                          QStringList *offered) -> std::unique_ptr<SpellBackend> {
+            *offered = { QStringLiteral("en-US"), QStringLiteral("he-IL") };
+            if (tag.startsWith(QStringLiteral("he"))) {
+                auto b = std::make_unique<AcceptAll>();
+                b->m_language = QStringLiteral("he-IL");
+                return b;
+            }
+            if (tag.isEmpty() || tag.startsWith(QStringLiteral("en"))) {
+                auto b = std::make_unique<FakeBackend>(
+                    QStringList{ QStringLiteral("hello") });
+                b->m_language = QStringLiteral("en-US");
+                return b;
+            }
+            *failure = QStringLiteral("no-dictionary");
+            return {};
+        };
+        {
+            SpellChecker checker;
+            checker.setBackendFactoryForTest(factory);
+            checker.configure(QString(), {}, QStringLiteral("he"));
+            QCOMPARE(checker.misspelledRanges(QStringLiteral("hello zzqq")).size(), 1);
+        }
+        {
+            SpellChecker checker;
+            checker.setBackendFactoryForTest(factory);
+            checker.configure(QStringLiteral("he-IL"), {}, QString());
+            QVERIFY(checker.missingLanguages().contains(QStringLiteral("he-IL")));
+            QCOMPARE(checker.misspelledRanges(QStringLiteral("zzqq")).size(), 0);
+        }
+    }
+
+    // C47-F05: a closing bracket or a closing quote finishes a word like a
+    // comma does. The period stays out on purpose (domains, file names;
+    // docs/spell-checking.md), pinned below.
+    void autocorrectFiresBeforeClosingPunctuation()
+    {
+        {
+            SpellChecker qmlSide;
+            QVERIFY(qmlSide.isAutocorrectBoundaryText(QStringLiteral(")")));
+            QVERIFY(qmlSide.isAutocorrectBoundaryText(QString(QChar(0x201D))));
+            QVERIFY(!qmlSide.isAutocorrectBoundaryText(QStringLiteral(".")));
+            QVERIFY(!qmlSide.isAutocorrectBoundaryText(QStringLiteral("ab")));
+        }
+        Fixture f;
+        f.checker.setAutocorrectEnabled(true);
+        const QStringList closers = { QStringLiteral(")"), QStringLiteral("\""),
+                                      QString(QChar(0x201D)) };
+        for (const QString &c : closers) {
+            const QString text = QStringLiteral("hi teh") + c;
+            QVERIFY(SpellChecker::isAutocorrectBoundary(c.at(0)));
+            const QVariantMap fix = f.checker.autocorrection(text, text.size() - 1);
+            QVERIFY2(!fix.isEmpty(), qPrintable(text));
+            QCOMPARE(fix.value("replacement").toString(), QStringLiteral("the"));
+        }
+        QVERIFY(!SpellChecker::isAutocorrectBoundary(QLatin1Char('.')));
+        // The word is found even with an opening bracket in front of it.
+        QVERIFY(!f.checker.autocorrection(QStringLiteral("(teh)"), 4).isEmpty());
+    }
+
     void aChosenLanguageWithoutADictionaryIsReportedNotDropped()
     {
         SpellChecker checker;

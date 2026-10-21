@@ -39,7 +39,8 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("minWidth: 300")));
         // No fixed 132px cell.
         QVERIFY(!picker.contains(QStringLiteral("readonly property int cell: 132")));
-        QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / 3)")));
+        // Three columns of the width left beside the scroll bar (C40).
+        QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor((width - AppTheme.scrollbarWidth) / 3)")));
         QVERIFY(picker.contains(QStringLiteral("cellHeight: cellWidth")));
     }
 
@@ -451,6 +452,87 @@ private Q_SLOTS:
         }
         QVERIFY(!picker.contains(
             QStringLiteral("picker.gifChosen(gif.results.get(row))")));
+    }
+
+    // ── Swarm C40 round 1: input-method and gutter contracts. Source scans,
+    // so they pin the wiring and not the pixels; each fails on the base
+    // commit 7c40aa53 (reasoned mutation: the quoted line is absent there).
+
+    // C40-F01/D03: the scrollbar lives in a gutter, not over column three.
+    void scrollbarHasItsOwnGutter()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        const int g = picker.indexOf(QStringLiteral("objectName: \"gifResultGrid\""));
+        QVERIFY(g >= 0);
+        const QString head = picker.mid(g, 1400);
+        // The gutter must be inside the view (the attached ScrollBar lives
+        // there); an outer Layout margin leaves the bar over column three.
+        QVERIFY(head.contains(QStringLiteral(
+            "cellWidth: Math.floor((width - AppTheme.scrollbarWidth) / 3)")));
+        QVERIFY(!head.contains(QStringLiteral("Layout.rightMargin")));
+    }
+
+    // C40-F10: the close-time clear must not reach the controller.
+    void closeClearIsGuardedFromTheController()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral(
+            "onTextChanged: if (!picker.clearingField) picker.gif.setQueryText(text)")));
+        const int c = picker.indexOf(QStringLiteral("onClosed: {"));
+        QVERIFY(c >= 0);
+        const QString body = picker.mid(c, 700);
+        const int on = body.indexOf(QStringLiteral("clearingField = true"));
+        const int clr = body.indexOf(QStringLiteral("searchField.clear()"));
+        const int off = body.indexOf(QStringLiteral("clearingField = false"));
+        QVERIFY(on >= 0 && on < clr && clr < off);
+    }
+
+    // The Saved tab tooltip is not part of this round.
+    void savedTooltipUnchanged()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(!picker.contains(QStringLiteral("qsTr(\"Starred GIFs\")")));
+    }
+
+    // C40-F02/F07: the press barrier must not take Middle/Back/Forward, or
+    // autoscroll refuses to start over it and room history never sees 8/9.
+    void pressBarrierLeavesMiddleAndHistoryButtonsAlone()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(!picker.contains(QStringLiteral("acceptedButtons: Qt.AllButtons")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "acceptedButtons: Qt.LeftButton | Qt.RightButton")));
+        // And the grid gets the shared autoscroller, bound to the grid.
+        const int m = picker.indexOf(QStringLiteral("MiddleClickScroller {"));
+        QVERIFY(m >= 0);
+        QVERIFY(picker.mid(m, 400).contains(QStringLiteral("view: grid")));
+    }
+
+    // C40-F06/D02: Home/End/PageUp/PageDown, and a ring drawn above the media.
+    void gridHandlesHomeEndAndPagesAndDrawsACurrentRing()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        for (const char *k : { "Qt.Key_Home", "Qt.Key_End", "Qt.Key_PageDown",
+                               "Qt.Key_PageUp" })
+            QVERIFY2(picker.contains(QString::fromLatin1(k)), k);
+        QVERIFY(picker.contains(QStringLiteral("positionViewAtIndex(i, GridView.Contain)")));
+        const int r = picker.indexOf(QStringLiteral("objectName: \"gifTileCurrentRing\""));
+        QVERIFY(r >= 0);
+        QVERIFY(picker.mid(r, 400).contains(QStringLiteral("visible: tile.current && grid.activeFocus")));
+        // Modified keys (Ctrl+Home etc.) are not consumed.
+        QVERIFY(picker.contains(QStringLiteral("event.modifiers & (Qt.ShiftModifier")));
+    }
+
+    // C40-F10: closing clears the field together with the controller.
+    void closingClearsTheSearchFieldWithTheController()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        const int c = picker.indexOf(QStringLiteral("onClosed: {"));
+        QVERIFY(c >= 0);
+        const QString body = picker.mid(c, 700);
+        QVERIFY(body.contains(QStringLiteral("gif.reset()")));
+        QVERIFY(body.indexOf(QStringLiteral("searchField.clear()"))
+                > body.indexOf(QStringLiteral("gif.reset()")));
     }
 };
 QTEST_MAIN(GifPickerRedesignContractTest)

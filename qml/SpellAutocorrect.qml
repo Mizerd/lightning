@@ -6,7 +6,8 @@ import QtQuick
 // SpellChecker::autocorrection in C++; this item only watches the editor:
 //
 //  * it asks only when exactly ONE character was added and that character is
-//    an autocorrect boundary (whitespace or , ; ! ?), so a paste, a draft
+//    an autocorrect boundary (whitespace or , ; ! ? ) " or a closing curly
+//    quote), so a paste, a draft
 //    restore or an IME commit of several characters is never corrected;
 //  * a correction can be undone with Backspace or Ctrl+Z as the very next
 //    key, which restores the typed word, keeps the boundary character and
@@ -71,7 +72,7 @@ QtObject {
         // Cheap test first: only a boundary character can finish a word.
         // (\s covers the rich editor's paragraph and line separators.)
         var typed = ac.editor.getText(pos - 1, pos)
-        if (typed.length !== 1 || !(/\s/.test(typed) || ",;!?".indexOf(typed) >= 0))
+        if (typed.length !== 1 || !app.spell.isAutocorrectBoundaryText(typed))
             return
         var text = ac.textFn ? ac.textFn() : ac.editor.text
         var fix = app.spell.autocorrection(text, pos - 1,
