@@ -939,6 +939,120 @@ private slots:
         QVERIFY(guard > 0 && build > 0 && guard < build);
     }
 
+    // C35-F06/F10: the role chips follow the live power level, not the
+    // snapshot a caller passed at openFor(). Old code: no badgeRole property,
+    // so the first QCOMPARE reads an invalid QVariant and fails.
+    void theRoleChipFollowsTheLivePowerLevel()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        popover->setProperty("role", QStringLiteral("moderator"));
+        popover->setProperty("liveRole", QString());
+        QCOMPARE(popover->property("badgeRole").toString(),
+                 QStringLiteral("moderator"));
+        popover->setProperty("liveRole", QStringLiteral("administrator"));
+        QCOMPARE(popover->property("badgeRole").toString(),
+                 QStringLiteral("administrator"));
+        popover->setProperty("role", QString());
+        popover->setProperty("liveRole", QString());
+    }
+
+    // The power-level -> chip mapping, driven on the real component. Custom
+    // levels follow the roster's rule (>=100 admin, >=50 moderator), so a 75
+    // does not lose a chip the roster showed.
+    void theLiveRoleMappingMatchesTheRosterTiers()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        const QList<QPair<double, QString>> cases = {
+            { 0, "member" }, { 49, "member" }, { 50, "moderator" },
+            { 75, "moderator" }, { 99, "moderator" }, { 100, "administrator" },
+            { 150, "administrator" }, { 9007199254740992.0, "creator" } };
+        for (const auto &c : cases) {
+            QVariant out;
+            QVERIFY(QMetaObject::invokeMethod(
+                popover, "_roleForLevel", Q_RETURN_ARG(QVariant, out),
+                Q_ARG(QVariant, c.first)));
+            QCOMPARE(out.toString(), c.second);
+        }
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        QVERIFY(src.contains(QStringLiteral("liveRole = _roleForLevel(current)")));
+    }
+
+    // C35-F01/F03: every action button of the card draws a focus ring and
+    // answers Return/Enter, and the dialogs' buttons and the reason field do
+    // too. Source scan: the failing shape is an absent binding.
+    void theCardsButtonsShowFocusAndAnswerEnter()
+    {
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        for (const char *id : { "roleButton", "modButton" }) {
+            const QString name = QString::fromLatin1(id);
+            QVERIFY2(src.contains(name + QStringLiteral(".visualFocus")),
+                     qPrintable(name + QStringLiteral(" draws no focus ring")));
+        }
+        // Per button, not in aggregate: each anchor must carry BOTH handlers
+        // within its own block.
+        for (const char *anchor : { "objectName: \"profileIgnoreConfirmCancel\"",
+                                    "objectName: \"profileIgnoreConfirmAccept\"",
+                                    "objectName: \"profileRoleConfirmCancel\"",
+                                    "objectName: \"profileRoleConfirmAccept\"",
+                                    "id: modConfirmButton",
+                                    "id: roleButton", "id: modButton" }) {
+            const QString a = QString::fromLatin1(anchor);
+            const int at = src.indexOf(a);
+            QVERIFY2(at > 0, qPrintable(a + QStringLiteral(" not found")));
+            const QString block = src.mid(at, 1800);
+            QVERIFY2(block.contains(QStringLiteral("Keys.onReturnPressed: clicked()"))
+                         && block.contains(QStringLiteral("Keys.onEnterPressed: clicked()")),
+                     qPrintable(a + QStringLiteral(" does not activate on Return/Enter")));
+        }
+        // Chip, Message and the modal Cancel share the file-wide floor.
+        QVERIFY(src.count(QStringLiteral("Keys.onReturnPressed: clicked()")) >= 10);
+        QVERIFY(src.count(QStringLiteral("Keys.onEnterPressed: clicked()")) >= 10);
+        QVERIFY(src.contains(QStringLiteral("onAccepted: if (modConfirmButton.enabled) modConfirmButton.clicked()")));
+        // F02: the open edge drops focus from the previously used button.
+        QVERIFY(src.contains(QStringLiteral("contentItem.forceActiveFocus()")));
+    }
+
+    // C35-F02, behaviour: a freshly opened card holds no focused button.
+    void aReopenedCardHoldsNoFocusedButton()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        m_window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(m_window));
+        for (int i = 0; i < 2; ++i) {
+            QMetaObject::invokeMethod(m_root, "openFor",
+                                      Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
+                                      Q_ARG(QVariant, QStringLiteral("Carol")),
+                                      Q_ARG(QVariant, QStringLiteral("join")),
+                                      Q_ARG(QVariant, QString{}),
+                                      Q_ARG(QVariant, false));
+            QTRY_VERIFY(popover->property("opened").toBool());
+            auto *focus = m_window->activeFocusItem();
+            QVERIFY(focus);
+            QVERIFY2(!focus->inherits("QQuickAbstractButton")
+                         && !QString::fromLatin1(focus->metaObject()->className())
+                                .contains(QStringLiteral("Button")),
+                     "a button holds focus on open");
+            // Leave a button focused, as a keyboard user would, then reopen.
+            // The share chip is visible on every card, so the setup must take;
+            // assert it, or a silently failed setup passes without the fix.
+            auto *btn = popover->findChild<QQuickItem *>(
+                QStringLiteral("profileShareButton"));
+            QVERIFY(btn);
+            QVERIFY(btn->isVisible());
+            btn->forceActiveFocus();
+            QVERIFY2(btn->hasActiveFocus(), "stale-focus setup did not take");
+            QMetaObject::invokeMethod(popover, "close");
+            QTRY_VERIFY(!popover->property("visible").toBool());
+        }
+    }
+
     // Escape closes the card, however it was opened. A popup handles
     // CloseOnEscape only while it holds active focus, and nothing on the card
     // takes focus by itself (live, 2026-09-30: Escape left it open).

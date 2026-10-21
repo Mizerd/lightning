@@ -72,6 +72,27 @@ Rectangle {
     property bool topicExpanded: false
     property string memberFilter: ""
 
+    // Escape inside a text field leaves the field instead of closing the
+    // whole panel and dropping the unsaved name/topic/profile draft: the host's
+    // Escape shortcut would otherwise win (a text field does not claim
+    // ShortcutOverride for Escape). The next Escape, with focus out of the
+    // field, closes the panel as before.
+    function textFieldFocused() {
+        var f = Window.activeFocusItem
+        return !!f && f !== root && f.hasOwnProperty("cursorPosition")
+               && f.hasOwnProperty("text")
+    }
+    Keys.onShortcutOverride: (event) => {
+        if (event.key === Qt.Key_Escape && root.textFieldFocused())
+            event.accepted = true
+    }
+    Keys.onEscapePressed: (event) => {
+        if (root.textFieldFocused()) {
+            root.forceActiveFocus()
+            event.accepted = true
+        }
+    }
+
     // PinnedMessagesController follows the active room, while this panel can
     // show another room (a Space home); the tab exists only when the two agree.
     readonly property bool pinnedAvailable:
@@ -447,7 +468,16 @@ Rectangle {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            SmoothWheelArea {}
+            // An open combo popup is detached and non-modal, so a wheel over
+            // its combo used to scroll the page away from it. Both the glide
+            // and the Flickable's own wheel handling (`interactive`) stand
+            // down while one is open.
+            readonly property bool comboOpen:
+                notificationModeCombo.popup.visible
+                || joinRuleCombo.popup.visible || historyCombo.popup.visible
+            interactive: !comboOpen
+            objectName: "roomInfoOverviewFlick"
+            SmoothWheelArea { enabled: !overviewFlick.comboOpen }
 
             ColumnLayout {
                 id: overviewColumn
@@ -1739,6 +1769,7 @@ Rectangle {
                 Layout.fillHeight: true
                 clip: true
                 spacing: 2
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 // Same wheel/touchpad feel as the timeline.
                 SmoothWheelArea {}
                 // Newest pin first: Matrix appends, so the tail is the useful
@@ -1756,6 +1787,7 @@ Rectangle {
                     height: pinRow.implicitHeight + AppTheme.spacing16
 
                     required property var modelData
+                    required property int index
 
                     readonly property bool resolved:
                         pinDelegate.modelData.available === true
@@ -1765,11 +1797,47 @@ Rectangle {
                     readonly property string kind:
                         pinDelegate.modelData.kind || ""
 
+                    // Keyboard: a resolved pin is a tab stop, Enter/Space jump.
+                    objectName: "pinnedMessageRow"
+                    activeFocusOnTab: pinDelegate.resolved
+                    Accessible.role: Accessible.Button
+                    Accessible.name: pinDelegate.resolved
+                                     ? ((pinDelegate.modelData.preview || "")
+                                            .length > 0
+                                        ? qsTr("%1: %2")
+                                              .arg(pinDelegate.senderName)
+                                              .arg(pinDelegate.modelData.preview)
+                                        : pinDelegate.senderName)
+                                     : qsTr("Message unavailable")
+                    // A Tab onto a row below the fold must bring it in.
+                    onActiveFocusChanged: {
+                        if (activeFocus)
+                            ListView.view.positionViewAtIndex(
+                                pinDelegate.index, ListView.Contain)
+                    }
+                    Keys.onReturnPressed: pinDelegate.activate()
+                    Keys.onEnterPressed: pinDelegate.activate()
+                    Keys.onSpacePressed: pinDelegate.activate()
+                    function activate() {
+                        if (pinDelegate.resolved)
+                            root.jumpToEventRequested(
+                                pinDelegate.modelData.eventId)
+                    }
+
                     HoverHandler { id: pinHover }
                     Rectangle {
                         anchors.fill: parent
                         color: AppTheme.hover
                         visible: pinHover.hovered && pinDelegate.resolved
+                    }
+                    Rectangle {
+                        objectName: "pinnedMessageFocusRing"
+                        anchors.fill: parent
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.focusRing
+                        radius: AppTheme.radiusSm
+                        visible: pinDelegate.activeFocus
                     }
                     // Only a resolved pin navigates.
                     TapHandler {
@@ -2043,6 +2111,29 @@ Rectangle {
                 }
             }
 
+            Loader {
+                objectName: "memberEmptyState"
+                active: app.roomInfo.roomId !== "" && !app.roomInfo.loading
+                        && memberList.count === 0
+                visible: active
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                Layout.fillWidth: true
+                sourceComponent: Label {
+                    text: root.memberFilter.length > 0
+                          ? qsTr("No members match this name.")
+                          : memberSection.membership === "invited"
+                            ? qsTr("No invited members.")
+                            : memberSection.membership === "banned"
+                              ? qsTr("No banned members.")
+                              : qsTr("No members to show.")
+                    textFormat: Text.PlainText
+                    color: AppTheme.textMuted
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                }
+            }
+
             ListView {
                 id: memberList
                 objectName: "memberRoleList"
@@ -2066,6 +2157,7 @@ Rectangle {
                     id: memberLoader
                     width: memberList.width
                     required property var modelData
+                    required property int index
                     sourceComponent: modelData.kind === "header"
                                      ? roleHeaderComponent : memberRowComponent
 
@@ -2103,6 +2195,10 @@ Rectangle {
                             height: Math.max(34, AppTheme.scaled(AppTheme.textTitle) + 16)
                             padding: 0
                             hoverEnabled: true
+                            // A tab stop on every platform (the default follows
+                            // the platform's tab-focus behaviour, which leaves
+                            // buttons out): moderation is reachable from here.
+                            focusPolicy: Qt.StrongFocus
                             readonly property var member: memberLoader.modelData
                             Accessible.name: member.displayName.length > 0
                                              ? qsTr("%1 (%2), %3")
@@ -2111,6 +2207,30 @@ Rectangle {
                                                    .arg(member.roleLabel)
                                              : member.userId
                             onClicked: memberProfile.openFor(member, parent)
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    memberList.positionViewAtIndex(
+                                        memberLoader.index, ListView.Contain)
+                            }
+                            // Enter opens the profile like a click; the
+                            // button's own key handling covers Space only.
+                            Keys.onReturnPressed: (event) => {
+                                clicked(); event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                clicked(); event.accepted = true
+                            }
+                            // Menu / Shift+F10: the right-click menu.
+                            Keys.onMenuPressed: root.openMemberMenu(
+                                member, parent, width / 2, height / 2)
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_F10
+                                        && (event.modifiers & Qt.ShiftModifier)) {
+                                    root.openMemberMenu(member, parent,
+                                                        width / 2, height / 2)
+                                    event.accepted = true
+                                }
+                            }
                             // Right-click: the moderation actions without
                             // opening the profile first.
                             TapHandler {
@@ -2128,6 +2248,8 @@ Rectangle {
                                 radius: AppTheme.radiusSm
                                 color: parent.hovered ? AppTheme.memberRowHover
                                                       : "transparent"
+                                border.width: parent.visualFocus ? 2 : 0
+                                border.color: AppTheme.focusRing
                             }
                             contentItem: RowLayout {
                                 anchors.fill: parent
@@ -2247,6 +2369,7 @@ Rectangle {
                           : qsTr("Could not change the widgets (%1).").arg(app.widgets.lastWriteError)
                 }
                 AppButton {
+                    id: addWidgetButton
                     objectName: "roomInfoAddWidgetButton"
                     visible: app.widgets.supported && app.widgets.canManage
                     enabled: !app.widgets.writing
@@ -2312,17 +2435,23 @@ Rectangle {
                             Layout.alignment: Qt.AlignTop
                             // Removal writes a tombstone everyone sees and
                             // cannot be undone; confirm first.
-                            onClicked: removeWidgetConfirm.openFor(
-                                           widgetRow.index,
-                                           widgetRow.name || "")
+                            onClicked: {
+                                // Focus comes back here when it closes (C29).
+                                removeWidgetConfirm.returnFocusItem = this
+                                removeWidgetConfirm.openFor(widgetRow.index,
+                                                            widgetRow.name || "")
+                            }
                         }
                         AppButton {
                             objectName: "roomInfoOpenWidget"
                             text: qsTr("Open")
                             enabled: widgetRow.openable
-                            onClicked: widgetSheet.openFor(
-                                widgetRow.index,
-                                app.widgets.rowAt(widgetRow.index))
+                            onClicked: {
+                                widgetSheet.returnFocusItem = this
+                                widgetSheet.openFor(
+                                    widgetRow.index,
+                                    app.widgets.rowAt(widgetRow.index))
+                            }
                         }
                     }
                 }
@@ -2361,6 +2490,14 @@ Rectangle {
         title: qsTr("Remove widget?")
         property int pendingIndex: -1
         property string pendingName: ""
+        // The Remove button that opened it gets the keyboard back (C29-F01),
+        // deferred past Popup's own restore.
+        property Item returnFocusItem: null
+        onClosed: Qt.callLater(function() {
+            if (removeWidgetConfirm.returnFocusItem
+                    && removeWidgetConfirm.returnFocusItem.visible)
+                removeWidgetConfirm.returnFocusItem.forceActiveFocus(Qt.PopupFocusReason)
+        })
         function openFor(index, name) {
             pendingIndex = index
             pendingName = name
@@ -2413,5 +2550,6 @@ Rectangle {
     }
     AddWidgetDialog {
         id: addWidgetDialog
+        returnFocusItem: addWidgetButton
     }
 }

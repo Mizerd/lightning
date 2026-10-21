@@ -110,6 +110,7 @@ Dialog {
         AppComboBox {
             id: versionCombo
             objectName: "roomUpgradeVersionCombo"
+            Accessible.name: qsTr("New room version")
             Layout.fillWidth: true
             // The server's version list is data (AppComboBox).
             restoreAfterModelReset: false
@@ -164,6 +165,8 @@ Dialog {
             AppSwitch {
                 id: addToSpaces
                 objectName: "roomUpgradeAddToSpaces"
+                Accessible.name: qsTr("Also add the new room to the spaces "
+                                      + "this one is in")
                 checked: true
                 onToggled: checked = !checked
             }

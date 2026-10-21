@@ -137,6 +137,38 @@ private Q_SLOTS:
         QVERIFY(text.contains(QStringLiteral("Events in this file: 1")));
     }
 
+    // C36-F03: room state is plaintext in an encrypted room, so it is not
+    // labelled as a withheld message; a state row with NO named sentence and
+    // an ordinary message still are.
+    void aNamedStateRowIsNotWithheldInAnEncryptedRoom()
+    {
+        TimelineEvent created;
+        created.eventId = QStringLiteral("$s");
+        created.sender = QStringLiteral("@a:example.org");
+        created.senderDisplayName = QStringLiteral("Ann");
+        created.type = TimelineEvent::StateChange;
+        created.stateSentence = QStringLiteral("room_created");
+        created.body = QStringLiteral("Ann created the room.");
+        created.timestamp = QDateTime::fromMSecsSinceEpoch(1000, Qt::UTC);
+        TimelineEvent unnamed = created;
+        unnamed.eventId = QStringLiteral("$u");
+        unnamed.stateSentence.clear();
+        unnamed.body = QStringLiteral("opaque-body-text");
+        QList<TimelineEvent> events{ created, unnamed,
+            message(QStringLiteral("$1"), QStringLiteral("@a:example.org"),
+                    QStringLiteral("Ann"), QStringLiteral("the secret plan"), 2000) };
+        roomexport::Options options = plainRoom();
+        options.encrypted = true;
+        options.allowEncryptedPlaintext = false;
+        const QString text = roomexport::renderPlainText(events, options);
+        QVERIFY(!text.contains(QStringLiteral("opaque-body-text")));
+        QVERIFY(!text.contains(QStringLiteral("the secret plan")));
+        // Only the unnamed state row and the message are withheld; the named
+        // state row is written (on the old code all three were).
+        QVERIFY2(text.count(QStringLiteral("[message withheld")) == 2,
+                 qPrintable(text));
+    }
+
     // ── The encrypted-room exception, from both sides ────────────────────
     void anEncryptedRoomWithholdsEveryBodyUnlessItWasExplicitlyAllowed()
     {

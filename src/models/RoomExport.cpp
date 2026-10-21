@@ -78,7 +78,14 @@ namespace {
 // media cannot be resolved from the file, so it would be a dead link.
 QString bodyFor(const TimelineEvent &event, const Options &options)
 {
-    if (options.encrypted && !options.allowEncryptedPlaintext)
+    // Room state (created the room, joined, renamed) is never encrypted: Matrix
+    // encrypts message events only, so a row the bridge named with a state
+    // sentence is plaintext the server already holds and withholding it only
+    // mislabels it as a hidden message. Anything without a sentence, or any
+    // non-state row, stays withheld.
+    const bool plaintextState = event.type == TimelineEvent::StateChange
+                                && !event.stateSentence.isEmpty();
+    if (options.encrypted && !options.allowEncryptedPlaintext && !plaintextState)
         return withheldBody();
     const QString placeholder = placeholderBody(event);
     if (!placeholder.isEmpty())

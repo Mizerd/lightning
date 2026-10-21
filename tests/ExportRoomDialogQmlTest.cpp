@@ -349,6 +349,79 @@ private Q_SLOTS:
         QVERIFY(inputProblem().isEmpty());
     }
 
+    // C36-F01: a calendar-impossible date is refused inline, and an input
+    // problem is withdrawn when the input is corrected. Fails on the old
+    // code: the pattern-only check accepted 2026-13-45 and nothing cleared
+    // the failure line.
+    void impossibleDatesAreRefusedAndTheProblemClearsOnEdit()
+    {
+        openDialog();
+        QObject *from = child("exportRoomFromDate");
+        QVERIFY(from);
+        m_dialog->setProperty("rangeMode", QStringLiteral("dates"));
+        for (const char *bad : { "2026-13-45", "2026-02-30", "2026-00-10" }) {
+            from->setProperty("text", QString::fromLatin1(bad));
+            QVERIFY2(!inputProblem().isEmpty(), bad);
+        }
+        from->setProperty("text", QStringLiteral("2028-02-29")); // leap day
+        QVERIFY(inputProblem().isEmpty());
+
+        from->setProperty("text", QStringLiteral("2026-13-45"));
+        const QString problem = inputProblem();
+        m_dialog->setProperty("failure", problem);
+        m_dialog->setProperty("inputProblemShown", problem);
+        from->setProperty("text", QStringLiteral("2026-12-01"));
+        QVERIFY(m_dialog->property("failure").toString().isEmpty());
+    }
+
+    // C36-F02: the dialog is capped to the window and its content scrolls.
+    void aWindowShorterThanTheDialogCapsItAndScrolls()
+    {
+        openDialog();
+        QObject *scroller = child("exportRoomScroller");
+        QVERIFY(scroller);
+        auto *window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(window);
+        const QSize original = window->size();
+        const qreal implicit = m_dialog->property("implicitHeight").toReal();
+        window->resize(original.width(), int(implicit) - 120);
+        QTRY_VERIFY(m_dialog->property("height").toReal() < implicit);
+        QVERIFY(m_dialog->property("height").toReal() <= window->height());
+        QVERIFY(scroller->property("contentHeight").toReal()
+                > scroller->property("height").toReal());
+        window->resize(original);
+    }
+
+    // C36 r2 M1: Tab onto a control below the fold scrolls it into view.
+    // Fails on code without ensureVisible: contentY stays 0 and the Confirm
+    // button sits below the viewport.
+    void keyboardFocusScrollsTheFocusedControlIntoView()
+    {
+        openDialog();
+        QObject *scroller = child("exportRoomScroller");
+        QVERIFY(scroller);
+        auto *window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(window);
+        const QSize original = window->size();
+        const qreal implicit = m_dialog->property("implicitHeight").toReal();
+        window->resize(original.width(), int(implicit) - 160);
+        QTRY_VERIFY(m_dialog->property("height").toReal() < implicit);
+        auto *flick = scroller->property("contentItem").value<QQuickItem *>();
+        QVERIFY(flick);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+
+        auto *confirm = qobject_cast<QQuickItem *>(child("exportRoomConfirm"));
+        QVERIFY(confirm);
+        confirm->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY2(flick->property("contentY").toReal() > 0.0,
+                     "focusing a control below the fold must scroll to it");
+        const qreal top = confirm->mapToItem(flick, QPointF(0, 0)).y();
+        QVERIFY2(top >= -1.0 && top + confirm->height() <= flick->height() + 1.0,
+                 qPrintable(QStringLiteral("confirm at %1 in a %2 viewport")
+                                .arg(top).arg(flick->height())));
+        window->resize(original);
+    }
+
     // B131/B135. A finished export used to close the dialog without a word,
     // and the scope sentence called state events "messages". Fails on the
     // old code: onFinished(ok) closed the dialog, and no success label or

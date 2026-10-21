@@ -2,6 +2,10 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <QSet>
+
+#include <algorithm>
+
 // ── The rule model ─────────────────────────────────────────────────────
 
 int PolicyRuleModel::rowCount(const QModelIndex &parent) const
@@ -37,12 +41,82 @@ QHash<int, QByteArray> PolicyRuleModel::roleNames() const
     };
 }
 
-void PolicyRuleModel::setRules(const QVariantList &rules)
+namespace {
+
+// A rule's identity inside one room's list.
+QString ruleKey(const QVariant &rule)
 {
-    beginResetModel();
-    m_rules = rules;
-    endResetModel();
-    Q_EMIT countChanged();
+    const QVariantMap m = rule.toMap();
+    return m.value(QStringLiteral("stateKey")).toString() + QLatin1Char('\x1f')
+        + m.value(QStringLiteral("kind")).toString() + QLatin1Char('\x1f')
+        + m.value(QStringLiteral("entity")).toString();
+}
+
+} // namespace
+
+void PolicyRuleModel::setRules(const QVariantList &incoming)
+{
+    // A deterministic order: the bridge's map iteration is not one, and the
+    // same rules came back differently on every open.
+    QVariantList rules = incoming;
+    std::stable_sort(rules.begin(), rules.end(),
+                     [](const QVariant &a, const QVariant &b) {
+        const QVariantMap x = a.toMap();
+        const QVariantMap y = b.toMap();
+        const int e = x.value(QStringLiteral("entity")).toString()
+                          .compare(y.value(QStringLiteral("entity")).toString(),
+                                   Qt::CaseInsensitive);
+        if (e != 0)
+            return e < 0;
+        return ruleKey(a) < ruleKey(b);
+    });
+
+    QSet<QString> newKeys;
+    bool unique = true;
+    for (const QVariant &r : std::as_const(rules)) {
+        const QString key = ruleKey(r);
+        unique = !newKeys.contains(key) && unique;
+        newKeys.insert(key);
+    }
+    QSet<QString> oldKeys;
+    for (const QVariant &r : std::as_const(m_rules)) {
+        const QString key = ruleKey(r);
+        unique = !oldKeys.contains(key) && unique;
+        oldKeys.insert(key);
+    }
+
+    if (!unique || m_rules.isEmpty()) {
+        beginResetModel();
+        m_rules = rules;
+        endResetModel();
+        Q_EMIT countChanged();
+        return;
+    }
+
+    // Row-level edits, never a reset: a reset sends the view back to the top,
+    // so after Remove the pointer rested over a different rule's Remove.
+    const int before = int(m_rules.size());
+    for (int i = int(m_rules.size()) - 1; i >= 0; --i) {
+        if (newKeys.contains(ruleKey(m_rules.at(i))))
+            continue;
+        beginRemoveRows({}, i, i);
+        m_rules.removeAt(i);
+        endRemoveRows();
+    }
+    for (int i = 0; i < rules.size(); ++i) {
+        if (i < m_rules.size() && ruleKey(m_rules.at(i)) == ruleKey(rules.at(i))) {
+            if (m_rules.at(i) != rules.at(i)) {
+                m_rules[i] = rules.at(i);
+                Q_EMIT dataChanged(index(i), index(i));
+            }
+            continue;
+        }
+        beginInsertRows({}, i, i);
+        m_rules.insert(i, rules.at(i));
+        endInsertRows();
+    }
+    if (int(m_rules.size()) != before)
+        Q_EMIT countChanged();
 }
 
 void PolicyRuleModel::clear()

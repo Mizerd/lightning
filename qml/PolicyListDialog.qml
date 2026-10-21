@@ -25,6 +25,10 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     padding: AppTheme.spacing16
+    // Capped to the window; the content scrolls (Add a rule and Done were
+    // unreachable below the window edge).
+    height: Math.min(implicitHeight, parent ? parent.height - AppTheme.spacing24 * 2
+                                              : implicitHeight)
 
     /// The entity awaiting a second, explicit Publish: a glob that matches
     /// everything. Cleared on publish, cancel and reopen.
@@ -64,6 +68,7 @@ Dialog {
         root.pendingBroadEntity = ""
         entityField.text = ""
         reasonField.text = ""
+        kindBox.currentIndex = 0
         if (root.policy) {
             root.policy.openRoom(id)
             root.policy.refreshSubscriptions()
@@ -77,7 +82,41 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    contentItem: ColumnLayout {
+    // Qt's ScrollView never scrolls a focused child into view, so Tab in a
+    // window shorter than the dialog landed on controls nobody could see.
+    function ensureVisible(item) {
+        var flick = scroller.contentItem
+        if (!item || !flick || !flick.contentHeight)
+            return
+        for (var p = item; p && p !== bodyColumn; p = p.parent) {}
+        if (!p)
+            return
+        var top = item.mapToItem(bodyColumn, 0, 0).y
+        var bottom = top + item.height
+        var y = flick.contentY
+        if (top < y)
+            y = top
+        else if (bottom > y + flick.height)
+            y = bottom - flick.height
+        flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height))
+    }
+    Connections {
+        target: scroller.Window.window
+        function onActiveFocusItemChanged() {
+            root.ensureVisible(scroller.Window.window.activeFocusItem)
+        }
+    }
+
+    contentItem: ScrollView {
+        id: scroller
+        objectName: "policyScroller"
+        contentWidth: availableWidth
+        implicitHeight: bodyColumn.implicitHeight
+        clip: true
+
+    ColumnLayout {
+        id: bodyColumn
+        width: scroller.availableWidth
         spacing: AppTheme.spacing12
 
         Label {
@@ -160,79 +199,102 @@ Dialog {
             }
         }
 
-        ListView {
+        // The list and its middle-click autoscroll, which must be a sibling
+        // of the view over the same area.
+        Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 220
-            clip: true
-            model: root.policy ? root.policy.rules : null
-            ScrollBar.vertical: AppScrollBar {}
-            SmoothWheelArea {}
+            ListView {
+                id: ruleList
+                objectName: "policyRuleList"
+                anchors.fill: parent
+                clip: true
+                model: root.policy ? root.policy.rules : null
+                ScrollBar.vertical: AppScrollBar {}
+                SmoothWheelArea {}
 
-            delegate: ItemDelegate {
-                id: ruleRow
-                required property int index
-                required property string kind
-                required property string entity
-                required property bool isBan
-                required property string reason
-                // The rule's own state key, which removal writes to.
-                required property string stateKey
+                delegate: ItemDelegate {
+                    id: ruleRow
+                    required property int index
+                    required property string kind
+                    required property string entity
+                    required property bool isBan
+                    required property string reason
+                    // The rule's own state key, which removal writes to.
+                    required property string stateKey
 
-                width: ListView.view.width
-                height: 52
-                // Not `enabled: false`: enabled propagates and would disable
-                // the Remove button inside. The row has no onClicked and
-                // suppresses its hover highlight.
-                hoverEnabled: false
-                background: null
+                    width: ListView.view.width
+                    height: 52
+                    // Not `enabled: false`: enabled propagates and would disable
+                    // the Remove button inside. The row has no onClicked and
+                    // suppresses its hover highlight.
+                    hoverEnabled: false
+                    background: null
 
-                contentItem: RowLayout {
-                    spacing: AppTheme.spacing8
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 0
-                        Label {
+                    contentItem: RowLayout {
+                        spacing: AppTheme.spacing8
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            // Written by whoever controls the policy room:
-                            // never markup.
-                            textFormat: Text.PlainText
-                            text: ruleRow.entity
-                            color: AppTheme.textPrimary
-                            elide: Label.ElideRight
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            textFormat: Text.PlainText
-                            text: {
-                                var what = ruleRow.kind === "server"
-                                    ? qsTr("everyone on this server")
-                                    : (ruleRow.kind === "room"
-                                       ? qsTr("this room") : qsTr("this user"))
-                                // A non-ban rule is shown but marked: Lightning
-                                // acts on none of it.
-                                var rec = ruleRow.isBan
-                                    ? qsTr("ban") : qsTr("other recommendation")
-                                return ruleRow.reason.length > 0
-                                    ? qsTr("%1 · %2 · %3").arg(what).arg(rec)
-                                          .arg(ruleRow.reason)
-                                    : qsTr("%1 · %2").arg(what).arg(rec)
+                            Layout.minimumWidth: 0
+                            spacing: 0
+                            Label {
+                                Layout.fillWidth: true
+                                // Written by whoever controls the policy room:
+                                // never markup.
+                                textFormat: Text.PlainText
+                                text: ruleRow.entity
+                                color: AppTheme.textPrimary
+                                elide: Label.ElideRight
                             }
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.textMeta
-                            elide: Label.ElideRight
+                            Label {
+                                Layout.fillWidth: true
+                                textFormat: Text.PlainText
+                                text: {
+                                    var what = ruleRow.kind === "server"
+                                        ? qsTr("everyone on this server")
+                                        : (ruleRow.kind === "room"
+                                           ? qsTr("this room") : qsTr("this user"))
+                                    // A non-ban rule is shown but marked: Lightning
+                                    // acts on none of it.
+                                    var rec = ruleRow.isBan
+                                        ? qsTr("ban") : qsTr("other recommendation")
+                                    return ruleRow.reason.length > 0
+                                        ? qsTr("%1 · %2 · %3").arg(what).arg(rec)
+                                              .arg(ruleRow.reason)
+                                        : qsTr("%1 · %2").arg(what).arg(rec)
+                                }
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.textMeta
+                                elide: Label.ElideRight
+                            }
                         }
-                    }
-                    AppButton {
-                        text: qsTr("Remove")
-                        kind: "ghost"
-                        size: "sm"
-                        visible: root.policy && root.policy.canWrite
-                        onClicked: root.policy.removeRule(ruleRow.kind,
-                                                          ruleRow.entity,
-                                                          ruleRow.stateKey)
+                        AppButton {
+                            objectName: "policyRemoveButton"
+                            text: qsTr("Remove")
+                            kind: "ghost"
+                            size: "sm"
+                            // Each button names its rule: eight identical
+                            // "Remove" are unusable with a screen reader.
+                            Accessible.name: qsTr("Remove rule %1").arg(ruleRow.entity)
+                            visible: root.policy && root.policy.canWrite
+                            // Tab onto a row that is scrolled out of view brings
+                            // it into view; a keyboard removal is never of a
+                            // rule nobody can see.
+                            onActiveFocusChanged: if (activeFocus)
+                                ruleList.positionViewAtIndex(ruleRow.index,
+                                                             ListView.Contain)
+                            onClicked: root.policy.removeRule(ruleRow.kind,
+                                                              ruleRow.entity,
+                                                              ruleRow.stateKey)
+                        }
                     }
                 }
+            }
+            MiddleClickScroller {
+                objectName: "policyMiddleClickScroller"
+                anchors.fill: parent
+                z: 1
+                view: ruleList
             }
         }
 
@@ -253,6 +315,7 @@ Dialog {
                 spacing: AppTheme.spacing8
                 AppComboBox {
                     id: kindBox
+                    Accessible.name: qsTr("Kind of rule")
                     Layout.preferredWidth: 130
                     model: [qsTr("User"), qsTr("Server"), qsTr("Room")]
                 }
@@ -262,6 +325,11 @@ Dialog {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("@someone:example.org or *.example.org")
+                    // Return publishes, as the button does (a broad entity
+                    // still waits for its explicit second confirmation).
+                    onAccepted: if (text.trim().length > 0
+                                    && !broadConfirm.visible)
+                        root.publishRule(false)
                 }
             }
             RowLayout {
@@ -359,5 +427,6 @@ Dialog {
                 onClicked: root.close()
             }
         }
+    }
     }
 }

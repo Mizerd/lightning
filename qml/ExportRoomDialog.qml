@@ -15,7 +15,9 @@ import MatrixClient
 // this is the one place that offers to break that. It is a decision, not a
 // format option: the checkbox is off by default, its words say what the file
 // will contain, and declining still exports the conversation's shape with
-// every body AND every attachment withheld. An unknown encryption state
+// every body AND every attachment withheld (state rows worded from event
+// names alone, such as "X joined", stay: state events are never encrypted).
+// An unknown encryption state
 // counts as encrypted (AppController::exportOptions).
 //
 // Every limit is shown before a file is picked and repeated in the file,
@@ -32,6 +34,10 @@ Dialog {
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
+    // Capped to the window: a taller dialog was clipped top and bottom with
+    // Cancel and Choose file unreachable; the content scrolls instead.
+    height: Math.min(implicitHeight, parent ? parent.height - AppTheme.spacing24 * 2
+                                              : implicitHeight)
 
     property string format: "html"
     // "loaded" | "latest" | "all" | "dates"
@@ -45,6 +51,26 @@ Dialog {
     // "Exported N events to <file>." after a successful export; the dialog
     // stays open to say so, rather than closing without a word.
     property string success: ""
+    // The failure text last produced by inputProblem(); edited-away inputs
+    // withdraw it, an export's own failure is never withdrawn this way.
+    property string inputProblemShown: ""
+
+    function clearInputProblem() {
+        if (inputProblemShown.length > 0 && failure === inputProblemShown)
+            failure = ""
+        inputProblemShown = ""
+    }
+
+    // True for a real calendar date written YYYY-MM-DD (2026-13-45 is not).
+    function isRealDate(text) {
+        var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(text)
+        if (!m)
+            return false
+        var y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10)
+        var date = new Date(Date.UTC(y, mo - 1, d))
+        return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1
+               && date.getUTCDate() === d
+    }
 
     readonly property var exporter: app ? app.roomExport : null
     readonly property bool busy: !!exporter && exporter.busy
@@ -97,10 +123,9 @@ Dialog {
         if (rangeMode === "dates") {
             var from = fromField.text.trim()
             var to = toField.text.trim()
-            var pattern = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/
             if ((from.length === 0 && to.length === 0)
-                    || (from.length > 0 && !pattern.test(from))
-                    || (to.length > 0 && !pattern.test(to))
+                    || (from.length > 0 && !isRealDate(from))
+                    || (to.length > 0 && !isRealDate(to))
                     || (from.length > 0 && to.length > 0 && from > to))
                 return qsTr("Use real dates in YYYY-MM-DD format, with From "
                             + "not after To.")
@@ -162,7 +187,41 @@ Dialog {
         }
     }
 
-    contentItem: ColumnLayout {
+    // Qt's ScrollView never scrolls a focused child into view, so Tab in a
+    // window shorter than the dialog landed on controls nobody could see.
+    function ensureVisible(item) {
+        var flick = scroller.contentItem
+        if (!item || !flick || !flick.contentHeight)
+            return
+        for (var p = item; p && p !== bodyColumn; p = p.parent) {}
+        if (!p)
+            return
+        var top = item.mapToItem(bodyColumn, 0, 0).y
+        var bottom = top + item.height
+        var y = flick.contentY
+        if (top < y)
+            y = top
+        else if (bottom > y + flick.height)
+            y = bottom - flick.height
+        flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height))
+    }
+    Connections {
+        target: scroller.Window.window
+        function onActiveFocusItemChanged() {
+            root.ensureVisible(scroller.Window.window.activeFocusItem)
+        }
+    }
+
+    contentItem: ScrollView {
+        id: scroller
+        objectName: "exportRoomScroller"
+        contentWidth: availableWidth
+        implicitHeight: bodyColumn.implicitHeight
+        clip: true
+
+    ColumnLayout {
+        id: bodyColumn
+        width: scroller.availableWidth
         spacing: AppTheme.spacing12
 
         Label {
@@ -211,6 +270,7 @@ Dialog {
         }
         AppTextField {
             id: countField
+            onTextChanged: root.clearInputProblem()
             objectName: "exportRoomCount"
             storm: true
             visible: root.rangeMode === "latest"
@@ -229,6 +289,7 @@ Dialog {
             spacing: AppTheme.spacing8
             AppTextField {
                 id: fromField
+                onTextChanged: root.clearInputProblem()
                 objectName: "exportRoomFromDate"
                 storm: true
                 enabled: !root.busy
@@ -239,6 +300,7 @@ Dialog {
             }
             AppTextField {
                 id: toField
+                onTextChanged: root.clearInputProblem()
                 objectName: "exportRoomToDate"
                 storm: true
                 enabled: !root.busy
@@ -323,6 +385,7 @@ Dialog {
                 }
                 AppTextField {
                     id: sizeField
+                    onTextChanged: root.clearInputProblem()
                     objectName: "exportRoomSizeLimit"
                     storm: true
                     enabled: !root.busy
@@ -513,6 +576,7 @@ Dialog {
                 onClicked: {
                     var problem = root.inputProblem()
                     root.failure = problem
+                    root.inputProblemShown = problem
                     if (problem.length > 0)
                         return
                     saveDialog.currentName =
@@ -521,5 +585,6 @@ Dialog {
                 }
             }
         }
+    }
     }
 }

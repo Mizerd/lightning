@@ -118,6 +118,12 @@ Popup {
     property string roleLabel: ""
     property var roleOptions: []
     property string roleError: ""
+    // The role the badge chips show. The `role` snapshot a caller passed is
+    // taken once at openFor(); the power level is live (it follows a role
+    // change made while the card is open) and exists for a card opened from
+    // the timeline, whose caller has no roster row. "" falls back to `role`.
+    property string liveRole: ""
+    readonly property string badgeRole: liveRole.length > 0 ? liveRole : role
 
     function _refreshModeration() {
         var scoped = app.roomInfo
@@ -129,19 +135,31 @@ Popup {
         _refreshRole(scoped)
     }
 
+    // The same rule the roster applies (the SDK's suggested role): at or above
+    // 100 administrator, at or above 50 moderator, creator from 2^53; any
+    // custom level in between takes the tier below it.
+    function _roleForLevel(level) {
+        return level >= 9007199254740992 ? "creator"
+               : level >= 100 ? "administrator"
+               : level >= 50 ? "moderator" : "member"
+    }
+
     function _refreshRole(scoped) {
         if (!scoped) {
             roleLabel = ""
             roleOptions = []
+            liveRole = ""
             return
         }
         // A banned or departed user is offered Unban / Invite, not a promotion.
         if (membership === "banned" || membership === "left") {
             roleLabel = ""
             roleOptions = []
+            liveRole = ""
             return
         }
         var current = app.roomInfo.powerLevelFor(userId)
+        liveRole = _roleForLevel(current)
         roleLabel = app.roomInfo.roleLabelForLevel(current)
         // Conventional presets plus the room's own users_default; duplicates
         // collapse.
@@ -246,6 +264,7 @@ Popup {
         displayName = member.displayName || ""
         membership = member.membership || ""
         role = member.role || ""
+        liveRole = ""
         avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
         _fillFromRoster()
@@ -429,6 +448,12 @@ Popup {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: accessibleName.length > 0 ? accessibleName : label
+        Keys.onReturnPressed: clicked()
+        Keys.onEnterPressed: clicked()
+        // Icon-only chips (the overflow) name themselves on hover.
+        ToolTip.text: accessibleName
+        ToolTip.visible: hovered && label.length === 0 && accessibleName.length > 0
+        ToolTip.delay: 500
         // Centred in a wrapper: a Control stretches its contentItem, and a Row
         // lays out from x=0, so the content hugged the left edge.
         contentItem: Item {
@@ -496,6 +521,10 @@ Popup {
     // Asking is a side effect, so it happens on the open edge.
     // ProfileBannerManager deduplicates per user per session.
     onOpenedChanged: {
+        // A reopened card must not keep keyboard focus on the action last used
+        // (Space would then fire a stale, invisible Ban or role change).
+        if (opened && contentItem)
+            contentItem.forceActiveFocus()
         if (!opened || userId.length === 0)
             return
         if (app.banners)
@@ -844,6 +873,10 @@ Popup {
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
+                            HoverHandler { id: nameHover }
+                            ToolTip.text: root.visibleName
+                            ToolTip.visible: nameHover.hovered && truncated
+                            ToolTip.delay: 500
                         }
 
                         // Thank-you badge (decorative, local): tinted with the
@@ -911,6 +944,16 @@ Popup {
                         wrapMode: Text.WrapAnywhere
                         maximumLineCount: 2
                         elide: Label.ElideRight
+                        // The text is not selectable, so a double click
+                        // copies the exact id.
+                        TapHandler {
+                            gesturePolicy: TapHandler.WithinBounds
+                            onDoubleTapped: root.copyUserId()
+                        }
+                        HoverHandler { id: userIdHover }
+                        ToolTip.text: qsTr("Double-click to copy")
+                        ToolTip.visible: userIdHover.hovered
+                        ToolTip.delay: 800
                     }
                 }
 
@@ -935,6 +978,8 @@ Popup {
                 Accessible.name: qsTr("Start or open a direct message with %1")
                                  .arg(root.visibleName)
                 onClicked: root.startOrOpenDm()
+                Keys.onReturnPressed: clicked()
+                Keys.onEnterPressed: clicked()
 
                 // Spacer-centred: a control stretches its contentItem, so
                 // centerIn on the layout does nothing. The one bolt fill on
@@ -1126,14 +1171,14 @@ Popup {
                 // levels.
                 StatusChip {
                     height: profileChipRow.uniformHeight
-                    visible: root.role === "administrator" || root.role === "creator"
+                    visible: root.badgeRole === "administrator" || root.badgeRole === "creator"
                     storm: true
                     tone: "accent"
                     label: qsTr("Administrator")
                 }
                 StatusChip {
                     height: profileChipRow.uniformHeight
-                    visible: root.role === "moderator"
+                    visible: root.badgeRole === "moderator"
                     storm: true
                     tone: "info"
                     label: qsTr("Moderator")
@@ -1318,9 +1363,13 @@ Popup {
                                 radius: AppTheme.radiusTile
                                 color: (roleButton.hovered || roleButton.down)
                                        ? AppTheme.stormSelection : "transparent"
-                                border.width: 1
-                                border.color: AppTheme.stormBorderStrong
+                                border.width: roleButton.visualFocus ? 2 : 1
+                                border.color: roleButton.visualFocus
+                                              ? AppTheme.focusRing
+                                              : AppTheme.stormBorderStrong
                             }
+                            Keys.onReturnPressed: clicked()
+                            Keys.onEnterPressed: clicked()
                             // Confirm first: promoting someone to your own
                             // level cannot be undone, since Matrix refuses
                             // changes at or above your own level.
@@ -1368,11 +1417,15 @@ Popup {
                             Item { Layout.fillWidth: true }
                             Button {
                                 objectName: "profileIgnoreConfirmCancel"
+                                Keys.onReturnPressed: clicked()
+                                Keys.onEnterPressed: clicked()
                                 text: qsTr("Cancel")
                                 onClicked: ignoreConfirm.close()
                             }
                             Button {
                                 objectName: "profileIgnoreConfirmAccept"
+                                Keys.onReturnPressed: clicked()
+                                Keys.onEnterPressed: clicked()
                                 text: qsTr("Ignore")
                                 onClicked: {
                                     ignoreConfirm.close()
@@ -1487,11 +1540,15 @@ Popup {
                             Item { Layout.fillWidth: true }
                             Button {
                                 objectName: "profileRoleConfirmCancel"
+                                Keys.onReturnPressed: clicked()
+                                Keys.onEnterPressed: clicked()
                                 text: qsTr("Cancel")
                                 onClicked: roleConfirm.close()
                             }
                             Button {
                                 objectName: "profileRoleConfirmAccept"
+                                Keys.onReturnPressed: clicked()
+                                Keys.onEnterPressed: clicked()
                                 text: roleConfirm.selfDemotion
                                       ? qsTr("Lower my role")
                                       : qsTr("Change role")
@@ -1585,11 +1642,15 @@ Popup {
                                       ? AppTheme.stormDangerSoft
                                       : AppTheme.stormSelection)
                                    : "transparent"
-                            border.width: 1
-                            border.color: modButton.modelData.danger
-                                          ? AppTheme.stormDangerBorder
-                                          : AppTheme.stormBorderStrong
+                            border.width: modButton.visualFocus ? 2 : 1
+                            border.color: modButton.visualFocus
+                                          ? AppTheme.focusRing
+                                          : (modButton.modelData.danger
+                                             ? AppTheme.stormDangerBorder
+                                             : AppTheme.stormBorderStrong)
                         }
+                        Keys.onReturnPressed: clicked()
+                        Keys.onEnterPressed: clicked()
                         onClicked: {
                             root.modError = ""
                             root.modAction = modelData.op
@@ -1662,6 +1723,8 @@ Popup {
                     Layout.fillWidth: true
                     storm: true
                     placeholderText: qsTr("Reason (optional)")
+                    // Return submits, as the confirm button beside it does.
+                    onAccepted: if (modConfirmButton.enabled) modConfirmButton.clicked()
                 }
                 RowLayout {
                     visible: root.modAction === "unban"
@@ -1691,7 +1754,10 @@ Popup {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing8
                     AppButton {
+                        id: modConfirmButton
                         objectName: "profileModConfirmButton"
+                        Keys.onReturnPressed: clicked()
+                        Keys.onEnterPressed: clicked()
                         Layout.fillWidth: true
                         text: root.modAction === "kick" ? qsTr("Remove")
                             : root.modAction === "ban" ? qsTr("Ban")
@@ -1717,6 +1783,8 @@ Popup {
                     }
                     AppButton {
                         Layout.fillWidth: true
+                        Keys.onReturnPressed: clicked()
+                        Keys.onEnterPressed: clicked()
                         text: qsTr("Cancel")
                         storm: true
                         enabled: app.roomInfo

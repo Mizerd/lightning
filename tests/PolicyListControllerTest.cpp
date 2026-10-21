@@ -466,6 +466,78 @@ private Q_SLOTS:
         QCOMPARE(client.lastRecommendation, QStringLiteral("m.ban"));
         QVERIFY(dialog->property("pendingBroadEntity").toString().isEmpty());
     }
+
+    // C36-F07: the same rules always list in the same order (by entity), not
+    // in the bridge's map-iteration order.
+    void rulesListInADeterministicOrder()
+    {
+        PolicyClient client;
+        PolicyListController policy;
+        policy.setClient(&client);
+        policy.openRoom(kRoomA);
+        QVariantList rules;
+        for (const char *e : { "@c:x", "@a:x", "@b:x" })
+            rules += oneRule(QString::fromLatin1(e));
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, rules);
+        auto order = [&] {
+            QStringList out;
+            for (int i = 0; i < policy.rules()->rowCount(); ++i)
+                out << policy.rules()->data(policy.rules()->index(i),
+                                            PolicyRuleModel::EntityRole).toString();
+            return out;
+        };
+        const QStringList expected{ "@a:x", "@b:x", "@c:x" };
+        QCOMPARE(order(), expected);
+    }
+
+    // C36-F06: a re-read after Remove edits rows; it must not reset the model
+    // (a reset scrolls the list to the top under the pointer).
+    void aReReadAfterRemovalEditsRowsAndNeverResets()
+    {
+        PolicyClient client;
+        PolicyListController policy;
+        policy.setClient(&client);
+        policy.openRoom(kRoomA);
+        QVariantList rules;
+        for (const char *e : { "@a:x", "@b:x", "@c:x", "@d:x" })
+            rules += oneRule(QString::fromLatin1(e));
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, rules);
+        QSignalSpy resets(policy.rules(), &QAbstractItemModel::modelReset);
+        QSignalSpy removed(policy.rules(), &QAbstractItemModel::rowsRemoved);
+        QSignalSpy inserted(policy.rules(), &QAbstractItemModel::rowsInserted);
+
+        QVariantList after = rules;
+        after.removeAt(3);
+        policy.openRoom(kRoomA);   // clears; then a fresh read arrives
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, rules);
+        resets.clear();
+        // The write-then-re-read path (no clear in between).
+        policy.removeRule(QStringLiteral("user"), QStringLiteral("@d:x"),
+                          QStringLiteral("rule:@d:x"));
+        Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, after);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(removed.count(), 1);
+        QCOMPARE(inserted.count(), 0);
+        QCOMPARE(policy.rules()->rowCount(), 3);
+
+        // An addition inserts in order.
+        QVariantList plus = after;
+        plus += oneRule(QStringLiteral("@bb:x"));
+        policy.addRule(QStringLiteral("user"), QStringLiteral("@bb:x"), QString());
+        Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, plus);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(inserted.count(), 1);
+        QCOMPARE(policy.rules()->data(policy.rules()->index(2),
+                                      PolicyRuleModel::EntityRole).toString(),
+                 QStringLiteral("@bb:x"));
+    }
 };
 
 QTEST_MAIN(PolicyListControllerTest)
