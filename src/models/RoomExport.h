@@ -85,6 +85,10 @@ QString render(const QList<TimelineEvent> &events, const Options &options,
 /// undecryptable one. Empty for an ordinary row.
 QString placeholderBody(const TimelineEvent &event);
 
+// A state row's text for the file: the sentence the bridge named, in the
+// exporting user's app language (the timeline's renderer), else the body.
+QString stateOrBody(const TimelineEvent &event);
+
 /// Safe leaf filename for the export, without directory or extension. Derived
 /// from the room name, falling back to the room id's localpart, then "room".
 /// Never contains a separator, drive letter or leading dot: the room name is

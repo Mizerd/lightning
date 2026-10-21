@@ -1,3 +1,4 @@
+#include "matrix/PreviewToken.h"
 #include "matrix/RustTimelineIngest.h"
 
 #include <QSet>
@@ -267,6 +268,13 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     // for mentions is raw markdown.
     e.formattedBody = item.value(QStringLiteral("formatted_body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
+    // A closed name, kept only when this build words it.
+    {
+        const QString sentence =
+            item.value(QStringLiteral("state_sentence")).toString();
+        if (matrix::preview::isStateSentence(sentence))
+            e.stateSentence = sentence;
+    }
     e.membershipChange =
         item.value(QStringLiteral("membership_change")).toString();
     e.stateTarget = item.value(QStringLiteral("state_target")).toString();

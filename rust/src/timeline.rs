@@ -4551,27 +4551,83 @@ fn profile_name_change(
     }
 }
 
-// Activity-row wording for an `OtherState` item, separate so it can be
-// tested. Interpolates only the state type and sender, never content: the
-// tombstone row carries neither the successor id nor the free-text body.
-fn state_row_text(kind: &str, actor: &str) -> String {
+/// The closed set of sentences a state or membership row says, sent as
+/// `state_sentence` and worded by C++ in the UI language
+/// (`matrix/PreviewToken.h`, `stateSentence`). Rust's English words still go in
+/// `body`, for a build that does not know a sentence. Every sentence names only
+/// the actor (the sender) and, for membership, the target member: never the
+/// state type, the tombstone body, a successor id or any other content.
+pub(crate) fn state_sentence(kind: &str) -> &'static str {
     match kind {
-        "m.room.create" => format!("{actor} created the room."),
-        "m.room.name" => format!("{actor} changed the room name."),
-        "m.room.topic" => format!("{actor} changed the room topic."),
-        "m.room.avatar" => format!("{actor} changed the room avatar."),
-        "m.room.encryption" => "Encryption was enabled.".to_owned(),
-        "m.room.tombstone" => format!("{actor} upgraded this room."),
+        "m.room.create" => "room_created",
+        "m.room.name" => "room_name_changed",
+        "m.room.topic" => "room_topic_changed",
+        "m.room.avatar" => "room_avatar_changed",
+        "m.room.encryption" => "encryption_enabled",
+        "m.room.tombstone" => "room_upgraded",
         // Calls must not fall through to "updated room settings". Real call rows
         // arrive as `msgtype: "call"`; these arms cover only state-typed `m.call*`
         // events arriving as OtherState.
-        "m.call" => format!("{actor} started a call."),
-        "m.call.video" => format!("{actor} started a video call."),
+        "m.call" => "call_started",
+        "m.call.video" => "video_call_started",
         // A published (or re-published) policy-list rule. Never the entity or
         // reason: both are free text the list's writer chose.
-        kind if is_policy_rule_type(kind) => format!("{actor} updated a moderation rule."),
+        kind if is_policy_rule_type(kind) => "policy_rule_updated",
+        _ => "settings_updated",
+    }
+}
+
+/// The membership sentence for a change, as a closed name.
+fn membership_sentence(change: Option<matrix_sdk_ui::timeline::MembershipChange>) -> &'static str {
+    use matrix_sdk_ui::timeline::MembershipChange as M;
+    match change {
+        Some(M::Joined) => "member_joined",
+        Some(M::Left) => "member_left",
+        Some(M::Invited) => "member_invited",
+        Some(M::InvitationAccepted) => "invitation_accepted",
+        Some(M::Kicked) => "member_kicked",
+        Some(M::Banned) | Some(M::KickedAndBanned) => "member_banned",
+        Some(M::Unbanned) => "member_unbanned",
+        Some(M::InvitationRejected) => "invitation_rejected",
+        Some(M::InvitationRevoked) => "invitation_revoked",
+        _ => "membership_changed",
+    }
+}
+
+/// The English words for a sentence: the `body` fallback. `actor` is the
+/// sender, `target` the member a membership row is about.
+fn state_sentence_english(sentence: &str, actor: &str, target: &str) -> String {
+    match sentence {
+        "room_created" => format!("{actor} created the room."),
+        "room_name_changed" => format!("{actor} changed the room name."),
+        "room_topic_changed" => format!("{actor} changed the room topic."),
+        "room_avatar_changed" => format!("{actor} changed the room avatar."),
+        "encryption_enabled" => "Encryption was enabled.".to_owned(),
+        "room_upgraded" => format!("{actor} upgraded this room."),
+        "call_started" => format!("{actor} started a call."),
+        "video_call_started" => format!("{actor} started a video call."),
+        "policy_rule_updated" => format!("{actor} updated a moderation rule."),
+        "space_parent_removed" => format!("{actor} removed this room from a space."),
+        "policy_rule_removed" => format!("{actor} removed a moderation rule."),
+        "member_joined" => format!("{target} joined the room."),
+        "member_left" => format!("{target} left the room."),
+        "member_invited" => format!("{actor} invited {target}."),
+        "invitation_accepted" => format!("{target} accepted the invitation."),
+        "member_kicked" => format!("{actor} removed {target} from the room."),
+        "member_banned" => format!("{actor} banned {target}."),
+        "member_unbanned" => format!("{actor} unbanned {target}."),
+        "invitation_rejected" => format!("{target} rejected the invitation."),
+        "invitation_revoked" => format!("{actor} revoked {target}'s invitation."),
+        "membership_changed" => format!("Membership for {target} changed."),
         _ => format!("{actor} updated room settings."),
     }
+}
+
+// Activity-row English for an `OtherState` item (the `body` fallback).
+// Interpolates only the sender, never content: the tombstone row carries
+// neither the successor id nor the free-text body.
+fn state_row_text(kind: &str, actor: &str) -> String {
+    state_sentence_english(state_sentence(kind), actor, "")
 }
 
 /// The policy-list rule state types: the spec's `m.policy.rule.*`, and the
@@ -4603,14 +4659,22 @@ fn is_policy_rule_type(event_type: &str) -> bool {
 /// Policy-list rules are the same shape: ruma's `PolicyRuleEventContent`
 /// requires `entity`, and the empty content Mjolnir (and Lightning's own
 /// Remove) writes to retire a rule fails on "missing field `entity`".
-fn failed_state_parse_body(event_type: &str, error_display: &str, actor: &str) -> Option<String> {
+fn failed_state_sentence(event_type: &str, error_display: &str) -> Option<&'static str> {
     if event_type == "m.space.parent" && error_display.contains("missing field `via`") {
-        Some(format!("{actor} removed this room from a space."))
+        Some("space_parent_removed")
     } else if is_policy_rule_type(event_type) && error_display.contains("missing field `entity`") {
-        Some(format!("{actor} removed a moderation rule."))
+        Some("policy_rule_removed")
     } else {
         None
     }
+}
+
+/// `failed_state_sentence` in English, as the row's `body` reads. Test-only:
+/// the producer words the sentence through `state_sentence_english` itself.
+#[cfg(test)]
+fn failed_state_parse_body(event_type: &str, error_display: &str, actor: &str) -> Option<String> {
+    failed_state_sentence(event_type, error_display)
+        .map(|sentence| state_sentence_english(sentence, actor, ""))
 }
 
 fn event_item_to_json(
@@ -4986,18 +5050,10 @@ fn event_item_to_json(
                 use matrix_sdk_ui::timeline::MembershipChange as M;
                 let target = change.display_name().unwrap_or_else(|| change.user_id().to_string());
                 let actor = event.sender().to_string();
-                let text = match change.change() {
-                    Some(M::Joined) => format!("{target} joined the room."),
-                    Some(M::Left) => format!("{target} left the room."),
-                    Some(M::Invited) => format!("{actor} invited {target}."),
-                    Some(M::InvitationAccepted) => format!("{target} accepted the invitation."),
-                    Some(M::Kicked) => format!("{actor} removed {target} from the room."),
-                    Some(M::Banned) | Some(M::KickedAndBanned) => format!("{actor} banned {target}."),
-                    Some(M::Unbanned) => format!("{actor} unbanned {target}."),
-                    Some(M::InvitationRejected) => format!("{target} rejected the invitation."),
-                    Some(M::InvitationRevoked) => format!("{actor} revoked {target}'s invitation."),
-                    _ => format!("Membership for {target} changed."),
-                };
+                // Worded by C++ from the sentence; the English is the fallback.
+                let sentence = membership_sentence(change.change());
+                let text = state_sentence_english(sentence, &actor, &target);
+                out["state_sentence"] = sentence.into();
                 // The change as a closed set beside the sentence, so the UI can draw a
                 // glyph per action without parsing a translated sentence.
                 out["membership_change"] = match change.change() {
@@ -5057,6 +5113,7 @@ fn event_item_to_json(
             // keeps its place in the SDK's index space; C++ keys on `state_kind`.
             out["msgtype"] = "state".into();
             out["state_kind"] = kind.clone().into();
+            out["state_sentence"] = state_sentence(&kind).into();
             out["body"] = state_row_text(&kind, &actor).into();
         }
         TimelineItemContent::FailedToParseMessageLike { .. } => {
@@ -5066,11 +5123,12 @@ fn event_item_to_json(
         TimelineItemContent::FailedToParseState { event_type, error, .. } => {
             let actor = event.sender().to_string();
             let event_type = event_type.to_string();
-            match failed_state_parse_body(&event_type, &error.to_string(), &actor) {
-                Some(body) => {
+            match failed_state_sentence(&event_type, &error.to_string()) {
+                Some(sentence) => {
                     out["msgtype"] = "state".into();
                     out["state_kind"] = event_type.into();
-                    out["body"] = body.into();
+                    out["state_sentence"] = sentence.into();
+                    out["body"] = state_sentence_english(sentence, &actor, "").into();
                 }
                 None => {
                     out["msgtype"] = "unsupported".into();
@@ -6812,7 +6870,9 @@ pub fn sessions_by_room_from_import(
 #[cfg(test)]
 mod tests {
     use super::{
-        backup_attempt_allowed, backup_attempt_backoff, failed_state_parse_body, find_img_tag,
+        backup_attempt_allowed, backup_attempt_backoff, failed_state_parse_body,
+        failed_state_sentence, find_img_tag, membership_sentence, state_sentence,
+        state_sentence_english,
         is_rtc_membership_event, raw_displayed_formatted_body,
         sessions_by_room_from_import, state_row_text, substitute_emoticons,
         attachment_config, parse_reply_target, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
@@ -7462,6 +7522,62 @@ mod tests {
             registry.begin_reaction(target),
             "shutdown must clear the in-flight set"
         );
+    }
+
+    // State and membership rows cross as a closed sentence C++ words in the UI
+    // language (2026-10-18: "joined the room", "changed the room name" stayed
+    // English in a German UI). Before, only the English sentence crossed.
+    #[test]
+    fn every_state_kind_crosses_as_a_closed_sentence() {
+        for (kind, sentence) in [
+            ("m.room.create", "room_created"),
+            ("m.room.name", "room_name_changed"),
+            ("m.room.topic", "room_topic_changed"),
+            ("m.room.avatar", "room_avatar_changed"),
+            ("m.room.encryption", "encryption_enabled"),
+            ("m.room.tombstone", "room_upgraded"),
+            ("m.call", "call_started"),
+            ("m.call.video", "video_call_started"),
+            ("m.policy.rule.user", "policy_rule_updated"),
+            ("org.matrix.mjolnir.rule.server", "policy_rule_updated"),
+            // Unknown, and lookalikes of known types, are "settings".
+            ("org.example.custom", "settings_updated"),
+            ("m.policy.rule.userx", "settings_updated"),
+            ("m.room.name.extra", "settings_updated"),
+        ] {
+            assert_eq!(state_sentence(kind), sentence, "{kind}");
+        }
+        assert_eq!(
+            failed_state_sentence("m.space.parent", "missing field `via` at line 1 column 2"),
+            Some("space_parent_removed")
+        );
+        assert_eq!(
+            failed_state_sentence("m.policy.rule.room", "missing field `entity`"),
+            Some("policy_rule_removed")
+        );
+        assert_eq!(failed_state_sentence("m.space.parent", "invalid type"), None);
+    }
+
+    #[test]
+    fn every_membership_change_crosses_as_a_closed_sentence() {
+        use matrix_sdk_ui::timeline::MembershipChange as M;
+        for (change, sentence, english) in [
+            (Some(M::Joined), "member_joined", "Bob joined the room."),
+            (Some(M::Left), "member_left", "Bob left the room."),
+            (Some(M::Invited), "member_invited", "@a:b.c invited Bob."),
+            (Some(M::InvitationAccepted), "invitation_accepted", "Bob accepted the invitation."),
+            (Some(M::Kicked), "member_kicked", "@a:b.c removed Bob from the room."),
+            (Some(M::Banned), "member_banned", "@a:b.c banned Bob."),
+            (Some(M::KickedAndBanned), "member_banned", "@a:b.c banned Bob."),
+            (Some(M::Unbanned), "member_unbanned", "@a:b.c unbanned Bob."),
+            (Some(M::InvitationRejected), "invitation_rejected", "Bob rejected the invitation."),
+            (Some(M::InvitationRevoked), "invitation_revoked", "@a:b.c revoked Bob's invitation."),
+            (None, "membership_changed", "Membership for Bob changed."),
+        ] {
+            assert_eq!(membership_sentence(change), sentence, "{change:?}");
+            // The English fallback is the sentence the row always said.
+            assert_eq!(state_sentence_english(sentence, "@a:b.c", "Bob"), english, "{sentence}");
+        }
     }
 
     // A tombstone gets its own row text, not "updated room settings".

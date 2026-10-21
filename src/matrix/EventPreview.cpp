@@ -142,6 +142,27 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
                                     : Token{ Kind::PollQuestion, normalized };
     }
     case TimelineEvent::StateChange:
+        // A sentence the bridge sent by name: kept as a kind, so the room
+        // list words it in the current language and again after a switch.
+        if (!event.stateSentence.isEmpty()) {
+            const QString actor = presentable_name::presentable(
+                event.sender,
+                actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
+                event.senderNameAmbiguous);
+            // The bridge's English as the fallback for a build that does not
+            // know the name (the cache may hand this to one).
+            const QString english = normalizePreviewText(actorSentence(
+                event.body, event.sender,
+                actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
+                event.senderNameAmbiguous));
+            return { Kind::StateSentence,
+                     packStateSentence(event.stateSentence,
+                                       normalizePreviewText(
+                                           actor.isEmpty() ? event.sender : actor),
+                                       normalizePreviewText(
+                                           presentable_name::sanitized(event.stateTarget)),
+                                       english) };
+        }
         // The room list showed "@alice:example.org updated room settings."
         // where the person's name belongs (VM test, 2026-10-07).
         return text(normalizePreviewText(actorSentence(

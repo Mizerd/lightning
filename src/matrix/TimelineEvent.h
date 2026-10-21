@@ -98,6 +98,11 @@ struct TimelineEvent {
     QString senderAvatarUrl;
     QString body;
     QString stateKind;
+    // A room-state or membership row's sentence as a closed name
+    // (matrix/PreviewToken.h, stateSentence), worded in the UI language from
+    // the actor and `stateTarget`. Empty when the bridge sent none or one this
+    // build does not know: the row then shows `body`, the bridge's English.
+    QString stateSentence;
     // Typed room-activity target (for example the affected member's display
     // name or MXID). State presentation never needs raw event JSON.
     QString stateTarget;

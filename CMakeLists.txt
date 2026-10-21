@@ -2944,6 +2944,33 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-model-diff-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME timeline-model-diff COMMAND timeline-model-diff-test)
 
+    # Room-state and membership sentences worded in the UI language from the
+    # bridge's closed names: ingest, timeline row, re-wording, preview kind,
+    # and the table shared with rust/src/timeline.rs.
+    qt_add_executable(state-sentence-test
+        tests/StateSentenceTest.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/RustTimelineIngest.cpp
+        src/matrix/EventPreview.cpp
+        src/matrix/StateRowText.h
+        src/models/RoomExport.h
+        src/models/RoomExport.cpp
+        src/models/RoomExportHtml.h
+        src/models/RoomExportHtml.cpp
+    )
+    target_include_directories(state-sentence-test PRIVATE src)
+    target_link_libraries(state-sentence-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME state-sentence COMMAND state-sentence-test)
+
     # State-activity grouping passes through virtual rows (date dividers, read
     # markers, timeline start) and breaks on any visible message.
     qt_add_executable(state-activity-grouping-test

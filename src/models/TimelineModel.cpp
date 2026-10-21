@@ -1,6 +1,7 @@
 #include "models/TimelineModel.h"
 
 #include "matrix/EventPreview.h"
+#include "matrix/StateRowText.h"
 #include "matrix/MatrixClient.h"
 #include "matrix/PresentableName.h"
 #include "models/MessageHtml.h"
@@ -278,6 +279,7 @@ bool TimelineModel::groupingInputsDiffer(const TimelineEvent &before,
         || before.type != after.type
         || before.redacted != after.redacted
         || before.stateKind != after.stateKind
+        || before.stateSentence != after.stateSentence
         // Entering or leaving the thread-notice shape (isThreadReplyAwaitingKeys).
         || before.undecryptable != after.undecryptable
         || before.threadRootId != after.threadRootId;
@@ -538,6 +540,14 @@ void TimelineModel::recomputeSearch()
     const int keep = m_searchResults.indexOf(wasSelected);
     m_searchIndex = keep >= 0 ? keep
                               : static_cast<int>(m_searchResults.size()) - 1;
+}
+
+void TimelineModel::retranslate()
+{
+    if (m_events.isEmpty())
+        return;
+    Q_EMIT dataChanged(index(0), index(int(m_events.size()) - 1),
+                       { BodyRole, StateGroupEntriesRole, CallEventTextRole });
 }
 
 int TimelineModel::rowCount(const QModelIndex &parent) const
@@ -1257,13 +1267,13 @@ QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
     // rows another backend phrased keep their sentence.
     if (isCallEventRow(e) && e.body.isEmpty())
         return callEventDescription(e, senderDisplayName(e));
-    // The Rust bridge phrases other state rows with the sender's user id
-    // ("@alice:example.org changed the room name."); the row names the
-    // person, as every other row does. Same rule as the room-list preview.
+    // A sentence the bridge sent by name is worded here, in the UI language,
+    // with the sender as presented and the target member's name; else its
+    // English, which opens with the sender's user id ("@alice:example.org
+    // changed the room name.") and gets the person's name instead, as every
+    // other row does. Same rule as the room-list preview.
     if (e.type == TimelineEvent::StateChange)
-        return matrix::preview::actorSentence(e.body, e.sender,
-                                              senderDisplayName(e),
-                                              e.senderNameAmbiguous);
+        return matrix::preview::stateRowText(e, senderDisplayName(e));
     return e.body;
 }
 

@@ -453,7 +453,7 @@ QString HtmlWriter::bodyHtml(const TimelineEvent &event) const
         return QStringLiteral("<p class=\"note\">") + esc(placeholder)
             + QStringLiteral("</p>");
     if (event.type == TimelineEvent::StateChange)
-        return QStringLiteral("<div class=\"state\">") + esc(event.body)
+        return QStringLiteral("<div class=\"state\">") + esc(stateOrBody(event))
             + QStringLiteral("</div>");
     if (isAttachment(event)) {
         // The caption, when the sender wrote one beyond the file's name.

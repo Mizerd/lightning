@@ -304,6 +304,12 @@ public:
     static QString callEventDescription(const TimelineEvent &e,
                                         const QString &actorDisplayName);
 
+    // Words made in data() for the UI language (state and membership
+    // sentences, call rows) are re-read after a language switch: one
+    // dataChanged over the model, no per-row observer. AppController calls it
+    // on AppLocale::changed.
+    void retranslate();
+
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;

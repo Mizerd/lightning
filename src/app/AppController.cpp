@@ -265,6 +265,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_allRooms->setDirectAvatarResolver(m_directAvatars.get());
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
+    // State rows ("X joined the room") are worded in the app language.
+    connect(AppLocale::instance(), &AppLocale::changed,
+            m_timeline.get(), &TimelineModel::retranslate);
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
@@ -445,6 +448,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_openRoomPermissions = std::make_unique<OpenRoomPermissions>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_eventContext = std::make_unique<ContextController>(this);
+    // Their timelines carry state rows too.
+    connect(AppLocale::instance(), &AppLocale::changed,
+            m_thread->model(), &TimelineModel::retranslate);
+    connect(AppLocale::instance(), &AppLocale::changed,
+            m_eventContext->model(), &TimelineModel::retranslate);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
     // The rich composer bridge serves both composers.
     m_richComposer->setThread(m_thread.get());

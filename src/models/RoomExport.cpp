@@ -1,4 +1,6 @@
 #include "models/RoomExport.h"
+
+#include "matrix/StateRowText.h"
 #include "models/RoomExportHtml.h"
 
 #include <QDateTime>
@@ -58,6 +60,20 @@ bool isAttachment(TimelineEvent::Type type)
         || type == TimelineEvent::Sticker;
 }
 
+} // namespace
+
+// A state row the bridge named is written in the exporting user's app
+// language, as the timeline shows it; anything else keeps its body. No bidi
+// isolates: they are invisible characters in a text file.
+QString stateOrBody(const TimelineEvent &event)
+{
+    if (event.type == TimelineEvent::StateChange && !event.stateSentence.isEmpty())
+        return matrix::preview::stateRowText(event, QString(), /*isolate=*/false);
+    return event.body;
+}
+
+namespace {
+
 // What the file shows for an event's content. Never an `mxc:`: authenticated
 // media cannot be resolved from the file, so it would be a dead link.
 QString bodyFor(const TimelineEvent &event, const Options &options)
@@ -77,7 +93,7 @@ QString bodyFor(const TimelineEvent &event, const Options &options)
         return QStringLiteral("[%1: %2 — not included in this export]")
             .arg(typeName(event.type), label);
     }
-    return event.body;
+    return stateOrBody(event);
 }
 
 // The sender's own words under a piece of media, when they wrote any beyond

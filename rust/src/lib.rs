@@ -15092,6 +15092,9 @@ async fn enqueue_rooms_stamped(
 /// persists encrypted-room previews), media their filename-style body.
 /// Anything else (undecrypted, state, invites, unsent echoes) yields "" so
 /// C++ keeps its placeholder.
+// The English a preview line reads as. Test-only: production sends lines
+// (`latest_event_preview_line`) and C++ words them.
+#[cfg(test)]
 pub(crate) fn latest_event_preview_text(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
 ) -> String {
