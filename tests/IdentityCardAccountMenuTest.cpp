@@ -1461,7 +1461,7 @@ Item {
         };
         QVERIFY(badgeIn(plain) && !badgeIn(plain)->isVisible());
         QVERIFY(badgeIn(badged) && badgeIn(badged)->isVisible());
-        QCOMPARE(badgeIn(badged)->property("text").toString(), QStringLiteral("99+"));
+        QCOMPARE(badgeIn(badged)->property("text").toString(), QStringLiteral("@99+"));
         QVERIFY(badgeIn(dotted) && badgeIn(dotted)->isVisible());
         QVERIFY(badgeIn(dotted)->property("dotOnly").toBool());
 
@@ -1528,7 +1528,7 @@ Item {
             QStringLiteral("identityCardActivityBadge"));
         QVERIFY(badge);
         QTRY_VERIFY(badge->isVisible());
-        QCOMPARE(badge->property("text").toString(), QStringLiteral("99+"));
+        QCOMPARE(badge->property("text").toString(), QStringLiteral("@99+"));
         QQmlExpression ignored(qmlContext(badge), badge,
                                QStringLiteral("Accessible.ignored"));
         QVERIFY2(ignored.evaluate().toBool(),

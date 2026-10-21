@@ -12,6 +12,7 @@
 
 #include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
+#include "support/BadgeColourRules.h"
 #include "backdrop/BackdropMath.h"
 #include "backdrop/ChatBackdropController.h"
 #include "matrix/MockMatrixClient.h"
@@ -201,6 +202,8 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
         if (p.contains(it.value()))
             p.insert(it.key(), p.value(it.value()));
     }
+    // The badge fills and inks paletteForTheme() derives after that loop.
+    badgerules::addDerived(p);
     return p;
 }
 

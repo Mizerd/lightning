@@ -5,6 +5,7 @@
 
 #include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
+#include "support/BadgeColourRules.h"
 
 #include <QColor>
 #include <QDirIterator>
@@ -194,6 +195,9 @@ void fillElements(QVariantMap &p, const QVariantMap &own, const QString &qml)
         if (p.contains(it.value()))
             p.insert(it.key(), p.value(it.value()));
     }
+    // The badge fills and inks paletteForTheme() derives after its element
+    // loop (AppTheme's badge rules; tests/support/BadgeColourRules.h).
+    badgerules::addDerived(p, own);
 }
 
 // One preset as paletteForTheme() hands it to QML: semantic names plus the
@@ -748,14 +752,15 @@ private Q_SLOTS:
                                 "theme, which would make it noise:\n  %1")
                                 .arg(failures.join(QStringLiteral("\n  ")))));
 
-        // 11 presets x 34 checks = 374, minus exactly one: Storm's `hover` is
+        // 11 presets x 35 checks = 385, minus exactly one: Storm's `hover` is
         // Qt.alpha(...), which the parser cannot resolve. `selectedHover` is
         // deliberately unchecked (see the .cpp). The bound is exact so a
-        // renamed key or a parser regression cannot pass quietly. 34 = the 27
+        // renamed key or a parser regression cannot pass quietly. 35 = the 27
         // group checks (several now naming the element actually drawn) plus
         // seven element pairs added with the per-element split.
-        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 34);
-        QCOMPARE(evaluated, 11 * 34 - 1);
+        // ... plus the mention count's number on its painted fill (2026-10-20).
+        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 35);
+        QCOMPARE(evaluated, 11 * 35 - 1);
 
         // The unevaluated check is named, not just counted: auditSkipped says
         // which pair and why.
@@ -854,6 +859,20 @@ private Q_SLOTS:
         QVERIFY2(elements.size() > 50, "the elementGroups scan found almost nothing");
         for (auto e = elements.constBegin(); e != elements.constEnd(); ++e)
             returned.insert(e.key());
+        // The derived badge keys are assigned after that loop (`out.<key> =`),
+        // and each must be one the store declares as derived.
+        const int fnEnd = qml.indexOf(QStringLiteral("\n    }"), close);
+        static const QRegularExpression assigned(QStringLiteral("\\bout\\.(\\w+)\\s*="));
+        auto a = assigned.globalMatch(qml.mid(close, fnEnd - close));
+        int derivedSeen = 0;
+        const QVariantMap derived = CustomThemeStore::derivedPaletteKeys();
+        while (a.hasNext()) {
+            const QString k = a.next().captured(1);
+            returned.insert(k);
+            if (derived.contains(k))
+                ++derivedSeen;
+        }
+        QCOMPARE(derivedSeen, derived.size());
         QVERIFY2(returned.size() > 25,
                  qPrintable(QStringLiteral("the return-object scan found only "
                                            "%1 keys — it has stopped working")
@@ -958,7 +977,7 @@ private Q_SLOTS:
         // because it passes, and that is asserted below so a short report
         // cannot hide behind it.
         QCOMPARE(inkReport.size(), 26);
-        QCOMPARE(findPair(inkReport, "unreadBadgeText", "roomUnreadBadge"),
+        QCOMPARE(findPair(inkReport, "unreadCountInk", "unreadCountFill"),
                  -1.0);
         QVERIFY(qAbs(findPair(inkReport, "accentText", "accent") - 2.68)
                 < 0.01);
@@ -1142,7 +1161,11 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("'%1': the background role "
                                                "'%2' is not editable")
                                     .arg(label, bgRole)));
-            QVERIFY2(store.paletteKeyForRole(bgRole) == bg,
+            // A derived key (a badge's painted fill or ink) sends the click
+            // to the role it is derived from.
+            const QVariantMap derived = CustomThemeStore::derivedPaletteKeys();
+            QVERIFY2(store.paletteKeyForRole(bgRole) == bg
+                         || derived.value(bg).toString() == bgRole,
                      qPrintable(QStringLiteral(
                                     "'%1' grades the palette key '%2' but "
                                     "sends a click to the role '%3', which "
@@ -1166,7 +1189,8 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("'%1': the foreground role "
                                                "'%2' is not editable")
                                     .arg(label, fgRole)));
-            QVERIFY2(store.paletteKeyForRole(fgRole) == fg,
+            QVERIFY2(store.paletteKeyForRole(fgRole) == fg
+                         || derived.value(fg).toString() == fgRole,
                      qPrintable(QStringLiteral(
                                     "'%1' grades the palette key '%2' but "
                                     "sends a click to the role '%3', which "
@@ -1191,7 +1215,17 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("two roles both resolve to the "
                                                "palette key '%1'").arg(target)));
             targets.insert(target);
-            QVERIFY2(CustomThemeStore::readabilityPaletteKeys().contains(target),
+            // Read directly, or through a derived key the table reads
+            // (`mention` -> mentionBadgeFill since 2026-10-20).
+            bool readThroughDerived = false;
+            const QVariantMap derivedKeys = CustomThemeStore::derivedPaletteKeys();
+            for (auto d = derivedKeys.constBegin(); d != derivedKeys.constEnd(); ++d) {
+                if (d.value().toString() == it.key()
+                    && CustomThemeStore::readabilityPaletteKeys().contains(d.key()))
+                    readThroughDerived = true;
+            }
+            QVERIFY2(CustomThemeStore::readabilityPaletteKeys().contains(target)
+                         || readThroughDerived,
                      qPrintable(QStringLiteral(
                                     "'%1' is not a key the readability table "
                                     "reads, so nothing asserts it against "
@@ -1529,10 +1563,36 @@ private Q_SLOTS:
         }
         QVERIFY2(files > 100, "the view scan found almost no QML files");
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
+        // A role a view paints only through a DERIVED badge token (badges,
+        // 2026-10-20: the colour fitted for contrast) is read through that
+        // token, provided AppTheme really derives it from the role.
+        QFile themeFile(themePath);
+        QVERIFY(themeFile.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString theme = QString::fromUtf8(themeFile.readAll());
+        const QHash<QString, QStringList> derivedFrom = {
+            { QStringLiteral("roomUnreadBadge"),
+              { QStringLiteral("unreadCountFill"), QStringLiteral("unreadDot") } },
+            { QStringLiteral("unreadBadgeText"), { QStringLiteral("unreadCountInk") } },
+            { QStringLiteral("mentionBadgeText"), { QStringLiteral("mentionBadgeInk") } },
+        };
+        const auto derives = [&theme](const QString &token, const QString &role) {
+            const qsizetype at = theme.indexOf(
+                QStringLiteral("readonly property color %1:").arg(token));
+            return at >= 0 && theme.mid(at, 400).contains(QRegularExpression(
+                       QStringLiteral("\\b%1\\b").arg(role)));
+        };
         const auto read = [&](const QString &role) {
             const QString key = aliases.value(role, role).toString();
-            return all.contains(QRegularExpression(
-                QStringLiteral("AppTheme\\.%1\\b").arg(key)));
+            if (all.contains(QRegularExpression(
+                    QStringLiteral("AppTheme\\.%1\\b").arg(key))))
+                return true;
+            for (const QString &token : derivedFrom.value(key)) {
+                if (derives(token, key)
+                    && all.contains(QRegularExpression(
+                        QStringLiteral("AppTheme\\.%1\\b").arg(token))))
+                    return true;
+            }
+            return false;
         };
         // A group whose elements all have roles of their own (`dangerTint`:
         // the destructive menu tint and the error chip) is read through
@@ -1674,7 +1734,10 @@ private Q_SLOTS:
             {QStringLiteral("textMuted"),
              {QStringLiteral("textMuted"), QStringLiteral("stormTextMuted")}},
             {QStringLiteral("success"), {QStringLiteral("success")}},
-            {QStringLiteral("mention"), {QStringLiteral("mentionBadge")}},
+            // mentionBadgeFill: the mention colour, moved in lightness only
+            // until its number reads (2026-10-20); roomMentionBadge follows it.
+            {QStringLiteral("mention"),
+             {QStringLiteral("mentionBadge"), QStringLiteral("mentionBadgeFill")}},
             // Groups of the per-element roles (2026-10-13).
             {QStringLiteral("border"),
              {QStringLiteral("border"), QStringLiteral("stormBorder")}},

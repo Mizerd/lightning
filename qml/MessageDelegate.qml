@@ -1311,7 +1311,9 @@ Item {
             Label {
                 objectName: "unreadDividerLabel"
                 text: qsTr("New messages")
-                color: AppTheme.unreadBadge
+                // Text, so 4.5:1 on the conversation (unreadBadge as text was
+                // 2.86-4.34:1); the rules stay the unread colour.
+                color: AppTheme.unreadDividerInk
                 // Scaled like the day divider.
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightStrong

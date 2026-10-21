@@ -435,7 +435,9 @@ Rectangle {
                                     Layout.preferredHeight: 8
                                     Layout.alignment: Qt.AlignVCenter
                                     radius: 4
-                                    color: AppTheme.unreadBadge
+                                    color: AppTheme.unreadDot
+                                    border.width: AppTheme.badgeDotRingWidth
+                                    border.color: AppTheme.unreadDotRing
                                 }
                             }
                             Label {

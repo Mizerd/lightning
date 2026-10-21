@@ -801,7 +801,7 @@ private slots:
         // group danger token; the invariant is that `mention` is tested
         // BEFORE `muted` for both the ink and the fill.)
         QVERIFY(badge.contains(QStringLiteral(
-            "root.mention ? AppTheme.mentionBadgeText : root.muted")));
+            "root.mention ? AppTheme.mentionBadgeInk : root.muted")));
         QVERIFY(badge.contains(QStringLiteral(
             "root.mention ? AppTheme.roomMentionBadge : root.muted")));
     }

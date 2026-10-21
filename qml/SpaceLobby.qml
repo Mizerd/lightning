@@ -367,7 +367,7 @@ ColumnLayout {
                         radius: height / 2
                         color: Number(sectionItem.modelData
                                           .highlightTotal || 0) > 0
-                               ? AppTheme.dangerFill : AppTheme.unreadBadge
+                               ? AppTheme.mentionBadgeFill : AppTheme.unreadCountFill
                         implicitHeight: 18
                         implicitWidth: Math.max(18, foldedCount.implicitWidth + 10)
                         Label {
@@ -380,7 +380,7 @@ ColumnLayout {
                             }
                             color: Number(sectionItem.modelData
                                               .highlightTotal || 0) > 0
-                                   ? AppTheme.dangerText : AppTheme.boltInk
+                                   ? AppTheme.mentionBadgeInk : AppTheme.unreadCountInk
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             font.weight: AppTheme.weightBold
@@ -614,26 +614,28 @@ ColumnLayout {
                                     }
                                 }
                                 Rectangle {
+                                    objectName: "spaceLobbyRowMention"
                                     visible: !row.muted
                                              && Number(row.modelData.highlightCount || 0) > 0
                                     radius: height / 2
-                                    color: AppTheme.dangerFill
+                                    color: AppTheme.mentionBadgeFill
                                     implicitHeight: 18
                                     implicitWidth: Math.max(18, rowMention.implicitWidth + 10)
                                     Label {
                                         id: rowMention
                                         anchors.centerIn: parent
                                         text: "@"
-                                        color: AppTheme.dangerText
+                                        color: AppTheme.mentionBadgeInk
                                         font.family: AppTheme.uiFont
                                         font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                                         font.weight: AppTheme.weightBold
                                     }
                                 }
                                 Rectangle {
+                                    objectName: "spaceLobbyRowUnread"
                                     visible: !row.muted && row.modelData.hasUnread === true
                                     radius: height / 2
-                                    color: AppTheme.unreadBadge
+                                    color: AppTheme.unreadCountFill
                                     implicitHeight: 18
                                     implicitWidth: Math.max(18, rowUnread.implicitWidth + 10)
                                     Label {
@@ -642,7 +644,7 @@ ColumnLayout {
                                         visible: Number(row.modelData.unreadCount || 0) > 0
                                         text: Number(row.modelData.unreadCount || 0) > 99
                                               ? "99+" : String(row.modelData.unreadCount || 0)
-                                        color: AppTheme.boltInk
+                                        color: AppTheme.unreadCountInk
                                         font.family: AppTheme.uiFont
                                         font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                                         font.weight: AppTheme.weightBold

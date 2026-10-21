@@ -20,6 +20,10 @@
 #include <QtTest/QtTest>
 
 #include <QColor>
+#include <QDir>
+#include <QFile>
+#include <QRegularExpression>
+#include <QHash>
 #include <QGuiApplication>
 #include <QJSValue>
 #include <QPointer>
@@ -310,13 +314,13 @@ private slots:
 
         const int running = AccountActivityModel::Running;
         QTest::newRow("mentions are a number")
-            << running << 3 << false << true << false << true << "3" << false;
+            << running << 3 << false << true << false << true << "@3" << false;
         QTest::newRow("a lower bound reads N+")
-            << running << 3 << true << true << false << true << "3+" << false;
+            << running << 3 << true << true << false << true << "@3+" << false;
         QTest::newRow("capped at 99+")
-            << running << 120 << false << true << false << true << "99+" << false;
+            << running << 120 << false << true << false << true << "@99+" << false;
         QTest::newRow("capped lower bound is still 99+")
-            << running << 120 << true << true << false << true << "99+" << false;
+            << running << 120 << true << true << false << true << "@99+" << false;
         QTest::newRow("unread without a mention is a dot")
             << running << 0 << false << true << false << true << "" << true;
         QTest::newRow("a lower bound of nothing is a dot")
@@ -613,7 +617,7 @@ Window {
         auto *badge = findItem(running, QStringLiteral("identityCardActivityBadge"));
         QVERIFY(badge);
         QTRY_VERIFY(badge->isVisible());
-        QCOMPARE(badge->property("text").toString(), QStringLiteral("7"));
+        QCOMPARE(badge->property("text").toString(), QStringLiteral("@7"));
         QTRY_VERIFY(badge->width() > 0 && badge->height() > 0);
 
         const QRectF row = sceneRect(running);
@@ -883,7 +887,7 @@ Window {
         bob.mentions = 2;
         QVERIFY(activity->setSummary(kBob, kEpoch, bob));
         QTRY_VERIFY(s->badgeOf(kBob) && s->badgeOf(kBob)->isVisible());
-        QCOMPARE(s->badgeOf(kBob)->property("text").toString(), QStringLiteral("2"));
+        QCOMPARE(s->badgeOf(kBob)->property("text").toString(), QStringLiteral("@2"));
         QCOMPARE(s->card(kBob)->property("liveState").toInt(),
                  int(AccountActivityModel::Running));
 
@@ -892,7 +896,7 @@ Window {
         bob.mentionsLowerBound = true;
         QVERIFY(activity->setSummary(kBob, kEpoch, bob));
         QTRY_COMPARE(s->badgeOf(kBob)->property("text").toString(),
-                     QStringLiteral("3+"));
+                     QStringLiteral("@3+"));
 
         // Carol: unread, no mention -> a dot.
         activity->setLiveState(kCarol, AccountActivityModel::Running);
@@ -1000,21 +1004,21 @@ Window {
         QTRY_VERIFY(!menu->property("visible").toBool());
     }
 
-    // ── Contrast (la1-Q #5, accepted follow-up) ───────────────────────────
+    // ── Contrast (la1-Q #5; badge colours fixed 2026-10-20, review round 1) ──
 
-    // The badge reuses UnreadBadge's tokens on the switcher's surfaces: the
-    // account menu (stormCanvas) and the quick switcher and settings cards
-    // (stormPanel). MEASURED 2026-10-20 on 24a485c5's AppTheme (the qml tool,
-    // offscreen): the pairs do NOT all meet WCAG today (white on the mention
-    // fill 3.20:1 on themes 9-12 and 4.05:1 on 8; the unread dot 2.37:1 on
-    // theme 4's panel, 2.08:1 for the mention fill on theme 5's panel). Those
-    // are app-wide tokens the room list shares, so changing them is a theme
-    // decision (docs/open-items.md, NEEDS DECISION), not this feature's. This
-    // case therefore (1) proves it measured every palette, not one eleven
-    // times (CLAUDE.md §16), and (2) holds each pair at or above today's
-    // measured floor, so nothing gets worse while that decision is open.
-    // Raise the floors to the targets when the tokens change.
-    void badgeColoursAreMeasuredOnEveryPaletteAndNeverWorsen()
+    // Every badge, measured from the colours REAL badge items paint, on each
+    // of the eleven presets, with high contrast off and on, and on a custom
+    // theme: a mention count's ink on its fill and an unread count's at 4.5:1
+    // (7:1 high contrast), and the unread dot at 3:1 (4.5:1) against EVERY
+    // surface it sits on: the account menu and its panels, room-list rows at
+    // rest, hovered and selected, both layouts, the side panel, the header and
+    // the conversation (AppTheme.badgeDotSurfaces). A mention count is not
+    // colour alone: it reads "@N", its accessible name the number. On the
+    // colours before 2026-10-20 this fails (white on the mention fill 3.20:1
+    // on Indigo Night, Deep Teal and Storm; the count 3.62:1 on Purple Dusk;
+    // the dot 2.08:1 on Nordic's panel; no "@"). Eleven distinct palettes are
+    // asserted, so one palette measured eleven times cannot pass.
+    void badgeColoursMeetWcagOnEveryPalette()
     {
         QQmlEngine engine;
         auto *theme = engine.singletonInstance<QObject *>(QStringLiteral("MatrixClient"),
@@ -1034,67 +1038,314 @@ Window {
         const auto color = [theme](const char *name) {
             return theme->property(name).value<QColor>();
         };
-        struct Pair {
-            const char *ink;
-            const char *surface;
-            double floor;    // today's measured minimum over the palettes
-            double target;   // WCAG: 4.5 text, 3.0 a graphic (the dot, the pill)
+        // A translucent surface as it shows over the room list.
+        const auto over = [](const QColor &c, const QColor &base) {
+            const double a = c.alphaF();
+            return QColor::fromRgbF(float(c.redF() * a + base.redF() * (1 - a)),
+                                    float(c.greenF() * a + base.greenF() * (1 - a)),
+                                    float(c.blueF() * a + base.blueF() * (1 - a)));
         };
-        const Pair pairs[] = {
-            { "mentionBadgeText", "roomMentionBadge", 3.15, 4.5 },
-            { "unreadBadgeText", "roomUnreadBadge", 3.55, 4.5 },
-            { "roomMentionBadge", "stormCanvas", 2.55, 3.0 },
-            { "roomMentionBadge", "stormPanel", 2.05, 3.0 },
-            { "roomUnreadBadge", "stormCanvas", 2.80, 3.0 },
-            { "roomUnreadBadge", "stormPanel", 2.20, 3.0 },
+        const auto dotSurfaces = [&]() {
+            const QColor list = color("roomList");
+            QList<QPair<QString, QColor>> out;
+            out << qMakePair(QStringLiteral("Spaces rail"), color("rail"))
+                << qMakePair(QStringLiteral("account menu panel"), color("stormPanel"))
+                << qMakePair(QStringLiteral("account menu"), color("stormCanvas"))
+                << qMakePair(QStringLiteral("room list"), list);
+            for (const char *name : { "roomHover", "roomSelected", "channelHover",
+                                      "channelSelected", "sidePanel", "roomHeader",
+                                      "timelineBackground" })
+                out << qMakePair(QString::fromLatin1(name), over(color(name), list));
+            return out;
         };
-        const int original = theme->property("mode").toInt();
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(
+            "import QtQuick\nimport MatrixClient\n"
+            "Item {\n"
+            "  property alias dotBadge: d; property alias countBadge: c\n"
+            "  property alias mentionBadge: m; property alias threadMention: tm\n"
+            "  property alias threadUnread: tu\n"
+            "  UnreadBadge { id: d; dot: true }\n"
+            "  UnreadBadge { id: c; count: 3 }\n"
+            "  UnreadBadge { id: m; count: 3; mention: true }\n"
+            "  ThreadUnreadBadge { id: tm; kind: 2 }\n"
+            "  ThreadUnreadBadge { id: tu; kind: 1 }\n"
+            "}\n"),
+            QUrl(QStringLiteral("badgesites.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        const auto item = [&root](const char *which) {
+            return root->property(which).value<QObject *>();
+        };
+        const auto fill = [&item](const char *which) {
+            QObject *badge = item(which);
+            QObject *background = badge ? badge->property("background").value<QObject *>()
+                                        : nullptr;
+            return background ? background->property("color").value<QColor>() : QColor();
+        };
+        const auto ring = [&item](const char *which) {
+            QObject *badge = item(which);
+            QObject *background = badge ? badge->property("background").value<QObject *>()
+                                        : nullptr;
+            QObject *border = background ? background->property("border").value<QObject *>()
+                                         : nullptr;
+            return border ? qMakePair(border->property("color").value<QColor>(),
+                                      border->property("width").toReal())
+                          : qMakePair(QColor(), qreal(-1));
+        };
+        const auto ink = [&item](const char *which) {
+            QObject *badge = item(which);
+            return badge ? badge->property("color").value<QColor>() : QColor();
+        };
+
+        QStringList failures;
+        const auto measure = [&](const QString &where, double textTarget, double dotTarget) {
+            const auto need = [&](const QString &what, const QColor &a, const QColor &b,
+                                  double target) {
+                const double r = contrast(a, b);
+                if (!a.isValid() || !b.isValid() || r < target) {
+                    failures << QStringLiteral("%1: %2: %3 on %4 is %5:1, below %6:1")
+                                    .arg(where, what, a.name(), b.name())
+                                    .arg(r, 0, 'f', 2).arg(target, 0, 'f', 1);
+                }
+            };
+            need(QStringLiteral("mention count"), ink("mentionBadge"), fill("mentionBadge"),
+                 textTarget);
+            need(QStringLiteral("unread count"), ink("countBadge"), fill("countBadge"),
+                 textTarget);
+            // A dot keeps the theme's saturated colour; its RING carries the
+            // non-text contrast on every surface it sits on (rest, hover,
+            // selected, the rail), and so does the Channels unread mark.
+            for (const auto &surface : dotSurfaces()) {
+                need(QStringLiteral("unread dot ring on ") + surface.first,
+                     color("unreadDotRing"), surface.second, dotTarget);
+                need(QStringLiteral("mention dot ring on ") + surface.first,
+                     color("mentionDotRing"), surface.second, dotTarget);
+                need(QStringLiteral("rail dot ring on ") + surface.first,
+                     color("railUnreadDotRing"), surface.second, dotTarget);
+                need(QStringLiteral("channel unread mark on ") + surface.first,
+                     color("channelUnreadMark"), surface.second, dotTarget);
+            }
+            need(QStringLiteral("\"New messages\""), color("unreadDividerInk"),
+                 color("timelineBackground"), textTarget);
+            // What the real items paint is the derived badge colours, and the
+            // thread badge's mention fill is the one every mention badge uses.
+            if (fill("mentionBadge") != color("roomMentionBadge")
+                || fill("countBadge") != color("unreadCountFill")
+                || fill("dotBadge") != color("unreadDot")
+                || ink("mentionBadge") != color("mentionBadgeInk")
+                || ink("countBadge") != color("unreadCountInk")
+                || item("threadMention")->property("color").value<QColor>()
+                       != color("mentionBadgeFill")
+                || item("threadUnread")->property("color").value<QColor>()
+                       != color("unreadCountFill"))
+                failures << where + QStringLiteral(": a badge paints something else");
+            // The dot's fill is the theme's own colour, not a pastel of it,
+            // and the real dot draws the ring.
+            if (color("unreadDot") != color("roomUnreadBadge")
+                || color("mentionDot") != color("mentionBadge")
+                || color("railUnreadDot") != color("unreadBadge"))
+                failures << where + QStringLiteral(": a dot's fill is not the theme colour");
+            const auto dotRing = ring("dotBadge");
+            if (dotRing.first != color("unreadDotRing")
+                || !qFuzzyCompare(dotRing.second,
+                                  theme->property("badgeDotRingWidth").toReal())
+                || dotRing.second < 1.0)
+                failures << where + QStringLiteral(": the unread dot draws no ring");
+            // Unread and mention stay two colours.
+            if (color("unreadDot") == color("mentionDot")
+                || color("unreadDotRing") == color("mentionDotRing"))
+                failures << where + QStringLiteral(": unread and mention dots look alike");
+        };
+
+        const int originalMode = theme->property("mode").toInt();
+        const bool originalHc = theme->property("highContrast").toBool();
         QSet<QString> palettes;
         int checked = 0;
-        int belowTarget = 0;
-        for (int mode = 1; mode <= 12; ++mode) {
-            theme->setProperty("mode", mode);
-            QCoreApplication::processEvents();
-            if (theme->property("mode").toInt() != mode)
-                continue;
-            // A fingerprint of everything measured, so "eleven palettes" is
-            // checkable.
-            QString print;
-            for (const Pair &pair : pairs)
-                print += color(pair.ink).name() + color(pair.surface).name();
-            if (palettes.contains(print))
-                continue;   // an alias of a palette already measured
-            palettes.insert(print);
-            ++checked;
-            for (const Pair &pair : pairs) {
-                const double ratio = contrast(color(pair.ink), color(pair.surface));
-                QVERIFY2(ratio + 1e-9 >= pair.floor,
-                         qPrintable(QStringLiteral("theme %1: %2 (%3) on %4 (%5) is %6:1, "
-                                                   "below the %7:1 measured on 24a485c5")
-                                        .arg(mode)
-                                        .arg(QLatin1String(pair.ink), color(pair.ink).name(),
-                                             QLatin1String(pair.surface),
-                                             color(pair.surface).name())
-                                        .arg(ratio, 0, 'f', 2)
-                                        .arg(pair.floor, 0, 'f', 2)));
-                if (ratio < pair.target) {
-                    ++belowTarget;
-                    qInfo().noquote()
-                        << QStringLiteral("below WCAG target (open decision): theme %1 %2 on "
-                                          "%3 = %4:1 < %5:1")
-                               .arg(mode)
-                               .arg(QLatin1String(pair.ink), QLatin1String(pair.surface))
-                               .arg(ratio, 0, 'f', 2)
-                               .arg(pair.target, 0, 'f', 1);
+        for (const bool hc : { false, true }) {
+            theme->setProperty("highContrast", hc);
+            for (int mode = 1; mode <= 11; ++mode) {
+                theme->setProperty("mode", mode);
+                QCoreApplication::processEvents();
+                if (theme->property("mode").toInt() != mode)
+                    continue;
+                if (!hc) {
+                    palettes.insert(color("stormCanvas").name() + color("stormPanel").name()
+                                    + color("roomList").name()
+                                    + color("mentionBadgeFill").name()
+                                    + color("unreadCountFill").name()
+                                    + color("unreadDotRing").name());
+                    ++checked;
+                    // Storm's Channels mark keeps its bolt yellow (its accent).
+                    if (mode == 11 && color("channelUnreadMark") != color("accent"))
+                        failures << QStringLiteral("theme 11: the channel mark lost its yellow");
+                } else if (theme->property("badgeDotRingWidth").toReal() <= 1.5) {
+                    failures << QStringLiteral("theme %1: high contrast does not thicken "
+                                               "the dot ring").arg(mode);
                 }
+                // Every preset keeps its own (light) ink, high contrast on as
+                // off: the dark ink is for colours like an orange, which none
+                // ships (badges review round 3, R2).
+                if (color("mentionBadgeInk") != color("mentionBadgeText")
+                    || color("unreadCountInk") != color("unreadBadgeText"))
+                    failures << QStringLiteral("theme %1%2: a preset's ink moved")
+                                    .arg(mode).arg(hc ? " (high contrast)" : "");
+                measure(QStringLiteral("theme %1%2").arg(mode).arg(hc ? " (high contrast)" : ""),
+                        hc ? 7.0 : 4.5, hc ? 4.5 : 3.0);
             }
         }
-        theme->setProperty("mode", original);
-        QVERIFY2(checked >= 11,
-                 qPrintable(QStringLiteral("only %1 distinct palettes were measured, so this "
-                                           "says little about the fleet")
-                                .arg(checked)));
-        qInfo() << "badge contrast: palettes" << checked << "pairs below target" << belowTarget;
+        theme->setProperty("highContrast", false);
+        QCOMPARE(checked, 11);
+        QVERIFY2(palettes.size() == 11,
+                 qPrintable(QStringLiteral("only %1 distinct palettes over %2 presets")
+                                .arg(palettes.size()).arg(checked)));
+
+        // A custom theme follows its own colours: Lightning Dark with a dark
+        // slate accent (its unread colour) and an orange mention. The dot is
+        // the slate itself and its ring keeps the slate's hue at 3:1; the
+        // orange keeps its colour under a dark ink instead of turning brown
+        // under white.
+        const QVariant originalBase = theme->property("customBase");
+        const QVariant originalOverrides = theme->property("customOverrides");
+        theme->setProperty("customBase", 2);
+        theme->setProperty("customOverrides",
+                           QVariantMap{{QStringLiteral("accent"), QStringLiteral("#3A3F5A")},
+                                       {QStringLiteral("mention"), QStringLiteral("#FFB000")}});
+        theme->setProperty("mode", 11);
+        theme->setProperty("mode", 12);
+        QCoreApplication::processEvents();
+        measure(QStringLiteral("custom theme"), 4.5, 3.0);
+        const QColor accent(QStringLiteral("#3A3F5A"));
+        QCOMPARE(color("unreadDot"), accent);
+        QVERIFY2(qAbs(color("unreadDotRing").hslHueF() - accent.hslHueF()) < 0.02,
+                 qPrintable(color("unreadDotRing").name()));
+        QVERIFY(color("unreadDotRing") != accent);   // the ring had to move, and did
+        QCOMPARE(color("mentionBadgeFill"), QColor(QStringLiteral("#FFB000")));
+        QVERIFY(luminance(color("mentionBadgeInk")) < 0.05);
+        // White would move #FF8800 by more than 0.14 lightness, the dark ink
+        // not at all: it stays orange under the dark ink, with high contrast
+        // on as off (the ink is chosen at 4.5:1 and never swapped by it).
+        theme->setProperty("customOverrides",
+                           QVariantMap{{QStringLiteral("mention"), QStringLiteral("#FF8800")}});
+        theme->setProperty("mode", 11);
+        theme->setProperty("mode", 12);
+        QCoreApplication::processEvents();
+        measure(QStringLiteral("custom theme #FF8800"), 4.5, 3.0);
+        QCOMPARE(color("mentionBadgeFill"), QColor(QStringLiteral("#FF8800")));
+        QVERIFY(luminance(color("mentionBadgeInk")) < 0.05);
+        theme->setProperty("highContrast", true);
+        QCoreApplication::processEvents();
+        measure(QStringLiteral("custom theme #FF8800 (high contrast)"), 7.0, 4.5);
+        QVERIFY(luminance(color("mentionBadgeInk")) < 0.05);
+        theme->setProperty("highContrast", false);
+        theme->setProperty("customOverrides", originalOverrides);
+        theme->setProperty("customBase", originalBase);
+        theme->setProperty("mode", originalMode);
+        theme->setProperty("highContrast", originalHc);
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
+
+        // Not colour alone: "@N", the accessible name the number.
+        QCOMPARE(item("mentionBadge")->property("text").toString(), QStringLiteral("@3"));
+        QCOMPARE(item("countBadge")->property("text").toString(), QStringLiteral("3"));
+
+        // The badge sites that cannot be built alone here (a room row, the
+        // rail, Home, the timeline header, the thread list, the Channels
+        // rows, the "New messages" divider) paint the derived colours: each
+        // file's CODE (comments stripped) names exactly these, and none of
+        // these badge files paints the base mention or unread colour as a
+        // badge. Mutation: revert any one site.
+        QDir dir(QStringLiteral(QML_DIR));
+        const QRegularExpression comment(QStringLiteral("(?<![:\"\\w])//[^\\n]*"));
+        const auto code = [&dir, &comment](const QString &name) {
+            QFile f(dir.filePath(name));
+            if (!f.open(QIODevice::ReadOnly))
+                return QString();
+            return QString::fromUtf8(f.readAll()).remove(comment);
+        };
+        const auto uses = [](const QString &text, const QString &token) {
+            return int(text.count(QRegularExpression(
+                QStringLiteral("AppTheme\\.%1\\b").arg(token))));
+        };
+        // A file whose job is wider than the badge (the timeline, a message)
+        // is read only in the badge's own block, from its objectName on, so a
+        // later non-badge use of a base colour elsewhere in it is not flagged.
+        struct Site {
+            const char *file;
+            QList<QPair<const char *, int>> tokens;
+            const char *anchor = nullptr;
+            int window = 0;
+        };
+        const QList<Site> sites = {
+            { "UnreadBadge.qml", { { "roomMentionBadge", 1 }, { "mentionBadgeInk", 1 },
+                                   { "unreadCountFill", 1 }, { "unreadCountInk", 1 },
+                                   { "unreadDot", 1 }, { "unreadDotRing", 1 } } },
+            { "RoomDelegate.qml", { { "roomMentionBadge", 1 }, { "mentionBadgeInk", 1 },
+                                    { "unreadCountFill", 1 }, { "unreadCountInk", 1 },
+                                    { "unreadDot", 2 }, { "unreadDotRing", 2 } } },
+            { "HomePane.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
+                                { "unreadCountFill", 1 }, { "unreadCountInk", 1 },
+                                { "unreadDot", 1 }, { "unreadDotRing", 1 } } },
+            { "SpacesRail.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
+                                  { "mentionDot", 1 }, { "mentionDotRing", 1 },
+                                  { "railUnreadDot", 2 }, { "railUnreadDotRing", 2 } } },
+            { "ThreadUnreadBadge.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
+                                         { "unreadCountFill", 1 }, { "unreadCountInk", 1 } } },
+            { "TimelinePane.qml", { { "mentionDot", 1 }, { "unreadDot", 1 },
+                                    { "mentionDotRing", 1 }, { "unreadDotRing", 1 } },
+              "objectName: \"threadsUnreadDot\"", 1400 },
+            { "ThreadPanel.qml", { { "unreadDot", 1 }, { "unreadDotRing", 1 } } },
+            { "ChannelDelegate.qml", { { "channelUnreadMark", 1 } } },
+            { "ChannelCategoryHeader.qml", { { "channelUnreadMark", 1 } } },
+            { "MessageDelegate.qml", { { "unreadDividerInk", 1 } },
+              "objectName: \"unreadDividerLabel\"", 400 },
+            // The Space lobby: a folded section's count, and a room row's
+            // mention and count pills.
+            { "SpaceLobby.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
+                                  { "unreadCountFill", 1 }, { "unreadCountInk", 1 } },
+              "objectName: \"spaceLobbyFoldedUnread\"", 1400 },
+            { "SpaceLobby.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
+                                  { "unreadCountFill", 1 }, { "unreadCountInk", 1 } },
+              "objectName: \"spaceLobbyRowMention\"", 2200 },
+        };
+        QStringList wrong;
+        for (const Site &site : sites) {
+            QString text = code(QLatin1String(site.file));
+            if (text.isEmpty()) {
+                wrong << QLatin1String(site.file) + QStringLiteral(" unreadable");
+                continue;
+            }
+            if (site.anchor) {
+                const int at = text.indexOf(QLatin1String(site.anchor));
+                if (at < 0) {
+                    wrong << QLatin1String(site.file) + QStringLiteral(" lost its badge block");
+                    continue;
+                }
+                text = text.mid(at, site.window);
+            }
+            for (const auto &t : site.tokens) {
+                const int n = uses(text, QLatin1String(t.first));
+                if (n != t.second)
+                    wrong << QStringLiteral("%1: %2 x%3, expected %4")
+                                 .arg(QLatin1String(site.file), QLatin1String(t.first))
+                                 .arg(n).arg(t.second);
+            }
+            // The base colours are not badge colours in these files (the
+            // Channels mark is its own token, fitted where it is declared).
+            for (const char *base : { "mentionBadge", "mentionBadgeText", "dangerText",
+                                      "unreadBadgeText", "channelUnreadMark", "accentText" }) {
+                bool expected = false;
+                for (const auto &t : site.tokens)
+                    expected = expected || qstrcmp(t.first, base) == 0;
+                if (expected)
+                    continue;
+                const int n = uses(text, QLatin1String(base));
+                if (n > 0)
+                    wrong << QStringLiteral("%1: still paints AppTheme.%2")
+                                 .arg(QLatin1String(site.file), QLatin1String(base));
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join(QLatin1Char('\n'))));
     }
 };
 

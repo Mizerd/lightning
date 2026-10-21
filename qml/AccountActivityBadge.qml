@@ -32,10 +32,11 @@ UnreadBadge {
     count: root.shown ? Math.max(0, root.mentionCount) : 0
     mention: root.count > 0
     dot: root.shown && root.mentionCount <= 0
+    // "@", as every mention count (UnreadBadge): not colour alone.
     text: root.dotOnly ? ""
-          : root.count > 99 ? "99+"
-          : root.mentionsLowerBound ? qsTr("%1+").arg(root.count)
-          : String(root.count)
+          : root.count > 99 ? "@99+"
+          : root.mentionsLowerBound ? "@" + qsTr("%1+").arg(root.count)
+          : "@" + String(root.count)
 
     // The words for a live state, for accessible names and the Labs card.
     // NotLive has none.

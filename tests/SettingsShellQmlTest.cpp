@@ -3775,14 +3775,21 @@ private slots:
                 if (element == QLatin1String("presenceOnline")
                         && baseDefines(base, QStringLiteral("online")))
                     continue;
+                // The room list's mention badge follows the mention colour
+                // THROUGH the badge contrast fit (mentionBadgeFill, badges
+                // 2026-10-20): equal wherever the fit leaves it alone.
+                const QString through =
+                    element == QLatin1String("roomMentionBadge")
+                            && group == QLatin1String("mentionBadge")
+                        ? QStringLiteral("mentionBadgeFill") : group;
                 const QColor e = pal.value(element);
-                const QColor g = pal.value(group);
+                const QColor g = pal.value(through);
                 if (!e.isValid() || e != g)
                     wrong << QStringLiteral("base %1: palette %2 %3 != %4 %5")
                                  .arg(base).arg(element, e.name(QColor::HexArgb),
                                                 group, g.name(QColor::HexArgb));
                 const QColor le = themeColor(element.toUtf8().constData());
-                const QColor lg = themeColor(group.toUtf8().constData());
+                const QColor lg = themeColor(through.toUtf8().constData());
                 if (!le.isValid() || le != lg)
                     wrong << QStringLiteral("base %1: live %2 %3 != %4 %5")
                                  .arg(base).arg(element, le.name(QColor::HexArgb),
@@ -4612,8 +4619,21 @@ private slots:
                 notApplied << role + QStringLiteral(" (palette)");
             if (themeColor(key.toUtf8().constData()) != mark)
                 notApplied << role + QStringLiteral(" (live token)");
+            // The badge tokens are DERIVED (badges, 2026-10-20): the rings and
+            // the Channels mark are fitted against the surfaces a dot sits
+            // on, and the count/mention fills and inks against the badge
+            // colours they come from. Recolouring either refits them by
+            // design; they are not other elements.
+            static const QStringList surfaceFitted = {
+                QStringLiteral("unreadDotRing"), QStringLiteral("mentionDotRing"),
+                QStringLiteral("railUnreadDotRing"), QStringLiteral("channelUnreadMark"),
+                QStringLiteral("unreadDot"), QStringLiteral("unreadCountFill"),
+                QStringLiteral("unreadCountInk"), QStringLiteral("mentionBadgeFill"),
+                QStringLiteral("mentionBadgeInk"),
+            };
             for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
-                if (it.key() != key && after.value(it.key()) != it.value())
+                if (it.key() != key && after.value(it.key()) != it.value()
+                        && !surfaceFitted.contains(it.key()))
                     leaked << role + QStringLiteral(" also changed palette ") + it.key();
             }
             const QHash<QString, QColor> liveAfter = liveTokens();

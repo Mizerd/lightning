@@ -558,7 +558,7 @@ Item {
                         radius: 5
                         color: root.c("railUnreadDot", "unreadBadge")
                         border.width: 2
-                        border.color: root.c("rail", "sidebar")
+                        border.color: root.c("railUnreadDotRing", "railUnreadDot")
                         Region { role: "railUnreadDot"; pad: 2 }
                     }
                 }
@@ -829,12 +829,12 @@ Item {
                                 implicitWidth: 20
                                 implicitHeight: 18
                                 radius: AppTheme.radiusPill
-                                color: root.c("roomUnreadBadge", "unreadBadge")
+                                color: root.c("unreadCountFill", "roomUnreadBadge")
                                 Region { role: "roomUnreadBadge" }
                                 Text {
                                     anchors.centerIn: parent
                                     text: fakeRoomRow.modelData.badge
-                                    color: root.c("unreadBadgeText", "accentText")
+                                    color: root.c("unreadCountInk", "unreadBadgeText")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightStrong

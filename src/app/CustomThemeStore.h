@@ -287,6 +287,9 @@ public:
     // AppTheme.paletteForTheme(). `gradePalette` skips absent keys, so a
     // rename would otherwise silently stop grading a pair.
     static QStringList readabilityPaletteKeys();
+    // Palette keys AppTheme derives rather than reads (the badges' painted
+    // fills and inks) -> the editable role each is derived from.
+    static QVariantMap derivedPaletteKeys();
 
 Q_SIGNALS:
     void customThemeChanged();

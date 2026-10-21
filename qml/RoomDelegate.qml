@@ -343,8 +343,12 @@ Item {
                     implicitHeight: 8
                     radius: 4
                     Layout.alignment: Qt.AlignVCenter
-                    // Muted rooms keep the dot in muted ink.
-                    color: root.muted ? root.metaInk : AppTheme.roomUnreadBadge
+                    // Muted rooms keep the dot in muted ink; otherwise the
+                    // theme's unread colour, in a ring that reads on every
+                    // row state.
+                    color: root.muted ? root.metaInk : AppTheme.unreadDot
+                    border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
+                    border.color: AppTheme.unreadDotRing
                 }
                 ThreadUnreadBadge {
                     kind: root.threadOnly ? model.threadUnreadKind : 0
@@ -353,17 +357,23 @@ Item {
                 Label {
                     objectName: "roomUnreadBadge"
                     visible: root.hasCountBadge
-                    text: model.highlightCount > 0 ? model.highlightCount
+                    // A mention carries "@", not colour alone (WCAG 1.4.1);
+                    // the accessible name stays the number.
+                    text: model.highlightCount > 0 ? "@" + model.highlightCount
                                                    : model.unreadCount
+                    Accessible.name: String(model.highlightCount > 0 ? model.highlightCount
+                                                                     : model.unreadCount)
                     // Mentions keep their colour even when muted; a muted plain
                     // count becomes an outline pill in muted ink.
-                    color: model.highlightCount > 0 ? AppTheme.mentionBadgeText
+                    color: model.highlightCount > 0 ? AppTheme.mentionBadgeInk
                          : root.muted ? root.metaInk
-                                      : AppTheme.unreadBadgeText
+                                      : AppTheme.unreadCountInk
                     background: Rectangle {
+                        // A count's fill is one its number reads on
+                        // (unreadCountFill); a mention's is roomMentionBadge.
                         color: model.highlightCount > 0 ? AppTheme.roomMentionBadge
                              : root.muted ? "transparent"
-                                          : AppTheme.roomUnreadBadge
+                                          : AppTheme.unreadCountFill
                         border.width: root.muted && model.highlightCount === 0
                                       ? 1 : 0
                         border.color: AppTheme.chipNeutralBorder
@@ -392,7 +402,9 @@ Item {
                     Layout.preferredHeight: 8
                     Layout.alignment: Qt.AlignVCenter
                     radius: 4
-                    color: root.muted ? root.metaInk : AppTheme.roomUnreadBadge
+                    color: root.muted ? root.metaInk : AppTheme.unreadDot
+                    border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
+                    border.color: AppTheme.unreadDotRing
                 }
             }
 

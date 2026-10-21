@@ -1196,7 +1196,7 @@ Rectangle {
                                         + AppTheme.scaled(6))
                         height: AppTheme.scaled(18)
                         radius: height / 2
-                        color: AppTheme.mentionBadge
+                        color: AppTheme.mentionBadgeFill
                         border.color: AppTheme.rail
                         border.width: 2
                         anchors.bottom: parent.bottom
@@ -1211,25 +1211,34 @@ Rectangle {
                                   ? "99+" : spaceItem.mentionCount.toString()
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightBold
-                            color: AppTheme.mentionBadgeText
+                            color: AppTheme.mentionBadgeInk
                         }
                     }
-                    // Same size and ring as a revealed room's dot.
+                    // Same size, gap and ring as a revealed room's dot: a
+                    // 2 px rail-coloured gap parts it from the tile it
+                    // overlaps, and the ringed dot sits inside it (the
+                    // centre where the gap-ringed dot always was).
                     Rectangle {
                         objectName: "railUnreadDot"
                         visible: spaceItem.hasUnread
                                  && spaceItem.mentionCount === 0
                                  && !spaceItem.isActive
-                        width: AppTheme.scaled(10)
-                        height: AppTheme.scaled(10)
+                        width: AppTheme.scaled(10) + 2
+                        height: width
                         radius: height / 2
-                        color: AppTheme.railUnreadDot
-                        border.color: AppTheme.rail
-                        border.width: 2
+                        color: AppTheme.rail
                         anchors.bottom: parent.bottom
                         anchors.right: parent.right
-                        anchors.bottomMargin: -2
-                        anchors.rightMargin: -2
+                        anchors.bottomMargin: -3
+                        anchors.rightMargin: -3
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            radius: height / 2
+                            color: AppTheme.railUnreadDot
+                            border.color: AppTheme.railUnreadDotRing
+                            border.width: AppTheme.badgeDotRingWidth
+                        }
                     }
 
                     // The group ring, drawn wholly outside the tile (outset by
@@ -1465,6 +1474,19 @@ Rectangle {
                             id: expansionRoomRow
                             required property var modelData
                             required property int index
+                            // The dot's meaning in words too, so a mention
+                            // and an unread room are not told apart by colour
+                            // alone (WCAG 1.4.1).
+                            readonly property string roomName:
+                                modelData.name || modelData.roomId
+                            readonly property string roomLabel:
+                                (modelData.highlightCount || 0) > 0
+                                ? qsTr("%1, %n mention(s)", "",
+                                       modelData.highlightCount).arg(roomName)
+                                : ((modelData.hasUnread === true
+                                    || (modelData.unreadCount || 0) > 0)
+                                   ? qsTr("%1, unread", "room row").arg(roomName)
+                                   : roomName)
                             width: expansionCol.width
                             height: root.railRoomRowBand
                             Rectangle {
@@ -1516,19 +1538,32 @@ Rectangle {
                                                      .unreadCount || 0) > 0
                                              || (expansionRoomRow.modelData
                                                      .highlightCount || 0) > 0
-                                    width: AppTheme.scaled(10)
-                                    height: AppTheme.scaled(10)
+                                    // A 2 px rail-coloured gap from the
+                                    // avatar, around the ringed dot.
+                                    width: AppTheme.scaled(10) + 2
+                                    height: width
                                     radius: height / 2
-                                    color: (expansionRoomRow.modelData
-                                                .highlightCount || 0) > 0
-                                           ? AppTheme.mentionBadge
-                                           : AppTheme.railUnreadDot
-                                    border.color: AppTheme.rail
-                                    border.width: 2
+                                    color: AppTheme.rail
                                     anchors.bottom: parent.bottom
                                     anchors.right: parent.right
-                                    anchors.bottomMargin: -2
-                                    anchors.rightMargin: -2
+                                    anchors.bottomMargin: -3
+                                    anchors.rightMargin: -3
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        radius: height / 2
+                                        color: (expansionRoomRow.modelData
+                                                    .highlightCount || 0) > 0
+                                               ? AppTheme.mentionDot
+                                               : AppTheme.railUnreadDot
+                                        // The theme's colour; the ring carries
+                                        // its 3:1 against the rail.
+                                        border.color: (expansionRoomRow.modelData
+                                                           .highlightCount || 0) > 0
+                                                      ? AppTheme.mentionDotRing
+                                                      : AppTheme.railUnreadDotRing
+                                        border.width: AppTheme.badgeDotRingWidth
+                                    }
                                 }
                             }
                             HoverHandler { id: roomHover }
@@ -1555,15 +1590,11 @@ Rectangle {
                                                 root.railTipWidth)
                                 height: 1
                                 ToolTip.visible: roomHover.hovered
-                                ToolTip.text: expansionRoomRow.modelData.name
-                                              || expansionRoomRow.modelData
-                                                     .roomId
+                                ToolTip.text: expansionRoomRow.roomLabel
                                 ToolTip.delay: 300
                             }
                             Accessible.role: Accessible.Button
-                            Accessible.name: expansionRoomRow.modelData.name
-                                             || expansionRoomRow.modelData
-                                                    .roomId
+                            Accessible.name: expansionRoomRow.roomLabel
                         }
                     }
 

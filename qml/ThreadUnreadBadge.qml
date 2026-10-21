@@ -33,7 +33,9 @@ Rectangle {
     Layout.preferredWidth: 18
     Layout.preferredHeight: 18
     radius: AppTheme.radiusPill
-    color: mention ? AppTheme.mentionBadge : AppTheme.unreadBadge
+    // The fills every count badge uses, each with the ink that reads on it
+    // at 4.5:1 (7:1 high contrast).
+    color: mention ? AppTheme.mentionBadgeFill : AppTheme.unreadCountFill
 
     Accessible.role: Accessible.StaticText
     Accessible.name: root.label
@@ -42,7 +44,7 @@ Rectangle {
         anchors.centerIn: parent
         name: "forum"
         size: 12
-        color: root.mention ? AppTheme.dangerText : AppTheme.accentText
+        color: root.mention ? AppTheme.mentionBadgeInk : AppTheme.unreadCountInk
     }
 
     HoverHandler { id: hover }

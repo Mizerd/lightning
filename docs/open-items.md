@@ -66,13 +66,51 @@ local-homeserver run is still owed).
 - **The Labs switcher shows "Needs sign-in" for a lost token** (la1-M L2,
   FIXED): the keyring is asked off the GUI thread, a few accounts at a time,
   and "cannot tell" shows nothing.
-- **NEEDS DECISION: badge contrast.** The account badge reuses the room
-  list's badge tokens, and measured on all twelve palettes they miss WCAG in
-  places: white on the mention fill is 3.20:1 on themes 9-12 and 4.05:1 on
-  theme 8 (4.5 needed); the unread dot is 2.08-2.70:1 against the quick
-  switcher's and settings card's surface on themes 2, 4, 5, 6 and 9 (3.0
-  needed). These are app-wide tokens, so this is a theme decision.
-  `AccountBadgesQmlTest` holds every pair at today's floor until then.
+- **Badge contrast: FIXED 2026-10-20 (own commit, review rounds 1 and 2
+  applied).** Measured on all eleven presets, white on the mention badges was
+  3.20:1 on Indigo Night, Deep Teal and Storm and 4.05:1 on Moss Light, the
+  unread count 4.03:1 on Nordic and 3.62:1 on Purple Dusk, the unread dot down
+  to 2.08:1 on dark panels (2.83:1 for the mention dot on Moss Light's rail),
+  and "New messages" 2.86-4.34:1. Every badge colour is now DERIVED in
+  AppTheme (its "Badge colours" section) from the theme's own, or a custom
+  theme's own, colours, moving HSL lightness only and as little as it takes,
+  either way:
+  - **Counts.** `mentionBadgeFill`/`mentionBadgeInk` and
+    `unreadCountFill`/`unreadCountInk` read at 4.5:1 (7:1 with high contrast
+    on). The theme's own ink is kept unless the fill would have to move more
+    than 0.14 HSL lightness under it while the opposite ink needs less, so a
+    custom #FF8800 (0.15 under white, 0 under dark) stays orange under the
+    dark ink. The choice is made at 4.5:1 whatever the target, so high
+    contrast moves the fill further but never swaps the ink: every shipped
+    preset keeps its own (white) ink with high contrast off and on (largest
+    preset move 0.13, Indigo Night, Deep Teal and Storm's mention), and
+    #FF8800 keeps the dark ink in both. Every count pill, the thread-unread
+    pill included, paints these.
+  - **Dots.** A text-less dot keeps the theme's own SATURATED colour
+    (`unreadDot` = the unread colour, `mentionDot` = the mention colour,
+    `railUnreadDot`) and is drawn with a ring (`unreadDotRing`,
+    `mentionDotRing`, `railUnreadDotRing`; `badgeDotRingWidth` 1.5 px, 2.5 px
+    with high contrast, at least 2 px on the rail) that reads at 3:1 (4.5:1)
+    on every surface a dot sits on: the Spaces rail, the account menu, room
+    rows at rest, hovered and selected in both layouts, the side panel, the
+    room header and the conversation. Unread and mention stay two colours,
+    and the rail's room dot names "mention" or "unread" in its tooltip and
+    accessible name.
+  - **Channels mark.** `channelUnreadMark` is the accent fitted to 3:1
+    (4.5:1) on every dot surface, unless a palette sets its own (none of the
+    presets does). Storm stays bolt yellow because its accent already reads
+    7.53:1 there, so the fit does not move it. It has no ring.
+  - `unreadDividerInk` is the "New messages" text.
+  A mention count reads "@N" (not colour alone). The theme editor grades the
+  painted count fills and inks. `AccountBadgesQmlTest::badgeColoursMeetWcagOnEveryPalette`
+  measures real badge items on eleven distinct palettes, high contrast on and
+  off, and two custom themes. The Space lobby's pills (a folded section's
+  count, a room row's "@" and count) paint `mentionBadgeFill`/`unreadCountFill`
+  with their inks too (integration, 2026-10-20; the sweep reads both blocks).
+  NOT covered: the theme editor does not grade
+  the dot rings or the Channels mark (only AppTheme derives them); a custom
+  theme's own `railUnreadDot` (an editable role) is used as set, and only its
+  ring follows it.
 - **Badge take cost, measured (L13).** One `mx_rust_bg_take` rebuilds the
   whole counts table on the GUI thread whenever the account's table is
   dirty. Measured 2026-10-20 on a real SDK Client synced from a loopback

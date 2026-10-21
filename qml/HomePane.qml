@@ -473,12 +473,13 @@ Item {
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                             // Mention badge, with the same tokens as the room
-                            // list (mentionBadge / unreadBadge).
+                            // list (mentionBadgeFill / unreadCountFill).
                             Rectangle {
+                                objectName: "homeMentionBadge"
                                 visible: !recentRow.muted
                                          && (recentRow.modelData.highlightCount || 0) > 0
                                 radius: height / 2
-                                color: AppTheme.mentionBadge
+                                color: AppTheme.mentionBadgeFill
                                 implicitHeight: 18
                                 implicitWidth: Math.max(
                                     18, mentionLabel.implicitWidth + 10)
@@ -488,7 +489,7 @@ Item {
                                     text: "@" + (recentRow.modelData.highlightCount > 99
                                                  ? "99+"
                                                  : recentRow.modelData.highlightCount)
-                                    color: AppTheme.dangerText
+                                    color: AppTheme.mentionBadgeInk
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightBold
@@ -496,10 +497,16 @@ Item {
                             }
                             // Unread dot / count.
                             Rectangle {
+                                objectName: "homeUnreadBadge"
                                 visible: !recentRow.muted
                                          && recentRow.modelData.hasUnread === true
                                 radius: height / 2
-                                color: AppTheme.unreadBadge
+                                color: (recentRow.modelData.unreadCount || 0) > 0
+                                       ? AppTheme.unreadCountFill : AppTheme.unreadDot
+                                // A dot carries its contrast in a ring.
+                                border.width: (recentRow.modelData.unreadCount || 0) > 0
+                                              ? 0 : AppTheme.badgeDotRingWidth
+                                border.color: AppTheme.unreadDotRing
                                 implicitHeight: 18
                                 implicitWidth: Math.max(
                                     18, countLabel.implicitWidth + 10)
@@ -510,7 +517,7 @@ Item {
                                     text: recentRow.modelData.unreadCount > 99
                                           ? "99+"
                                           : recentRow.modelData.unreadCount
-                                    color: AppTheme.accentText
+                                    color: AppTheme.unreadCountInk
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightBold

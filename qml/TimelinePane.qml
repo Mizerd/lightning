@@ -1393,15 +1393,27 @@ Rectangle {
                         Rectangle {
                             objectName: "threadsUnreadDot"
                             visible: threadsViewButton.threadUnread > 0
-                            width: 9
-                            height: 9
-                            radius: 4.5
-                            x: parent.width - width - 4
-                            y: 4
-                            color: threadsViewButton.threadUnread === 2
-                                   ? AppTheme.mentionBadge : AppTheme.unreadBadge
-                            border.width: 1
-                            border.color: AppTheme.background
+                            // A 1 px gap in the background colour parts it
+                            // from the icon; the ringed dot sits inside it,
+                            // centred where it always was.
+                            width: 11
+                            height: 11
+                            radius: 5.5
+                            x: parent.width - width - 3
+                            y: 3
+                            color: AppTheme.background
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                radius: height / 2
+                                color: threadsViewButton.threadUnread === 2
+                                       ? AppTheme.mentionDot : AppTheme.unreadDot
+                                // The theme's colour, its contrast in the ring.
+                                border.width: AppTheme.badgeDotRingWidth
+                                border.color: threadsViewButton.threadUnread === 2
+                                              ? AppTheme.mentionDotRing
+                                              : AppTheme.unreadDotRing
+                            }
                         }
                     }
                     IconButton {

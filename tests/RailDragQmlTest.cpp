@@ -1398,6 +1398,18 @@ private slots:
                      "a Space tile carries no activity indicators");
             QTRY_COMPARE(dot->isVisible(), e.dot);
             QCOMPARE(badge->isVisible(), e.badge);
+            // The dot keeps a 2 px gap in another colour (the rail's) from
+            // the tile it overlaps, around its own ringed dot (badges review
+            // round 3, R1).
+            if (e.dot) {
+                const QList<QQuickItem *> inner = dot->childItems();
+                QVERIFY2(inner.size() == 1, "the rail dot has no inner ringed dot");
+                QObject *border = inner.first()->property("border").value<QObject *>();
+                QVERIFY(border && border->property("width").toReal() >= 1.0);
+                QCOMPARE(inner.first()->width(), dot->width() - 4);
+                QVERIFY(dot->property("color").value<QColor>()
+                        != inner.first()->property("color").value<QColor>());
+            }
 
             QQuickItem *shown = e.dot ? dot : e.badge ? badge : nullptr;
             if (!shown)

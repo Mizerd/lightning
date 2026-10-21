@@ -463,9 +463,9 @@ constexpr Role kRoles[] = {
 //   * `textDisabled`: low contrast by design.
 //   * `selectedText` vs `selectedHover` at 4.5: Nordic is 4.31. The bar is
 //     not lowered to admit a preset; `selectedText`/`selected` covers the role.
-//   * White on `mentionBadge`: its ink (`dangerText`) is a literal, not a
-//     paletteForTheme() key, and three presets sit at 3.20. `mentionBadge`
-//     vs `sidebar` is checked instead.
+//   * The base `mentionBadge` and `roomUnreadBadge` under their numbers: no
+//     badge paints them (2026-10-20). The numbers are graded on what is
+//     painted, the DERIVED fill and ink (kDerivedKeys below).
 struct ReadabilityCheck {
     const char *fg;      // palette key of the ink, or of the upper surface
     const char *fgRole;  // editable role behind it, or nullptr
@@ -617,10 +617,17 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The send button's arrow"),
       3.0, false },
-    { "unreadBadgeText", "unreadBadgeText", "roomUnreadBadge", "roomUnreadBadge",
+    // The badges as painted (2026-10-20): AppTheme derives each count's fill
+    // and ink from the editable roles named here (kDerivedKeys), to 4.5:1 by
+    // construction, so a failure here means the derivation could not reach it.
+    { "unreadCountInk", "unreadBadgeText", "unreadCountFill", "roomUnreadBadge",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The number on a room's unread count"),
-      3.0, false },
+      4.5, false }, //  4.62 Graphite
+    { "mentionBadgeInk", "mentionBadgeText", "roomMentionBadge", "roomMentionBadge",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The number on a mention count"),
+      4.5, false }, //  4.61 Moss Light
     // ---- surface against surface: CIE L* separation -------------------------
     { "border", "border", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
@@ -639,13 +646,29 @@ constexpr ReadabilityCheck kReadability[] = {
           "The Spaces rail against the room list"),
       2.0, true  }, //  4.23 Nordic
     // The mention badge against the room list it sits on. An edge check,
-    // since the badge is a filled pill; every preset clears 30. Graded on
-    // the `mention` group, which the Spaces rail's badge paints directly
-    // (the room row's own badge resolves to it until set).
-    { "mentionBadge", "mention", "roomList", "roomList",
+    // since the badge is a filled pill. Graded on the fill every mention
+    // badge paints (the Spaces rail's, Home's, the room row's until set),
+    // derived from the `mention` role.
+    { "mentionBadgeFill", "mention", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A mention badge against the room list"),
       6.0, true  }, // 30.02 Nordic
+};
+
+// Palette keys AppTheme DERIVES (paletteForTheme() returns them; nothing
+// edits them directly) -> the editable role each is derived from, which is
+// where a click on a failing check goes. AppTheme.qml's badge section is the
+// rule; tests/support/BadgeColourRules.h its fixture copy.
+struct DerivedKey {
+    const char *paletteKey;
+    const char *role;
+};
+
+constexpr DerivedKey kDerivedKeys[] = {
+    { "mentionBadgeInk",  "mentionBadgeText" },
+    { "mentionBadgeFill", "mention" },
+    { "unreadCountInk",   "unreadBadgeText" },
+    { "unreadCountFill",  "roomUnreadBadge" },
 };
 
 // Store role -> palette key, for the three roles whose spellings differ.
@@ -1165,6 +1188,14 @@ QString CustomThemeStore::paletteKeyForRole(const QString &role) const
             return QString::fromLatin1(alias.paletteKey);
     }
     return role;
+}
+
+QVariantMap CustomThemeStore::derivedPaletteKeys()
+{
+    QVariantMap out;
+    for (const DerivedKey &d : kDerivedKeys)
+        out.insert(QLatin1String(d.paletteKey), QLatin1String(d.role));
+    return out;
 }
 
 QStringList CustomThemeStore::readabilityPaletteKeys()

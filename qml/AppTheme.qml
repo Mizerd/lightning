@@ -112,6 +112,102 @@ QtObject {
         return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
     }
 
+    // ── Badge colours (2026-10-20) ──
+    // A badge's fill, ink and dot are DERIVED from the theme's (or a custom
+    // theme's) own colours: the same hue and saturation, moved in HSL
+    // lightness only, as little as it takes to read. The base colours stay
+    // free for highlights, washes and danger tints.
+
+    // A colour as it shows over `base` (an opaque colour; a translucent
+    // surface such as Storm's hover is composited first).
+    function _over(c, base) {
+        var f = _asColor(c)
+        if (f.a >= 1)
+            return f
+        var b = _asColor(base)
+        return Qt.rgba(f.r * f.a + b.r * (1 - f.a), f.g * f.a + b.g * (1 - f.a),
+                       f.b * f.a + b.b * (1 - f.a), 1)
+    }
+    function _ratio(a, b) {
+        var la = relativeLuminance(_asColor(a)) + 0.05
+        var lb = relativeLuminance(_asColor(b)) + 0.05
+        return la > lb ? la / lb : lb / la
+    }
+    // The lowest ratio of `c` against every colour in `against`.
+    function _worstRatio(c, against) {
+        var worst = Infinity
+        for (var i = 0; i < against.length; ++i)
+            worst = Math.min(worst, _ratio(c, against[i]))
+        return worst
+    }
+    // `fill` moved in lightness, trying BOTH directions in growing steps,
+    // until it reads at `minRatio` against everything in `against`. The
+    // smallest such move wins; if none reaches it, the move that reads best
+    // (never a silent pure white or black). Returns {color, shift, ok}.
+    function _lightnessFit(fill, against, minRatio) {
+        var f = _asColor(fill)
+        var best = { color: f, shift: 0, ok: false, worst: _worstRatio(f, against) }
+        if (best.worst >= minRatio) {
+            best.ok = true
+            return best
+        }
+        var h = f.hslHue < 0 ? 0 : f.hslHue
+        var sat = f.hslSaturation
+        var l = f.hslLightness
+        for (var i = 1; i <= 200; ++i) {
+            var step = i * 0.005
+            var tries = [l - step, l + step]
+            for (var k = 0; k < 2; ++k) {
+                var nl = tries[k]
+                if (nl < 0 || nl > 1)
+                    continue
+                var c = Qt.hsla(h, sat, nl, 1)
+                var w = _worstRatio(c, against)
+                if (w >= minRatio)
+                    return { color: c, shift: step, ok: true, worst: w }
+                if (w > best.worst)
+                    best = { color: c, shift: step, ok: false, worst: w }
+            }
+        }
+        return best
+    }
+    // A badge FILL its ink reads on at `minRatio` (the smallest lightness
+    // move, either way).
+    function inkSafeFill(fill, ink, minRatio) {
+        return _lightnessFit(fill, [ink], minRatio).color
+    }
+    // The ink a badge's text uses: the theme's own ink, unless keeping it
+    // would move the fill by more than _badgeMaxShift (a yellow, or an orange
+    // such as #FF8800, under white text) while the opposite ink needs less;
+    // then the opposite ink, so the colour is kept, as Storm's dark-on-light
+    // badges do. The choice is made at the default text target (4.5:1)
+    // whatever `minRatio` the fill is then fitted to, so high contrast moves
+    // the fill further but never swaps the ink: every shipped preset keeps its
+    // own ink with high contrast on as off, and #FF8800 takes the dark ink in
+    // both (a single threshold at 7:1 cannot tell them apart).
+    function badgeInk(fill, ink, minRatio) {
+        var own = _lightnessFit(fill, [ink], _badgeInkChoiceRatio)
+        if (own.ok && own.shift <= _badgeMaxShift)
+            return _asColor(ink)
+        var other = relativeLuminance(_asColor(ink)) > 0.18 ? _badgeDarkInk : _onAccent
+        var alt = _lightnessFit(fill, [other], _badgeInkChoiceRatio)
+        if (alt.ok && (!own.ok || alt.shift < own.shift))
+            return _asColor(other)
+        return _asColor(ink)
+    }
+    // WCAG targets, with a margin for 8-bit rounding: text 4.5:1 (7:1 with
+    // high contrast on), and a text-less dot 3:1 (4.5:1).
+    readonly property real _badgeInkRatio: highContrast ? 7.1 : 4.6
+    readonly property real _badgeDotRatio: highContrast ? 4.6 : 3.1
+    // A text-less dot keeps the theme's own (saturated) colour and carries
+    // its 3:1 (4.5:1) in a thin ring around it, thicker with high contrast.
+    readonly property real badgeDotRingWidth: highContrast ? 2.5 : 1.5
+    // How far (HSL lightness) a count's fill may move under its own ink
+    // before the opposite ink is chosen instead.
+    readonly property real _badgeMaxShift: 0.14
+    readonly property real _badgeInkChoiceRatio: 4.6
+    readonly property color _badgeDarkInk: "#0B0D12"
+
     // Presets are classified by id. A custom theme is classified by its own
     // background, since a light palette can sit on a dark base.
     readonly property bool dark: effectiveTheme === 12
@@ -741,6 +837,8 @@ QtObject {
         var textMuted = p.textMuted
         var accent = p.accent
         var mentionBadge = p.mention !== undefined ? p.mention : _accentDanger
+        var mentionBadgeText = p.mentionBadgeText !== undefined
+                ? p.mentionBadgeText : dangerText
         var out = {
             background:      p.background,
             rail:            p.rail !== undefined ? p.rail : p.sidebar,
@@ -784,8 +882,7 @@ QtObject {
                                                          : cardElevated,
             reactionBorder:  p.reactionBorder !== undefined ? p.reactionBorder
                              : (isDark ? p.border : p.borderStrong),
-            mentionBadgeText: p.mentionBadgeText !== undefined
-                              ? p.mentionBadgeText : dangerText,
+            mentionBadgeText: mentionBadgeText,
             chipDanger:      p.chipDanger !== undefined ? p.chipDanger
                              : (isStorm ? _stoDanger
                                 : (p.dangerTint !== undefined ? p.dangerTint
@@ -865,6 +962,36 @@ QtObject {
             if (out[e] === undefined)
                 out[e] = p[e] !== undefined ? p[e] : out[groups[e]]
         }
+        // The derived badge colours, by the live rules (mentionBadgeInk,
+        // mentionBadgeFill, roomMentionBadge, unreadCountInk, unreadCountFill,
+        // unreadDot, mentionDot), from this palette's own resolved roles.
+        out.mentionBadgeInk = p.mentionBadgeInk !== undefined ? p.mentionBadgeInk
+                : badgeInk(out.mentionBadge, out.mentionBadgeText, _badgeInkRatio)
+        out.mentionBadgeFill = p.mentionBadgeFill !== undefined ? p.mentionBadgeFill
+                : inkSafeFill(out.mentionBadge, out.mentionBadgeInk, _badgeInkRatio)
+        if (p.roomMentionBadge === undefined)
+            out.roomMentionBadge = out.mentionBadgeFill
+        out.unreadCountInk = p.unreadCountInk !== undefined ? p.unreadCountInk
+                : badgeInk(out.roomUnreadBadge, out.unreadBadgeText, _badgeInkRatio)
+        out.unreadCountFill = p.unreadCountFill !== undefined ? p.unreadCountFill
+                : inkSafeFill(out.roomUnreadBadge, out.unreadCountInk, _badgeInkRatio)
+        var dotSurfaces = badgeDotSurfaces({
+            rail: out.rail !== undefined ? out.rail : out.sidebar,
+            stormPanel: isStorm ? _stoPanel : out.surface,
+            stormCanvas: isStorm ? _stoCanvas : out.background,
+            roomList: out.roomList, roomHover: out.roomHover,
+            roomSelected: out.roomSelected, channelHover: out.channelHover,
+            channelSelected: out.channelSelected, sidePanel: out.sidePanel,
+            roomHeader: out.roomHeader, timelineBackground: out.timelineBackground
+        })
+        out.unreadDot = p.unreadDot !== undefined ? p.unreadDot : out.roomUnreadBadge
+        out.mentionDot = p.mentionDot !== undefined ? p.mentionDot : out.mentionBadge
+        out.unreadDotRing = _lightnessFit(out.unreadDot, dotSurfaces, _badgeDotRatio).color
+        out.mentionDotRing = _lightnessFit(out.mentionDot, dotSurfaces, _badgeDotRatio).color
+        out.railUnreadDotRing = _lightnessFit(out.railUnreadDot, dotSurfaces,
+                                              _badgeDotRatio).color
+        if (p.channelUnreadMark === undefined)
+            out.channelUnreadMark = _lightnessFit(out.accent, dotSurfaces, _badgeDotRatio).color
         return out
     }
 
@@ -908,9 +1035,14 @@ QtObject {
                                              : selectedText
     readonly property color channelHover:
         _p.channelHover !== undefined ? _p.channelHover : hover
-    /// Unread mark on a channel row.
+    /// Unread mark on a channel row: the accent moved in lightness only until
+    /// it reads at 3:1 (4.5:1 high contrast) on every row state, unless a
+    /// palette sets its own. Storm's bolt-yellow accent already reads 7.53:1,
+    /// so it is not moved.
     readonly property color channelUnreadMark:
-        _p.channelUnreadMark !== undefined ? _p.channelUnreadMark : accent
+        _p.channelUnreadMark !== undefined ? _p.channelUnreadMark
+                                           : _lightnessFit(accent, badgeDotSurfaces(root),
+                                                           _badgeDotRatio).color
 
     // ── Spaces rail: folders and drag feedback ──
     // Derived, like the Channels tokens.
@@ -1375,6 +1507,57 @@ QtObject {
                                                 ? _p.roomUnreadBadge : unreadBadge
     readonly property color railUnreadDot:      _p.railUnreadDot !== undefined
                                                 ? _p.railUnreadDot : unreadBadge
+    // Every surface a text-less unread or mention DOT sits on: the Spaces
+    // rail, the account menu and its panels, room-list rows at rest, hovered and selected (both
+    // layouts), the side panel, the room header and the conversation. A
+    // translucent surface is taken as it shows over the room list.
+    function badgeDotSurfaces(t) {
+        return [ t.rail, t.stormPanel, t.stormCanvas, t.roomList,
+                 _over(t.roomHover, t.roomList), _over(t.roomSelected, t.roomList),
+                 _over(t.channelHover, t.roomList), _over(t.channelSelected, t.roomList),
+                 _over(t.sidePanel, t.roomList), _over(t.roomHeader, t.roomList),
+                 _over(t.timelineBackground, t.roomList) ]
+    }
+    // Every unread DOT (room rows, threads, the Threads button, Home,
+    // account badges): FILLED with the theme's own unread colour, saturated,
+    // as the count pills are, and drawn with a thin ring (unreadDotRing,
+    // badgeDotRingWidth) that carries the 3:1 (4.5:1 high contrast) against
+    // every surface above. Follows a custom theme's unread colour.
+    readonly property color unreadDot:          _p.unreadDot !== undefined
+                                                ? _p.unreadDot : roomUnreadBadge
+    // A mention shown as a DOT (no number: the Spaces rail's room dot, the
+    // Threads button): the theme's mention colour, with its own ring.
+    readonly property color mentionDot:         _p.mentionDot !== undefined
+                                                ? _p.mentionDot : mentionBadge
+    // The rings: the dot's own colour moved in lightness only until it reads
+    // at 3:1 (4.5:1) on every dot surface, so unread and mention rings keep
+    // their two hues. Equal to the fill where the fill already reads.
+    readonly property color unreadDotRing:      _lightnessFit(unreadDot,
+                                                              badgeDotSurfaces(root),
+                                                              _badgeDotRatio).color
+    readonly property color mentionDotRing:     _lightnessFit(mentionDot,
+                                                              badgeDotSurfaces(root),
+                                                              _badgeDotRatio).color
+    readonly property color railUnreadDotRing:  _lightnessFit(railUnreadDot,
+                                                              badgeDotSurfaces(root),
+                                                              _badgeDotRatio).color
+    // The "New messages" divider's words: the unread colour, moved in
+    // lightness only until it reads as text (4.5:1; 7:1 high contrast) on the
+    // conversation background. Its rules keep unreadBadge.
+    readonly property color unreadDividerInk:   _lightnessFit(unreadBadge,
+                                                              [timelineBackground],
+                                                              _badgeInkRatio).color
+    // Every unread COUNT pill: its number's ink (unreadBadgeText unless that
+    // would move the fill too far; see badgeInk) and the fill it reads on at
+    // 4.5:1 (7:1 high contrast), the unread colour moved in lightness only.
+    readonly property color unreadCountInk:     _p.unreadCountInk !== undefined
+                                                ? _p.unreadCountInk
+                                                : badgeInk(roomUnreadBadge, unreadBadgeText,
+                                                           _badgeInkRatio)
+    readonly property color unreadCountFill:    _p.unreadCountFill !== undefined
+                                                ? _p.unreadCountFill
+                                                : inkSafeFill(roomUnreadBadge, unreadCountInk,
+                                                              _badgeInkRatio)
 
     // Accent.
     readonly property color railTileActive:     _p.railTileActive !== undefined
@@ -1387,8 +1570,21 @@ QtObject {
                                                 ? _p.unreadBadgeText : accentText
 
     // Mention counts.
+    // Every mention badge's fill (room list, Spaces rail, Home, threads, the
+    // timeline's thread button, account badges): the mention colour, darker
+    // or lighter only as far as its count needs to read at 4.5:1. The base
+    // `mentionBadge` stays the theme's (and a custom theme's) mention colour
+    // for everything that is not a badge.
+    readonly property color mentionBadgeInk:    _p.mentionBadgeInk !== undefined
+                                                ? _p.mentionBadgeInk
+                                                : badgeInk(mentionBadge, mentionBadgeText,
+                                                           _badgeInkRatio)
+    readonly property color mentionBadgeFill:   _p.mentionBadgeFill !== undefined
+                                                ? _p.mentionBadgeFill
+                                                : inkSafeFill(mentionBadge, mentionBadgeInk,
+                                                              _badgeInkRatio)
     readonly property color roomMentionBadge:   _p.roomMentionBadge !== undefined
-                                                ? _p.roomMentionBadge : mentionBadge
+                                                ? _p.roomMentionBadge : mentionBadgeFill
     readonly property color mentionBadgeText:   _p.mentionBadgeText !== undefined
                                                 ? _p.mentionBadgeText : dangerText
 
