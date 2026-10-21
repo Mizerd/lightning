@@ -69,7 +69,8 @@ QStringList writeProperties(QObject *object, const QVariantMap &values);
 // ---- settings file ---------------------------------------------------------
 
 constexpr auto kFileFormat = "lightning-settings";
-constexpr int kFileVersion = 1;
+// 2: gifAutoplay no longer governs video/audio preloading (see parseDocument).
+constexpr int kFileVersion = 2;
 constexpr qint64 kMaxFileBytes = 512 * 1024;
 constexpr int kMaxShortcuts = 256;
 constexpr int kMaxThemes = 24;

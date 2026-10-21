@@ -4714,24 +4714,22 @@ Item {
             }
             readonly property string sourceText: p.imageSource || ""
             readonly property string imageMime: p.imageMime || ""
-            // GIF, or WebP when it proves animated. Autoplay Never (2) never
-            // animates; Always (0) animates unless reduced motion is on; On
-            // hover (1), and reduced motion, animate under the pointer.
+            // GIF, or WebP when it proves animated. MotionPolicy decides:
+            // Don't play never animates, Play automatically animates, Play on
+            // hover (and Reduce motion) animates under the pointer.
             readonly property bool animationCandidate:
                 (imageMime === "image/gif" && p.gifOversized !== true)
                 || imageMime === "image/webp"
-            readonly property int gifMode: app.settings.gifAutoplay
             readonly property bool animationWanted:
-                animationCandidate && gifMode !== 2
-                && ((gifMode === 0 && !AppTheme.reducedMotion)
-                    || directMediaHover.hovered)
+                animationCandidate && MotionPolicy.allowed
+                && MotionPolicy.plays(directMediaHover.hovered)
             // Materialized whenever animation is allowed at all, so On hover
             // starts at once. Inline preview bytes are local; a server-route
             // mxc fetches the original from the homeserver, never the site.
             property int animationTick: 0
             readonly property string animatedSource: {
                 var _ = animationTick
-                if (!animationCandidate || gifMode === 2)
+                if (!animationCandidate || !MotionPolicy.allowed)
                     return ""
                 if (sourceText.indexOf("mxc://") === 0)
                     return app.mediaBridge.mxcAnimatedSource(sourceText)
@@ -4786,7 +4784,9 @@ Item {
                 source: directMedia.animationWanted
                         ? directMedia.animatedSource : ""
                 fillMode: Image.PreserveAspectFit
-                playing: visible
+                // Suspension stops it through `playing`: a `paused` set
+                // while a movie is not running is lost when it starts.
+                playing: visible && root.rowOnScreen && !MotionPolicy.suspended
                 asynchronous: true
                 cache: false
                 // Keeps the bridge from evicting the file mid-play.
@@ -4804,7 +4804,7 @@ Item {
                 Label {
                     id: directGifLabel
                     anchors.centerIn: parent
-                    text: "GIF"
+                    text: qsTr("GIF")
                     color: AppTheme.scrimInk
                     font.pixelSize: AppTheme.fontMicro
                     font.weight: Font.Bold
@@ -4906,8 +4906,10 @@ Item {
             // Only a preview actually on screen can be dismissed; not the
             // consent gate.
             readonly property bool dismissible: st === "loaded" || st === "failed"
+            // Materialised whenever animation is allowed at all, so Play on
+            // hover starts at once; whether it runs is MotionPolicy's.
             readonly property string previewAnimation:
-                p.isGif === true && app.settings.gifAutoplay !== 2
+                p.isGif === true && MotionPolicy.allowed
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
             // Same mxc-or-data split as the full card.
@@ -5164,6 +5166,7 @@ Item {
                     // link's own image is never drawn here: this card is what
                     // shows when inline media is off.
                     Rectangle {
+                        id: cardMedia
                         visible: ((card.p.imageMxc || "").length > 0
                                   || (card.p.imageSource || "").length > 0)
                                  && !(card.p.gifOversized === true)
@@ -5176,10 +5179,13 @@ Item {
                         color: AppTheme.embedSurface
                         radius: AppTheme.radiusSm
                         clip: true
+                        HoverHandler { id: cardMediaHover }
                         Image {
                             id: thumb
                             anchors.fill: parent
-                            visible: card.previewAnimation.length === 0
+                            // Until the animation has a frame (and whenever
+                            // there is none), the still.
+                            visible: !cardAnimation.visible
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
@@ -5204,12 +5210,22 @@ Item {
                                 }
                             }
                         }
+                        // Loaded while animation is allowed, so its first
+                        // frame stands in for the still; it RUNS only where
+                        // MotionPolicy says, on screen, and not while
+                        // Lightning is unfocused.
                         AnimatedImage {
+                            id: cardAnimation
+                            objectName: "linkPreviewCardAnimation"
                             anchors.fill: parent
                             visible: card.previewAnimation.length > 0
-                            source: visible ? card.previewAnimation : ""
+                                     && status === AnimatedImage.Ready
+                            // Nothing decodes in a box that is not drawn.
+                            source: cardMedia.visible ? card.previewAnimation : ""
                             fillMode: Image.PreserveAspectFit
-                            playing: visible
+                            playing: MotionPolicy.plays(cardMediaHover.hovered)
+                                     && root.rowOnScreen
+                                     && !MotionPolicy.suspended
                             asynchronous: true
                             cache: false
                             // Keeps the bridge from evicting the file mid-play.
@@ -5228,7 +5244,7 @@ Item {
                             Label {
                                 id: gifLabel
                                 anchors.centerIn: parent
-                                text: "GIF"
+                                text: qsTr("GIF")
                                 color: AppTheme.scrimInk
                                 font.pixelSize: AppTheme.fontMicro
                                 font.weight: Font.Bold
@@ -5591,16 +5607,17 @@ Item {
                 || (model.mediaUrl ? model.mediaUrl.toString()
                         .indexOf("send-queue.localhost") >= 0 : false)
             property string animatedSource: ""
-            // Autoplay: 0 Always, 1 OnHover, 2 Never.
-            readonly property int gifMode: app.settings.gifAutoplay
+            // MotionPolicy's mode: 0 Play automatically, 1 Play on hover (or
+            // Reduce motion), 2 Don't play.
+            readonly property int gifMode: MotionPolicy.mode
             property bool gifHovered: false
             HoverHandler {
                 enabled: imageBox.isGif && imageBox.gifMode === 1
                 onHoveredChanged: imageBox.gifHovered = hovered
             }
             readonly property bool animateGif:
-                isGif && gifMode !== 2
-                && (gifMode === 0 || gifHovered)
+                isGif && MotionPolicy.allowed
+                && MotionPolicy.plays(gifHovered)
                 && !pendingMedia && animatedSource.length > 0
                 // A hidden animation must stop decoding.
                 && !root.mediaHidden
@@ -5628,11 +5645,15 @@ Item {
                 // Outside the media band: the band-entry Connections below asks
                 // when the reader settles nearby.
                 if (!root.mediaInBand) return
-                // Fetch the animated bytes unless autoplay is Never, so OnHover
-                // starts instantly.
-                if (isGif && app.settings.gifAutoplay !== 2 && !pendingMedia) {
+                // Fetch the animated bytes unless animation is off, so Play
+                // on hover starts instantly. Only Play automatically can skip
+                // the still: anything else draws it until (or instead of)
+                // the animation, and a thumbnail is not among the bytes the
+                // animation fetch caches.
+                if (isGif && MotionPolicy.allowed && !pendingMedia) {
                     animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
-                    return
+                    if (MotionPolicy.autoplay)
+                        return
                 }
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
@@ -5670,6 +5691,9 @@ Item {
                 refreshBridgeSource()
                 refreshStarredState()
             }
+            // A new Animated images choice (or Reduce motion) may need bytes
+            // the old one did not: the animation, or the still.
+            onGifModeChanged: if (isGif) refreshBridgeSource()
             onMediaIdentityChanged: {
                 animatedSource = ""
                 bridgeSource = ""
@@ -5786,11 +5810,15 @@ Item {
                 active: root.rowOnScreen && !imageBox.bridgeFailed
                         && img.status !== Image.Error
             }
-            // GIFs announce themselves on the placeholder too.
+            // A GIF that is not moving says it is one: on the placeholder,
+            // and on the still drawn under Play on hover or Don't play.
             Rectangle {
+                objectName: "imageGifBadge"
+                // Over the still, which is declared after it.
+                z: 1
                 visible: imageBox.isGif && !root.mediaHidden
-                         && img.status !== Image.Ready
-                         && animatedImg.status !== AnimatedImage.Ready
+                         && !(imageBox.animateGif
+                              && animatedImg.status === AnimatedImage.Ready)
                          && !imageBox.bridgeFailed
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
@@ -5802,7 +5830,7 @@ Item {
                 Label {
                     id: placeholderGifLabel
                     anchors.centerIn: parent
-                    text: "GIF"
+                    text: qsTr("GIF")
                     color: AppTheme.scrimInk
                     font.pixelSize: AppTheme.fontMicro
                     font.weight: Font.Bold
@@ -5835,6 +5863,7 @@ Item {
                 asynchronous: true
                 cache: true
                 playing: imageBox.animateGif && root.rowOnScreen
+                         && !MotionPolicy.suspended
                 // Keeps the bridge from evicting the file mid-play.
                 AnimationFileHold {}
             }
@@ -6080,10 +6109,14 @@ Item {
             readonly property bool maybeAnimated:
                 declaredMimetype === "" || declaredMimetype === "image/gif"
                 || declaredMimetype === "image/webp"
-            readonly property int gifMode: app.settings.gifAutoplay
+            // MotionPolicy's mode: 0 Play automatically, 1 Play on hover (or
+            // Reduce motion), 2 Don't play.
+            readonly property int gifMode: MotionPolicy.mode
             property bool gifHovered: false
             readonly property bool playAnimation:
-                gifMode === 0 || (gifMode === 1 && gifHovered)
+                MotionPolicy.plays(gifHovered)
+            // Allowing animation again starts the fetch Don't play refused.
+            onGifModeChanged: refreshAnimatedSource()
             property string animatedSource: ""
 
             function refreshBridgeSource() {
@@ -6181,6 +6214,7 @@ Item {
                     && stickerBox.playAnimation && !root.mediaHidden
                 visible: animating
                 playing: animating && root.rowOnScreen
+                         && !MotionPolicy.suspended
                 asynchronous: true
                 cache: true
                 // Keeps the bridge from evicting the file mid-play.
@@ -6333,15 +6367,13 @@ Item {
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
-                // Speculative prefetch follows the GIF autoplay preference
-                // (Never means no passive downloads); a size of 0 makes
-                // MediaBridge decline. Uses the declared size, else the size
-                // learned from a previous fetch.
-                // The "Preload short videos" switch and its limit are read
-                // here on every refresh, so a change applies without a
-                // restart; off declines like Never does.
-                var prefetchSize = (app.settings.gifAutoplay !== 2
-                                    && app.settings.videoPrefetchEnabled)
+                // Speculative prefetch follows the "Preload videos and audio"
+                // switch alone (Animated images governs animation, not data);
+                // a size of 0 makes MediaBridge decline. Uses the declared
+                // size, else the size learned from a previous fetch. The
+                // switch and its limit are read here on every refresh, so a
+                // change applies without a restart.
+                var prefetchSize = app.settings.videoPrefetchEnabled
                                    ? (model.mediaSize
                                       || app.settings.knownMediaSizeBytes(
                                              model.mediaKey || "")

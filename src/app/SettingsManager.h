@@ -315,15 +315,17 @@ class SettingsManager : public QObject
     // gifSafeSearch is a gif::Rating id. gifPreferredProvider is "giphy" or
     // "klipy".
     //
-    // The gifAutoplay name is historical: it governs all passive media (GIF
-    // animation and speculative video/audio prefetch), so Never means no
-    // passive downloads. The key keeps its name so existing preferences are
-    // not reset.
+    // The gifAutoplay name is historical: it is the "Animated images" choice
+    // (Play automatically / Play on hover / Don't play) and governs animation
+    // and the fetch of animated bytes only; speculative video/audio prefetch
+    // is videoPrefetchEnabled. The key keeps its name so existing preferences
+    // are not reset.
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
-    // Speculative preload of short videos when a room opens. Off means no
-    // video is fetched ahead of Play (a poster still comes from a thumbnail
-    // when the sender provided one). The limit is whole megabytes; a stored
+    // "Preload videos and audio": speculative download of playable media
+    // (videos up to the limit, audio and voice messages) before Play. Off
+    // means nothing is fetched ahead of Play (a poster still comes from a
+    // thumbnail when the sender provided one). The key name is historical. The limit is whole megabytes; a stored
     // value outside the range reads as the default.
     Q_PROPERTY(bool videoPrefetchEnabled READ videoPrefetchEnabled
                    WRITE setVideoPrefetchEnabled
@@ -1371,6 +1373,7 @@ private:
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
+    void migratePrefetchFromAnimation();
     // Store paths of recorded unfinished sign-ins whose store still exists;
     // markers whose store is gone are removed. Called at every start. See
     // recordPendingSignIn().

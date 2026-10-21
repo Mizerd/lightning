@@ -156,11 +156,12 @@ Rectangle {
     // ── Animated avatars ──
     // The still thumbnail always loads first; an animation is layered over it
     // only while it may play, and the layer is torn down (active: false) the
-    // moment it may not. Policy follows the GIF autoplay setting, which
-    // already governs all passive media: Always plays what is on screen, On
-    // hover plays while the pointer rests on the avatar, Never and reduced
-    // motion keep every avatar still and fetch nothing extra. Server
-    // thumbnails never animate, so finding out needs the original; see
+    // moment it may not. Policy is MotionPolicy's, the "Animated images"
+    // setting: Play automatically plays what is on screen, Play on hover (and
+    // Reduce motion) plays while the pointer rests on the avatar, Don't play
+    // keeps every avatar still and fetches nothing extra. While Lightning is
+    // not focused a playing avatar pauses on its frame. Server thumbnails
+    // never animate, so finding out needs the original; see
     // MediaBridge::avatarAnimationSource.
     //
     // Call sites may opt out (e.g. tiny facepiles).
@@ -168,16 +169,14 @@ Rectangle {
     // Profile card, Space Home: probe any format, not only non-JPEG
     // thumbnails.
     property bool prominent: false
-    readonly property int _motionMode:
-        (typeof app !== "undefined" && app && app.settings)
-        ? app.settings.gifAutoplay : 2
+    readonly property int _motionMode: MotionPolicy.mode
     // The shape mask is a shader effect, which the software scene graph
     // cannot draw: there the animation would cover the still picture with
     // nothing. Writable only so tests can drive playback on that backend.
     property bool motionMaskable:
         root.GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool _motionAllowed:
-        animate && hasImage && _motionMode !== 2 && !AppTheme.reducedMotion
+        animate && hasImage && _motionMode !== 2
         && size >= 20 && motionMaskable
     // Set after a short dwell, so a pointer crossing a list starts nothing.
     property bool _hovered: false
@@ -520,6 +519,8 @@ Rectangle {
             // One frame at a time; a cached animation holds every frame.
             cache: false
             playing: true
+            // Unfocused: hold the frame, decode nothing, keep the slot.
+            paused: MotionPolicy.suspended
             smooth: true
             layer.enabled: true
             layer.effect: MultiEffect {

@@ -485,8 +485,13 @@ backend capability checks and honest live-test status.
 - Inline video/audio playback materializes the decrypted payload as a
   session-scoped 0600 temp file (wiped on sign-out/switch/exit); a BOUNDED
   speculative prefetch for on-screen video/audio rows (≤ 32 MiB declared,
-  lowest priority, dropped on room switch) governed by the SAME preference
-  as GIF autoplay ("never" disables all passive media downloads); and a
+  lowest priority, dropped on room switch) governed by the Privacy › Media
+  "Preload videos and audio" switch alone (since 2026-10-20 the animation
+  setting no longer gates downloads of playable media; a user whose
+  gif/autoplay was "Never" — or legacy animateGifs=false — gets the switch
+  turned OFF once on upgrade, marker `media/prefetchDecoupledFromAnimation`,
+  and a version-1 settings export from such a user imports with it off;
+  settings files are version 2 from then); and a
   locally extracted first-frame poster for videos without a Matrix thumbnail
   (JPEG, RAM image cache only — never disk). In-flight fetches are
   cancellable end-to-end (QML card → MediaBridge → `mx_rust_media_cancel`),
@@ -1246,12 +1251,25 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   stderr is no TTY
 - Room-activity visibility, link/GIF preview policy, notification privacy
   and sound, per-room notification mode, and wheel-speed settings
-- The media autoplay control is labelled **"Autoplay and prefetch media"**
-  because that is what it governs: GIF animation, the picker's autoplay, AND
-  the speculative video/audio prefetch. The stored key stays `gif/autoplay`
-  and the property stays `gifAutoplay` **ON PURPOSE** — renaming the key
-  would silently reset every existing user's preference, which is worse than
-  a stale identifier
+- **"Animated images"** (Appearance › Motion and time, under Reduce motion;
+  2026-10-20): Play automatically / Play on hover / Don't play, the ONE
+  switch over every animated image — avatars (people, rooms, Spaces),
+  banners, the chat background, GIFs and animated WebP in messages and link
+  previews, stickers, the GIF and sticker pickers and the composer's GIF
+  chip, all through `qml/MotionPolicy.qml`. It governs animation and the
+  fetch of animated bytes ONLY; speculative video/audio downloads are the
+  Privacy › Media **"Preload videos and audio"** switch
+  (`videoPrefetchEnabled`, historical name). Reduce motion turns Play
+  automatically into Play on hover (motion the pointer asks for still
+  plays), as Element and Discord do. Every animation also stops while no
+  Lightning window has focus (`AppController::animationsSuspended`); unlike
+  Discord this is not a toggle, deliberately. The image viewer and the crop
+  dialog are explicit intent and play unless Don't play. The stored key
+  stays `gif/autoplay` and the property stays `gifAutoplay` **ON PURPOSE** —
+  renaming the key would silently reset every existing user's preference,
+  which is worse than a stale identifier. Before 2026-10-20 it was labelled
+  "Autoplay and prefetch media" under Privacy and its Never also refused the
+  video/audio prefetch
 - **Pre-send upload-limit preflight** against the homeserver's advertised
   `m.upload.size` ONLY; both fabricated 100 MiB ceilings are gone (the Rust
   one reported an invented value as though the server had advertised it).
@@ -2473,8 +2491,10 @@ two or more frames or an animated WebP.
   under autoplay "Always", only when the thumbnail is not a JPEG (a JPEG
   thumbnail is a JPEG or WebP source: every photo would be downloaded in full
   for nothing). So an animated WebP avatar plays in lists only once hovered.
-- **Policy.** The "Autoplay and prefetch media" setting and Reduce motion. Never
-  and Reduce motion fetch nothing extra. The avatar must also be on screen:
+- **Policy.** "Animated images" through `MotionPolicy`: Don't play fetches
+  nothing extra; Play on hover, and Reduce motion, probe and play only the
+  avatar the pointer rests on; a playing avatar holds its frame while
+  Lightning is unfocused. The avatar must also be on screen:
   `onScreen`, visible, a window that is not minimised or hidden, and inside
   its nearest Flickable's viewport (checked by the avatar itself, because
   Repeater sites cannot bind `onScreen`). Off on the software scene graph,
@@ -2500,8 +2520,12 @@ keyed by `SettingsManager` property name; each field is `Export`, or `Export`
 no token, key, recovery material, device or hardware id, path, account id,
 homeserver URL, window geometry or dismissal flag, and the tests assert it.
 
-- **File.** `{"format":"lightning-settings","version":1,"settings":{...},
-  "shortcuts":{id: seq},"customThemes":[...],"activeCustomTheme":n}`. Export
+- **File.** `{"format":"lightning-settings","version":2,"settings":{...},
+  "shortcuts":{id: seq},"customThemes":[...],"activeCustomTheme":n}`. Version 2
+  since 2026-10-20 (animated images decoupled from preloading): a version-1
+  file whose GIF autoplay is "Never" imports with "Preload videos and audio"
+  off (`parseDocument` in `src/settings/SettingsPortable.cpp` carries the v1
+  rule). Export
   captures the ACTIVE account's effective values (an account-scoped value with
   its global fallback, as the UI shows it); import writes through the setters,
   so it lands on the active account and the signed-out fallback exactly like a
@@ -2684,7 +2708,7 @@ backgrounds others set for this room" remove the two shared levels only.
   8 MiB, 4 MP and 2560 px a side is KEPT (not flattened), its metadata removed
   by `animsniff::stripAnimationMetadata` (the avatar/banner trust model); a
   larger, unparsable, very fast (most frames paced under 50 ms; GIF 0 and 1 cs play at 100 ms like Qt and browsers, so are fine; WebP 0 ms counts as fast; read from the GIF/WebP blocks themselves, using the last graphic-control extension before each image and only the RIFF container), over-300-frame or too-long-to-measure (more frames than the 48-frame decode bound) one stays a first-frame still. This catches very fast pacing, not flashing content: the real protections against photosensitive content are reduced motion and the GIF autoplay setting. A shared picture from another member plays via `MediaBridge::backdropAnimationSource`, which applies the same frame-count and pacing refusal (falling back to the still), and one whose sample was cut short is planned at the worst-case scrim. Stored as `.gif`/`.webp`.
-  It plays only when GIF autoplay is "Always", reduced motion is off and the
+  It plays only when Animated images is "Play automatically", reduced motion is off and the
   backdrop is not blurred (hover has no target on a whole pane); otherwise the
   still shows. Personal pictures play from a scratch file written from the
   staged bytes (`MediaBridge::stagedAnimationSource`), shared ones from the

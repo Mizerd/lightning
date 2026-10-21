@@ -299,6 +299,19 @@ ParseResult parseDocument(const QByteArray &bytes)
         else
             r.rejected.insert(f->name, c.reason);
     }
+    // A version 1 file comes from a build where gifAutoplay "Never" (2) also
+    // refused the speculative video/audio download; from version 2 that is
+    // videoPrefetchEnabled alone. An old "Never" file imports with preloading
+    // off, which is what it meant (SettingsManager::migratePrefetchFromAnimation
+    // does the same for a settings file on disk).
+    if (r.version < 2) {
+        const QVariant mode = r.doc.settings.value(QStringLiteral("gifAutoplay"));
+        const QVariant legacy = r.doc.settings.value(QStringLiteral("animateGifPreviews"));
+        const bool never = mode.isValid() ? mode.toInt() == 2
+                                          : (legacy.isValid() && !legacy.toBool());
+        if (never)
+            r.doc.settings.insert(QStringLiteral("videoPrefetchEnabled"), false);
+    }
 
     static const QRegularExpression idPattern(
         QStringLiteral("^[A-Za-z0-9_.-]{1,64}$"));

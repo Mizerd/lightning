@@ -1221,6 +1221,7 @@ set(APP_QML_FILES
     qml/ThemeReadabilityPanel.qml
     qml/GradientBar.qml
     qml/AnimationFileHold.qml
+    qml/MotionPolicy.qml
     qml/Skeleton.qml
     qml/AppMenu.qml
     qml/AppMenuItem.qml
@@ -1311,6 +1312,9 @@ set_source_files_properties(qml/AppTheme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 # DownloadNotices arbitrates which surface shows a download's notice.
 set_source_files_properties(qml/DownloadNotices.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# MotionPolicy is the one rule every animated image follows.
+set_source_files_properties(qml/MotionPolicy.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Development-only demo media fixtures (scripts/generate-demo-media.sh),
@@ -2852,6 +2856,25 @@ if(BUILD_TESTING)
     target_link_libraries(avatar-pipeline-qml-test PRIVATE Qt6::Test)
     add_test(NAME avatar-pipeline-qml COMMAND avatar-pipeline-qml-test)
     set_tests_properties(avatar-pipeline-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # "Animated images": one rule (qml/MotionPolicy.qml) for every animated
+    # image, the focus pause, and the sites that follow it.
+    qt_add_executable(animated-image-policy-qml-test
+        tests/AnimatedImagePolicyQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(animated-image-policy-qml-test)
+    target_link_libraries(animated-image-policy-qml-test PRIVATE Qt6::Test)
+    target_compile_definitions(animated-image-policy-qml-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    if(TARGET Qt6::GuiPrivate)
+        target_link_libraries(animated-image-policy-qml-test PRIVATE
+            Qt6::GuiPrivate)
+    endif()
+    add_test(NAME animated-image-policy-qml
+             COMMAND animated-image-policy-qml-test)
+    set_tests_properties(animated-image-policy-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Clicking a favourite GIF chooses exactly that item, never an index-zero

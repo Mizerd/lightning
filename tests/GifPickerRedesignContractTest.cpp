@@ -275,13 +275,21 @@ private Q_SLOTS:
                 QStringLiteral("Keys.onReturnPressed:"), tileStart);
             QVERIFY(tileStart >= 0 && tileEnd > tileStart);
             const QString tileBlock = picker.mid(tileStart, tileEnd - tileStart);
+            // Under "Don't play" a provider tile without a still draws the
+            // preview's first frame through this Image: still a validated
+            // local copy from app.gif.previews, never a provider URL.
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
-                "                                ? tile.localSource : tile.stillSource")));
+                "                                ? tile.localSource\n"
+                "                                : (tile.stillSource.length > 0\n"
+                "                                   || MotionPolicy.allowed\n"
+                "                                   ? tile.stillSource : tile.previewSource)")));
             // A local still (png/jpg/webp) never feeds the movie backend: the
-            // local branch narrows to GIF or legacy rows.
+            // local branch narrows to GIF or legacy rows; and nothing feeds it
+            // under "Don't play".
             QVERIFY(tileBlock.contains(QStringLiteral(
-                "source: tile.provider === \"local\"\n"
+                "source: !MotionPolicy.allowed ? \"\"\n"
+                "                                : tile.provider === \"local\"\n"
                 "                                ? (tile.localExt.length === 0\n"
                 "                                   || tile.localExt === \"gif\"\n"
                 "                                   ? tile.localSource : \"\")\n"

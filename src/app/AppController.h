@@ -181,6 +181,12 @@ class AppController : public QObject
     Q_PROPERTY(QString softwareRendererNoticeContext
                READ softwareRendererNoticeContext
                NOTIFY softwareRendererNoticeVisibleChanged)
+    // True while no window of this application has focus: another
+    // application is in front, or every window is minimised or hidden. Every
+    // animated image pauses on its frame (qml/MotionPolicy.qml), as Discord's
+    // GIFs do when it is not focused. Follows QGuiApplication::applicationState.
+    Q_PROPERTY(bool animationsSuspended READ animationsSuspended
+               NOTIFY animationsSuspendedChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -655,6 +661,7 @@ public:
     {
         return m_softwareRendererNoticeContext;
     }
+    bool animationsSuspended() const { return m_animationsSuspended; }
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -1383,6 +1390,7 @@ Q_SIGNALS:
     void systemDarkModeChanged();
     void softwareRendererChanged();
     void softwareRendererNoticeVisibleChanged();
+    void animationsSuspendedChanged();
     void errorReported(const QString &message);
     /// A call could not be started, with wording already fit to show.
     void callStartRefused(const QString &message);
@@ -2115,4 +2123,8 @@ private:
     QString m_roomKeyImportMessage;
     bool    m_roomKeyImportRunning = false;
     QStringList m_roomKeyImportAffectedRoomIds;
+
+    // animationsSuspended: no window of this application has focus.
+    bool m_animationsSuspended = false;
+    void refreshAnimationsSuspended();
 };

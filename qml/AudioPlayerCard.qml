@@ -139,10 +139,10 @@ Rectangle {
     // Bounded speculative prefetch (size-capped, lowest priority, deduplicated
     // by MediaBridge) so Play starts without a download wait.
     function maybePrefetch() {
-        // GIF autoplay "never" also means no passive media downloads.
+        // "Preload videos and audio" off means no speculative download.
         if (rowOnScreen && prefetchAllowed && mediaKey.length > 0
             && app.mediaBridge.supported
-            && app.settings.gifAutoplay !== 2)
+            && app.settings.videoPrefetchEnabled)
             app.mediaBridge.prefetchPlayable(
                 mediaKey,
                 fileSize || app.settings.knownMediaSizeBytes(mediaKey) || 0)

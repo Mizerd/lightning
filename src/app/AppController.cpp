@@ -2581,9 +2581,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     if (auto *guiApp =
             qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
         refreshMainWindowState();
+        refreshAnimationsSuspended();
         connect(guiApp, &QGuiApplication::applicationStateChanged, this,
                 [this](Qt::ApplicationState state) {
                     refreshMainWindowState();
+                    refreshAnimationsSuspended();
                     // Coming back to the app: the own profile may have been
                     // changed on another device meanwhile (refreshOwnProfile).
                     if (state == Qt::ApplicationActive)
@@ -3608,9 +3610,9 @@ void AppController::updateVoicePrefetch()
         if (ownedOld && m_mediaBridge)
             m_mediaBridge->cancelPrefetch(old);
     }
-    // "Never" for passive media also means no speculative downloads.
+    // "Preload videos and audio" off means no speculative downloads.
     if (wanted.isEmpty() || !m_mediaBridge || !m_mediaBridge->supported()
-        || m_settings->gifAutoplay() == 2)
+        || !m_settings->videoPrefetchEnabled())
         return;
     double size = next.value(QStringLiteral("fileSize")).toDouble();
     if (size <= 0)
@@ -3619,6 +3621,18 @@ void AppController::updateVoicePrefetch()
     m_mediaBridge->prefetchPlayable(wanted, size);
     m_voicePrefetchOwned =
         !alreadyPrefetching && m_mediaBridge->hasPrefetch(wanted);
+}
+
+void AppController::refreshAnimationsSuspended()
+{
+    // Application state, not the main window's: a focused call or
+    // picture-in-picture window is still Lightning in front of the user.
+    const bool suspended =
+        QGuiApplication::applicationState() != Qt::ApplicationActive;
+    if (suspended == m_animationsSuspended)
+        return;
+    m_animationsSuspended = suspended;
+    Q_EMIT animationsSuspendedChanged();
 }
 
 AppController::~AppController()

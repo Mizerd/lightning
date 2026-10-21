@@ -359,17 +359,18 @@ AppDialog {
                     y: root.panY
                     width: root.drawnW
                     height: root.drawnH
-                    // Plays only where every other animation would: the
-                    // still frame beneath stands in otherwise.
+                    // The user's own pick, so explicit intent like the image
+                    // viewer: plays unless Animated images is Don't play
+                    // (MotionPolicy); the still frame beneath stands in then.
                     active: root.cropLocked && root.animatedUrl.length > 0
-                            && !AppTheme.reducedMotion
-                            && app.settings.gifAutoplay !== 2
+                            && MotionPolicy.allowed
                     sourceComponent: AnimatedImage {
                         source: root.animatedUrl
                         fillMode: Image.Stretch
                         asynchronous: true
                         cache: false
                         playing: true
+                        paused: MotionPolicy.suspended
                         smooth: true
                     }
                 }

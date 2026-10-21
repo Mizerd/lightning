@@ -92,6 +92,8 @@ constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
 constexpr auto kGifStoreRecent      = "gif/storeRecent";    // bool
 constexpr auto kVideoPrefetchEnabled = "media/videoPrefetchEnabled"; // bool
+// Set once migratePrefetchFromAnimation() has run (see there).
+constexpr auto kPrefetchDecoupledMarker = "media/prefetchDecoupledFromAnimation";
 constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";   // int, MB
 constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // Presentation-only timeline preferences; the model keeps every event, so
@@ -238,6 +240,7 @@ SettingsManager::SettingsManager(QObject *parent)
                               QFile::ReadOwner | QFile::WriteOwner);
     }
     migrateLegacySessionRecord();
+    migratePrefetchFromAnimation();
     // B118: a damaged settings file used to look exactly like a fresh install.
     // QSettings reports a parse failure only at the first sync (in this
     // constructor), and
@@ -455,6 +458,23 @@ bool SettingsManager::resolveSavedIdentity(
         matrix::app_data::bindStoreSlug(&identity, recorded);
     *out = identity;
     return true;
+}
+
+void SettingsManager::migratePrefetchFromAnimation()
+{
+    // Until 2026-10-20 gif/autoplay "Never" (2) also refused every speculative
+    // video/audio download; since then that is "Preload videos and audio"
+    // (media/videoPrefetchEnabled, default on) alone. A user who chose Never
+    // had preloading OFF in effect, so carry that over once instead of
+    // silently starting downloads after the upgrade. Both keys are global, the
+    // scope they are read in; gifAutoplay() includes the legacy
+    // animateGifPreviews=false fallback. Runs once: a later choice to turn
+    // preloading back on is the user's.
+    if (m_store->value(kPrefetchDecoupledMarker).toBool())
+        return;
+    if (gifAutoplay() == 2)
+        m_store->setValue(kVideoPrefetchEnabled, false);
+    m_store->setValue(kPrefetchDecoupledMarker, true);
 }
 
 void SettingsManager::migrateLegacySessionRecord()

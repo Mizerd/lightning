@@ -805,17 +805,20 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString picker = read(QStringLiteral("GifPicker.qml"));
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
-        // Timeline honors the tri-state (Never = static, OnHover = hover-gated).
-        QVERIFY(delegate.contains(QStringLiteral("gifMode: app.settings.gifAutoplay")));
-        QVERIFY(delegate.contains(QStringLiteral("gifMode === 0 || gifHovered")));
-        QVERIFY(delegate.contains(QStringLiteral("app.settings.gifAutoplay !== 2")));
+        // Timeline honors the tri-state (Never = static, OnHover = hover-gated)
+        // through the one rule, qml/MotionPolicy.qml.
+        QVERIFY(delegate.contains(QStringLiteral("gifMode: MotionPolicy.mode")));
+        QVERIFY(delegate.contains(QStringLiteral("MotionPolicy.plays(gifHovered)")));
+        // Animation does not govern data use: the video prefetch follows
+        // "Preload videos and audio" alone.
+        QVERIFY(!delegate.contains(QStringLiteral("app.settings.gifAutoplay")));
         // The video preload switch and limit gate and bound the prefetch.
         QVERIFY(delegate.contains(QStringLiteral("app.settings.videoPrefetchEnabled")));
         QVERIFY(delegate.contains(QStringLiteral("app.settings.videoPrefetchMaxMb")));
         QVERIFY(settings.contains(QStringLiteral("app.settings.videoPrefetchEnabled = checked")));
         QVERIFY(settings.contains(QStringLiteral("app.settings.videoPrefetchMaxMb = Math.round(value)")));
         // Picker previews honor it too.
-        QVERIFY(picker.contains(QStringLiteral("app.settings.gifAutoplay")));
+        QVERIFY(picker.contains(QStringLiteral("MotionPolicy.plays(tileHover.hovered)")));
         // Settings expose the controls, bound to the settings model.
         QVERIFY(settings.contains(QStringLiteral("app.settings.gifAutoplay = currentValue")));
         QVERIFY(settings.contains(QStringLiteral("app.settings.gifSafeSearch = currentValue")));

@@ -99,9 +99,10 @@ Item {
     // picture (the bridge reuses the bytes the still already fetched) and a
     // personal one is the user's own staged bytes. The scrim already covers the
     // worst of several sampled frames (ChatBackdropController measures them).
-    readonly property int _motionMode: (typeof app !== "undefined" && app
-                                        && app.settings)
-                                       ? app.settings.gifAutoplay : 2
+    // MotionPolicy's mode already folds Reduce motion in (it turns Play
+    // automatically into Play on hover, and a whole pane has no hover); the
+    // explicit test below keeps that gate readable where it is enforced.
+    readonly property int _motionMode: MotionPolicy.mode
     readonly property bool _windowShown:
         root.Window.visibility !== Window.Minimized
         && root.Window.visibility !== Window.Hidden
@@ -248,6 +249,7 @@ Item {
                 asynchronous: true
                 cache: false
                 playing: true
+                paused: MotionPolicy.suspended
                 smooth: true
                 autoTransform: true
                 onStatusChanged: {

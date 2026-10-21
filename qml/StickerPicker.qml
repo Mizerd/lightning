@@ -407,9 +407,9 @@ AnchoredPopup {
                 readonly property bool maybeAnimated:
                     declaredMimetype === "" || declaredMimetype === "image/gif"
                     || declaredMimetype === "image/webp"
-                readonly property int gifMode: app.settings.gifAutoplay
+                readonly property int gifMode: MotionPolicy.mode
                 readonly property bool playAnimation:
-                    gifMode === 0 || (gifMode === 1 && tileHover.hovered)
+                    MotionPolicy.plays(tileHover.hovered)
                 property string animatedSource: ""
                 readonly property string animatedCacheKey: "mxcanim:" + tile.url
                 function refreshAnimatedSource() {
@@ -487,7 +487,7 @@ AnchoredPopup {
                         && tile.animatedSource.length > 0
                         && tile.playAnimation
                     visible: animating
-                    playing: animating
+                    playing: animating && !MotionPolicy.suspended
                     asynchronous: true
                     cache: true
                     // Keeps the bridge from evicting the file mid-play.

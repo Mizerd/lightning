@@ -11,10 +11,11 @@ import MatrixClient
 // downloaded, and nothing plays until the still picture is on screen. The
 // caller clips or masks; this fills its parent.
 //
-// Policy is the GIF autoplay setting, like every other passive animation:
-// Always plays, On hover plays while the pointer is over the banner, Never and
-// reduced motion keep the still picture. A banner scrolled out of its
-// Flickable (Space Home) stops too.
+// Policy is MotionPolicy's, like every other animated image: Play
+// automatically plays, Play on hover (and Reduce motion) plays while the
+// pointer is over the banner, Don't play keeps the still picture. A banner
+// scrolled out of its Flickable (Space Home) stops too, and one in an
+// unfocused window pauses on its frame.
 Item {
     id: root
 
@@ -29,11 +30,8 @@ Item {
 
     readonly property var _bridge: (typeof app !== "undefined" && app)
                                    ? app.mediaBridge : null
-    readonly property int _mode: (typeof app !== "undefined" && app
-                                  && app.settings)
-                                 ? app.settings.gifAutoplay : 2
+    readonly property int _mode: MotionPolicy.mode
     readonly property bool _allowed: mxc.length > 0 && _mode !== 2
-                                     && !AppTheme.reducedMotion
     property bool _hovered: false
     readonly property bool _windowShown:
         root.Window.visibility !== Window.Minimized
@@ -145,6 +143,7 @@ Item {
             asynchronous: true
             cache: false
             playing: true
+            paused: MotionPolicy.suspended
             smooth: true
             onStatusChanged: {
                 // Deferred: handling it tears this very item down.

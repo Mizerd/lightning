@@ -686,8 +686,14 @@ AnchoredPopup {
                     Image {
                         id: still
                         anchors.fill: parent
+                        // Under Don't play the animation is never decoded, so
+                        // a provider tile with no still (KLIPY) draws the
+                        // preview's first frame here instead.
                         source: tile.provider === "local"
-                                ? tile.localSource : tile.stillSource
+                                ? tile.localSource
+                                : (tile.stillSource.length > 0
+                                   || MotionPolicy.allowed
+                                   ? tile.stillSource : tile.previewSource)
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -710,7 +716,9 @@ AnchoredPopup {
                         anchors.fill: parent
                         // Local stills never feed the movie backend. Legacy
                         // rows with an empty ext are GIFs.
-                        source: tile.provider === "local"
+                        // No source under Don't play: nothing is decoded.
+                        source: !MotionPolicy.allowed ? ""
+                                : tile.provider === "local"
                                 ? (tile.localExt.length === 0
                                    || tile.localExt === "gif"
                                    ? tile.localSource : "")
@@ -718,11 +726,12 @@ AnchoredPopup {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        // Autoplay: 0 Always (while visible), 1 OnHover, 2
-                        // Never. Also paused when the picker is hidden.
-                        playing: picker.visible && app.settings.gifAutoplay !== 2
-                                 && (app.settings.gifAutoplay === 0
-                                     || tileHover.hovered)
+                        // MotionPolicy: plays while the picker is visible, on
+                        // its own or under the pointer; Don't play shows the
+                        // first frame. Paused while Lightning is unfocused.
+                        playing: picker.visible
+                                 && MotionPolicy.plays(tileHover.hovered)
+                                 && !MotionPolicy.suspended
                         Accessible.role: Accessible.Button
                         Accessible.name: tile.title.length > 0
                             ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF")

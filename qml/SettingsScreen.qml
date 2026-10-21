@@ -190,6 +190,13 @@ Item {
           breadcrumb: qsTr("Appearance · Motion and time"),
           control: "reducedMotion",
           anchor: "reducedMotionCheck" },
+        { title: qsTr("Animated images"),
+          keywords: qsTr("gif gifs autoplay animated animation avatar avatars "
+                         + "banner sticker stickers emoji webp background play "
+                         + "hover pause stop focus cpu battery resources"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Motion and time"),
+          anchor: "gifAutoplayCombo" },
         { title: qsTr("Increase contrast"),
           keywords: qsTr("high contrast accessibility borders text readable vision"),
           section: "appearance",
@@ -500,12 +507,8 @@ Item {
           section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews"),
           anchor: "inlineLinkMediaCheck" },
-        { title: qsTr("Autoplay and prefetch media"),
-          keywords: qsTr("gif autoplay prefetch video audio media"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
-          anchor: "gifAutoplayCombo" },
-        { title: qsTr("Preload short videos"),
-          keywords: qsTr("video preload prefetch download size megabytes data disk instant play"),
+        { title: qsTr("Preload videos and audio"),
+          keywords: qsTr("video audio voice preload prefetch download size megabytes data disk instant play"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
           anchor: "videoPrefetchCheck" },
         { title: qsTr("Photo details when sending"),
@@ -4212,6 +4215,67 @@ Item {
                                                + "fades and list reorders. "
                                                + "Media you play still plays.")
                                 }
+                                // The one switch over every animated image
+                                // (qml/MotionPolicy.qml). Stored as
+                                // gifAutoplay, the historical name. It governs
+                                // animation and the animated-bytes fetch only;
+                                // speculative video/audio downloads are the
+                                // Privacy · Media "Preload videos and audio"
+                                // switch.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Animated images")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: gifAutoplayCombo
+                                    objectName: "gifAutoplayCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"; valueRole: "value"
+                                    Accessible.name: qsTr("Animated images")
+                                    Accessible.description: qsTr(
+                                        "Whether GIFs, stickers and animated avatars "
+                                        + "play on their own, only under the pointer, "
+                                        + "or not at all")
+                                    model: [
+                                        { label: qsTr("Play automatically"), value: 0 },
+                                        { label: qsTr("Play on hover"),      value: 1 },
+                                        { label: qsTr("Don't play"),         value: 2 },
+                                    ]
+                                    // Not a currentIndex binding and not
+                                    // Math.max(0, indexOfValue(...)): at
+                                    // creation indexOfValue() is -1, which
+                                    // clamps to row 0 and displays the wrong
+                                    // value. syncToValue retries instead.
+                                    function syncFromSettings() {
+                                        syncToValue(app.settings.gifAutoplay)
+                                    }
+                                    Component.onCompleted: syncFromSettings()
+                                    Connections {
+                                        target: app.settings
+                                        function onGifAutoplayChanged() {
+                                            gifAutoplayCombo.syncFromSettings()
+                                        }
+                                    }
+                                    onActivated: app.settings.gifAutoplay = currentValue
+                                }
+                                Label {
+                                    objectName: "gifAutoplayHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("GIFs, stickers, animated avatars, "
+                                               + "banners and chat backgrounds. They "
+                                               + "pause while Lightning is not "
+                                               + "focused; with Reduce motion on, "
+                                               + "they play only under the pointer.")
+                                }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Clock")
@@ -5449,62 +5513,28 @@ Item {
                                     color: AppTheme.stormBorder
                                 }
 
-                                // ─────────── GIFs ───────────
+                                // ─────────── Media ───────────
+                                // (Animated images moved to Appearance; what
+                                // remains here is downloads, photo details
+                                // and the GIF provider.)
                                 Label {
-                                    text: qsTr("GIFs")
+                                    text: qsTr("Media")
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing4
                                 }
 
-                                Label { text: qsTr("Autoplay and prefetch media"); color: AppTheme.stormTextSecondary }
-                                AppComboBox {
-                                    storm: true
-                                    id: gifAutoplayCombo
-                                    objectName: "gifAutoplayCombo"
-                                    Layout.fillWidth: true
-                                    textRole: "label"; valueRole: "value"
-                                    Accessible.name: qsTr("Autoplay and prefetch media")
-                                    model: [
-                                        { label: qsTr("Always"),   value: 0 },
-                                        { label: qsTr("On hover"), value: 1 },
-                                        { label: qsTr("Never"),    value: 2 },
-                                    ]
-                                    // Not a currentIndex binding and not
-                                    // Math.max(0, indexOfValue(...)): at
-                                    // creation indexOfValue() is -1, which
-                                    // clamps to row 0 and displays the wrong
-                                    // value. syncToValue retries instead.
-                                    function syncFromSettings() {
-                                        syncToValue(app.settings.gifAutoplay)
-                                    }
-                                    Component.onCompleted: syncFromSettings()
-                                    Connections {
-                                        target: app.settings
-                                        function onGifAutoplayChanged() {
-                                            gifAutoplayCombo.syncFromSettings()
-                                        }
-                                    }
-                                    onActivated: app.settings.gifAutoplay = currentValue
-                                }
-                                Label {
-                                    text: qsTr("Also governs passive downloads: GIF, video and audio prefetching. \"Never\" disables all of them.")
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    Layout.fillWidth: true
-                                }
-
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "videoPrefetchCheck"
-                                    text: qsTr("Preload short videos")
+                                    // The one switch over speculative
+                                    // downloads of playable media (key name
+                                    // historical: it now covers audio too).
+                                    text: qsTr("Preload videos and audio")
                                     checked: app.settings.videoPrefetchEnabled
                                     onToggled: app.settings.videoPrefetchEnabled = checked
-                                    Accessible.name: qsTr("Preload short videos")
+                                    Accessible.name: qsTr("Preload videos and audio")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -5514,10 +5544,11 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    text: qsTr("Downloads videos up to the size below when a room opens, "
-                                               + "so Play starts at once. This uses data and disk "
-                                               + "space even for videos you never watch. When off, "
-                                               + "a video is downloaded only when you press Play.")
+                                    text: qsTr("Downloads videos up to the size below, and audio "
+                                               + "and voice messages, before you press Play, so "
+                                               + "playback starts at once. This uses data and disk "
+                                               + "space even for media you never play. When off, "
+                                               + "nothing is downloaded until you press Play.")
                                 }
                                 ColumnLayout {
                                     objectName: "videoPrefetchLimitRow"

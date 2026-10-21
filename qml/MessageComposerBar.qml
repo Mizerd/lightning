@@ -1626,6 +1626,11 @@ Item {
                         // Guarded: roles can resolve undefined during teardown.
                         readonly property bool isGifChip:
                             (model.mime || "") === "image/gif"
+                        // A picked GIF animates where MotionPolicy allows it;
+                        // under Don't play the Image draws its first frame
+                        // and no decoder is created.
+                        readonly property bool gifAnimates:
+                            isGifChip && hasLocalFile && MotionPolicy.allowed
                         readonly property bool isVideoChip:
                             (model.mime || "").indexOf("video/") === 0
 
@@ -1648,21 +1653,25 @@ Item {
                                 // source, so a pasted GIF shows its first
                                 // frame.
                                 visible: model.isImage
-                                         && !(chipLayout.isGifChip
-                                              && chipLayout.hasLocalFile)
+                                         && !chipLayout.gifAnimates
                                 source: visible ? chipLayout.previewSource : ""
                                 sourceSize.width: 128
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                             }
                             AnimatedImage {
+                                objectName: "composerGifChipAnimation"
                                 anchors.fill: parent
-                                visible: chipLayout.isGifChip
-                                         && chipLayout.hasLocalFile
+                                visible: chipLayout.gifAnimates
                                 source: visible ? model.localUrl : ""
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
+                                // Play on hover holds the first frame until
+                                // the pointer is on the chip.
                                 playing: visible
+                                         && MotionPolicy.plays(gifChipHover.hovered)
+                                         && !MotionPolicy.suspended
+                                HoverHandler { id: gifChipHover }
                             }
                             Loader {
                                 id: chipVideoLoader

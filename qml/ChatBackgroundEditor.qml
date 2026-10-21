@@ -394,14 +394,14 @@ ColumnLayout {
             Label {
                 objectName: "chatBackgroundAnimationNote"
                 // Only for an animated picture, and only to say why it is
-                // still: the GIF autoplay setting is the one switch.
+                // still: Animated images (MotionPolicy) is the one switch.
                 visible: !!(editor.previewSpec && editor.previewSpec.animated)
                 width: parent.width
-                text: app.settings.gifAutoplay === 0 && !AppTheme.reducedMotion
+                text: MotionPolicy.autoplay
                       ? qsTr("Animated. It plays unless motion is reduced or "
                              + "the picture is blurred.")
-                      : qsTr("Animated. It plays when GIF autoplay is set to "
-                             + "Always and motion is not reduced.")
+                      : qsTr("Animated. It plays when Animated images is set "
+                             + "to Play automatically and motion is not reduced.")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
                 elide: Label.ElideRight

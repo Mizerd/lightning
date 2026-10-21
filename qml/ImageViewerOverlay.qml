@@ -90,9 +90,9 @@ Popup {
     readonly property bool maybeAnimated:
         current !== null && (currentMime === "" || currentMime === "image/gif"
                              || currentMime === "image/webp")
-    // The viewer is explicit intent: animations play unless autoplay is Never
-    // (2).
-    readonly property bool animateGifs: app.settings.gifAutoplay !== 2
+    // The viewer is explicit intent: animations play unless Animated images is
+    // Don't play (MotionPolicy), Reduce motion and Play on hover included.
+    readonly property bool animateGifs: MotionPolicy.allowed
 
     /// Open on an explicit list and index (e.g. the room's Media tab). The
     /// viewer pages through the list it is given.
@@ -519,6 +519,7 @@ Popup {
                         smooth: true
                         cache: false
                         playing: visible && viewer.opened
+                                 && !MotionPolicy.suspended
                         // Not gated on `visible`, which waits for Ready: that
                         // would never load.
                         source: viewer.animateGifs ? viewer.animatedSource : ""
