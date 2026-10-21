@@ -387,6 +387,10 @@ class SettingsManager : public QObject
     // directly without disabling every animation. Default on.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
                    NOTIFY smoothScrollingChanged)
+    // Device-global accessibility preference. False leaves Qt's platform
+    // cursor timing in charge; true requests a steady cursor in every input.
+    Q_PROPERTY(bool disableCursorBlink READ disableCursorBlink
+                   WRITE setDisableCursorBlink NOTIFY disableCursorBlinkChanged)
     // Composer buttons the user has hidden, by key: "formatting", "emoji",
     // "media", "voice", "sendOptions". Stores what is hidden, so buttons added
     // later are visible by default. A notifying list rather than an invokable
@@ -963,6 +967,8 @@ public:
     void setMessageSpacing(int mode);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
+    bool disableCursorBlink() const;
+    void setDisableCursorBlink(bool disabled);
     QStringList hiddenComposerButtons() const;
     void setHiddenComposerButtons(const QStringList &keys);
     /// Convenience for the settings checkboxes, which think in "shown".
@@ -1391,6 +1397,7 @@ Q_SIGNALS:
     void nameColorCorrectionChanged();
     void messageSpacingChanged();
     void smoothScrollingChanged();
+    void disableCursorBlinkChanged();
     void hiddenComposerButtonsChanged();
     void microphoneGainChanged();
     /// One person's stored volume changed. Carries the USER ID.

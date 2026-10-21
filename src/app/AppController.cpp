@@ -213,6 +213,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // migrates a legacy plaintext token.
     m_settings->setSecretStore(m_secretStore.get());
 
+    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        auto *hints = QGuiApplication::styleHints();
+        if (m_settings->disableCursorBlink())
+            hints->setCursorFlashTime(0);
+        connect(m_settings.get(), &SettingsManager::disableCursorBlinkChanged,
+                this, [this, hints] {
+                    // Negative removes the override, re-reading Qt's platform
+                    // hint rather than imposing our own blink interval.
+                    hints->setCursorFlashTime(
+                        m_settings->disableCursorBlink() ? 0 : -1);
+                });
+    }
+
     // Installs no catalog until main.cpp calls applyStoredLanguage() before
     // the QML engine loads.
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);

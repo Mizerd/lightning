@@ -23839,6 +23839,18 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <source>License: GPL-3.0-or-later</source>
         <translation>Licencija: GPL-3.0 arba naujesnė</translation>
     </message>
+    <message>
+        <source>Disable cursor blinking</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>text cursor caret blink steady accessibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SettingsSyncController</name>

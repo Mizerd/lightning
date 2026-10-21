@@ -113,6 +113,7 @@ constexpr auto kUnderlineLinks      = "ui/underlineLinks";
 constexpr auto kNameColorCorrection = "ui/nameColorCorrection";
 constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
+constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
@@ -4042,6 +4043,19 @@ void SettingsManager::setSmoothScrolling(bool v)
         return;
     setAppearanceValue(kSmoothScrolling, v);
     Q_EMIT smoothScrollingChanged();
+}
+
+bool SettingsManager::disableCursorBlink() const
+{
+    return m_store->value(kDisableCursorBlink, false).toBool();
+}
+
+void SettingsManager::setDisableCursorBlink(bool disabled)
+{
+    if (disableCursorBlink() == disabled)
+        return;
+    m_store->setValue(kDisableCursorBlink, disabled);
+    Q_EMIT disableCursorBlinkChanged();
 }
 
 // See the header for why this stores hidden keys.

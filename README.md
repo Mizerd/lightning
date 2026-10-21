@@ -56,6 +56,10 @@ edges.
 The full tour, more screenshots and the known limits are in
 [docs/features.md](docs/features.md).
 
+[Message keyboard navigation](docs/message-keyboard-navigation.md)
+covers compose focus, message selection, independent paging and cursor
+blinking preferences, with a configuration-file example.
+
 ## Install
 
 <a href="https://flathub.org/apps/org.lightning_matrix.Lightning"><img width="200" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"></a>

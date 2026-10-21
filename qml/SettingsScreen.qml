@@ -216,6 +216,11 @@ Item {
           section: "appearance",
           breadcrumb: qsTr("Appearance · Accessibility"),
           anchor: "nameColorCorrectionControl" },
+        { title: qsTr("Disable cursor blinking"),
+          keywords: qsTr("text cursor caret blink steady accessibility"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Motion and time"),
+          anchor: "disableCursorBlinkCheck" },
         { title: qsTr("Smooth scrolling"),
           keywords: qsTr("smooth scrolling scroll wheel glide animation instant jumpy mouse"),
           section: "appearance",
@@ -4415,6 +4420,15 @@ Item {
                                     onToggled: app.settings.reducedMotion = checked
                                     Accessible.description: qsTr(
                                         "Shorten or remove interface animations")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "disableCursorBlinkCheck"
+                                    text: qsTr("Disable cursor blinking")
+                                    checked: app.settings.disableCursorBlink
+                                    onToggled: app.settings.disableCursorBlink = checked
+                                    Accessible.description: qsTr(
+                                        "Keep text cursors steady in all text inputs. When off, follow the system cursor setting.")
                                 }
                                 // Separate from Reduce motion, which is an
                                 // accessibility setting over every animation.

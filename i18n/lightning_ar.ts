@@ -24058,6 +24058,18 @@ Note: importing keys does not verify this session.</source>
         <source>License: GPL-3.0-or-later</source>
         <translation>الرخصة: GPL-3.0-or-later</translation>
     </message>
+    <message>
+        <source>Disable cursor blinking</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>text cursor caret blink steady accessibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SettingsSyncController</name>

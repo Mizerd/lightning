@@ -46,3 +46,42 @@ Existing Page Up/Page Down, jump-to-start/end, Space/Shift+Space and
 composer caret behavior remain available. Escape keeps its contextual
 dismissal and back-navigation behavior; use Alt+L to resume selection
 without cancelling a reply or leaving the room.
+
+## Cursor blinking
+
+Settings → Appearance → Motion and time offers **Disable cursor
+blinking**. It takes effect immediately in text inputs, including the
+Markdown, rich-text and thread composers. The default is off, which
+leaves Qt's system cursor timing in control. Turning it on requests a
+steady cursor; turning it off removes that override. The preference is
+stored on this device, independently of the active account.
+
+On Linux, the QSettings file is normally
+`~/.config/MatrixClient/matrix-client.conf`. Quit Lightning before
+editing it. For example, this disables blinking and uses plain keys
+for timeline selection/reply:
+
+```ini
+[ui]
+disableCursorBlink=true
+
+[shortcuts]
+composer.focus=Ctrl+L
+timeline.selectLatestMessage=Ctrl+Shift+Space
+timeline.resumeMessageSelection=Alt+L
+timeline.olderMessage=K
+timeline.newerMessage=J
+timeline.halfPageUp=Ctrl+U
+timeline.halfPageDown=Ctrl+D
+timeline.reply=R
+```
+
+Qt's stored `K`, `J` and `R` mean lowercase k/j/r without Shift.
+Existing account-specific shortcut overrides take precedence over
+this global fallback; use Settings → Keyboard shortcuts to update
+the active account's bindings. Keep account/device/keyring records
+local rather than replacing the whole settings file with an example.
+
+Selecting latest also saves follow-latest intent for the room, so
+returning after messages arrive shows the new latest message. Leaving
+the room scrolled into history instead restores its historical view.

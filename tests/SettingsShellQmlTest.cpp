@@ -28,6 +28,8 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QScopeGuard>
+#include <QStyleHints>
 
 #include "app/AppController.h"
 #include "app/CustomThemeStore.h"
@@ -5512,6 +5514,47 @@ private slots:
                      "the caret ends at x=%1 but content starts at %2, so the "
                      "caret and the row's icon overlap")
                      .arg(caret->x() + caret->width()).arg(contentInset)));
+    }
+    void cursorBlinkPreferenceAppliesImmediatelyAndPersists()
+    {
+        auto *settings = m_controller->settings();
+        auto *hints = QGuiApplication::styleHints();
+        const bool original = settings->disableCursorBlink();
+        const int originalTime = hints->cursorFlashTime();
+        const QString originalMode = settings->composerMode();
+        const auto restore = qScopeGuard([&] {
+            settings->setDisableCursorBlink(original);
+            settings->setComposerMode(originalMode);
+            hints->setCursorFlashTime(originalTime);
+        });
+        settings->setDisableCursorBlink(false);
+        hints->setCursorFlashTime(-1);
+        const int systemTime = hints->cursorFlashTime();
+        openSection(QStringLiteral("appearance"));
+        auto *check = item("disableCursorBlinkCheck");
+        QVERIFY(check);
+        QVERIFY(!check->property("checked").toBool());
+        clickItem(check);
+        QTRY_VERIFY(settings->disableCursorBlink());
+        QCOMPARE(hints->cursorFlashTime(), 0);
+        SettingsManager saved;
+        QVERIFY(saved.disableCursorBlink());
+        m_controller->showMain();
+        for (const auto &mode : { QStringLiteral("markdown"), QStringLiteral("rich") }) {
+            settings->setComposerMode(mode);
+            auto *editor = item(mode == QStringLiteral("rich")
+                                    ? "composerRichInput" : "composerInput");
+            QVERIFY(editor);
+            editor->forceActiveFocus();
+            QTRY_VERIFY(editor->hasActiveFocus());
+            QCOMPARE(hints->cursorFlashTime(), 0);
+        }
+        openSection(QStringLiteral("appearance"));
+        clickItem(check);
+        QTRY_VERIFY(!settings->disableCursorBlink());
+        QCOMPARE(hints->cursorFlashTime(), systemTime);
+        SettingsManager restored;
+        QVERIFY(!restored.disableCursorBlink());
     }
 };
 
