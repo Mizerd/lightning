@@ -5079,6 +5079,16 @@ if(BUILD_TESTING)
     set_tests_properties(composer-focus-shortcut-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Selection, history resume and half-page progress in the real mock shell.
+    qt_add_executable(message-selection-qml-test
+        tests/MessageSelectionQmlTest.cpp
+    )
+    lightning_configure_qml_test(message-selection-qml-test)
+    target_include_directories(message-selection-qml-test PRIVATE src)
+    add_test(NAME message-selection-qml COMMAND message-selection-qml-test)
+    set_tests_properties(message-selection-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A finger is not a right button: a touch tap on a room row opens the
     # room without its menu, a long press opens the menu without the room,
     # and no right-button-only TapHandler lets touch in.

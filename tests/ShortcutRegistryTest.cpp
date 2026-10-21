@@ -52,6 +52,73 @@ class ShortcutRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void messageSelectionDefaultsAndLookupAreSeparateFromComposerPaging()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.selectLatestMessage")),
+                 QStringLiteral("Ctrl+Shift+Space"));
+        QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.resumeMessageSelection")),
+                 QStringLiteral("Alt+L"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::ControlModifier),
+                 QStringLiteral("timeline.olderMessage"));
+        QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::ControlModifier).isEmpty());
+        QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
+                 QStringLiteral("timeline.pageUp"));
+        QVERIFY(registry.messageSelectionActionForKey(Qt::Key_PageUp, Qt::NoModifier).isEmpty());
+        QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    void plainMessageKeysAreSafeOnlyInTheSelectionContext()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("K")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
+                                     QStringLiteral("Shift+J")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.reply"),
+                                     QStringLiteral("R")), QString());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_R, Qt::NoModifier),
+                 QStringLiteral("timeline.reply"));
+        QVERIFY(registry.timelineActionForKey(Qt::Key_R, Qt::NoModifier).isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_R, Qt::NoModifier).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
+                                           QStringLiteral("K")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("nav.quickSwitcher"),
+                                           QStringLiteral("K")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.reply"),
+                                           QStringLiteral("Esc")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.reply"),
+                                           QStringLiteral("Space")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.reply"),
+                                           QStringLiteral("Ctrl+X, Ctrl+Y")).isEmpty());
+        registry.reload();
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::NoModifier),
+                 QStringLiteral("timeline.olderMessage"));
+    }
+
+    void selectionKeysShadowGlobalActionsButConflictWithSharedTimelineKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QVERIFY(roleFor(registry, QStringLiteral("timeline.olderMessage"),
+                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
+        QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),
+                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.olderMessage"),
+                                           QStringLiteral("PgUp")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
+                                           QStringLiteral("Ctrl+K")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.newerMessage"),
+                                           QStringLiteral("Ctrl+K")).isEmpty());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("Ctrl+N")), QString());
+        QVERIFY(registry.messageSelectionActionForKey(Qt::Key_K, Qt::ControlModifier).isEmpty());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_N, Qt::ControlModifier),
+                 QStringLiteral("timeline.olderMessage"));
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -401,10 +468,9 @@ private Q_SLOTS:
         }
     }
 
-    // Exactly two sequences appear on more than one row (Ctrl+B and Ctrl+U,
-    // both designed cross-context pairs). conflictCount() cannot see a third,
-    // accidental one, since cross-context pairs are legal.
-    void theOnlyCrossContextSharesAreTheTwoDesignedOnes()
+    // Pin intentional shadows, including selection's timeline-only Ctrl+K
+    // and Ctrl+U. conflictCount() cannot identify an accidental legal share.
+    void theOnlyCrossContextSharesAreTheDesignedOnes()
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
@@ -428,8 +494,11 @@ private Q_SLOTS:
         shared.sort();
         QCOMPARE(shared,
                  QStringList({ QStringLiteral("Ctrl+B"),
+                               QStringLiteral("Ctrl+K"),
                                QStringLiteral("Ctrl+Shift+G"),
                                QStringLiteral("Ctrl+U") }));
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+U")).size(), 3);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+K")).size(), 2);
     }
 
     // GitHub #38: PgUp/PgDn, Ctrl+Up/Down and Ctrl+G / Ctrl+Shift+G are

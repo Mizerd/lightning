@@ -326,6 +326,24 @@ Item {
         onActivated: timelinePane.focusComposer()
     }
 
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("timeline.selectLatestMessage")]
+        }
+        enabled: timelinePane.timelineFocusable && !quickSwitcher.visible
+        onActivated: timelinePane.focusTimeline()
+    }
+
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("timeline.resumeMessageSelection")]
+        }
+        enabled: timelinePane.timelineFocusable && !quickSwitcher.visible
+        onActivated: timelinePane.resumeTimeline()
+    }
+
     // Global server-side message search (Ctrl+Shift+F).
     Shortcut {
         sequences: {

@@ -62,9 +62,73 @@ Rectangle {
         && !messageComposer.activeEditor().readOnly
 
     function focusComposer() {
-        return root.composerFocusable && messageComposer.focusForTyping()
+        if (!root.composerFocusable)
+            return false
+        timeline.stopEntrySelection()
+        if (root.keyboardSelectedEventId !== "")
+            root.resumeSelectedEventId = root.keyboardSelectedEventId
+        root.keyboardSelectedEventId = ""
+        return messageComposer.focusForTyping()
     }
 
+    property string keyboardSelectedEventId: ""
+    property string resumeSelectedEventId: ""
+    readonly property bool timelineFocusable:
+        app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
+        && currentRoom.membership === "joined" && currentRoom.isSpace !== true
+        && !app.eventContext.active && !app.thread.active && !root.invitePreview
+        && timeline.visible && timeline.enabled && app.timeline.count > 0
+
+    function focusTimeline() {
+        if (!root.timelineFocusable)
+            return false
+        root.closeRowAnchoredSurfaces()
+        messageComposer.cancelPendingFocus()
+        timeline.forceActiveFocus()
+        timeline.enterMessageNavigation()
+        return true
+    }
+
+    function resumeTimeline() {
+        if (!root.timelineFocusable)
+            return false
+        root.closeRowAnchoredSurfaces()
+        messageComposer.cancelPendingFocus()
+        timeline.stopEntrySelection()
+        root.stopAutoscroll()
+        timeline.cancelWheelMotion()
+        timeline.noteReaderTookControl()
+        timeline.forceActiveFocus()
+        // Resume an existing selection only if it is still in this viewport.
+        // Scrolling while composing must not cause a jump back into history.
+        if (root.keyboardSelectedEventId === "")
+            root.keyboardSelectedEventId = root.resumeSelectedEventId
+        var row = timeline.viewRowForStableId(root.keyboardSelectedEventId)
+        if (timeline.selectionDetached || !timeline.messageIntersectsViewport(row))
+            timeline.selectVisibleMessage(1)
+        return true
+    }
+
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            root.keyboardSelectedEventId = ""
+            root.resumeSelectedEventId = ""
+            timeline.selectionDetached = false
+            timeline.stopEntrySelection()
+        }
+    }
+    Connections {
+        target: app.timeline
+        function onCountChanged() {
+            if (root.keyboardSelectedEventId !== ""
+                    && app.timeline.rowForStableId(root.keyboardSelectedEventId) < 0)
+                root.keyboardSelectedEventId = ""
+            if (root.resumeSelectedEventId !== ""
+                    && app.timeline.rowForStableId(root.resumeSelectedEventId) < 0)
+                root.resumeSelectedEventId = ""
+        }
+    }
     // The current room is an invite not yet accepted (opened from Activity or
     // a notification; the room list opens only joined rooms). It gets the
     // invite card instead of a timeline and composer: sending to a room you
@@ -3041,6 +3105,183 @@ Rectangle {
                 // stable-id actions against app.timeline and never suppresses a
                 // row as a pinned thread root.
                 property var timelineModel: app.timeline
+                readonly property string keyboardSelectedEventId:
+                    activeFocus ? root.keyboardSelectedEventId : ""
+
+                property bool selectionDetached: false
+
+                function messageIntersectsViewport(row) {
+                    var item = row >= 0 ? itemAtViewRow(row) : null
+                    return item && navigableEventAt(row) !== ""
+                        && item.y < contentY + height
+                        && item.y + item.height > contentY
+                }
+
+                // Older starts at the newest visible row; newer starts at the
+                // oldest. The first message key after paging selects that edge
+                // without moving the viewport or skipping a message.
+                function selectVisibleMessage(direction) {
+                    var first = Math.max(0, viewRowAtContentY(contentY))
+                    var candidate = ""
+                    for (var row = first; row < count; ++row) {
+                        var item = itemAtViewRow(row)
+                        if (!item || item.y >= contentY + height)
+                            break
+                        if (messageIntersectsViewport(row)) {
+                            candidate = navigableEventAt(row)
+                            if (direction > 0)
+                                break
+                        }
+                    }
+                    root.keyboardSelectedEventId = candidate
+                    selectionDetached = false
+                    return candidate !== ""
+                }
+
+                function navigableEventAt(row) {
+                    var item = itemAtViewRow(row)
+                    if (!item || item.height <= 0 || !item.replyOnDoubleTap)
+                        return ""
+                    return eventIdAtViewRow(row)
+                }
+
+                function selectNewestVisibleMessage() {
+                    if (!selectVisibleMessage(1))
+                        return false
+                    ensureMessageVisible(viewRowForStableId(root.keyboardSelectedEventId))
+                    return true
+                }
+
+                property bool enteringMessageNavigation: false
+                Timer {
+                    id: messageNavigationEntry
+                    interval: 0
+                    repeat: false
+                    onTriggered: {
+                        if (!timeline.enteringMessageNavigation
+                                || !timeline.activeFocus || !root.timelineFocusable)
+                            return
+                        timeline.enteringMessageNavigation = false
+                        timeline.positionViewAtLatest()
+                        timeline.selectNewestVisibleMessage()
+                    }
+                }
+
+                function enterMessageNavigation() {
+                    selectionDetached = false
+                    root.stopAutoscroll()
+                    cancelWheelMotion()
+                    noteReaderTookControl()
+                    releasePendingRows()
+                    stickToBottom = true
+                    viewAnchorId = ""
+                    viewAnchorLastY = 0
+                    positionViewAtLatest()
+                    selectNewestVisibleMessage()
+                    // Allow a cleared presentation window to expose row zero,
+                    // but never overwrite a subsequent step/page command.
+                    enteringMessageNavigation = true
+                    messageNavigationEntry.restart()
+                }
+
+                function stopEntrySelection() {
+                    enteringMessageNavigation = false
+                    messageNavigationEntry.stop()
+                }
+
+                function moveKeyboardViewport(target) {
+                    root.stopAutoscroll()
+                    cancelWheelMotion()
+                    noteReaderTookControl()
+                    contentY = Math.max(wheelMinY(), Math.min(wheelMaxY(), target))
+                    updateStickAndPaginate()
+                    captureViewAnchor()
+                    scrollSettleTimer.restart()
+                }
+
+                function ensureMessageVisible(row) {
+                    var item = itemAtViewRow(row)
+                    if (!item)
+                        return
+                    var target = contentY
+                    if (item.height >= height || item.y < contentY)
+                        target = item.y
+                    else if (item.y + item.height > contentY + height)
+                        target = item.y + item.height - height
+                    // An older edge step may otherwise cut the newest visible
+                    // message at the physical bottom. Start at the next whole
+                    // message boundary while keeping the selected row in view.
+                    if (target > contentY + 0.5 && item.height < height) {
+                        var first = Math.max(0, viewRowAtContentY(target))
+                        for (var candidate = first; candidate <= row; ++candidate) {
+                            var edge = itemAtViewRow(candidate)
+                            if (edge && edge.y >= target - 0.5
+                                    && navigableEventAt(candidate) !== "") {
+                                target = edge.y
+                                break
+                            }
+                        }
+                    }
+                    if (Math.abs(target - contentY) > 0.5)
+                        moveKeyboardViewport(target)
+                }
+
+                function stepSelectedMessage(direction) {
+                    stopEntrySelection()
+                    var row = viewRowForStableId(root.keyboardSelectedEventId)
+                    if (selectionDetached || !messageIntersectsViewport(row))
+                        return selectVisibleMessage(direction)
+                    for (var next = row + direction;
+                         next >= 0 && next < count; next += direction) {
+                        var eventId = navigableEventAt(next)
+                        if (eventId !== "") {
+                            root.keyboardSelectedEventId = eventId
+                            ensureMessageVisible(next)
+                            return true
+                        }
+                    }
+                    if (direction > 0 && app.timeline.canPaginate)
+                        app.pagination.requestNearTop(true)
+                    return false
+                }
+
+                function navigationAction(key, modifiers) {
+                    return root.timelineFocusable
+                        ? app.shortcuts.messageSelectionActionForKey(key, modifiers)
+                        : ""
+                }
+
+                function pageTimeline(direction) {
+                    stopEntrySelection()
+                    var before = contentY
+                    moveKeyboardViewport(contentY - direction * height * 0.5)
+                    if (Math.abs(contentY - before) > 0.5)
+                        selectionDetached = true
+                }
+
+                function runNavigationAction(action) {
+                    switch (action) {
+                    case "timeline.olderMessage": stepSelectedMessage(1); break
+                    case "timeline.newerMessage": stepSelectedMessage(-1); break
+                    case "timeline.halfPageUp":
+                        pageTimeline(-1)
+                        break
+                    case "timeline.halfPageDown":
+                        pageTimeline(1)
+                        break
+                    case "timeline.reply":
+                        stopEntrySelection()
+                        var row = viewRowForStableId(root.keyboardSelectedEventId)
+                        if (row >= 0 && navigableEventAt(row) !== ""
+                                && root.composerFocusable) {
+                            beginReplyForEvent(root.keyboardSelectedEventId)
+                            root.focusComposer()
+                        }
+                        break
+                    default: return false
+                    }
+                    return true
+                }
                 // Every jump/search/permalink path calls this before addressing
                 // a row by id. It must restore the live edge: releaseAll()
                 // lifts the pacing cap but keeps the row window's skip, so a
@@ -4621,7 +4862,16 @@ Rectangle {
                     }
                     return false
                 }
+                Keys.onShortcutOverride: (event) => {
+                    if (navigationAction(event.key, event.modifiers) !== "")
+                        event.accepted = true
+                }
                 Keys.onPressed: (event) => {
+                    var action = navigationAction(event.key, event.modifiers)
+                    if (action !== "" && runNavigationAction(action)) {
+                        event.accepted = true
+                        return
+                    }
                     // Shift+PgUp jumps to the oldest unread message (reserved
                     // in the registry). A Keys handler rather than a Shortcut:
                     // a window Shortcut would take the key before the focused
@@ -4665,6 +4915,7 @@ Rectangle {
                             if (it === timeline.Overlay.overlay)
                                 return
                         }
+                        messageComposer.cancelPendingFocus()
                         timeline.forceActiveFocus()
                     }
                 }

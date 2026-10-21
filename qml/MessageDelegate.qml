@@ -14,6 +14,20 @@ Item {
     property var timelineView:
         TableView.view ? TableView.view : ListView.view
 
+    Rectangle {
+        objectName: "keyboardMessageSelection"
+        anchors.fill: parent
+        color: "transparent"
+        radius: AppTheme.scaled(6)
+        border.width: AppTheme.scaled(2)
+        border.color: AppTheme.accent
+        visible: root.timelineView
+            && root.timelineView.keyboardSelectedEventId !== undefined
+            && root.timelineView.keyboardSelectedEventId !== ""
+            && root.timelineView.keyboardSelectedEventId === model.eventId
+        z: 2
+    }
+
     // Multi-message selection: while selecting, a tap toggles the row instead
     // of its normal action (open an image, follow a link, react).
     /// The open room's display name, for "with context" forwarding.

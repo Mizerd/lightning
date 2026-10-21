@@ -58,6 +58,10 @@ public:
         /// Ctrl, Alt or Meta. It pre-empts neither context's binding, so a
         /// sequence held here is a conflict with ANY other context.
         TimelineContext = 2,
+        /// Only the focused room timeline dispatches these. ShortcutOverride
+        /// claims them before Global shortcuts; compose never receives them.
+        /// Plain letters are safe here and may shadow Global/Editor bindings.
+        MessageSelectionContext = 3,
     };
     Q_ENUM(ActionContext)
 
@@ -128,6 +132,9 @@ public:
     /// The TimelineContext action id this key press resolves to, or empty.
     /// The timeline and the message box both ask it from Keys.onPressed.
     Q_INVOKABLE QString timelineActionForKey(int key, int modifiers) const;
+
+    /// Selection-only actions; never forwarded from a message editor.
+    Q_INVOKABLE QString messageSelectionActionForKey(int key, int modifiers) const;
 
     /// What a composer should CLAIM on ShortcutOverride. Same as
     /// editorActionForKey(), except that with nothing selected a key that a

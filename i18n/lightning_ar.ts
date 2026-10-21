@@ -24564,6 +24564,46 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Select the latest message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Resume message selection in the current view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the older message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the newer message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll up half a page without changing selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll down half a page without changing selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reply to the selected message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a single key combination for message selection.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>While the timeline has focus this runs instead of “%1”.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>While the timeline has focus, “%1” runs instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+87"/>
         <source>Application</source>
         <translation>التطبيق</translation>

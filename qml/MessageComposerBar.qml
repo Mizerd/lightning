@@ -545,20 +545,35 @@ Item {
         editor.forceActiveFocus()
         return true
     }
+    // Explicit timeline entry takes precedence over both queued focus attempts.
+    property int composerFocusGeneration: 0
+    function cancelPendingFocus() {
+        ++root.composerFocusGeneration
+        composerFocusSettle.stop()
+    }
     Connections {
         target: app
         function onComposerFocusRequested(roomId) {
-            Qt.callLater(function () { root.focusForTyping() })
+            const generation = ++root.composerFocusGeneration
+            Qt.callLater(function () {
+                if (generation === root.composerFocusGeneration
+                        && roomId === app.currentRoomId)
+                    root.focusForTyping()
+            })
             // A popup the open came from (Ctrl+K, a profile card) hands the
             // keyboard back as it closes, after the call above; try once more
             // then, unless the user is already typing somewhere else.
+            composerFocusSettle.roomId = roomId
             composerFocusSettle.restart()
         }
     }
     Timer {
         id: composerFocusSettle
+        property string roomId: ""
         interval: 250
         onTriggered: {
+            if (roomId !== app.currentRoomId)
+                return
             const editor = root.activeEditor()
             if (editor && editor.activeFocus)
                 return

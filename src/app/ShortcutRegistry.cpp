@@ -47,6 +47,11 @@ bool isNonTextKey(const QKeySequence &seq)
 
 bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
 {
+    // Selection claims ShortcutOverride only in the focused timeline, leaving
+    // Global/Editor bindings available elsewhere. Shared Timeline actions run
+    // in that same timeline, so they still conflict with selection actions.
+    if (a == MessageSelectionContext || b == MessageSelectionContext)
+        return a == b || a == TimelineContext || b == TimelineContext;
     // Global vs Editor is a designed shadow. A Timeline action has no such
     // arrangement: a Global Shortcut would take its key first, and an Editor
     // format would claim it in the same box.
@@ -182,6 +187,27 @@ void ShortcutRegistry::buildTables()
         // bare; they work from the timeline and from the message box (which
         // keeps them for itself while its caret can still move that way).
         // Home/End stay reserved: in the message box they move the caret.
+        { QStringLiteral("timeline.selectLatestMessage"), roomCat,
+          tr("Select the latest message"), QStringLiteral("Ctrl+Shift+Space"),
+          GlobalContext },
+        { QStringLiteral("timeline.resumeMessageSelection"), roomCat,
+          tr("Resume message selection in the current view"), QStringLiteral("Alt+L"),
+          GlobalContext },
+        { QStringLiteral("timeline.olderMessage"), roomCat,
+          tr("Select the older message"), QStringLiteral("Ctrl+K"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.newerMessage"), roomCat,
+          tr("Select the newer message"), QStringLiteral("Ctrl+J"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.halfPageUp"), roomCat,
+          tr("Scroll up half a page without changing selection"), QStringLiteral("Ctrl+U"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.halfPageDown"), roomCat,
+          tr("Scroll down half a page without changing selection"), QStringLiteral("Ctrl+D"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.reply"), roomCat,
+          tr("Reply to the selected message"), QStringLiteral("Ctrl+R"),
+          MessageSelectionContext },
         { QStringLiteral("timeline.pageUp"), roomCat,
           tr("Scroll the conversation up by a page"), QStringLiteral("PgUp"),
           TimelineContext },
@@ -505,6 +531,19 @@ QString ShortcutRegistry::timelineActionForKey(int key, int modifiers) const
     return {};
 }
 
+QString ShortcutRegistry::messageSelectionActionForKey(int key, int modifiers) const
+{
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == MessageSelectionContext
+            && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return {};
+}
+
 QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
                                             bool hasSelection) const
 {
@@ -568,7 +607,11 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     // inserts the character.
     // A Timeline action is delivered by a Keys handler, so a key that types
     // nothing (PgUp, PgDn, F-keys) may stay bare.
-    const bool bareOk = action->context == TimelineContext && isNonTextKey(seq);
+    const bool selectionOnly = action->context == MessageSelectionContext;
+    if (selectionOnly && seq.count() != 1)
+        return tr("Use a single key combination for message selection.");
+    const bool bareOk = selectionOnly
+                       || (action->context == TimelineContext && isNonTextKey(seq));
     if (!hasCommandModifier(seq) && !bareOk) {
         if (action->context == TimelineContext) {
             return tr("Use Ctrl, Alt or Super, or PgUp, PgDn or an F-key. "
@@ -586,7 +629,12 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     }
 
     const QString owner = reservedOwner(portable);
-    if (!owner.isEmpty()) {
+    // A menu's letter accelerator only exists while that menu owns focus;
+    // it cannot collide with the timeline's Keys handler.
+    const bool menuLetter = portable == QStringLiteral("R")
+                            || portable == QStringLiteral("T")
+                            || portable == QStringLiteral("E");
+    if (!owner.isEmpty() && !(selectionOnly && menuLetter)) {
         return tr("%1 is already used for %2. Two shortcuts on one key make "
                   "Qt fire neither of them.")
             .arg(portable, owner);
@@ -708,6 +756,12 @@ QString ShortcutRegistry::shadowNote(int row) const
             continue;
         if (m_resolved.at(i) != mine)
             continue;
+        if (a.context == MessageSelectionContext)
+            return tr("While the timeline has focus this runs instead of “%1”.")
+                .arg(other.description);
+        if (other.context == MessageSelectionContext)
+            return tr("While the timeline has focus, “%1” runs instead.")
+                .arg(other.description);
         // The composer yields to a Global twin when nothing is selected
         // (editorOverrideFor), so the editor action wins only over a
         // selection. Say that, not "while the box has focus".
