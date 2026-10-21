@@ -61,6 +61,8 @@ Popup {
         app.quickSwitcher.reset()
         commandMode = false
         commandScope = "actions"
+        if (switcher._labsRowsHeld)
+            switcher.refreshLabsAccountRows()
     }
 
     function activate(row) {
@@ -197,7 +199,11 @@ Popup {
                 })
             })(sectionDefs[s])
         }
-        var accountList = app.accounts ? app.accounts.accounts : []
+        // Labs: AccountListModel's rows (no secret read per row), copied by
+        // refreshLabsAccountRows(); otherwise AccountManager's list as before.
+        var accountList = app.accountList
+            ? (switcher.labsAccountRows || [])
+            : (app.accounts ? app.accounts.accounts : [])
         for (var a = 0; a < accountList.length; ++a) {
             (function(acc) {
                 if (acc.isActive) return
@@ -209,6 +215,7 @@ Popup {
                     subtitle: acc.userId, iconName: "person",
                     keywords: "switch account " + label + " " + acc.userId,
                     enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending),
+                    accountUserId: acc.userId,
                     run: function() { app.switchToAccount(acc.userId) }
                 })
             })(accountList[a])
@@ -238,6 +245,45 @@ Popup {
         return actions
     }
     readonly property var commandActions: buildCommandActions()
+
+    // Labs (concurrent accounts). The rows' snapshot is a Q_INVOKABLE, so it is
+    // copied here by handlers and never read inside a binding; null with Labs
+    // off, when `app.accountList` is null.
+    property var labsAccountRows: null
+    // A host starting, running or pausing also signals rowsChanged. While the
+    // switcher is open that change is held: replacing the rows would rebuild
+    // the command list and put the keyboard back on the first entry under the
+    // user's hands (the badges follow the feed anyway). Applied on close; any
+    // other change is applied at once.
+    property bool _labsRowsHeld: false
+    function refreshLabsAccountRows() {
+        const next = app.accountList ? app.accountList.rowsSnapshot() : null
+        if (switcher.opened && switcher.activityFeed
+                && switcher.activityFeed.sameAccountsIgnoringLiveState(
+                    switcher.labsAccountRows, next)) {
+            switcher._labsRowsHeld = true
+            return
+        }
+        switcher._labsRowsHeld = false
+        switcher.labsAccountRows = next
+    }
+    Connections {
+        target: app
+        // The signal only exists in builds that carry Labs.
+        ignoreUnknownSignals: true
+        function onLiveAccountsActiveChanged() { switcher.refreshLabsAccountRows() }
+    }
+    Connections {
+        target: app.accountList ? app.accountList : null
+        function onRowsChanged() { switcher.refreshLabsAccountRows() }
+    }
+    // Per-account activity for the "Switch to" entries; reads nothing while
+    // `app.accountActivity` is null.
+    readonly property AccountActivityFeed activityFeed: AccountActivityFeed {
+        source: app.accountActivity ? app.accountActivity : null
+        userIds: app.accountActivity
+                 ? (switcher.labsAccountRows || []).map(a => a.userId || "") : []
+    }
     // The "Chat background…" actions' dialog; a Popup of its own, so it
     // outlives the switcher closing behind it.
     ChatBackgroundDialog {
@@ -287,12 +333,16 @@ Popup {
                 name: r.name || "", subtitle: r.subtitle || "",
                 iconName: r.iconName || "", category: r.category || "",
                 roomId: r.roomId || "", avatarUrl: r.avatarUrl || "",
+                accountUserId: r.accountUserId || "",
                 enabled: r.enabled !== false })
         }
         commandList.currentIndex = commandRows.length > 0 ? 0 : -1
     }
     onCommandRowsChanged: syncCommandRows()
-    Component.onCompleted: syncCommandRows()
+    Component.onCompleted: {
+        switcher.refreshLabsAccountRows()
+        syncCommandRows()
+    }
 
     function sectionLabelFor(category) {
         if (category === "room") return qsTr("ROOMS")
@@ -852,6 +902,19 @@ Popup {
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
+                    }
+                    // A "Switch to" entry's account activity (Labs). Only
+                    // inactive accounts get an entry, so the active-row rule
+                    // holds by construction.
+                    AccountActivityBadge {
+                        objectName: "quickSwitcherAccountBadge"
+                        readonly property var activity:
+                            switcher.activityFeed.entryFor(model.accountUserId || "")
+                        visible: (model.accountUserId || "").length > 0 && shown
+                        liveState: activity.liveState
+                        mentionCount: activity.mentionCount
+                        mentionsLowerBound: activity.mentionsLowerBound
+                        hasUnread: activity.hasUnread
                     }
                     MenuKeycap {
                         visible: cmdRow.highlighted

@@ -83,9 +83,55 @@ Popup {
         return parts.join(" · ")
     }
 
+    // Labs (concurrent accounts): the rows come from AccountListModel, which
+    // reads no secret per row, instead of AccountManager's list. Its snapshot
+    // is a Q_INVOKABLE, so it is copied here by the handlers below and never
+    // read inside a binding. Null with Labs off (`app.accountList` is null),
+    // and then nothing below reads it.
+    property var labsRows: null
+    // A host starting, running or pausing also signals rowsChanged (its
+    // liveState and section move). While the popover is open that change is
+    // held, so it does not rebuild every delegate under the pointer (badges
+    // follow the feed anyway); it is applied on close. Any other change
+    // (an account added or removed, isActive, keepRunning, a profile) is
+    // applied at once.
+    property bool _labsRowsHeld: false
+    function refreshLabsRows() {
+        const next = app.accountList ? app.accountList.rowsSnapshot() : null
+        if (root.opened && root.activityFeed
+                && root.activityFeed.sameAccountsIgnoringLiveState(root.labsRows,
+                                                                   next)) {
+            root._labsRowsHeld = true
+            return
+        }
+        root._labsRowsHeld = false
+        root.labsRows = next
+    }
+    Component.onCompleted: root.refreshLabsRows()
+    onClosed: if (root._labsRowsHeld) root.refreshLabsRows()
+    Connections {
+        target: app
+        // The signal only exists in builds that carry Labs.
+        ignoreUnknownSignals: true
+        function onLiveAccountsActiveChanged() { root.refreshLabsRows() }
+    }
+    Connections {
+        target: app.accountList ? app.accountList : null
+        function onRowsChanged() { root.refreshLabsRows() }
+    }
+
+    // Per-account unread and mention state for the rows (Labs). The feed reads
+    // nothing while `app.accountActivity` is null.
+    readonly property AccountActivityFeed activityFeed: AccountActivityFeed {
+        source: app.accountActivity ? app.accountActivity : null
+        userIds: app.accountActivity
+                 ? root.sortedAccounts.map(a => a.userId || "") : []
+    }
+
     // Active account first, regardless of storage order.
     readonly property var sortedAccounts: {
-        var list = app.accounts ? app.accounts.accounts : []
+        var list = app.accountList ? (root.labsRows || [])
+                                   : (app.accounts ? app.accounts.accounts : [])
         var activeIndex = -1
         for (var i = 0; i < list.length; i++) {
             if (list[i].isActive === true) { activeIndex = i; break }
@@ -284,6 +330,15 @@ Popup {
                 // Crypto state only for the active row.
                 healthWarning: modelData.isActive === true
                                && root.activeHealthWarning
+
+                // Labs: this account's activity, read from the feed's map.
+                // Defaults (no badge) when Labs is off.
+                readonly property var activity:
+                    root.activityFeed.entryFor(modelData.userId || "")
+                liveState: card.activity.liveState
+                mentionCount: card.activity.mentionCount
+                mentionsLowerBound: card.activity.mentionsLowerBound
+                activityDot: card.activity.hasUnread
 
                 onActivated: {
                     // Compare against the live active account, not the row
@@ -596,7 +651,9 @@ Popup {
         readonly property string targetUserId:
             app.accounts ? (app.accounts.activeUserId || "") : ""
         readonly property string targetDisplayName: {
-            const list = app.accounts ? app.accounts.accounts : []
+            const list = app.accountList
+                ? (root.labsRows || [])
+                : (app.accounts ? app.accounts.accounts : [])
             for (let i = 0; i < list.length; i++) {
                 if (list[i].userId === signOutConfirm.targetUserId)
                     return list[i].displayName || ""

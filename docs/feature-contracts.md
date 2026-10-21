@@ -79,6 +79,28 @@ backend capability checks and honest live-test status.
   insecure QSettings fallback warning
 - Rust-backed unified sync/Sliding Sync behavior with compatibility fallback
 
+- **Live accounts, Phase 1 (Labs, OFF; 2026-10-20).** Accounts the user
+  pins keep syncing, decrypting and notifying in the background, each in its
+  own Rust handle (`src/accounts/`, `rust/src/labs.rs`, `rust/src/bgsession.rs`;
+  design: vault `Tasks/2026-10-15-live-accounts-design.md`). Offered in
+  Settings > Labs, OFF by default; runs only when the stored
+  `labsConcurrentAccounts` is true (and the Rust bridge is built in);
+  otherwise nothing of it is constructed and the Rust switch is never set.
+  `LIGHTNING_LABS_LIVE_ACCOUNTS=0` forces it off (test override). The card
+  is where the "always signed in" accounts are chosen. Binding: one store, one handle (the store registry's claims are
+  enforced and Rust reserves the store before touching a file, keyed by its
+  file identity); a host opens only the store its record names, never the
+  foreground account's, and never creates a crypto store (the precheck
+  refuses a missing or mismatched one); "cannot tell" from the keyring is
+  never "no account"; a background rotation is persisted before matrix-sdk
+  uses the new access token (24a485c5's rule, through custody and
+  `mx_rust_session_tokens_persisted`) and the retirement reads the token
+  ledger after the destroy; the worker's keyring store reads the account's
+  recorded backend (356668cb); background accounts send no receipts, typing
+  or presence; removal of a live one also signs it out on the server. Phase
+  1 switching retires the host and then runs today's switch. The switches
+  are not portable (not exported, not synced). Live: NOT TESTED.
+
 ### Sign-in screen (2026-09-29, Rokas chose option A)
 
 - **The typed server address** is normalised once, in

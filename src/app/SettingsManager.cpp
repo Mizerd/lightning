@@ -153,6 +153,24 @@ constexpr auto kAccountSyncToken    = "syncToken";
 constexpr auto kAccountStoreSlug    = "storeSlug";
 // The one-time "index all messages now?" answer. See indexAllOfferAnswer.
 constexpr auto kAccountIndexAllOffer = "indexAllOffer";
+// Labs (concurrent live accounts). See setKeepRunningFor / setLastLiveAtFor.
+constexpr auto kAccountKeepRunning  = "keepRunning";
+constexpr auto kAccountLastLiveAt   = "lastLiveAt";
+constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
+constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
+
+// A Labs switch reads on only from a stored bool true: QSettings hands a bool
+// back as a real bool in-process and as the string "true" after a reload (the
+// INI and registry formats), and nothing else counts. QVariant::toBool() would
+// also take "1", 1 and "yes", so a hand edit or another program's value could
+// start background network activity for every pinned account.
+bool storedTrue(const QVariant &v)
+{
+    if (v.metaType().id() == QMetaType::Bool)
+        return v.toBool();
+    return v.metaType().id() == QMetaType::QString
+        && v.toString() == QLatin1String("true");
+}
 
 // SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
@@ -679,6 +697,131 @@ void SettingsManager::updateAccountProfile(const QString &userId,
     m_store->setValue(accountKey(slug, kAccountDisplayName), displayName);
     m_store->setValue(accountKey(slug, kAccountAvatarUrl), avatarUrl);
     Q_EMIT accountsChanged();
+}
+
+// ---- Labs: concurrent live accounts, per account ---------------------------
+// None of these syncs the file or emits accountsChanged() (design R2-L3): a
+// pin or a timestamp rewritten every ten minutes for every live account must
+// not flush the settings file or rebuild the switcher and the session
+// lifecycle that listen to accountsChanged(). QSettings writes them out on its
+// own deferred sync and at exit.
+
+SettingsManager::KeepRunningResult
+SettingsManager::setKeepRunningFor(const QString &userId, bool on)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return KeepRunningResult::RefusedNoRecord;
+    if (keepRunningFor(userId) == on)
+        return KeepRunningResult::Unchanged;
+    // Pins are never evicted for capacity, so the cap refuses the new one.
+    // keepRunningUserIds() lists pins with a record only: a pin cannot outlive
+    // its record (it lives inside it).
+    if (on && keepRunningUserIds().size() >= kMaxPinnedAccounts)
+        return KeepRunningResult::RefusedCap;
+    const QString key = accountKey(slug, kAccountKeepRunning);
+    if (on)
+        m_store->setValue(key, true);
+    else
+        m_store->remove(key); // default: keep the file compact
+    Q_EMIT keepRunningChanged(userId);
+    return KeepRunningResult::Ok;
+}
+
+bool SettingsManager::keepRunningFor(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    return !slug.isEmpty()
+        && storedTrue(m_store->value(accountKey(slug, kAccountKeepRunning)));
+}
+
+QStringList SettingsManager::keepRunningUserIds() const
+{
+    QStringList out;
+    for (const QString &uid : savedAccountUserIds()) {
+        if (keepRunningFor(uid))
+            out.append(uid);
+    }
+    return out;
+}
+
+qint64 SettingsManager::lastLiveAtFor(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return 0;
+    bool ok = false;
+    const qint64 ms =
+        m_store->value(accountKey(slug, kAccountLastLiveAt)).toLongLong(&ok);
+    return ok && ms > 0 ? ms : 0;
+}
+
+void SettingsManager::setLastLiveAtFor(const QString &userId, qint64 unixMs)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return;
+    const QString key = accountKey(slug, kAccountLastLiveAt);
+    if (unixMs <= 0)
+        m_store->remove(key);
+    else
+        m_store->setValue(key, unixMs);
+}
+
+QStringList SettingsManager::locallyDecidedNotificationRoomsFor(
+    const QString &userId) const
+{
+    if (slugForSavedAccount(userId).isEmpty())
+        return {};
+    // The scope roomNotificationModeDecidesLocallyFor() reads, so the set and
+    // the predicate cannot disagree for the active account either.
+    const QString prefix = scopePrefixFor(slugForAccountScope(userId));
+    if (prefix.isEmpty())
+        return {};
+    QSet<QString> candidates;
+    // The account's own unsynced choices: listed means deciding locally.
+    m_store->beginGroup(prefix + QStringLiteral("notifications/room-mode-unsynced"));
+    const QStringList unsynced = m_store->childKeys();
+    m_store->endGroup();
+    for (const QString &room : unsynced)
+        candidates.insert(room);
+    // Legacy device-global modes (chosen before modes were saved to the
+    // server) decide on this device for every account without its own key.
+    m_store->beginGroup(QStringLiteral("notifications/room-mode"));
+    const QStringList legacy = m_store->childKeys();
+    m_store->endGroup();
+    for (const QString &room : legacy)
+        candidates.insert(room);
+    QStringList out;
+    for (const QString &room : std::as_const(candidates)) {
+        if (roomNotificationModeDecidesLocallyFor(userId, room))
+            out.append(room);
+    }
+    out.sort();
+    return out;
+}
+
+bool SettingsManager::keyringItemsDirectlyReadableFor(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty() || !m_secretStore)
+        return false;
+    // Every term is a settings-file read or a structural property of the
+    // store; none of them reads an item.
+    if (keyringItemsAdoptedUnverified(userId))
+        return false;
+    // This install's copy was removed as another install's sign-in: the
+    // settings file already knows a read would come back empty, and the
+    // foreground owes the user the keyring_other_install card for it.
+    if (keyringItemsDeclinedForOtherInstall(userId))
+        return false;
+    return !m_secretStore->isSharedBetweenInstalls()
+        || keyringItemsAreCurrent(slug);
+}
+
+void SettingsManager::noteSessionTokensWrittenElsewhere(const QString &userId)
+{
+    noteKeyringBackend(userId.trimmed());
 }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -1921,6 +2064,41 @@ void SettingsManager::setStrictDeviceTrust(bool v)
         return;
     m_store->setValue(QStringLiteral("privacy/strictDeviceTrust"), v);
     Q_EMIT strictDeviceTrustChanged();
+}
+
+bool SettingsManager::labsConcurrentAccounts() const
+{
+    return storedTrue(m_store->value(QLatin1String(kLabsConcurrentAccounts)));
+}
+
+void SettingsManager::setLabsConcurrentAccounts(bool on)
+{
+    if (labsConcurrentAccounts() == on)
+        return;
+    m_store->setValue(QLatin1String(kLabsConcurrentAccounts), on);
+    Q_EMIT labsConcurrentAccountsChanged();
+}
+
+bool SettingsManager::labsConcurrentAccountsWarmSlot() const
+{
+    // On by default (DECISION 3); only a stored bool false turns it off, read
+    // with the same strictness as the switch above.
+    const QVariant v =
+        m_store->value(QLatin1String(kLabsConcurrentAccountsWarmSlot));
+    if (!v.isValid())
+        return true;
+    if (v.metaType().id() == QMetaType::Bool)
+        return v.toBool();
+    return !(v.metaType().id() == QMetaType::QString
+             && v.toString() == QLatin1String("false"));
+}
+
+void SettingsManager::setLabsConcurrentAccountsWarmSlot(bool on)
+{
+    if (labsConcurrentAccountsWarmSlot() == on)
+        return;
+    m_store->setValue(QLatin1String(kLabsConcurrentAccountsWarmSlot), on);
+    Q_EMIT labsConcurrentAccountsWarmSlotChanged();
 }
 
 bool SettingsManager::developerTools() const

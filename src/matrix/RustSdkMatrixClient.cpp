@@ -10,6 +10,7 @@
 #include <QThreadPool>
 #include "app/SyncLatencyTracer.h"
 
+#include "accounts/HostRetirementPool.h"
 #include "accounts/RevocationProofs.h"
 #include "accounts/SessionTokenCustody.h"
 #include "accounts/StoreOwnershipRegistry.h"
@@ -174,7 +175,20 @@ void finishInterruptedSignOuts(SettingsManager *settings)
 {
     if (!settings)
         return;
+    // The process registry: a test registry (setStoreOwnershipRegistry) is
+    // never enforced, and at construction nothing is.
+    const auto &registry = lightning::accounts::StoreOwnershipRegistry::process();
     for (const auto &identity : settings->pendingSignOuts()) {
+        // Labs: never while any handle in this process still holds the store;
+        // nothing is touched and the marker stays for the next start.
+        // Unenforced (no Labs), always granted.
+        if (registry.claimForDeletion(identity.rustStorePath)
+            != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+            qCWarning(lcRust) << "interrupted sign-out: the store is still in use; "
+                                 "finishing at the next start"
+                              << "slug=" << identity.slug;
+            continue;
+        }
         bool matchedRecord = false;
         const bool sessionOk =
             settings->clearSessionForAccount(identity.userId, &matchedRecord);
@@ -259,13 +273,37 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
     finishInterruptedSignOuts(m_settings);
 }
 
+void RustSdkMatrixClient::beginQuitRetirement()
+{
+    if (m_quitRetirementBegun)
+        return;
+    m_quitRetirementBegun = true;
+    m_quitRetirementClock.start();
+    m_pollTimer.stop();
+    // As the destructor does, and before invalidate() clears the mark.
+    m_retireAsSignOut = m_lifecycle.signingOut();
+    m_lifecycle.invalidate();
+    endOAuthAttempt();
+    releaseAuthHandle();
+    releaseProvidersHandle();
+    releaseRevokeHandle();
+    releaseWhoamiHandle();
+    releaseRustHandle();
+    qCInfo(lcRust) << "quit: the foreground store started closing early"
+                   << "sign_out=" << m_retireAsSignOut;
+}
+
 RustSdkMatrixClient::~RustSdkMatrixClient()
 {
     m_pollTimer.stop();
     // invalidate() clears the sign-out mark, and a quit in the middle of a
-    // sign-out must still retire as one: nothing is written back.
-    m_retireAsSignOut = m_lifecycle.signingOut();
-    m_lifecycle.invalidate();
+    // sign-out must still retire as one: nothing is written back. After
+    // beginQuitRetirement() the mark was taken there; reading it again here
+    // would read the cleared one.
+    if (!m_quitRetirementBegun) {
+        m_retireAsSignOut = m_lifecycle.signingOut();
+        m_lifecycle.invalidate();
+    }
     // Closing mid-discovery or mid-sign-in must not leak the bootstrap handle,
     // which owns a tokio runtime, a crypto store and this attempt's tokens.
     endOAuthAttempt();
@@ -286,7 +324,12 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
     stalltrace::Scope stallScope("rust-retirement-wait");
     QElapsedTimer waited;
     waited.start();
-    const bool retired = waitForRustRetirement(kStoreCloseBudgetMs);
+    // One budget for the foreground store, whether its close started here or
+    // in beginQuitRetirement() (then only what is left of it).
+    const int budgetMs = m_quitRetirementBegun
+        ? int(std::max<qint64>(0, kStoreCloseBudgetMs - m_quitRetirementClock.elapsed()))
+        : kStoreCloseBudgetMs;
+    const bool retired = waitForRustRetirement(budgetMs);
     const qint64 waitedMs = waited.elapsed();
     // The event loop is over: write what the retired handles left now, or a
     // rotation made while quitting is lost with the process.
@@ -346,6 +389,84 @@ lightning::accounts::StoreOwnershipRegistry &RustSdkMatrixClient::storeOwnership
 void RustSdkMatrixClient::setRevocationProofs(lightning::accounts::RevocationProofs *proofs)
 {
     m_revocationProofs = proofs;
+}
+
+void RustSdkMatrixClient::setLiveAccountsLabs(bool on)
+{
+    // One-way: a runtime "off" keeps the safe rules until restart.
+    if (!on || m_liveAccountsLabs)
+        return;
+    m_liveAccountsLabs = true;
+    storeOwnershipRegistry().setEnforced(true);
+    qCInfo(lcRust) << "live accounts (Labs): store claims enforced, revocation proofs consulted";
+}
+
+bool RustSdkMatrixClient::labsHardProofAllowsReplace(const QString &recordUserId,
+                                                     const QString &recordDeviceId) const
+{
+    if (!m_liveAccountsLabs || !m_revocationProofs)
+        return false;
+    // A background host of this account recorded the proof: the same rule as
+    // the single slot, against that account's own entry.
+    const auto hard = m_revocationProofs->hardFor(recordUserId);
+    return hard
+        && matrix::rust_session::revokedDeviceMayBeReplaced(recordUserId, recordDeviceId,
+                                                            recordUserId, hard->deviceId);
+}
+
+bool RustSdkMatrixClient::labsSoftProofAllowsResume(const QString &typedUserId,
+                                                    const QString &typedHomeserver,
+                                                    const QString &recordUserId,
+                                                    const QString &recordHomeserver,
+                                                    const QString &recordDeviceId) const
+{
+    if (!m_liveAccountsLabs || !m_revocationProofs)
+        return false;
+    const auto soft = m_revocationProofs->softFor(recordUserId);
+    return soft
+        && matrix::rust_session::softLoggedOutDeviceMayResume(
+            typedUserId, typedHomeserver, recordUserId, recordHomeserver, recordDeviceId,
+            recordUserId, soft->homeserver, soft->deviceId);
+}
+
+void RustSdkMatrixClient::reportStoreClaimRefused(int verdict, const QString &slug,
+                                                  const char *operation)
+{
+    qCWarning(lcRust) << "store claim refused; nothing was opened, moved or deleted"
+                      << "operation=" << operation << "slug=" << slug
+                      << "verdict="
+                      << lightning::accounts::StoreOwnershipRegistry::verdictName(
+                             lightning::accounts::StoreOwnershipRegistry::ClaimVerdict(verdict));
+}
+
+QString RustSdkMatrixClient::storeInUseByBackgroundText()
+{
+    return tr("This account's data is still in use by a background session. Wait a "
+              "moment and try again.");
+}
+
+bool RustSdkMatrixClient::storeHeldByBackgroundHost(const QString &storePath) const
+{
+    // Compared as the claims compare: the identity, else the absolute path.
+    using Ownership = lightning::accounts::StoreOwnershipRegistry;
+    const auto id = lightning::accounts::fileIdentityOf(storePath);
+    const QString absPath = QFileInfo(storePath).absoluteFilePath();
+    for (const Ownership::Record &record : storeOwnershipRegistry().records()) {
+        const bool same = (id.valid && record.id.valid) ? record.id == id
+                                                        : record.absPath == absPath;
+        if (same && record.role != Ownership::Role::Foreground)
+            return true;
+    }
+    return false;
+}
+
+QString RustSdkMatrixClient::storeClaimRefusalText(const QString &storePath) const
+{
+    // "A background session" only when one holds it: a foreground handle
+    // that never confirmed its close is this client's own (review L11).
+    if (storeHeldByBackgroundHost(storePath))
+        return storeInUseByBackgroundText();
+    return tr("This account's data is still in use. Wait a moment and try again.");
 }
 
 void RustSdkMatrixClient::setStorePathOverride(const QString &absolutePath)
@@ -539,25 +660,58 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     }
     restrictNewParents();
 
-    // RECORD-ONLY in Phase 0: what the Phase 1 store claim would have said,
-    // logged and never acted on. The previous handle released above is still
+    // Record-only without Labs: what the store claim would have said, logged
+    // and never acted on. The previous handle released above is still
     // Retiring until its worker confirms the close, so a quick switch back to
     // the account just left is exactly what this line is here to count.
-    lightning::accounts::StoreOwnershipRegistry &ownership = storeOwnershipRegistry();
+    using Ownership = lightning::accounts::StoreOwnershipRegistry;
+    Ownership &ownership = storeOwnershipRegistry();
+    const bool claimsEnforced = ownership.enforced();
     quint64 conflictSerial = 0;
-    if (ownership.wouldRefuse(storePath, &conflictSerial)) {
+    if (!claimsEnforced && ownership.wouldRefuse(storePath, &conflictSerial)) {
         qCInfo(lcRust) << "store ownership: would refuse (record-only)"
                        << "slug=" << slug << "conflict_serial=" << conflictSerial;
+    }
+    // Labs: claimed atomically BEFORE anything opens the store, and refused
+    // while another handle owns it (I1). Only this client's own previous
+    // handle of the same store, still retiring, is waited for here (bounded,
+    // as settleRetiringSignIn waits); a background host's retirement is the
+    // pool's latch to await, never a GUI wait.
+    quint64 claimedSerial = 0;
+    if (claimsEnforced) {
+        auto verdict = ownership.claimOpen(storePath, slug, Ownership::Role::Foreground,
+                                           &claimedSerial, &conflictSerial);
+        if (verdict == Ownership::ClaimVerdict::RefusedRetiring) {
+            bool ownForegroundHandle = false;
+            for (const Ownership::Record &record : ownership.records()) {
+                if (record.serial == conflictSerial)
+                    ownForegroundHandle = record.role == Ownership::Role::Foreground;
+            }
+            if (ownForegroundHandle && waitForRustRetirement(kStoreCloseBudgetMs))
+                verdict = ownership.claimOpen(storePath, slug, Ownership::Role::Foreground,
+                                              &claimedSerial, &conflictSerial);
+        }
+        if (verdict != Ownership::ClaimVerdict::Granted) {
+            reportStoreClaimRefused(int(verdict), slug, "open");
+            Q_EMIT errorOccurred(storeClaimRefusalText(storePath));
+            return false;
+        }
     }
 
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());
     if (!m_rustHandle) {
+        // Nothing opened: the claim goes again.
+        if (claimedSerial != 0)
+            ownership.noteClosed(claimedSerial, true);
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
         return false;
     }
-    m_storeOwnershipSerial = ownership.recordOpen(
-        storePath, slug, lightning::accounts::StoreOwnershipRegistry::Role::Foreground);
+    // Without Labs, recorded after the create exactly as Phase 0 did
+    // (claimOpen() unenforced is recordOpen()).
+    if (!claimsEnforced)
+        ownership.claimOpen(storePath, slug, Ownership::Role::Foreground, &claimedSerial);
+    m_storeOwnershipSerial = claimedSerial;
 
     m_storePath = storePath;
     m_handleGeneration = m_lifecycle.beginSession();
@@ -968,6 +1122,33 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
             break;
         }
     }
+    // Labs only: a background host's last pair its retirement could not save
+    // (HostSignInRetirements::parkUnsaved, §18 round 1 MUST 1). Written here,
+    // by the same compare-and-swap and the worker's rule (the keyring may hold
+    // one of that host's own queued live pairs), right before THIS account's
+    // sign-in is read, and for no other account: a foreground retirement or
+    // a quit writes none (§18 round 2, R2-3; the pool writes the rest through
+    // its keyring worker, bounded, SessionPool::writeParked). Nothing is
+    // parked without Labs.
+    if (m_liveAccountsLabs && !restoringUserId.isEmpty()) {
+        const auto parked =
+            lightning::accounts::HostSignInRetirements::process().takeUnsaved(restoringUserId);
+        for (const auto &unsaved : parked) {
+            // SENSITIVE: `entry` carries the tokens; never log it.
+            const custody::HandbackEntry entry{
+                unsaved.userId, unsaved.deviceId,
+                custody::handbackExpectedDigest(store, unsaved.userId, unsaved.expectedDigest,
+                                                unsaved.acceptedDigests),
+                unsaved.tokens};
+            const custody::Handback outcome = custody::writeHandback(store, entry, false);
+            qCInfo(lcRust) << "wrote a background account's last sign-in before reading it"
+                           << "slug=" << matrix::app_data::safeUserSlug(unsaved.userId)
+                           << "ok=" << (outcome == custody::Handback::Written);
+            // Refused again: kept for the next read, never dropped.
+            if (outcome == custody::Handback::WriteFailed)
+                lightning::accounts::HostSignInRetirements::process().parkUnsaved(unsaved);
+        }
+    }
 }
 
 void RustSdkMatrixClient::scheduleRotatedTokenWrite()
@@ -1025,6 +1206,15 @@ bool RustSdkMatrixClient::settleRetiringSignIn(const QString &userId)
     {
         QMutexLocker lock(&retiredSignIns().mutex);
         retiring = retiredSignIns().retiring.contains(userId);
+    }
+    // Labs: a background host of this account still handing its sign-in
+    // back. Never waited for here: that handback completes on this very
+    // thread, so a wait could only time out. The store claim refuses the open
+    // until it has; the click path awaits it (SessionPool's latch) first.
+    if (m_liveAccountsLabs && lightning::accounts::HostSignInRetirements::process().contains(userId)) {
+        qCInfo(lcRust) << "a background session of this account is still handing back its "
+                          "sign-in"
+                       << "slug=" << matrix::app_data::safeUserSlug(userId);
     }
     if (retiring) {
         // Only a quick switch back to an account still closing waits here.
@@ -1338,6 +1528,16 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a retiring client still held a store open "
                                  "after the close budget";
+        // Labs: never moved while another handle holds it.
+        m_storeClaimRefusalText.clear();
+        const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
+        if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+            reportStoreClaimRefused(int(claim), identity.effectiveStoreSlug(), "quarantine");
+            m_storeClaimRefusalText = storeClaimRefusalText(identity.rustStorePath);
+            setState(Error);
+            Q_EMIT loginFailed(storeMoveFailureText());
+            return;
+        }
         const QString quarantined = matrix::app_data::quarantineRustStore(
             identity, &m_lastStoreMoveFailure);
         qCInfo(lcRust) << "quarantined unclaimed store before login"
@@ -1358,15 +1558,21 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // never be restored again and "Open it" would only meet the revocation
     // again. Move it aside, never delete it, and sign in as a new device.
     // Anything short of that proof still ends in ExistingStoreNeedsRestore.
+    // Labs: also the proof a background host of this account recorded
+    // (RevocationProofs), by the same rule.
     if (storeExists && targetHasSavedSession
-        && matrix::rust_session::revokedDeviceMayBeReplaced(
-            recordUserId, targetSavedDeviceId, m_revokedUserId,
-            m_revokedDeviceId)) {
+        && (matrix::rust_session::revokedDeviceMayBeReplaced(
+                recordUserId, targetSavedDeviceId, m_revokedUserId,
+                m_revokedDeviceId)
+            || labsHardProofAllowsReplace(recordUserId, targetSavedDeviceId))) {
         if (!moveRevokedDeviceStoreAside(identity)) {
             setState(Error);
             Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
+        // Used once, as the single slot is.
+        if (m_liveAccountsLabs && m_revocationProofs)
+            m_revocationProofs->clearHard(recordUserId);
         storeExists = false;
     }
     // Remember fresh-store attempts so a failure can clean up after itself.
@@ -1402,10 +1608,12 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         && m_settings->resolveSavedIdentity(recordUserId, &recordIdentity);
     const bool resumeSoftLoggedOut = storeExists && targetHasSavedSession
         && recordResolved
-        && matrix::rust_session::softLoggedOutDeviceMayResume(
-            typedUserId, identity.homeserver, recordUserId,
-            recordIdentity.homeserver, targetSavedDeviceId, m_softLogoutUserId,
-            m_softLogoutHomeserver, m_softLogoutDeviceId);
+        && (matrix::rust_session::softLoggedOutDeviceMayResume(
+                typedUserId, identity.homeserver, recordUserId,
+                recordIdentity.homeserver, targetSavedDeviceId, m_softLogoutUserId,
+                m_softLogoutHomeserver, m_softLogoutDeviceId)
+            || labsSoftProofAllowsResume(typedUserId, identity.homeserver, recordUserId,
+                                         recordIdentity.homeserver, targetSavedDeviceId));
     auto block = matrix::rust_session::passwordLoginBlockReason(
         identity, storeExists, targetHasSavedSession, targetSavedDeviceId);
     if (resumeSoftLoggedOut
@@ -2427,6 +2635,16 @@ void RustSdkMatrixClient::adoptBrowserSession(
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a retiring client still held a store open "
                                  "after the close budget";
+        // Labs: never moved while another handle holds it.
+        m_storeClaimRefusalText.clear();
+        const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
+        if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+            reportStoreClaimRefused(int(claim), identity.effectiveStoreSlug(), "quarantine");
+            m_storeClaimRefusalText = storeClaimRefusalText(identity.rustStorePath);
+            setState(Error);
+            Q_EMIT loginFailed(storeMoveFailureText());
+            return;
+        }
         const QString moved = matrix::app_data::quarantineRustStore(
             identity, &m_lastStoreMoveFailure);
         qCInfo(lcRust) << "quarantined unclaimed store before browser sign-in"
@@ -2444,9 +2662,10 @@ void RustSdkMatrixClient::adoptBrowserSession(
     // so it is moved aside, never deleted, and this sign-in gets a fresh one,
     // even when the server names the same device id again.
     if (storeExists && hasSavedSession
-        && matrix::rust_session::revokedDeviceMayBeReplaced(
-            identity.userId, savedDeviceId, m_revokedUserId,
-            m_revokedDeviceId)) {
+        && (matrix::rust_session::revokedDeviceMayBeReplaced(
+                identity.userId, savedDeviceId, m_revokedUserId,
+                m_revokedDeviceId)
+            || labsHardProofAllowsReplace(identity.userId, savedDeviceId))) {
         if (!moveRevokedDeviceStoreAside(identity)) {
             setState(Error);
             Q_EMIT loginFailed(storeMoveFailureText());
@@ -2571,12 +2790,20 @@ bool RustSdkMatrixClient::rollBackFailedAttempt(
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a failed attempt's store was still open after the "
                                  "close budget";
-        const auto removed = matrix::app_data::removeAttemptRustStore(store);
-        complete = removed.failed == 0;
-        qCInfo(lcRust) << "cleaned fresh store after failed login"
-                       << "slug=" << store.effectiveStoreSlug()
-                       << "deleted=" << removed.deleted
-                       << "failed=" << removed.failed;
+        // Labs: never deleted while another handle holds it (review L1); the
+        // attempt then reports incomplete. Unenforced, always granted.
+        const auto claim = storeOwnershipRegistry().claimForDeletion(store.rustStorePath);
+        if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+            reportStoreClaimRefused(int(claim), store.effectiveStoreSlug(), "attempt_cleanup");
+            complete = false;
+        } else {
+            const auto removed = matrix::app_data::removeAttemptRustStore(store);
+            complete = removed.failed == 0;
+            qCInfo(lcRust) << "cleaned fresh store after failed login"
+                           << "slug=" << store.effectiveStoreSlug()
+                           << "deleted=" << removed.deleted
+                           << "failed=" << removed.failed;
+        }
     }
     if (record.isValid()) {
         // Exactly the record this attempt wrote, with its tokens; a case
@@ -2644,6 +2871,8 @@ bool RustSdkMatrixClient::resumedDeviceCheckIsFor(const QString &userId,
 
 QString RustSdkMatrixClient::storeMoveFailureText() const
 {
+    if (!m_storeClaimRefusalText.isEmpty())
+        return m_storeClaimRefusalText;
     if (m_lastStoreMoveFailure == matrix::app_data::QuarantineFailure::InUse)
         return tr("This account's old local data could not be moved aside "
                   "because it is still in use. Close any other Lightning "
@@ -2668,6 +2897,14 @@ bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "the revoked device's store was still open after "
                              "the close budget";
+    // Labs: never moved while another handle holds it.
+    m_storeClaimRefusalText.clear();
+    const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
+    if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+        reportStoreClaimRefused(int(claim), identity.effectiveStoreSlug(), "move_aside");
+        m_storeClaimRefusalText = storeClaimRefusalText(identity.rustStorePath);
+        return false;
+    }
     const QString moved = matrix::app_data::quarantineRustStore(
         identity, &m_lastStoreMoveFailure);
     qCInfo(lcRust) << "moved the revoked device's store aside; signing in as "
@@ -3071,6 +3308,13 @@ bool RustSdkMatrixClient::resetRustStore()
         qCWarning(lcRust) << "store close did not finish within the budget;"
                           << "deleting anyway";
 
+    // Labs: never deleted while another handle holds it.
+    const auto claim = storeOwnershipRegistry().claimForDeletion(storePath);
+    if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+        reportStoreClaimRefused(int(claim), QFileInfo(QFileInfo(storePath).path()).fileName(),
+                                "reset");
+        return false;
+    }
     QDir storeDir(storePath);
     return storeDir.removeRecursively();
 }
@@ -3146,6 +3390,15 @@ bool RustSdkMatrixClient::resetLocalSession(
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "store close did not finish within the budget;"
                           << "quarantining anyway";
+    // Labs: neither the record nor the store is touched while another handle
+    // holds the store.
+    const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
+    if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
+        reportStoreClaimRefused(int(claim), identity.slug, "local_reset");
+        if (message)
+            *message = storeClaimRefusalText(identity.rustStorePath);
+        return false;
+    }
     bool matchedRecord = false;
     const bool sessionOk = clearPersistedAccount(identity, &matchedRecord);
     // Moved aside, not deleted: this repair acts on a belief that the store is
@@ -5878,10 +6131,20 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     // Use matchedRecord rather than the discarding overload: "target absent"
     // and "reset completed" are different outcomes and must not both report
     // success.
+    // Labs: never deleted while another handle holds the store. Then nothing
+    // is (the record and secrets stay too), the pending sign-out stays, and
+    // the next start finishes it.
+    bool claimGranted = true;
+    if (identity.isValid()) {
+        const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
+        claimGranted = claim == lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted;
+        if (!claimGranted)
+            reportStoreClaimRefused(int(claim), identity.slug, "sign_out");
+    }
     bool matchedRecord = false;
-    const bool sessionOk =
-        identity.isValid() && clearPersistedAccount(identity, &matchedRecord);
-    const auto files = identity.isValid()
+    const bool sessionOk = claimGranted && identity.isValid()
+        && clearPersistedAccount(identity, &matchedRecord);
+    const auto files = (identity.isValid() && claimGranted)
         ? matrix::app_data::removeAccountRustState(identity)
         : matrix::app_data::RemovalSummary{0, 0, 1};
     // The store and the secrets are gone: nothing is left for the next start
@@ -5899,7 +6162,8 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     // root (and the canonical one the controller writes to), and removed
     // before the empty-directory check below, which they would otherwise
     // defeat.
-    const auto backgrounds = identity.isValid()
+    // A refused claim deletes nothing at all, these included (review L2).
+    const auto backgrounds = (identity.isValid() && claimGranted)
         ? matrix::app_data::removePersonalBackgrounds(identity)
         : matrix::app_data::RemovalSummary{0, 0, 0};
     if (!backgrounds.ok()) {
@@ -5911,7 +6175,7 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     // anything still in it (the starred-GIF store and bridge badges are
     // AppController's, deleted after loggedOut, which tries the canonical
     // root again) keeps it. Reported, and deliberately not part of `ok`.
-    const auto accountDir = identity.isValid()
+    const auto accountDir = (identity.isValid() && claimGranted)
         ? matrix::app_data::removeAccountRootIfEmpty(identity.accountRoot)
         : matrix::app_data::EmptyDirRemoval::Refused;
 

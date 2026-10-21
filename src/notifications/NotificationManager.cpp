@@ -816,8 +816,13 @@ void NotificationManager::processDecrypted(const TimelineEvent &event,
             && card.payload.value(QStringLiteral("eventId")).toString()
                 == event.eventId;
     };
+    // Or held by the background accounts' rate limit (live accounts; empty
+    // otherwise).
     qsizetype unshown = m_avatarWaits.removeIf(sameEvent)
-        + m_capabilityWaits.removeIf(sameEvent);
+        + m_capabilityWaits.removeIf(sameEvent)
+        + m_hostCardQueue.removeIf([&sameEvent](const DeferredHostCard &w) {
+              return sameEvent(w.card);
+          });
     // Or waiting behind its room's card, which is still being raised.
     const QString groupKey = messageGroupKey(
         routableRoomId(event.roomId),
@@ -1008,6 +1013,13 @@ void NotificationManager::refreshCard(const TimelineEvent &event,
         return; // receipts, reactions and profile-only Set diffs
     group->title = decision.title;
     group->body = decision.body;
+    // Live accounts (Labs): the title as deliverDecision() labelled it (the
+    // account, or every account a merged card stands for), in EVERY place the
+    // card waits or shows; an edit used to drop it (§18 round 1, MUST 8).
+    // The decision's own title without the mode, as today.
+    const QString shownTitle = m_liveAccountsMode
+        ? labelledTitleForRefresh(event, context, decision.title)
+        : decision.title;
     // Presentation follows the CURRENT privacy policy, not the one the card
     // was queued under: a Private card carries no room avatar or initials.
     const bool privateMode = context.previewMode == Private;
@@ -1016,7 +1028,7 @@ void NotificationManager::refreshCard(const TimelineEvent &event,
             && card.payload.value(QStringLiteral("eventId")).toString() == event.eventId;
     };
     const auto refresh = [&](Card &card, bool avatarResolved) {
-        card.title = decision.title;
+        card.title = shownTitle;
         card.body = decision.body;
         if (privateMode) {
             card.avatarMxc.clear();
@@ -1049,10 +1061,17 @@ void NotificationManager::refreshCard(const TimelineEvent &event,
         refresh(*group->next, /*avatarResolved=*/true);
         waiting = true;
     }
+    // A background account's card still waiting for its turn (Labs).
+    for (DeferredHostCard &deferred : m_hostCardQueue) {
+        if (matches(deferred.card)) {
+            refresh(deferred.card, /*avatarResolved=*/true);
+            waiting = true;
+        }
+    }
     for (auto &balloon : m_balloonQueue) {
         if (balloon.accountKey == accountKey
             && balloon.payload.value(QStringLiteral("eventId")).toString() == event.eventId) {
-            balloon.title = decision.title;
+            balloon.title = shownTitle;
             balloon.body = decision.body;
             if (privateMode)
                 balloon.avatar = QImage();
@@ -1068,7 +1087,7 @@ void NotificationManager::refreshCard(const TimelineEvent &event,
     for (auto &entry : m_shownEntries) {
         if (entry.accountKey == accountKey
             && entry.payload.value(QStringLiteral("eventId")).toString() == event.eventId) {
-            entry.title = decision.title;
+            entry.title = shownTitle;
             entry.body = decision.body;
             if (privateMode)
                 entry.avatar = QImage();
@@ -1099,22 +1118,49 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     const QString roomId = routableRoomId(event.roomId);
     const QString threadRootId =
         routableThreadRootId(event.roomId, event.threadRootId);
-    // The room list may not show this room unread yet; see observeRoomUnread().
-    if (!replacement)
-        m_roomsAwaitingUnread.insert(roomId, nowMs() + m_awaitUnreadMs);
-    const QString groupKey = messageGroupKey(roomId, threadRootId);
     // The table this card lives in; "" is the foreground account's.
     const QString accountKey = context.accountUserId;
+    // Live accounts (Labs): a background account's card. Never true with the
+    // mode off, where every branch below is today's.
+    const bool hostCard = m_liveAccountsMode && !accountKey.isEmpty();
+    // A message another live account already raised a card for is that card
+    // (DECISION 12): it is relabelled, and nothing is raised for this one.
+    if (m_liveAccountsMode && !replacement
+        && mergeIntoEventCard(event, context, roomId, decision))
+        return;
+    // The room list may not show this room unread yet; see observeRoomUnread().
+    // A background account's walk is its own (observeRoomUnreadFor()).
+    if (!replacement) {
+        if (hostCard) {
+            m_hostRoomsAwaitingUnread.insert(
+                accountKey + kKeySeparator + roomId, nowMs() + m_awaitUnreadMs);
+        } else {
+            m_roomsAwaitingUnread.insert(roomId, nowMs() + m_awaitUnreadMs);
+        }
+    }
+    const QString groupKey = messageGroupKey(roomId, threadRootId);
     int count = 0;
+    bool groupWasEmpty = false;
     {
         CardGroup &group = table(accountKey).groups[groupKey];
+        groupWasEmpty = group.count == 0;
         if (!replacement)
             ++group.count;
         count = group.count;
     }
     // One card per room: past the first message it stands for all of them,
     // a replacement included (it is the same card, not a new message).
-    const QString body = bodyForCount(decision, event, context, count);
+    QString body = bodyForCount(decision, event, context, count);
+    // Live accounts (Labs): a background account's card stands for its room:
+    // a count, whatever the preview mode, so a busy account updates one card
+    // rather than streaming its messages past the foreground's.
+    if (hostCard && count > 1) {
+        body = context.previewMode == Private
+            ? QCoreApplication::translate(
+                  "Notifications", "%n new Matrix notifications", nullptr, count)
+            : QCoreApplication::translate("Notifications", "%n new messages",
+                                          nullptr, count);
+    }
     QVariantMap payload;
     // Normalised where the payload is built, so every consumer sees a real room
     // id.
@@ -1132,8 +1178,30 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
     // A card a late decryption may replace in place.
     if (undecryptable)
         payload.insert(QStringLiteral("utd"), true);
+    QString title = decision.title;
+    // Live accounts: the account (or, for a merged card, every account) the
+    // card stands for, named in the title while more than one is live.
+    QString eventKey;
+    QString label;
+    if (m_liveAccountsMode) {
+        label = accountLabelOr(context.accountLabel, accountOfKey(accountKey));
+        QStringList labels{ label };
+        if (!event.eventId.isEmpty()) {
+            eventKey = roomId + kKeySeparator + event.eventId;
+            const auto record = m_eventCards.constFind(eventKey);
+            if (record != m_eventCards.cend() && record->ownerKey == accountKey) {
+                labels = record->labels;
+                if (record->accounts.size() > 1) {
+                    payload.insert(QStringLiteral("accountUserIds"),
+                                   record->accounts);
+                }
+            }
+        }
+        title += accountSuffix(labels);
+    }
     auto &currentGroup = table(accountKey).groups[groupKey];
     currentGroup.payload = payload;
+    // The unsuffixed title: refreshCard() compares it with a fresh decision.
     currentGroup.title = decision.title;
     currentGroup.body = body;
     currentGroup.sender = event.sender;
@@ -1141,7 +1209,7 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
         currentGroup.editStampMs = 0;
 
     Card card;
-    card.title = decision.title;
+    card.title = title;
     card.body = body;
     card.payload = payload;
     card.sound = decision.playSound && !replacement;
@@ -1156,6 +1224,13 @@ void NotificationManager::deliverDecision(const TimelineEvent &event,
             context.themeId);
         card.avatarMxc = context.avatarMxc;
     }
+    if (!eventKey.isEmpty())
+        recordEventCard(eventKey, accountKey, groupKey, label, decision.title,
+                        card);
+    if (hostCard && !replacement) {
+        offerHostCard(std::move(card), groupKey, groupWasEmpty);
+        return;
+    }
     deliver(std::move(card));
 }
 
@@ -1163,15 +1238,18 @@ void NotificationManager::showGeneric(const QString &title,
                                       const QString &safeBody,
                                       const QString &roomId,
                                       const QString &avatarMxc, bool sound,
-                                      const QString &key)
+                                      const QString &key,
+                                      const QString &accountUserId)
 {
     ++m_genericNoticeCount;
     QVariantMap payload;
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), QString{});
     payload.insert(QStringLiteral("threadRootId"), QString{});
-    payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
-    // Generic notices are the foreground account's: the "" table.
+    payload.insert(QStringLiteral("accountUserId"),
+                   accountUserId.isEmpty() ? m_accountUserId : accountUserId);
+    // Generic notices live in the "" table (a live account's notice too:
+    // withdrawGeneric() finds it by its key).
     if (!key.isEmpty()) {
         const QString groupKey = genericGroupKey(key);
         payload.insert(QStringLiteral("group"), groupKey);
@@ -1221,6 +1299,9 @@ void NotificationManager::withdrawEvent(const QString &eventId)
 void NotificationManager::clearPendingFor(const QString &accountUserId)
 {
     const bool foreground = accountUserId.isEmpty();
+    // Live accounts (Labs): its merge records and waiting background cards.
+    // Nothing to do, and nothing done, while the mode has never been on.
+    forgetLiveAccountsStateFor(accountUserId);
     // The ring is the foreground account's and process-wide; another
     // account's clear never stops it.
     if (foreground)
@@ -1338,6 +1419,520 @@ void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
                          << "notification(s) for a room that has been read";
 }
 
+// ── Live accounts (Labs) ────────────────────────────────────────────────
+//
+// Everything below acts only while setLiveAccountsMode(true) holds. With the
+// mode off its state is empty, so the shared paths that consult it
+// (clearPendingFor, withdrawWhere, emitOpenFor, deliverDecision) are
+// today's.
+
+namespace {
+// Merge records kept for (room, event); a message older than this many cards
+// is no longer news to a second account.
+constexpr int kMaxEventCards = 256;
+// Accounts remembered for "most recently used".
+constexpr int kMaxAccountRecency = 32;
+} // namespace
+
+void NotificationManager::setLiveAccountsMode(bool on)
+{
+    if (on == m_liveAccountsMode)
+        return;
+    m_liveAccountsMode = on;
+    if (on) {
+        if (!m_hostCardTimer) {
+            m_hostCardTimer = std::make_unique<QTimer>();
+            m_hostCardTimer->setSingleShot(true);
+            connect(m_hostCardTimer.get(), &QTimer::timeout, this,
+                    &NotificationManager::flushHostCards);
+        }
+        noteAccountUsed(m_accountUserId);
+        qCInfo(lcNotify) << "live-accounts notifications on";
+        return;
+    }
+    // Off at runtime: the background accounts are gone, and what they had
+    // waiting would only arrive as a burst. Counts only.
+    if (!m_hostCardQueue.isEmpty()) {
+        qCInfo(lcNotify) << "dropped" << m_hostCardQueue.size()
+                         << "background-account notification(s) still "
+                            "waiting: live accounts turned off";
+    }
+    m_hostCardQueue.clear();
+    if (m_hostCardTimer)
+        m_hostCardTimer->stop();
+    m_lastHostNewCardMs = -1;
+    m_eventCards.clear();
+    m_eventCardOrder.clear();
+    m_accountRecency.clear();
+    m_hostRoomsAwaitingUnread.clear();
+    m_cardGeneration.clear();
+    m_hostRoomsCheckedAt.clear();
+    m_accountLabelsShown = false;
+    qCInfo(lcNotify) << "live-accounts notifications off";
+}
+
+void NotificationManager::setAccountLabelsShown(bool on)
+{
+    m_accountLabelsShown = on;
+}
+
+QString NotificationManager::accountLabelOr(const QString &label,
+                                            const QString &userId)
+{
+    const QString trimmed = label.trimmed();
+    if (!trimmed.isEmpty())
+        return trimmed;
+    // The localpart, as everywhere a name is unknown: never the full MXID.
+    if (userId.startsWith(QLatin1Char('@'))) {
+        const qsizetype colon = userId.indexOf(QLatin1Char(':'));
+        const QString local =
+            colon > 1 ? userId.mid(1, colon - 1) : userId.mid(1);
+        if (!local.isEmpty())
+            return local;
+    }
+    return userId;
+}
+
+QString NotificationManager::labelledTitleForRefresh(const TimelineEvent &event,
+                                                     const Context &context,
+                                                     const QString &baseTitle)
+{
+    const QString accountKey = context.accountUserId;
+    QStringList labels{ accountLabelOr(context.accountLabel, accountOfKey(accountKey)) };
+    if (!event.eventId.isEmpty()) {
+        const QString eventKey =
+            routableRoomId(event.roomId) + kKeySeparator + event.eventId;
+        const auto record = m_eventCards.find(eventKey);
+        if (record != m_eventCards.end() && record->ownerKey == accountKey) {
+            labels = record->labels;
+            // A later merge relabels from this, so it follows the edit.
+            record->baseTitle = baseTitle;
+        }
+    }
+    return baseTitle + accountSuffix(labels);
+}
+
+QString NotificationManager::accountSuffix(const QStringList &labels) const
+{
+    if (!m_liveAccountsMode || !m_accountLabelsShown || labels.isEmpty())
+        return QString();
+    // Each name isolated, as a sender's is: its own direction cannot reorder
+    // the title around it.
+    QStringList isolated;
+    isolated.reserve(labels.size());
+    for (const QString &each : labels)
+        isolated.append(isolate(each));
+    return QStringLiteral(" · ") + isolated.join(QStringLiteral(", "));
+}
+
+bool NotificationManager::mergeIntoEventCard(const TimelineEvent &event,
+                                             const Context &context,
+                                             const QString &roomId,
+                                             const Decision &decision)
+{
+    if (event.eventId.isEmpty())
+        return false;
+    const QString eventKey = roomId + kKeySeparator + event.eventId;
+    const auto record = m_eventCards.find(eventKey);
+    if (record == m_eventCards.end())
+        return false;
+    // Its own card again (raised a second time after a wait): not a second
+    // account, so it is delivered as before.
+    if (record->ownerKey == context.accountUserId)
+        return false;
+    const QString eventId = event.eventId;
+    const auto sameMessage = [&roomId, &eventId](const QVariantMap &payload) {
+        return payload.value(QStringLiteral("eventId")).toString() == eventId
+            && routableRoomId(payload.value(QStringLiteral("roomId")).toString())
+                == roomId;
+    };
+    // This account's decision is a mention and the card was not one (the
+    // other account's rules differ): the card becomes a mention, with its
+    // alert and its break-through, rather than absorbing it silently.
+    const bool upgrade = decision.mention
+        && !record->card.payload.value(QStringLiteral("mention")).toBool();
+    // Where the card is now: waiting for the rate limit, or shown (or being
+    // raised) and still this message.
+    DeferredHostCard *waitingHost = nullptr;
+    for (DeferredHostCard &waiting : m_hostCardQueue) {
+        if (waiting.card.accountKey == record->ownerKey
+            && waiting.groupKey == record->groupKey
+            && sameMessage(waiting.card.payload)) {
+            waitingHost = &waiting;
+            break;
+        }
+    }
+    {
+        const AccountTable &owner = table(record->ownerKey);
+        const auto group = owner.groups.constFind(record->groupKey);
+        const bool groupGone = group == owner.groups.cend();
+        const bool shown = !groupGone && sameMessage(group->payload);
+        // Nothing stands for the message any more (the owner's card was
+        // withdrawn or dropped), or a mention would be folded into a card
+        // that has moved on to a newer message: this account's own card.
+        if (!waitingHost && !shown && (groupGone || upgrade))
+            return false;
+    }
+    const QString uid = accountOfKey(context.accountUserId);
+    if (!record->accounts.contains(uid)) {
+        record->accounts.append(uid);
+        record->labels.append(accountLabelOr(context.accountLabel, uid));
+    }
+    const QString title = record->baseTitle + accountSuffix(record->labels);
+    const QStringList accounts = record->accounts;
+    qCInfo(lcNotify) << "one message, live accounts=" << accounts.size()
+                     << ": merged into one card"
+                     << (upgrade ? "(now a mention)" : "");
+    // Still waiting for the rate limit: the waiting card carries it (and,
+    // for a mention, leaves as one, with an alert neither made yet).
+    if (waitingHost) {
+        DeferredHostCard &waiting = *waitingHost;
+        waiting.card.title = title;
+        waiting.card.payload.insert(QStringLiteral("accountUserIds"),
+                                    accounts);
+        if (upgrade) {
+            waiting.card.payload.insert(QStringLiteral("mention"), true);
+            waiting.card.sound = waiting.card.sound || decision.playSound;
+        }
+        record->card = waiting.card;
+        table(record->ownerKey).groups[record->groupKey].payload =
+            waiting.card.payload;
+        return true;
+    }
+    // A balloon on screen, or waiting behind it, opens with either account.
+    // A mention raises its own balloon below, which breaks through a hold;
+    // the copy waiting behind the hold would only repeat it later.
+    if (sameMessage(m_lastFallbackPayload))
+        m_lastFallbackPayload.insert(QStringLiteral("accountUserIds"), accounts);
+    if (upgrade) {
+        const QString ownerKey = record->ownerKey;
+        m_balloonQueue.removeIf([&ownerKey, &sameMessage](const Balloon &b) {
+            return b.accountKey == ownerKey && sameMessage(b.payload);
+        });
+    }
+    for (Balloon &waiting : m_balloonQueue) {
+        if (waiting.accountKey == record->ownerKey
+            && sameMessage(waiting.payload))
+            waiting.payload.insert(QStringLiteral("accountUserIds"), accounts);
+    }
+    // Shown, and still this message: its click payload names both accounts,
+    // and the card is relabelled in place, silently (it has alerted once).
+    // A card that has moved on to a newer message keeps its own title.
+    AccountTable &owner = table(record->ownerKey);
+    for (auto it = owner.pendingPayloads.begin();
+         it != owner.pendingPayloads.end(); ++it) {
+        if (sameMessage(it.value()))
+            it.value().insert(QStringLiteral("accountUserIds"), accounts);
+    }
+    const auto group = owner.groups.find(record->groupKey);
+    if (group == owner.groups.end() || !sameMessage(group->payload))
+        return true;
+    Card card = record->card;
+    card.title = title;
+    card.payload = group->payload;
+    card.payload.insert(QStringLiteral("accountUserIds"), accounts);
+    if (upgrade) {
+        // Now a mention: it alerts once more, as one (in place on a daemon,
+        // a new balloon that breaks through a hold on the tray path).
+        card.payload.insert(QStringLiteral("mention"), true);
+        card.sound = decision.playSound;
+        card.replacement = false;
+    } else {
+        card.sound = false;
+        card.replacement = true;
+    }
+    group->payload = card.payload;
+    record->card = card;
+    deliver(std::move(card));
+    return true;
+}
+
+void NotificationManager::recordEventCard(const QString &eventKey,
+                                          const QString &accountKey,
+                                          const QString &groupKey,
+                                          const QString &label,
+                                          const QString &baseTitle,
+                                          const Card &card)
+{
+    const auto existing = m_eventCards.find(eventKey);
+    if (existing != m_eventCards.end()) {
+        // The owner's card again (decrypted in place, or raised after a
+        // wait): the accounts it stands for are kept.
+        if (existing->ownerKey == accountKey) {
+            existing->groupKey = groupKey;
+            existing->baseTitle = baseTitle;
+            existing->card = card;
+        }
+        return;
+    }
+    EventCard record;
+    record.ownerKey = accountKey;
+    record.groupKey = groupKey;
+    record.accounts = QStringList{ accountOfKey(accountKey) };
+    record.labels = QStringList{ label };
+    record.baseTitle = baseTitle;
+    record.card = card;
+    m_eventCards.insert(eventKey, record);
+    m_eventCardOrder.append(eventKey);
+    while (m_eventCardOrder.size() > kMaxEventCards)
+        m_eventCards.remove(m_eventCardOrder.takeFirst());
+}
+
+bool NotificationManager::deliveryReplacesInPlace() const
+{
+#ifdef HAVE_QT_DBUS
+    return QDBusConnection::sessionBus().isConnected();
+#else
+    return false;
+#endif
+}
+
+void NotificationManager::offerHostCard(Card card, const QString &groupKey,
+                                        bool groupWasEmpty)
+{
+    // Its account and room already have a card waiting: this, the newest
+    // message, takes its place (the count in its body covers both), and
+    // keeps an alert neither made yet.
+    for (DeferredHostCard &waiting : m_hostCardQueue) {
+        if (waiting.card.accountKey == card.accountKey
+            && waiting.groupKey == groupKey) {
+            card.sound = card.sound || waiting.card.sound;
+            waiting.card = std::move(card);
+            return;
+        }
+    }
+    // An update of a card already shown replaces it in place: not a new card.
+    if (!groupWasEmpty && deliveryReplacesInPlace()) {
+        deliver(std::move(card));
+        return;
+    }
+    // A new card. One per interval across every background account, so a
+    // flood on several accounts at once cannot bury the foreground's.
+    const qint64 now = nowMs();
+    if (m_hostCardQueue.isEmpty()
+        && (m_lastHostNewCardMs < 0
+            || now - m_lastHostNewCardMs >= m_hostCardIntervalMs)) {
+        m_lastHostNewCardMs = now;
+        deliver(std::move(card));
+        return;
+    }
+    noteCardFor(card.accountKey);
+    m_hostCardQueue.append(DeferredHostCard{ groupKey, std::move(card) });
+    // Bounded by rooms rather than traffic. Past the cap the oldest waiting
+    // card that is not a mention goes; a mention is the last to go.
+    while (m_hostCardQueue.size() > kMaxPendingPayloads) {
+        qsizetype drop = 0;
+        for (qsizetype i = 0; i < m_hostCardQueue.size(); ++i) {
+            if (!m_hostCardQueue.at(i).card.payload
+                     .value(QStringLiteral("mention")).toBool()) {
+                drop = i;
+                break;
+            }
+        }
+        const DeferredHostCard dropped = m_hostCardQueue.takeAt(drop);
+        // Its room no longer has a card on its way: a group with nothing
+        // shown is forgotten, so the room's next message is a new card again
+        // (counted from one, and spaced by the rate limit like any other),
+        // never an "update" of a card that was never raised.
+        AccountTable &own = table(dropped.card.accountKey);
+        const auto group = own.groups.find(dropped.groupKey);
+        if (group != own.groups.end() && group->id == 0 && !group->inFlight
+            && !group->next)
+            own.groups.erase(group);
+        qCInfo(lcNotify) << "dropped a waiting background-account "
+                            "notification: too many rooms waiting";
+    }
+    armHostCardTimer();
+}
+
+void NotificationManager::armHostCardTimer()
+{
+    if (!m_hostCardTimer || m_hostCardQueue.isEmpty())
+        return;
+    const qint64 wait = m_lastHostNewCardMs < 0
+        ? 0
+        : std::max<qint64>(0, m_lastHostNewCardMs + m_hostCardIntervalMs
+                                  - nowMs());
+    m_hostCardTimer->start(int(wait));
+}
+
+void NotificationManager::flushHostCards()
+{
+    if (m_hostCardQueue.isEmpty())
+        return;
+    const qint64 now = nowMs();
+    if (m_lastHostNewCardMs >= 0
+        && now - m_lastHostNewCardMs < m_hostCardIntervalMs) {
+        armHostCardTimer();
+        return;
+    }
+    DeferredHostCard next = m_hostCardQueue.takeFirst();
+    m_lastHostNewCardMs = now;
+    deliver(std::move(next.card));
+    armHostCardTimer();
+}
+
+void NotificationManager::noteAccountUsed(const QString &userId)
+{
+    if (userId.isEmpty())
+        return;
+    m_accountRecency.removeAll(userId);
+    m_accountRecency.prepend(userId);
+    while (m_accountRecency.size() > kMaxAccountRecency)
+        m_accountRecency.removeLast();
+}
+
+QString NotificationManager::openAccountFor(const QVariantMap &payload) const
+{
+    const QString owner =
+        payload.value(QStringLiteral("accountUserId")).toString();
+    const QStringList accounts =
+        payload.value(QStringLiteral("accountUserIds")).toStringList();
+    if (accounts.size() < 2)
+        return owner;
+    // The account in front, when it saw the message: no switch at all.
+    if (!m_accountUserId.isEmpty() && accounts.contains(m_accountUserId))
+        return m_accountUserId;
+    for (const QString &recent : m_accountRecency) {
+        if (accounts.contains(recent))
+            return recent;
+    }
+    return owner;
+}
+
+void NotificationManager::forgetLiveAccountsStateFor(const QString &accountKey)
+{
+    if (m_eventCards.isEmpty() && m_hostCardQueue.isEmpty()
+        && m_hostRoomsAwaitingUnread.isEmpty())
+        return;
+    m_hostCardQueue.removeIf([&accountKey](const DeferredHostCard &waiting) {
+        return waiting.card.accountKey == accountKey;
+    });
+    if (m_hostCardQueue.isEmpty() && m_hostCardTimer)
+        m_hostCardTimer->stop();
+    if (!accountKey.isEmpty()) {
+        const QString prefix = accountKey + kKeySeparator;
+        for (auto it = m_hostRoomsAwaitingUnread.begin();
+             it != m_hostRoomsAwaitingUnread.end();) {
+            if (it.key().startsWith(prefix))
+                it = m_hostRoomsAwaitingUnread.erase(it);
+            else
+                ++it;
+        }
+        for (auto it = m_hostRoomsCheckedAt.begin(); it != m_hostRoomsCheckedAt.end();) {
+            if (it.key().startsWith(prefix))
+                it = m_hostRoomsCheckedAt.erase(it);
+            else
+                ++it;
+        }
+        m_cardGeneration.remove(accountKey);
+    }
+    // Its own cards are withdrawn with it; on another account's merged card
+    // it no longer counts, so a click never opens with it.
+    const QString uid = accountOfKey(accountKey);
+    for (auto it = m_eventCards.begin(); it != m_eventCards.end();) {
+        if (it->ownerKey == accountKey) {
+            m_eventCardOrder.removeOne(it.key());
+            it = m_eventCards.erase(it);
+            continue;
+        }
+        const qsizetype index = it->accounts.indexOf(uid);
+        if (index >= 0) {
+            it->accounts.removeAt(index);
+            if (index < it->labels.size())
+                it->labels.removeAt(index);
+        }
+        ++it;
+    }
+}
+
+bool NotificationManager::hasCardsFor(const QString &accountKey) const
+{
+    const auto own = m_tables.constFind(accountKey);
+    if (own != m_tables.cend()
+        && (!own->pendingPayloads.isEmpty() || !own->groups.isEmpty()))
+        return true;
+    const auto ofAccount = [&accountKey](const auto &waiting) {
+        return waiting.accountKey == accountKey;
+    };
+    return std::any_of(m_avatarWaits.cbegin(), m_avatarWaits.cend(), ofAccount)
+        || std::any_of(m_capabilityWaits.cbegin(), m_capabilityWaits.cend(),
+                       ofAccount)
+        || std::any_of(m_balloonQueue.cbegin(), m_balloonQueue.cend(), ofAccount)
+        || std::any_of(m_shownEntries.cbegin(), m_shownEntries.cend(), ofAccount)
+        || std::any_of(m_hostCardQueue.cbegin(), m_hostCardQueue.cend(),
+                       [&accountKey](const DeferredHostCard &waiting) {
+                           return waiting.card.accountKey == accountKey;
+                       });
+}
+
+void NotificationManager::observeRoomUnreadFor(const QString &accountUserId,
+                                               const QString &roomId,
+                                               bool unread)
+{
+    if (!m_liveAccountsMode || accountUserId.isEmpty() || roomId.isEmpty())
+        return;
+    const QString key = accountUserId + kKeySeparator + roomId;
+    if (unread) {
+        m_hostRoomsAwaitingUnread.remove(key);
+        m_hostRoomsCheckedAt.remove(key);
+        return;
+    }
+    // The foreground's tray walk asks this for every room on every refresh.
+    // A read room already checked since this account's latest card has
+    // nothing new to withdraw: two lookups (L14).
+    const quint64 generation = m_cardGeneration.value(accountUserId);
+    const auto checked = m_hostRoomsCheckedAt.constFind(key);
+    if (checked != m_hostRoomsCheckedAt.cend() && checked.value() == generation)
+        return;
+    // An account with nothing that could be withdrawn costs a lookup, not a
+    // withdrawal pass.
+    if (!hasCardsFor(accountUserId)) {
+        m_hostRoomsAwaitingUnread.remove(key);
+        m_hostRoomsCheckedAt.insert(key, generation);
+        return;
+    }
+    // As observeRoomUnread(): a "read" from before the card is not believed
+    // until the counts have shown the room unread, or a few seconds passed.
+    const auto awaiting = m_hostRoomsAwaitingUnread.constFind(key);
+    if (awaiting != m_hostRoomsAwaitingUnread.cend()
+        && nowMs() < awaiting.value())
+        return;
+    m_hostRoomsAwaitingUnread.remove(key);
+    m_hostRoomsCheckedAt.insert(key, generation);
+    ++m_hostUnreadPasses;
+    // That account's own room messages only; never the foreground's table,
+    // never thread replies or notices.
+    const int withdrawn = withdrawWhere(
+        accountUserId, [&roomId](const QVariantMap &payload) {
+            return payload.value(QStringLiteral("roomId")).toString() == roomId
+                && !payload.value(QStringLiteral("eventId")).toString()
+                        .isEmpty()
+                && payload.value(QStringLiteral("threadRootId")).toString()
+                        .isEmpty();
+        });
+    if (withdrawn > 0)
+        qCInfo(lcNotify) << "withdrew" << withdrawn
+                         << "background-account notification(s) for a room "
+                            "read elsewhere";
+}
+
+QString NotificationManager::eventCardTitleForTest(const QString &roomId,
+                                                   const QString &eventId) const
+{
+    const auto record =
+        m_eventCards.constFind(roomId + kKeySeparator + eventId);
+    if (record == m_eventCards.cend())
+        return QString();
+    return record->baseTitle + accountSuffix(record->labels);
+}
+
+QStringList NotificationManager::eventCardAccountsForTest(
+    const QString &roomId, const QString &eventId) const
+{
+    return m_eventCards.value(roomId + kKeySeparator + eventId).accounts;
+}
+
 void NotificationManager::closeRoomNotifications(const QString &roomId)
 {
     if (roomId.isEmpty())
@@ -1408,11 +2003,17 @@ int NotificationManager::withdrawWhere(
     };
     // And messages waiting behind the balloon on screen: a room that was
     // read, or a card withdrawn, is not news for the summary either.
+    // And a background account's card held by the rate limit (live
+    // accounts; that queue is empty otherwise).
     const qsizetype dropped = m_avatarWaits.removeIf(cardMatches)
         + m_capabilityWaits.removeIf(cardMatches)
         + m_balloonQueue.removeIf([&match, &accountKey](const Balloon &b) {
               return b.accountKey == accountKey && match(b.payload);
-          });
+          })
+        + m_hostCardQueue.removeIf(
+              [&cardMatches](const DeferredHostCard &waiting) {
+                  return cardMatches(waiting.card);
+              });
     // What the balloon on screen stands for, too: a break-through would
     // otherwise put a read room back into the summary.
     m_shownEntries.removeIf([&match, &accountKey](const Balloon &b) {
@@ -1424,6 +2025,8 @@ int NotificationManager::withdrawWhere(
                          << "notification(s) not shown yet";
         if (m_avatarWaits.isEmpty())
             m_avatarWaitTimer.stop();
+        if (m_hostCardQueue.isEmpty() && m_hostCardTimer)
+            m_hostCardTimer->stop();
     }
     QList<quint32> stale;
     {
@@ -1463,6 +2066,7 @@ int NotificationManager::withdrawWhere(
 void NotificationManager::recordPayload(const QString &accountKey, quint32 id,
                                         const QVariantMap &payload)
 {
+    noteCardFor(accountKey);
     if (m_tombstones.remove(id) > 0)
         m_tombstoneOrder.removeOne(id);
     // A daemon id names one card, so it is in one table only. Never true
@@ -1691,6 +2295,7 @@ void NotificationManager::closeNotification(quint32 id)
 
 void NotificationManager::deliver(Card card)
 {
+    noteCardFor(card.accountKey);
     if (!card.avatarMxc.startsWith(QLatin1String("mxc://")) || !m_avatarImage) {
         card.avatar = card.fallback;
         deliverNow(std::move(card));
@@ -2004,6 +2609,7 @@ bool NotificationManager::replacementStillOwned(const Card &card) const
 
 void NotificationManager::deliverNow(Card card)
 {
+    noteCardFor(card.accountKey);
     // Replacements wait too (avatar, capabilities, a Notify in flight). The
     // card may have been dismissed, withdrawn or superseded since: dropping
     // is right, and delivering would raise a NEW popup with no replace id.
@@ -2635,10 +3241,14 @@ void NotificationManager::emitOpenFor(const QVariantMap &payload)
         payload.value(QStringLiteral("roomId")).toString(),
         payload.value(QStringLiteral("threadRootId")).toString());
     // The account first, so a listener routing by account has it before the
-    // room-only signal that every existing listener follows.
+    // room-only signal that every existing listener follows. A card two live
+    // accounts share opens with the foreground one or the most recently used
+    // (live accounts only).
     Q_EMIT openRequestedForAccount(
-        payload.value(QStringLiteral("accountUserId")).toString(), roomId,
-        eventId, threadRootId);
+        m_liveAccountsMode
+            ? openAccountFor(payload)
+            : payload.value(QStringLiteral("accountUserId")).toString(),
+        roomId, eventId, threadRootId);
     Q_EMIT openRequested(roomId, eventId, threadRootId);
 }
 

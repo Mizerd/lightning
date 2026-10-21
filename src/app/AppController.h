@@ -40,12 +40,16 @@
 #include "notifications/InviteNoticeTracker.h"
 #include "notifications/NotificationManager.h"
 #include "accounts/RevocationProofs.h"
+#include "models/AccountActivityModel.h"
+#include "models/AccountListModel.h"
 #include "app/NotificationNotices.h"
 #include "text/SpellChecker.h"
 
+#include <QElapsedTimer>
 #include <QTimer>
 
 #include <functional>
+#include <optional>
 #include <vector>
 #include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
@@ -121,6 +125,9 @@ class MouseNavigationFilter;
 
 class MatrixClient;
 class NotificationManager;
+namespace lightning::accounts {
+class SessionPool;
+}
 class QQuickItem;
 class QQuickWindow;
 class QSettings;
@@ -330,6 +337,28 @@ class AppController : public QObject
     Q_PROPERTY(ImageCropper* imageCrop READ imageCrop CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
+    // ── Concurrent live accounts (Labs) ──
+    // True unless LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off (set to
+    // 0/false/off/no or empty; a test override, read once at construction).
+    // The Labs card shows while it is true; the stored labsConcurrentAccounts
+    // switch is what turns live accounts on.
+    Q_PROPERTY(bool liveAccountsLabsAvailable READ liveAccountsLabsAvailable
+               CONSTANT)
+    // The setting, the (not forced off) override and the Rust bridge all say yes, and the
+    // background accounts' pool exists. False is today's behaviour exactly.
+    Q_PROPERTY(bool liveAccountsActive READ liveAccountsActive
+               NOTIFY liveAccountsActiveChanged)
+    // Null unless liveAccountsActive.
+    Q_PROPERTY(AccountActivityModel* accountActivity READ accountActivity
+               NOTIFY liveAccountsActiveChanged)
+    Q_PROPERTY(AccountListModel* accountList READ accountList
+               NOTIFY liveAccountsActiveChanged)
+    // The foreground plus every Starting or Running background account; 0
+    // while live accounts are off.
+    Q_PROPERTY(int liveAccountCount READ liveAccountCount
+               NOTIFY liveAccountCountChanged)
+    Q_PROPERTY(int maxLiveAccounts READ maxLiveAccounts CONSTANT)
+    Q_PROPERTY(int maxPinnedAccounts READ maxPinnedAccounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
     /// Every joined room with no Space filter, for room pickers such as
     /// forwarding. `roomList` shows only the active Space's rooms.
@@ -664,6 +693,18 @@ public:
     ImageCropper *imageCrop() { return &m_imageCrop; }
     AuthManager *auth() const;
     AccountManager *accounts() const;
+    bool liveAccountsLabsAvailable() const
+    { return m_liveAccountsLabsAvailable; }
+    bool liveAccountsActive() const { return m_sessionPool != nullptr; }
+    AccountActivityModel *accountActivity() const
+    { return m_accountActivity.get(); }
+    AccountListModel *accountList() const { return m_accountList.get(); }
+    int liveAccountCount() const { return m_liveAccountCount; }
+    int maxLiveAccounts() const;
+    int maxPinnedAccounts() const;
+    // "Keep running in the background" for one saved account (the pin). ""
+    // on success, else a translated refusal for the card to show inline.
+    Q_INVOKABLE QString setAccountKeepRunning(const QString &userId, bool on);
     RoomListModel *roomList() const;
     RoomListModel *allRooms() const;
     SpaceChannelModel *spaceChannels() const;
@@ -763,6 +804,21 @@ public:
     // Test seam: no notification daemon under offscreen runs.
     NotificationManager *notificationsForTest() const
     { return m_notifications.get(); }
+    // Live accounts (Labs) test seams. Null / empty while it is off.
+    lightning::accounts::SessionPool *sessionPoolForTest() const
+    { return m_sessionPool.get(); }
+    const lightning::accounts::RevocationProofs &revocationProofsForTest() const
+    { return m_revocationProofs; }
+    // Every Labs step taken, in order ("removal:1 @uid" ...), so a test can
+    // assert an ORDER rather than only an outcome.
+    QStringList liveAccountsStepsForTest() const { return m_liveAccountsSteps; }
+    // The quit budget the background accounts share with the foreground's
+    // (RustSdkMatrixClient::kStoreCloseBudgetMs outside tests).
+    void setLiveAccountsQuitBudgetMsForTest(int ms)
+    { m_liveAccountsQuitBudgetMs = ms; }
+    // How long a notification open for another account waits for its rooms.
+    void setParkedOpenTimeoutMsForTest(int ms) { m_parkedOpenTimeoutMs = ms; }
+    bool hasParkedOpenForTest() const { return m_parkedOpen.has_value(); }
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     OpenRoomPermissions *openRoomPermissions() const
@@ -1301,6 +1357,10 @@ Q_SIGNALS:
     void appIconChanged();
     void initialSyncDoneChanged();
     void accountSwitchingChanged();
+    // Live accounts (Labs) turned on or off: liveAccountsActive and both
+    // models.
+    void liveAccountsActiveChanged();
+    void liveAccountCountChanged();
     void keyringUnavailableChanged();
     void ownDisplayNameStateChanged();
     void ownAvatarStateChanged();
@@ -1477,8 +1537,62 @@ private:
     // Delete every local trace of a resolved account (SDK store, account
     // directory, cache.sqlite, starred GIFs, bridge labels). Shared by both
     // removal paths. Logs deleted, absent and failed distinctly.
-    // True when everything it tried to remove is gone.
-    bool removeAccountLocalState(const matrix::app_data::AccountIdentity &identity);
+    // True when everything it tried to remove is gone. `*refused` (when
+    // given) is set when the store registry refused the deletion: then
+    // NOTHING was deleted, which is not the same as a partial removal, and
+    // the caller keeps the record (only possible while live accounts
+    // enforce the registry; without them it is always false).
+    bool removeAccountLocalState(const matrix::app_data::AccountIdentity &identity,
+                                 bool *refused = nullptr);
+    // removeAccountLocalState() without its pool-wide retirement wait: the
+    // store's own release was already awaited (a live background account's
+    // latch). Asks the store registry first and deletes nothing on a refusal.
+    bool removeAccountLocalStateFiles(
+        const matrix::app_data::AccountIdentity &identity,
+        bool *refused = nullptr);
+
+    // ── Concurrent live accounts (Labs). Nothing here runs while
+    // liveAccountsActive() is false; every caller checks m_sessionPool. ──
+    // Turns live accounts on or off to match the setting, the test override
+    // and the bridge.
+    void applyLiveAccountsLabs();
+    void startLiveAccounts();
+    void stopLiveAccounts();
+    // The foreground facts the pool reads (it never reads m_client).
+    void feedLiveAccountsForeground();
+    void refreshLiveAccountCount();
+    // The click path: free `target`'s store from its background host, then
+    // run today's switch. True when the switch now waits for that release.
+    bool beginLiveAccountSwitch(const QString &target);
+    // A notification for another account: park the open and switch to it.
+    // True when the open was claimed (the room-only handler must skip it).
+    bool claimCrossAccountOpen(const QString &accountUserId,
+                               const QString &roomId, const QString &eventId,
+                               const QString &threadRootId);
+    void tryFireParkedOpen();
+    void cancelParkedOpenFor(const QString &accountUserId);
+    // Removal of a live background account (DECISION 7, §9.2 order).
+    void removeLiveBackgroundAccount(const QString &userId);
+    // Steps 4-6 once the pool has signed it out and released its store.
+    void finishLiveBackgroundRemoval(
+        const QString &userId,
+        const matrix::app_data::AccountIdentity &identity, bool resolved,
+        bool storeFree, int serverSignOut);
+    void onLiveSwitchReleased(const QString &target, int result);
+    // A release answered Free but today's switch then refused: the pool is
+    // told, so the account may run in the background again.
+    void abandonLiveRelease(const QString &userId);
+    void endLiveSwitchWithoutSession();
+    void cancelLiveSwitchRelease();
+    // A failed switch falls back to an account that started running in the
+    // background meanwhile: its store is freed first (failAccountSwitch()).
+    void finishFallbackRelease(const QString &fallback, int result);
+    // A removal that did not finish: the account's badge row may be fed
+    // again (AccountActivityModel tombstones it at step 1).
+    void reopenLiveAccountActivity(const QString &userId);
+    void onHostSignInExpired(const QString &userId);
+    QString liveAccountLabel(const QString &userId) const;
+    void noteLiveAccountsStep(const QString &step, const QString &userId);
     // Which of the directories that removal deletes are still there.
     QStringList accountRemovalLeftoversFor(
         const matrix::app_data::AccountIdentity &identity) const;
@@ -1654,6 +1768,60 @@ private:
     // it yet. Process memory only, never persisted. Declared BEFORE m_client
     // so it is destroyed after the client that points at it.
     lightning::accounts::RevocationProofs m_revocationProofs;
+    // ── Concurrent live accounts (Labs) ── All null, empty or false while
+    // live accounts are off, which is today's behaviour. Released explicitly
+    // in ~AppController (after the pool's quit wait), before any member it
+    // points at.
+    bool m_liveAccountsLabsAvailable = false;
+    // Wall-clock ms at construction: the background backlog floor's base.
+    qint64 m_appStartWallMs = 0;
+    std::unique_ptr<AccountActivityModel> m_accountActivity;
+    std::unique_ptr<AccountListModel> m_accountList;
+    std::unique_ptr<lightning::accounts::SessionPool> m_sessionPool;
+    // What a runtime off released with deleteLater(), until that runs: a
+    // quit on the same turn deletes them in ~AppController instead, while
+    // what they point at is still alive. Null once deleted.
+    QPointer<QObject> m_retiredLivePool;
+    QPointer<QObject> m_retiredAccountList;
+    QPointer<QObject> m_retiredAccountActivity;
+    // A runtime off is retiring the hosts; a new on waits for it.
+    bool m_liveAccountsStopping = false;
+    bool m_liveAccountsQuitBegun = false;
+    QElapsedTimer m_liveAccountsQuitTimer;
+    int m_liveAccountsQuitBudgetMs = 15000;
+    int m_liveAccountCount = 0;
+    // The uid last handed to SessionPool::setForegroundUserId.
+    QString m_liveAccountsForeground;
+    // The click path's release in flight, and the target it freed.
+    quint64 m_liveSwitchTicket = 0;
+    QString m_liveSwitchTarget;
+    QString m_liveSwitchReleased;
+    // A failed switch's fallback account being freed from its background
+    // host (failAccountSwitch()), and that account.
+    quint64 m_liveFallbackTicket = 0;
+    QString m_liveFallbackTarget;
+    // A notification open for another account, waiting for its rooms.
+    struct ParkedOpen {
+        QString userId;
+        QString roomId;
+        QString eventId;
+        QString threadRootId;
+        quint64 epoch = 0;
+    };
+    std::optional<ParkedOpen> m_parkedOpen;
+    std::unique_ptr<QTimer> m_parkedOpenTimer;
+    int m_parkedOpenTimeoutMs = 30000;
+    // The open openRequestedForAccount just claimed; the room-only handler
+    // that follows on the same click skips exactly this one.
+    struct ClaimedOpen {
+        QString roomId;
+        QString eventId;
+        QString threadRootId;
+    };
+    std::optional<ClaimedOpen> m_claimedOpen;
+    // Live background accounts being removed; a second click waits.
+    QSet<QString> m_liveRemovals;
+    QStringList m_liveAccountsSteps;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;

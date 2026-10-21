@@ -180,6 +180,12 @@ constexpr const char *kComponents[] = {
     // the invited room's card (B037). Empty defaults, read no `app` at load.
     "LeaveRoomConfirmDialog",
     "InvitePreviewCard",
+    // Live accounts (Labs, 2026-10-16): the hidden Settings card, the badge
+    // rule and the per-account activity feed. Each reads `app` guarded and
+    // renders nothing with Labs off.
+    "LabsConcurrentAccountsCard",
+    "AccountActivityBadge",
+    "AccountActivityFeed",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

@@ -1393,6 +1393,175 @@ Window {
         QCOMPARE(m_controller->currentScreen(), AppController::MainScreen);
         QVERIFY(auth->isLoggedIn());
     }
+
+    // Live accounts (Labs): the activity badge that replaced the unread chip
+    // is held to the same rule as every other row state — it cannot change a
+    // row's height — and it renders only on an inactive row of a running
+    // account. Standalone (its own scene); it uses none of the scenario
+    // above.
+    void anActivityBadgeCannotChangeARowsHeight()
+    {
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 400
+    property alias plain: plain
+    property alias badged: badged
+    property alias dotted: dotted
+    IdentityCard {
+        id: plain
+        rowHeight: 44
+        displayName: "Mizerd"
+        userId: "@mizerd:matrix.org"
+    }
+    IdentityCard {
+        id: badged
+        rowHeight: 44
+        displayName: "A rather long display name that will not fit"
+        userId: "@mizerd:matrix.smetonis.net"
+        liveState: AccountActivityModel.Running
+        mentionCount: 128
+        mentionsLowerBound: true
+        needsSignIn: true
+    }
+    IdentityCard {
+        id: dotted
+        rowHeight: 44
+        displayName: "Dot"
+        userId: "@dot:matrix.org"
+        liveState: AccountActivityModel.Running
+        activityDot: true
+    }
+}
+)QML"), QUrl(QStringLiteral("activityrowheight.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        if (auto *sceneItem = qobject_cast<QQuickItem *>(scene.data()))
+            sceneItem->setParentItem(m_window->contentItem());
+        auto *plain = qvariant_cast<QQuickItem *>(scene->property("plain"));
+        auto *badged = qvariant_cast<QQuickItem *>(scene->property("badged"));
+        auto *dotted = qvariant_cast<QQuickItem *>(scene->property("dotted"));
+        QVERIFY(plain && badged && dotted);
+        for (QQuickItem *card : { plain, badged, dotted })
+            card->setWidth(296);
+        // A hovered row fades its badge for the remove button; the earlier
+        // pointer cases may have left the cursor over these rows.
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 2, m_window->height() - 2));
+        QTest::qWait(60);
+
+        auto badgeIn = [](QQuickItem *card) -> QQuickItem * {
+            for (QQuickItem *child : card->findChildren<QQuickItem *>()) {
+                if (child->objectName()
+                        == QStringLiteral("identityCardActivityBadge"))
+                    return child;
+            }
+            return nullptr;
+        };
+        QVERIFY(badgeIn(plain) && !badgeIn(plain)->isVisible());
+        QVERIFY(badgeIn(badged) && badgeIn(badged)->isVisible());
+        QCOMPARE(badgeIn(badged)->property("text").toString(), QStringLiteral("99+"));
+        QVERIFY(badgeIn(dotted) && badgeIn(dotted)->isVisible());
+        QVERIFY(badgeIn(dotted)->property("dotOnly").toBool());
+
+        QCOMPARE(plain->implicitHeight(), qreal(44));
+        QCOMPARE(badged->implicitHeight(), plain->implicitHeight());
+        QCOMPARE(dotted->implicitHeight(), plain->implicitHeight());
+        // The badge fits the row it sits in.
+        for (QQuickItem *card : { badged, dotted }) {
+            QQuickItem *badge = badgeIn(card);
+            const QRectF rowRect(card->mapToScene(QPointF(0, 0)), card->size());
+            const QRectF mark(badge->mapToScene(QPointF(0, 0)), badge->size());
+            QVERIFY2(rowRect.contains(mark),
+                     qPrintable(QStringLiteral("the badge (%1 px tall) leaves "
+                                               "a %2 px row")
+                                    .arg(mark.height()).arg(rowRect.height())));
+        }
+    }
+
+    // Labs: the widest badge ("99+") on an inactive row, where the remove
+    // button's slot is also held, still leaves the id whole at the real
+    // content width — the id is the only thing telling apart two accounts
+    // with the same display name. And hovering the row FADES the badge
+    // (opacity) rather than hiding it, so the id does not re-elide under the
+    // cursor (the sibling of
+    // revealingTheRemoveXDoesNotReElideTheIdUnderThePointer). The badge is
+    // not announced on its own: the row's description already says it.
+    void aBadgedRowKeepsItsIdWholeAndStillUnderThePointer()
+    {
+        if (auto *menu = find(QStringLiteral("menu"))) {
+            QMetaObject::invokeMethod(menu, "close");
+            QTRY_VERIFY(!menu->property("opened").toBool());
+        }
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 200
+    property alias row: row
+    IdentityCard {
+        id: row
+        rowHeight: 44
+        active: false
+        displayName: "Mizerd"
+        userId: "@mizerd:matrix.smetonis.net"
+        liveState: AccountActivityModel.Running
+        mentionCount: 128
+    }
+}
+)QML"), QUrl(QStringLiteral("badgedidwidth.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        auto *sceneItem = qobject_cast<QQuickItem *>(scene.data());
+        QVERIFY(sceneItem);
+        sceneItem->setParentItem(m_window->contentItem());
+        auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
+        QVERIFY(row);
+        row->setWidth(328); // 352 popover - 2 x 12 padding
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 2,
+                                          m_window->height() - 2));
+        QTRY_VERIFY(!row->property("pointerWithin").toBool());
+
+        auto *badge = row->findChild<QQuickItem *>(
+            QStringLiteral("identityCardActivityBadge"));
+        QVERIFY(badge);
+        QTRY_VERIFY(badge->isVisible());
+        QCOMPARE(badge->property("text").toString(), QStringLiteral("99+"));
+        QQmlExpression ignored(qmlContext(badge), badge,
+                               QStringLiteral("Accessible.ignored"));
+        QVERIFY2(ignored.evaluate().toBool(),
+                 "the row's description already carries the badge's words");
+
+        auto *id = qvariant_cast<QQuickItem *>(row->property("identityLabel"));
+        QVERIFY(id);
+        QTRY_VERIFY(id->width() > 0);
+        QVERIFY2(!id->property("truncated").toBool(),
+                 qPrintable(QStringLiteral(
+                     "'@mizerd:matrix.smetonis.net' is elided at %1 px beside "
+                     "a 99+ badge (needs %2)").arg(id->width())
+                        .arg(id->property("contentWidth").toReal())));
+        const qreal restWidth = id->width();
+
+        const QPoint onRow = row->mapToScene(
+            QPointF(row->width() * 0.3, row->height() * 0.5)).toPoint();
+        QTest::mouseMove(m_window, onRow);
+        QTRY_VERIFY(row->property("pointerWithin").toBool());
+        QTRY_VERIFY(qFuzzyIsNull(badge->opacity()));
+        QTest::qWait(60);
+        QVERIFY2(badge->isVisible(), "the badge must keep its slot on hover");
+        QVERIFY2(qFuzzyCompare(id->width(), restWidth),
+                 qPrintable(QStringLiteral(
+                     "the id column is %1 px at rest and %2 px under the "
+                     "pointer — the badge's fade reflowed the row")
+                        .arg(restWidth).arg(id->width())));
+
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 2,
+                                          m_window->height() - 2));
+        QTRY_COMPARE(badge->opacity(), qreal(1));
+        sceneItem->setParentItem(nullptr);
+    }
 };
 
 int main(int argc, char *argv[])

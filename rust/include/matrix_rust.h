@@ -2322,6 +2322,99 @@ int mx_rust_supports_e2ee(void *client);
 
 void mx_rust_free_cstring(char *ptr);
 
+/* ---- Labs: concurrent live accounts (rust/src/labs.rs, rust/src/bgsession.rs) ---------------- */
+/*
+ * Design: live accounts (Labs) Phase 1, interface contract §3. All char* results are freed with
+ * mx_rust_free_cstring; "" = accepted, "error: ..." = refused. Every FFI below except
+ * mx_rust_labs_enable / mx_rust_labs_active / mx_rust_store_any_held / mx_rust_handle_serial /
+ * mx_rust_take_custody refuses ("error: ...", -1 or NULL) a handle that is not Background.
+ * None is called while Labs is off.
+ *
+ * On a Background handle mx_rust_set_presence returns
+ * "error: background handle publishes no presence" (DECISION 2), and mx_rust_set_receipt_privacy,
+ * mx_rust_search_index_all_hold and mx_rust_calls_set_media_capable are refused: the profile
+ * fixes them.
+ */
+
+/* Sets labs::ACTIVE. Idempotent; never cleared in-process. */
+void mx_rust_labs_enable(void);
+/* 1 when labs::ACTIVE, else 0. */
+int  mx_rust_labs_active(void);
+
+/* Monotonic per-process serial assigned at create (never an address). 0 for NULL. */
+unsigned long long mx_rust_handle_serial(void *client);
+
+/* A Background handle for an EXISTING account store. NULL when labs is not active or the profile
+ * is invalid. Nothing is created on disk: a store directory that does not exist is refused by the
+ * restore as crypto_account_missing. Mode is Background for the handle's life (Phase 1).
+ * Restore it with mx_rust_restore / mx_rust_oauth_restore exactly as today; the reservation and
+ * the crypto precheck run inside that restore (login_failed with "stage":"store" and "reason"
+ * store_in_use | crypto_account_missing | crypto_account_mismatch, set from the refusal itself and
+ * never from message text). profile_json: contract §3.1:
+ *   {"v":1, "slot":"b0", "require_account":{"user_id":"@u:hs","device_id":"DEV"},
+ *    "strict_trust":false, "receipt_privacy":2, "index_all_hold":4294967295,
+ *    "floor_ms":1760000000000, "local_rule_rooms":["!r:hs"], "max_blocking_threads":8,
+ *    "sqlite":"low_memory", "retry_limit":3, "max_retry_time_ms":30000, "watch_cap":200}
+ * Unknown keys are ignored; a missing required key (all but local_rule_rooms), a wrong type or an
+ * out-of-range value gives NULL. slot is [a-z0-9]{1,4}. */
+void *mx_rust_create_background(const char *store_path, const char *profile_json);
+
+/* One tick's state, no allocation. Returns 0, or -1 for NULL / not Background. */
+typedef struct mx_rust_bg_status {
+    unsigned long long session_state_version; /* bumps when any sticky Session type changes */
+    unsigned long long token_generation;      /* bumps on every observed token change */
+    unsigned long long notable_updates_total; /* monotonic count of notable room updates */
+    unsigned int queued_events;               /* bulk queue length */
+    unsigned int queued_commands;             /* command lane length */
+    int dirty;                                /* 1: mx_rust_bg_take has something */
+    int revoked;                              /* 1: UnknownToken seen (sticky) */
+} mx_rust_bg_status;
+int mx_rust_bg_poll(void *client, mx_rust_bg_status *out);
+
+/* Clears `dirty` and returns the summary JSON (contract §3.2):
+ *   {"v":1,"seq":N,"baseline":bool,"rescan":bool,"counts":[["!room:hs",unread,highlight,flags],...],
+ *    "rows":[],"invites":N}
+ * counts is the WHOLE table (every non-space joined room with any non-zero value; no cap). flags:
+ * 1 has_unread, 2 marked_unread, 4 threads_only, 8 mention_in_threads, 16 encrypted,
+ * 32 encryption_known, 64 lower_bound. max_rows 0 = counts only (Phase 1; rows is always []). */
+char *mx_rust_bg_take(void *client, unsigned int max_rows);
+
+/* The Session sticky slot (contract §3.3): {"v":1,"version":N,"state":{"<type>":payload,...}}.
+ * crypto_bootstrap is kept per kind: "crypto_bootstrap":{"<kind>":payload,...}. Every payload
+ * carries "_v": the slot version at which it was written, so entries of different types can be
+ * ordered (a sync_error is current only if its _v is above room_list_sync_state's). login_ok and
+ * login_failed replace each other; room_list_sync_state "running" removes sync_error and
+ * sync_stalled; verification_request_received leaves on its requester's verification_cancelled
+ * or 10 minutes after it arrived. sync_error carries "rate_limited" (and "retry_after_ms" when
+ * the server sent one), from the error's kind and HTTP status. Never carries a token or secret. */
+char *mx_rust_bg_take_session_state(void *client);
+
+/* Replaces the local-rule room set: rooms_json = ["!a:x", ...]. */
+char *mx_rust_bg_set_local_rules(void *client, const char *rooms_json);
+
+/* send_queue().set_enabled(enabled != 0), spawned on the handle runtime; "" when dispatched. */
+char *mx_rust_bg_set_send_queue_enabled(void *client, int enabled);
+
+/* SENSITIVE. Live custody: final_session_tokens() plus the revoked flag (contract §3.4). The
+ * facts are read BEFORE the tokens, so "generation" is never newer than the tokens it comes with:
+ * a host that sees the generation move must take custody again.
+ *   {"v":1,"has_session":bool,"access_token":str|null,"refresh_token":str|null,"generation":N,
+ *    "revoked":bool,"revoked_kind":"none"|"unknown_token","soft_logout":bool|null,
+ *    "had_refresh_token":bool|null,"ledger_generation":N}
+ * "ledger_generation" is the newest rotation the handle's token ledger recorded (read before
+ * everything else): once the pair is in the keyring the host answers it with
+ * mx_rust_session_tokens_persisted, which releases that rotation's wait inside matrix-sdk's
+ * refresh (sessiontokens.rs). A Background handle's rotations bump "generation" inside the
+ * refresh, before that wait, and mx_rust_bg_poll counts as a drain for DRAIN_STALL.
+ * "" when the handle has no client. Works on any handle. Never log the result. */
+char *mx_rust_take_custody(void *client);
+
+/* 1 while any reservation, live store probe or client of this store directory is alive in the
+ * process (storeclose::any_held, reservations included); 0 when free (a directory that does not
+ * exist is free); -1 for a bad path. The path is resolved to the same identity as the
+ * reservation: (st_dev, st_ino) on Unix, the canonical path elsewhere. */
+int mx_rust_store_any_held(const char *store_path);
+
 #ifdef __cplusplus
 }
 #endif

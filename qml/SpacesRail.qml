@@ -118,11 +118,26 @@ Rectangle {
     readonly property int selfDotSize: AppTheme.scaled(13)
     /// Matches PresenceDot's 2px inset of its state disc.
     readonly property int selfDotRing: 2
-    readonly property real selfDotMargin:
-        railTileSize
-        - (railTileSize / 2
-           + (railTileSize / 2 + selfDotSize / 2 - selfDotRing) / Math.SQRT2
-           + selfDotSize / 2)
+    /// The account tile's "other accounts have new messages" dot (Labs). Smaller
+    /// than the presence badge so the two never read as one control, and on the
+    /// opposite (top-right) end of the same rim.
+    readonly property int otherAccountsDotSize: AppTheme.scaled(10)
+    readonly property real selfDotMargin: rimDotMargin(selfDotSize)
+    /// The same rule as the self badge, mirrored to the top-right: centre at
+    /// avatarR + dotR - ring on the 45° diagonal, so the dot sits ON the
+    /// avatar's rim with only its ring over the picture, not in the tile's
+    /// empty corner.
+    readonly property real otherAccountsDotMargin:
+        rimDotMargin(otherAccountsDotSize)
+    /// Anchor margin, from a tile corner, that puts a `dotSize` disc on the
+    /// avatar's rim (see selfDotSize). Negative when the disc pokes past the
+    /// tile's square, which is intended.
+    function rimDotMargin(dotSize) {
+        return railTileSize
+            - (railTileSize / 2
+               + (railTileSize / 2 + dotSize / 2 - selfDotRing) / Math.SQRT2
+               + dotSize / 2)
+    }
     /// A plate behind the chevron, resting and hovered, so it reads as a control
     /// rather than a stray mark. Square and sized for the wider of the two
     /// glyphs: expand_more and chevron_right have transposed ink boxes, so any
@@ -1827,6 +1842,38 @@ Rectangle {
                 Accessible.name: app.connectionStatus === qsTr("Connected")
                                  ? qsTr("Connected to your homeserver")
                                  : qsTr("Not connected to your homeserver")
+            }
+
+            // Labs (concurrent accounts): new messages on another account
+            // that is running in the background. A dot, never a number: the
+            // rail cannot say which account, the switcher does. On the
+            // avatar's rim at the top-right, by the presence dot's own rule
+            // mirrored, so the two sit on opposite ends of one diagonal; the
+            // geometric case in AccountBadgesQmlTest holds both.
+            // `otherAccountsWithActivity` is a NOTIFY property, so this is an
+            // ordinary binding; with Labs off `app.accountActivity` is null and
+            // the dot never shows.
+            readonly property int otherAccountsWithActivity:
+                app.accountActivity
+                ? app.accountActivity.otherAccountsWithActivity : 0
+            Rectangle {
+                id: railOtherAccountsDot
+                objectName: "railOtherAccountsDot"
+                visible: railAccount.otherAccountsWithActivity > 0
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.rightMargin: root.otherAccountsDotMargin
+                anchors.topMargin: root.otherAccountsDotMargin
+                width: root.otherAccountsDotSize
+                height: root.otherAccountsDotSize
+                radius: height / 2
+                color: AppTheme.unreadBadge
+                border.color: AppTheme.rail
+                border.width: root.selfDotRing
+                Accessible.role: Accessible.Indicator
+                Accessible.ignored: !visible
+                Accessible.name: qsTr("Accounts — new messages on %n other account(s)",
+                                      "", railAccount.otherAccountsWithActivity)
             }
 
             HoverHandler { id: accountHover }

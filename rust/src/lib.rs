@@ -4,7 +4,7 @@
 //! owns the Matrix SDK client, Tokio runtime, and SDK SQLite store.
 
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     ffi::{c_char, c_uchar, CStr, CString},
     fs::OpenOptions,
     io::Write,
@@ -88,6 +88,8 @@ mod discover;
 mod gifs;
 mod ignore;
 mod iotrace;
+mod labs;
+mod bgsession;
 mod pushrules;
 mod imagesend;
 mod linkmedia;
@@ -178,6 +180,24 @@ fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool
 
 struct RustClient {
     store_path: PathBuf,
+    /// Monotonic per-process serial (labs.rs), never an address: the owner of
+    /// this handle's store reservation and probes while Labs is on.
+    serial: u64,
+    /// What the token task observed (rotations, revocation), for
+    /// `mx_rust_take_custody`. Facts only; the tokens are read live.
+    custody: Arc<labs::CustodyFacts>,
+    /// `Some` for a Background handle (`mx_rust_create_background`, Labs):
+    /// its profile, gate, sticky slot and aggregator. `None` for every
+    /// `mx_rust_create` handle, so the flag-off path never meets it.
+    bg: Option<Arc<bgsession::BgState>>,
+    /// Set by the first `shutdown_managed_tasks` that clears this account's
+    /// process-wide RTC marks and remembered previews. Teardown runs twice
+    /// (the FFI, then `Drop` in the retirement pool, possibly much later), and
+    /// by the second run a NEWER handle of the same account may own those
+    /// marks: the per-account clear must run once per bridge (review
+    /// 2026-10-16, finding 7). A bridge is not restored after its shutdown
+    /// (`index_shutdown` and `verification_shutdown` never reset either).
+    account_state_forgotten: AtomicBool,
     /// Process-unique id of this bridge. Lifecycle numbers restart at every
     /// bridge, so "already reported in this lifecycle" must name the bridge
     /// too (`recovery::interrupted_setup_to_report`).
@@ -338,16 +358,37 @@ struct RustClient {
 
 impl RustClient {
     fn new(store_path: PathBuf) -> Result<Self, String> {
+        Self::new_with(store_path, None)
+    }
+
+    /// `profile`: a Background handle's (Labs). Its shared runtime is named
+    /// `lt-sdk-<slot>` with a bounded blocking pool; `None` is exactly today's
+    /// runtime.
+    fn new_with(store_path: PathBuf, profile: Option<&labs::Profile>) -> Result<Self, String> {
         let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("lightning-sdk")
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.worker_threads(2);
+        match profile {
+            Some(profile) => {
+                builder
+                    .thread_name(labs::thread_name("sdk", &profile.slot))
+                    .max_blocking_threads(profile.max_blocking_threads);
+            }
+            None => {
+                builder.thread_name("lightning-sdk");
+            }
+        }
+        let runtime = builder
             .enable_all()
             .build()
             .map_err(|err| format!("failed to create shared Tokio runtime: {err}"))?;
         let index_all = Arc::new(indexall::Control::new(&store_path));
         Ok(Self {
             store_path,
+            serial: labs::next_handle_serial(),
+            custody: Arc::new(labs::CustodyFacts::default()),
+            bg: None,
+            account_state_forgotten: AtomicBool::new(false),
             bridge_id: recovery::next_bridge_id(),
             search_index: Arc::new(Mutex::new(None)),
             index_shutdown: Arc::new(AtomicBool::new(false)),
@@ -413,6 +454,59 @@ impl RustClient {
             lane: Arc::clone(&self.command_events),
             events: Arc::clone(&self.events),
         }
+    }
+
+    /// Whether this is a Background handle (Labs). False for every
+    /// `mx_rust_create` handle.
+    fn is_background(&self) -> bool {
+        self.bg.as_ref().is_some_and(|bg| bg.is_background())
+    }
+
+    /// What this handle's store opens must enforce (labs.rs). `None` while the
+    /// store guards are off, so the open runs exactly as before.
+    fn open_context(&self) -> Option<Arc<labs::OpenContext>> {
+        if !labs::store_guards_active() {
+            return None;
+        }
+        let profile = self.bg.as_ref().map(|bg| &bg.profile);
+        Some(Arc::new(labs::OpenContext {
+            serial: self.serial,
+            require_account: profile.map(|p| (p.user_id.clone(), p.device_id.clone())),
+            low_memory_sqlite: profile.is_some_and(|p| p.low_memory_sqlite),
+            request_limits: profile.map(|p| (p.retry_limit, p.max_retry_time_ms)),
+            strict_trust: profile.map(|p| p.strict_trust),
+            refusal: Mutex::new(None),
+        }))
+    }
+
+    /// `lt-op-<slot>` for a Background handle's own threads (restore, login,
+    /// logout), so `/proc/self/task` attributes them (contract §3.1); `None`
+    /// (today's unnamed thread) otherwise.
+    fn op_thread_name(&self) -> Option<String> {
+        self.bg.as_ref().map(|bg| labs::thread_name("op", &bg.profile.slot))
+    }
+
+    /// Clear this account's process-wide RTC marks and remembered previews,
+    /// once per bridge (`account_state_forgotten`). Returns whether it ran.
+    fn forget_account_state_once(&self, identity: Option<(String, String)>) -> bool {
+        let Some((user_id, device_id)) = identity else { return false };
+        if self.account_state_forgotten.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        crate::rtc::forget_account_memberships_published(&user_id, &device_id);
+        if let Ok(user) = UserId::parse(user_id.as_str()) {
+            crate::previewbackfill::forget_user(&user);
+        }
+        true
+    }
+
+    /// This handle's account, from its client: (user id, device id).
+    fn account_identity(&self) -> Option<(String, String)> {
+        self.client.lock().ok().and_then(|guard| {
+            guard.as_ref().and_then(|client| {
+                Some((client.user_id()?.to_string(), client.device_id()?.to_string()))
+            })
+        })
     }
 
     /// A UIA challenge belongs to the session that raised it: at a session
@@ -529,7 +623,17 @@ impl RustClient {
         // session's created_ts, which peers read as "not a new joiner" and answer
         // with no media key. The leave path cannot do this reliably because it
         // needs a live client.
-        crate::rtc::forget_all_memberships_published();
+        //
+        // For THIS handle's (user, device) only (DECISION 11, design
+        // §3.2.10): another account's session may still be running, during a
+        // switch's overlap or as a Labs background account, and its marks are
+        // not this teardown's to clear. A handle with no client never
+        // published anything. The same holds for the blank-preview looks'
+        // remembered results, which are decrypted text in memory (R1-M8).
+        self.forget_account_state_once(self.account_identity());
+        if let Some(bg) = &self.bg {
+            bg.set_aggregator(None);
+        }
         self.index_shutdown.store(true, Ordering::Relaxed);
         if let Ok(mut guard) = self.search_index.lock() {
             *guard = None;
@@ -1302,7 +1406,17 @@ pub unsafe extern "C" fn mx_rust_destroy_and_report(ptr: *mut c_void) -> *mut c_
 /// refused, or the in-memory OAuth bootstrap handle, does not wait at all.
 fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
     let owner = &*bridge as *const RustClient as usize;
-    let probes = storeclose::snapshot(&bridge.store_path, owner);
+    // A probe a Labs reservation converted carries this handle's serial and is
+    // waited for by it alone; every other probe keeps the owner rule.
+    let probes = storeclose::snapshot_for(&bridge.store_path, owner, Some(bridge.serial));
+    // A Background handle's queues stay registered until its runtime is shut
+    // down: a task still finishing during the drop below still meets the
+    // Background gate (no token on its command lane, nothing UI-only queued),
+    // instead of the foreground path (§18 round 1, L12). Unregistered last.
+    let background_queues = bridge
+        .bg
+        .is_some()
+        .then(|| (Arc::clone(&bridge.events), Arc::clone(&bridge.command_events)));
     let runtime = Arc::clone(&bridge.runtime);
     {
         let _context = runtime.enter();
@@ -1323,6 +1437,9 @@ fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
             storeclose::RuntimeShutdown::Shared
         }
     };
+    if let Some((events, commands)) = background_queues {
+        bgsession::unregister(&events, &commands);
+    }
     storeclose::wait_released(
         &probes,
         std::time::Duration::from_millis(RETIRE_STORE_RELEASE_WAIT_MS),
@@ -1365,9 +1482,14 @@ pub unsafe extern "C" fn mx_rust_login(
         // Shared runtime: the SDK's post-login E2EE initialization task must
         // outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        let custody = Arc::clone(&bridge.custody);
+        // Labs: this handle's reservation (and, for a Background handle, the
+        // precheck, which refuses a login outright). None with the flag off.
+        let open_context = bridge.open_context();
+        spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
-            run_async_on(shared_runtime, runtime_events, "login", async move {
+            run_async_on(shared_runtime, runtime_events, "login",
+                labs::scope_open(open_context, async move {
                 match build_client(&homeserver, &store_path).await {
                     Ok(client) => {
                         // Before the login: every rotation goes through it.
@@ -1413,9 +1535,13 @@ pub unsafe extern "C" fn mx_rust_login(
                                 // Refreshable password sessions rotate like OAuth; persist the new pair.
                                 if let Ok(mut guard) = token_task.lock() {
                                     if let Some(previous) = guard.replace(
-                                        oauth::spawn_token_persistence(
-                                            &client, Arc::clone(&events),
-                                            Some(Arc::clone(&token_sink.ledger))))
+                                        oauth::spawn_token_persistence_custody(
+                                            &client,
+                                            client.subscribe_to_session_changes(),
+                                            Arc::clone(&events),
+                                            Some(Arc::clone(&token_sink.ledger)),
+                                            custody,
+                                        ))
                                     {
                                         previous.abort();
                                     }
@@ -1466,7 +1592,7 @@ pub unsafe extern "C" fn mx_rust_login(
                         }),
                     ),
                 }
-            });
+            }));
         });
 
         Ok(String::new())
@@ -1501,10 +1627,12 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        let open_context = bridge.open_context();
+        spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(
                 shared_runtime, runtime_events, "restore_from_file",
+                labs::scope_open(open_context,
                 switchtrace::restore_scope(switchtrace::switch_trace_enabled(), async move {
                 let stored = match read_persistent_session(&session_file) {
                     Ok(stored) => stored,
@@ -1591,7 +1719,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                         })),
                     ),
                 }
-            }));
+            })));
         });
 
         Ok(String::new())
@@ -1635,19 +1763,32 @@ pub unsafe extern "C" fn mx_rust_restore(
         let shared_runtime = Arc::clone(&bridge.runtime);
         let token_task = Arc::clone(&bridge.token_task);
         let token_sink = bridge.token_sink();
-        std::thread::spawn(move || {
+        let custody = Arc::clone(&bridge.custody);
+        // Labs: this handle's reservation, and for a Background handle the
+        // crypto precheck (design §3.2.6). None with the flag off.
+        let open_context = bridge.open_context();
+        // A Background handle's restore is bounded (labs::bound_background_restore):
+        // a runtime Labs-off and a quit wait for it. None with the flag off.
+        let background_restore = open_context
+            .as_ref()
+            .is_some_and(|context| context.require_account.is_some());
+        spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "restore",
+                labs::scope_open(open_context,
                 switchtrace::restore_scope(switchtrace::switch_trace_enabled(), async move {
-                match restore_client(
-                    &homeserver,
-                    &store_path,
-                    &user_id,
-                    &device_id,
-                    access_token,
-                    refresh_token,
-                    &events,
-                    Some(&token_sink),
+                match labs::bound_background_restore(
+                    background_restore,
+                    restore_client(
+                        &homeserver,
+                        &store_path,
+                        &user_id,
+                        &device_id,
+                        access_token,
+                        refresh_token,
+                        &events,
+                        Some(&token_sink),
+                    ),
                 )
                 .await
                 {
@@ -1664,9 +1805,9 @@ pub unsafe extern "C" fn mx_rust_restore(
                         // rotation the restore itself caused is still persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
-                                oauth::spawn_token_persistence_with(
+                                oauth::spawn_token_persistence_custody(
                                     &client, changes, Arc::clone(&events),
-                                    Some(Arc::clone(&token_sink.ledger))))
+                                    Some(Arc::clone(&token_sink.ledger)), custody))
                             {
                                 previous.abort();
                             }
@@ -1692,7 +1833,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                         })),
                     ),
                 }
-            }));
+            })));
         });
 
         Ok(String::new())
@@ -1718,7 +1859,7 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         // Pending verifications are cancelled in `shutdown_managed_tasks`, which
         // every teardown path runs before this FFI; the slots are empty here.
         if let Some(client) = client {
-            std::thread::spawn(move || {
+            spawn_session_thread(bridge.op_thread_name(), move || {
                 let runtime_events = Arc::clone(&events);
                 // The outcome is held here and announced only after `run_async` has
                 // returned, i.e. after this thread's Client clone AND its runtime are
@@ -1825,7 +1966,10 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let sync_client = client.clone();
         let sync_search_index = Arc::clone(&bridge.search_index);
         let sync_notify = Arc::clone(&bridge.sync_notify);
-        let thread = std::thread::spawn(move || {
+        let bg_slot = bridge.bg.as_ref().map(|bg| bg.profile.slot.clone());
+        let thread = spawn_session_thread(
+            bg_slot.as_deref().map(|slot| labs::thread_name("sync", slot)),
+            move || {
             let _done = done_tx;
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
@@ -1893,7 +2037,9 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let observer_notify = Arc::clone(&bridge.sync_notify);
                 let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
                 let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-                let thread = std::thread::spawn(move || {
+                let thread = spawn_session_thread(
+                    bg_slot.as_deref().map(|slot| labs::thread_name("boot", slot)),
+                    move || {
                     let _done = done_tx;
                     let runtime_events = Arc::clone(&observer_events);
                     run_async(runtime_events, "crypto_bootstrap", async move {
@@ -1912,6 +2058,21 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             }
         }
     }));
+}
+
+/// A session thread. Named `lt-<kind>-<slot>` for a Background handle (no
+/// PII; `/proc/self/task` attributes it), unnamed as before otherwise.
+pub(crate) fn spawn_session_thread<F>(name: Option<String>, body: F) -> std::thread::JoinHandle<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    match name {
+        Some(name) => std::thread::Builder::new()
+            .name(name)
+            .spawn(body)
+            .expect("failed to spawn a session thread"),
+        None => std::thread::spawn(body),
+    }
 }
 
 fn verification_state_name(
@@ -2974,6 +3135,10 @@ pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        // Labs: a Background handle's receipt privacy is fixed by its profile.
+        if bridge.is_background() {
+            return Ok("error: background handle receipt privacy is fixed at create".to_owned());
+        }
         let mode = if (0..=2).contains(&mode) { mode } else { 0 };
         bridge.receipt_privacy.store(mode, Ordering::SeqCst);
         Ok(String::new())
@@ -4753,6 +4918,19 @@ async fn watch_pending_request(
         if !keep_watching {
             return;
         }
+    }
+}
+
+/// The requesting device's id and display name, from the request state;
+/// empty when the state no longer carries them.
+fn request_other_device(request: &VerificationRequest) -> (String, String) {
+    match request.state() {
+        VerificationRequestState::Requested { other_device_data, .. }
+        | VerificationRequestState::Ready { other_device_data, .. } => (
+            other_device_data.device_id().to_string(),
+            other_device_data.display_name().unwrap_or_default().to_owned(),
+        ),
+        _ => (String::new(), String::new()),
     }
 }
 
@@ -8099,6 +8277,10 @@ pub unsafe extern "C" fn mx_rust_set_presence(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        // DECISION 2 (Labs): a Background account publishes no presence.
+        if bridge.is_background() {
+            return Ok("error: background handle publishes no presence".to_owned());
+        }
         let status = unsafe { cstr_opt_arg(status_msg) }?;
         let status = if status.trim().is_empty() { None } else { Some(status) };
         presence::publish_presence(bridge, state, status).map(|_| String::new())
@@ -9628,6 +9810,10 @@ pub unsafe extern "C" fn mx_rust_search_index_all_hold(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        // Labs: a Background handle's index-all hold is fixed by its profile.
+        if bridge.is_background() {
+            return Ok("error: background handle index hold is fixed at create".to_owned());
+        }
         bridge.index_all.set_hold(bits & (indexall::HOLD_CALL | indexall::HOLD_SCROLL));
         Ok(String::new())
     })
@@ -10053,6 +10239,10 @@ pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        // Labs: a Background handle stays not media-capable (calls: Phase 5).
+        if bridge.is_background() {
+            return Ok("error: background handle is not media capable".to_owned());
+        }
         bridge
             .call_media_capable
             .store(capable != 0, std::sync::atomic::Ordering::Relaxed);
@@ -11112,6 +11302,228 @@ pub unsafe extern "C" fn mx_rust_token_ledger_release(ledger: *mut c_void) {
     }));
 }
 
+// ---- Labs: concurrent live accounts (labs.rs, bgsession.rs) -----------------
+//
+// Contract la-p1 §3. Every FFI here except labs_enable / labs_active /
+// store_any_held / handle_serial / take_custody refuses a handle that is not
+// Background. None is called while Labs is off (C++ constructs nothing).
+
+/// Sets `labs::ACTIVE`. Idempotent; never cleared in this process.
+#[no_mangle]
+pub extern "C" fn mx_rust_labs_enable() {
+    let _ = catch_unwind(labs::enable);
+}
+
+/// 1 when Labs was enabled in this process, else 0.
+#[no_mangle]
+pub extern "C" fn mx_rust_labs_active() -> c_int {
+    c_int::from(labs::active())
+}
+
+/// The handle's monotonic serial, 0 for NULL.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_handle_serial(ptr: *mut c_void) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| unsafe { bridge(ptr) }.map_or(0, |b| b.serial)))
+        .unwrap_or(0)
+}
+
+/// A Background handle for an existing account store. NULL when Labs is not
+/// active or the profile is invalid. Nothing is created on disk: a missing
+/// store directory is refused by the restore as `crypto_account_missing`
+/// (I5; review 2026-10-16, finding 6). The profile's receipt privacy and
+/// index-all hold apply from here; restore it with `mx_rust_restore` /
+/// `mx_rust_oauth_restore`, which run the store reservation and the crypto
+/// precheck.
+#[no_mangle]
+pub extern "C" fn mx_rust_create_background(
+    store_path: *const c_char,
+    profile_json: *const c_char,
+) -> *mut c_void {
+    install_panic_hook();
+    install_sdk_tracing();
+    match catch_unwind(AssertUnwindSafe(|| {
+        if !labs::active() {
+            return Err("labs is not active".to_owned());
+        }
+        let store_path = unsafe { cstr_arg(store_path) }?;
+        if store_path.trim().is_empty() {
+            return Err("a background handle needs an account store".to_owned());
+        }
+        let profile = labs::parse_profile(&unsafe { cstr_arg(profile_json) }?)?;
+        let path = PathBuf::from(store_path);
+        let mut client = RustClient::new_with(path.clone(), Some(&profile))?;
+        // Every rotation this handle's clients make bumps the custody
+        // generation inside the refresh, before its wait: the host takes
+        // custody, writes the pair and answers `mx_rust_session_tokens_persisted`
+        // while matrix-sdk still holds the retried request (sessiontokens.rs).
+        client.token_ledger.attach_custody(Arc::clone(&client.custody));
+        client.receipt_privacy.store(profile.receipt_privacy, Ordering::SeqCst);
+        client.index_all.set_hold(profile.index_all_hold);
+        let state = Arc::new(bgsession::BgState::new(
+            profile,
+            Arc::clone(&client.client),
+            &client.events,
+            &client.command_events,
+        ));
+        bgsession::register(&client.events, &client.command_events, &state);
+        client.bg = Some(state);
+        Ok::<*mut c_void, String>(Box::into_raw(Box::new(client)) as *mut c_void)
+    })) {
+        Ok(Ok(ptr)) => ptr,
+        Ok(Err(_)) | Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// One tick's state (`mx_rust_bg_status` in matrix_rust.h).
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MxRustBgStatus {
+    pub session_state_version: u64,
+    pub token_generation: u64,
+    pub notable_updates_total: u64,
+    pub queued_events: c_uint,
+    pub queued_commands: c_uint,
+    pub dirty: c_int,
+    pub revoked: c_int,
+}
+
+/// The Background state of a handle, or an error for any other handle.
+fn background_of(bridge: &RustClient) -> Result<&Arc<bgsession::BgState>, String> {
+    bridge
+        .bg
+        .as_ref()
+        .filter(|bg| bg.is_background())
+        .ok_or_else(|| "not a background handle".to_owned())
+}
+
+/// 0 with `*out` filled, -1 for NULL or a handle that is not Background.
+/// Atomic loads and two queue lengths; no allocation.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_poll(ptr: *mut c_void, out: *mut MxRustBgStatus) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out.is_null() {
+            return -1;
+        }
+        let Ok(bridge) = (unsafe { bridge(ptr) }) else { return -1 };
+        let Ok(bg) = background_of(bridge) else { return -1 };
+        // The host is draining: a rotation waiting for its keyring write can
+        // expect an answer (sessiontokens::DRAIN_STALL), as the foreground's
+        // command-lane poll says for its own handle.
+        bridge.token_ledger.note_drain();
+        // A pending verification request past the SDK's timeout leaves the
+        // slot here, so the version below moves when it does.
+        bg.expire_session_state(std::time::Instant::now());
+        let (queued_events, queued_commands) = bg.queue_lengths();
+        let status = MxRustBgStatus {
+            session_state_version: bg.session_state_version(),
+            token_generation: bridge.custody.generation(),
+            notable_updates_total: bg.notable_updates_total(),
+            queued_events,
+            queued_commands,
+            dirty: c_int::from(bg.dirty()),
+            revoked: c_int::from(bridge.custody.revoked()),
+        };
+        unsafe { out.write(status) };
+        0
+    }))
+    .unwrap_or(-1)
+}
+
+/// Clears `dirty` and returns the summary JSON (contract §3.2).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_take(ptr: *mut c_void, max_rows: c_uint) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        Ok(background_of(bridge)?.take(max_rows))
+    })
+}
+
+/// The Session sticky slot (contract §3.3). Never carries a token or secret.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_take_session_state(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        Ok(background_of(bridge)?.take_session_state())
+    })
+}
+
+/// Replaces the local-rule room set: `["!a:x", …]`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_set_local_rules(
+    ptr: *mut c_void,
+    rooms_json: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let bg = background_of(bridge)?;
+        let rooms: Vec<String> = serde_json::from_str(&unsafe { cstr_arg(rooms_json) }?)
+            .map_err(|_| "local rules must be a JSON array of room ids".to_owned())?;
+        bg.set_local_rules(rooms);
+        Ok(String::new())
+    })
+}
+
+/// `send_queue().set_enabled(enabled != 0)`, spawned on the handle runtime.
+/// "" when dispatched.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_set_send_queue_enabled(
+    ptr: *mut c_void,
+    enabled: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        background_of(bridge)?;
+        let client = require_client_for_search(bridge)?;
+        bridge.spawn_room_action(async move {
+            client.send_queue().set_enabled(enabled != 0).await;
+        });
+        Ok(String::new())
+    })
+}
+
+/// SENSITIVE. Live custody (contract §3.4): the tokens the Client holds NOW
+/// plus the token task's facts. "" without a client. Never log the result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_take_custody(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let has_client = bridge.client.lock().map(|guard| guard.is_some()).unwrap_or(false);
+        if !has_client {
+            return Ok(String::new());
+        }
+        // The facts are read BEFORE the tokens (`custody_json`), so a rotation
+        // landing between the two reads leaves the generation older than the
+        // tokens, never newer (review 2026-10-16, finding 1). The ledger's
+        // generation is read first of all, by the same rule: the host answers
+        // `mx_rust_session_tokens_persisted` for it once the pair is written,
+        // and the pair is then at least that new.
+        let ledger_generation = bridge.token_ledger.generation();
+        let mut custody = bridge.custody.custody_json(|| {
+            bridge
+                .final_session_tokens()
+                .map(|tokens| (tokens.access_token, tokens.refresh_token))
+        });
+        if let Some(map) = custody.as_object_mut() {
+            map.insert("ledger_generation".to_owned(), json!(ledger_generation));
+        }
+        Ok(custody.to_string())
+    })
+}
+
+/// 1 while a reservation, a live store probe or a client of this directory
+/// is alive in the process; 0 when free; -1 for a bad path.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_store_any_held(store_path: *const c_char) -> c_int {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Ok(path) = (unsafe { cstr_arg(store_path) }) else { return -1 };
+        if path.trim().is_empty() {
+            return -1;
+        }
+        storeclose::any_held_path(Path::new(&path))
+    }))
+    .unwrap_or(-1)
+}
+
 fn final_session_tokens_json(tokens: Option<matrix_sdk::SessionTokens>) -> String {
     match tokens {
         Some(tokens) if !tokens.access_token.is_empty() => json!({
@@ -11443,7 +11855,25 @@ async fn build_client_with(
     // trust), but any user-facing copy for this setting must say so. The
     // `m.room.encrypted` to-device counter in install_event_handlers is what
     // makes it observable.
-    if STRICT_DEVICE_TRUST.load(Ordering::SeqCst) {
+    // Labs: a Background handle builds with ITS strict-trust snapshot and
+    // bounded SDK retries, so the SDK's own 15-minute retry cannot hide an
+    // outage from the scheduler (design §3.2.11, R2-M1). Every other build
+    // reads the global exactly as before.
+    let labs_context = labs::open_context();
+    if let Some((retry_limit, max_retry_ms)) =
+        labs_context.as_ref().and_then(|context| context.request_limits)
+    {
+        builder = builder.request_config(
+            matrix_sdk::config::RequestConfig::new()
+                .retry_limit(retry_limit)
+                .max_retry_time(std::time::Duration::from_millis(max_retry_ms)),
+        );
+    }
+    let strict_trust = labs_context
+        .as_ref()
+        .and_then(|context| context.strict_trust)
+        .unwrap_or_else(|| STRICT_DEVICE_TRUST.load(Ordering::SeqCst));
+    if strict_trust {
         builder = builder
             .with_room_key_recipient_strategy(
                 matrix_sdk_base::crypto::CollectStrategy::IdentityBasedStrategy,
@@ -12162,6 +12592,9 @@ fn install_event_handlers(
     active_qr: KeyedFlowSlot<QrVerification>,
     sync_notify: Arc<syncnotify::SyncNotify>,
 ) {
+    // Labs: whether this client belongs to a Background handle. Always false
+    // with the flag off (`for_queue` returns at one relaxed load).
+    let background = bgsession::for_queue(&events).is_some();
     // A to-device handler on `m.room.encrypted` fires exactly for events the SDK
     // could not decrypt: matrix-sdk hands those to handlers as the original
     // envelope, while decrypted ones dispatch under their inner type. This
@@ -12233,6 +12666,34 @@ fn install_event_handlers(
                     return;
                 };
 
+                // The peer's device id tells the user which session is asking. It comes
+                // from the request state; `their_supported_methods()` only lists methods.
+                let (other_device_id, other_device_name) = request_other_device(&request);
+
+                // Labs, Background (design §3.2.8, R1-M5): never parked and
+                // never auto-cancelled. The notice is the request's only
+                // trace here; the request stays pending in the SDK for the
+                // account's foreground session or another device to answer.
+                // It leaves the sticky slot on the requester's cancellation
+                // (the handler below) or after the SDK's timeout
+                // (`bgsession::PENDING_VERIFICATION_TTL`); nothing here holds
+                // the request, whose handle keeps a Client.
+                if background {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "verification_request_received",
+                            "flow_id": request.flow_id().to_string(),
+                            "other_user_id": request.other_user_id().to_string(),
+                            "other_device_id": other_device_id,
+                            "other_device_name": other_device_name,
+                            "is_self_verification": request.is_self_verification(),
+                            "we_started": request.we_started(),
+                        }),
+                    );
+                    return;
+                }
+
                 // Never evict a live flow: overwriting it orphaned the running driver,
                 // whose cleanup then cleared the newcomer's handle. A dead occupant is
                 // cleared in passing. Cancel the newcomer on the wire rather than leave
@@ -12242,16 +12703,6 @@ fn install_event_handlers(
                     return;
                 }
 
-                // The peer's device id tells the user which session is asking. It comes
-                // from the request state; `their_supported_methods()` only lists methods.
-                let (other_device_id, other_device_name) = match request.state() {
-                    VerificationRequestState::Requested { other_device_data, .. }
-                    | VerificationRequestState::Ready { other_device_data, .. } => (
-                        other_device_data.device_id().to_string(),
-                        other_device_data.display_name().unwrap_or_default().to_owned(),
-                    ),
-                    _ => (String::new(), String::new()),
-                };
                 enqueue(
                     &events,
                     json!({
@@ -12274,175 +12725,208 @@ fn install_event_handlers(
         },
     );
 
-    // m.typing replaces the room's whole typing set each time. Bound display
-    // metadata resolution while keeping enough ids for one/two/many wording.
-    let typing_events = Arc::clone(&events);
-    let own_user = client.user_id().map(ToOwned::to_owned);
-    client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
-        let events = Arc::clone(&typing_events);
-        let own_user = own_user.clone();
-        async move {
-            let mut users = Vec::new();
-            for user_id in ev.content.user_ids.into_iter()
-                .filter(|user_id| Some(user_id) != own_user.as_ref())
-                .take(32) {
-                let display_name = room.get_member_no_sync(&user_id).await.ok().flatten()
-                    .map(|member| member.name().to_owned()).unwrap_or_default();
-                users.push(json!({
-                    "user_id": user_id.to_string(), "display_name": display_name
+    // Labs, Background: a pending request is withdrawn from the sticky slot
+    // when its requester (or another of our devices, `m.accepted`) cancels
+    // it on the wire (review 2026-10-16, finding 4). Event-driven, so no
+    // task holds the request or a Client for its ten minutes. The sender
+    // goes along: the slot honours a cancellation only from the party that
+    // asked.
+    if background {
+        let cancel_events = Arc::clone(&events);
+        client.add_event_handler(
+            move |ev: matrix_sdk::ruma::events::key::verification::cancel::ToDeviceKeyVerificationCancelEvent| {
+                let events = Arc::clone(&cancel_events);
+                async move {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "verification_cancelled",
+                            "flow_id": ev.content.transaction_id.to_string(),
+                            "other_user_id": ev.sender.to_string(),
+                            "message": ev.content.code.as_str(),
+                        }),
+                    );
+                }
+            },
+        );
+    }
+
+    // Labs: a Background handle installs none of these. Each feeds only UI
+    // state (typing, member and power pokes, pins, DM avatars, tombstones,
+    // backgrounds, synced settings, account prefs, admin deletions), and the
+    // typing one reads the member store per event: skipped at the source,
+    // not just dropped at the queue (design §3.2.3, R2-H4).
+    if !background {
+        // m.typing replaces the room's whole typing set each time. Bound display
+        // metadata resolution while keeping enough ids for one/two/many wording.
+        let typing_events = Arc::clone(&events);
+        let own_user = client.user_id().map(ToOwned::to_owned);
+        client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
+            let events = Arc::clone(&typing_events);
+            let own_user = own_user.clone();
+            async move {
+                let mut users = Vec::new();
+                for user_id in ev.content.user_ids.into_iter()
+                    .filter(|user_id| Some(user_id) != own_user.as_ref())
+                    .take(32) {
+                    let display_name = room.get_member_no_sync(&user_id).await.ok().flatten()
+                        .map(|member| member.name().to_owned()).unwrap_or_default();
+                    users.push(json!({
+                        "user_id": user_id.to_string(), "display_name": display_name
+                    }));
+                }
+                enqueue(&events, json!({
+                    "type": "typing_update", "room_id": room.room_id().to_string(),
+                    "users": users,
                 }));
             }
-            enqueue(&events, json!({
-                "type": "typing_update", "room_id": room.room_id().to_string(),
-                "users": users,
-            }));
-        }
-    });
-    // Membership changes from sync: a per-room poke so an open People panel
-    // and the mention roster refetch (sync produces no members snapshot).
-    // Only the room id crosses.
-    //
-    // Rate-limited per room: m.room.member also covers profile changes, and a
-    // bridged room can sync several per second. At most one leading poke per
-    // second, plus one trailing poke per suppressed burst so the last change
-    // is not missed.
-    let member_events = Arc::clone(&events);
-    let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    client.add_event_handler(move |_ev: SyncRoomMemberEvent, room: Room| {
-        let events = Arc::clone(&member_events);
-        let poke_state = Arc::clone(&member_poke_state);
-        async move {
-            const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-            let room_id = room.room_id().to_owned();
-            let now = std::time::Instant::now();
-            {
-                let mut state = poke_state.lock().unwrap();
-                match state.get_mut(&room_id) {
-                    Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
-                        if *trailing {
-                            return; // a trailing poke is already scheduled
-                        }
-                        *trailing = true;
-                        let events = Arc::clone(&events);
-                        let poke_state = Arc::clone(&poke_state);
-                        let deadline = *last + WINDOW;
-                        let room_id = room_id.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep_until(deadline.into()).await;
-                            if let Some((last, trailing)) =
-                                poke_state.lock().unwrap().get_mut(&room_id)
-                            {
-                                *last = std::time::Instant::now();
-                                *trailing = false;
+        });
+        // Membership changes from sync: a per-room poke so an open People panel
+        // and the mention roster refetch (sync produces no members snapshot).
+        // Only the room id crosses.
+        //
+        // Rate-limited per room: m.room.member also covers profile changes, and a
+        // bridged room can sync several per second. At most one leading poke per
+        // second, plus one trailing poke per suppressed burst so the last change
+        // is not missed.
+        let member_events = Arc::clone(&events);
+        let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        client.add_event_handler(move |_ev: SyncRoomMemberEvent, room: Room| {
+            let events = Arc::clone(&member_events);
+            let poke_state = Arc::clone(&member_poke_state);
+            async move {
+                const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+                let room_id = room.room_id().to_owned();
+                let now = std::time::Instant::now();
+                {
+                    let mut state = poke_state.lock().unwrap();
+                    match state.get_mut(&room_id) {
+                        Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
+                            if *trailing {
+                                return; // a trailing poke is already scheduled
                             }
-                            enqueue(&events, json!({
-                                "type": "room_members_changed",
-                                "room_id": room_id.to_string(),
-                            }));
-                        });
-                        return;
-                    }
-                    Some(entry) => *entry = (now, false),
-                    None => {
-                        state.insert(room_id.clone(), (now, false));
+                            *trailing = true;
+                            let events = Arc::clone(&events);
+                            let poke_state = Arc::clone(&poke_state);
+                            let deadline = *last + WINDOW;
+                            let room_id = room_id.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep_until(deadline.into()).await;
+                                if let Some((last, trailing)) =
+                                    poke_state.lock().unwrap().get_mut(&room_id)
+                                {
+                                    *last = std::time::Instant::now();
+                                    *trailing = false;
+                                }
+                                enqueue(&events, json!({
+                                    "type": "room_members_changed",
+                                    "room_id": room_id.to_string(),
+                                }));
+                            });
+                            return;
+                        }
+                        Some(entry) => *entry = (now, false),
+                        None => {
+                            state.insert(room_id.clone(), (now, false));
+                        }
                     }
                 }
+                enqueue(&events, json!({
+                    "type": "room_members_changed",
+                    "room_id": room_id.to_string(),
+                }));
             }
-            enqueue(&events, json!({
-                "type": "room_members_changed",
-                "room_id": room_id.to_string(),
-            }));
-        }
-    });
+        });
 
-    // Another client changed `m.room.pinned_events`. Only the room id crosses;
-    // C++ re-reads through the normal fetch, so remote and local pins take the
-    // same path. Not rate-limited: pinning happens at human frequency.
-    let pinned_events = Arc::clone(&events);
-    client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
-        let events = Arc::clone(&pinned_events);
-        async move {
-            enqueue(&events, json!({
-                "type": "room_pinned_changed",
-                "room_id": room.room_id().to_string(),
-            }));
-        }
-    });
-
-    // A DM peer's own member event: the avatar that conversation wears now,
-    // so its row follows a changed face (DirectAvatarResolver asks the
-    // profile once per session). Only the m.direct target's own join
-    // crosses; human-paced, so not throttled like the poke above.
-    let peer_avatar_events = Arc::clone(&events);
-    client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
-        let events = Arc::clone(&peer_avatar_events);
-        async move {
-            let targets: Vec<String> =
-                room.direct_targets().iter().map(ToString::to_string).collect();
-            if let Some(payload) =
-                direct_peer_avatar_payload(room.room_id().as_str(), &ev, &targets)
-            {
-                enqueue(&events, payload);
+        // Another client changed `m.room.pinned_events`. Only the room id crosses;
+        // C++ re-reads through the normal fetch, so remote and local pins take the
+        // same path. Not rate-limited: pinning happens at human frequency.
+        let pinned_events = Arc::clone(&events);
+        client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
+            let events = Arc::clone(&pinned_events);
+            async move {
+                enqueue(&events, json!({
+                    "type": "room_pinned_changed",
+                    "room_id": room.room_id().to_string(),
+                }));
             }
-        }
-    });
+        });
 
-    // m.room.tombstone: the room was replaced, and the "continue in successor"
-    // banner must appear immediately. Not rate-limited (once per room
-    // lifetime). Carries the successor id, taken from the SDK's
-    // `successor_room()` so there is one parse path.
-    let tombstone_events = Arc::clone(&events);
-    client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
-        let events = Arc::clone(&tombstone_events);
-        async move {
-            enqueue(&events, json!({
-                "type": "room_tombstone_changed",
-                "room_id": room.room_id().to_string(),
-                "successor_room_id": room
-                    .successor_room()
-                    .map(|successor| successor.room_id.to_string())
-                    .unwrap_or_default(),
-            }));
-        }
-    });
+        // A DM peer's own member event: the avatar that conversation wears now,
+        // so its row follows a changed face (DirectAvatarResolver asks the
+        // profile once per session). Only the m.direct target's own join
+        // crosses; human-paced, so not throttled like the poke above.
+        let peer_avatar_events = Arc::clone(&events);
+        client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
+            let events = Arc::clone(&peer_avatar_events);
+            async move {
+                let targets: Vec<String> =
+                    room.direct_targets().iter().map(ToString::to_string).collect();
+                if let Some(payload) =
+                    direct_peer_avatar_payload(room.room_id().as_str(), &ev, &targets)
+                {
+                    enqueue(&events, payload);
+                }
+            }
+        });
 
-    // A shared chat background changed (Lightning's own state event, which
-    // sliding sync never delivers as state). Only the room id crosses; C++
-    // re-reads the scopes it shows. See backdrop::install_change_handler.
-    backdrop::install_change_handler(client, Arc::clone(&events));
+        // m.room.tombstone: the room was replaced, and the "continue in successor"
+        // banner must appear immediately. Not rate-limited (once per room
+        // lifetime). Carries the successor id, taken from the SDK's
+        // `successor_room()` so there is one parse path.
+        let tombstone_events = Arc::clone(&events);
+        client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
+            let events = Arc::clone(&tombstone_events);
+            async move {
+                enqueue(&events, json!({
+                    "type": "room_tombstone_changed",
+                    "room_id": room.room_id().to_string(),
+                    "successor_room_id": room
+                        .successor_room()
+                        .map(|successor| successor.room_id.to_string())
+                        .unwrap_or_default(),
+                }));
+            }
+        });
 
-    // This account's personal backgrounds changed in account data (another
-    // device set or removed one, or our own write came back). Only the scope
-    // crosses; C++ re-reads it. See bgsync::install_change_handlers.
-    bgsync::install_change_handlers(client, Arc::clone(&events));
-    // Synced preferences (settingsync.rs): same pattern, one payload.
-    settingsync::install_change_handlers(client, Arc::clone(&events));
+        // A shared chat background changed (Lightning's own state event, which
+        // sliding sync never delivers as state). Only the room id crosses; C++
+        // re-reads the scopes it shows. See backdrop::install_change_handler.
+        backdrop::install_change_handler(client, Arc::clone(&events));
 
-    // MSC4278 media-preview config and Element's recent emoji changed in
-    // account data. Only the type crosses; C++ re-reads it.
-    accountprefs::install_change_handlers(client, Arc::clone(&events));
+        // This account's personal backgrounds changed in account data (another
+        // device set or removed one, or our own write came back). Only the scope
+        // crosses; C++ re-reads it. See bgsync::install_change_handlers.
+        bgsync::install_change_handlers(client, Arc::clone(&events));
+        // Synced preferences (settingsync.rs): same pattern, one payload.
+        settingsync::install_change_handlers(client, Arc::clone(&events));
 
-    // A room an administrator deleted from another of the user's sessions
-    // (serveradmin.rs): the server purged it, so sync never says it is gone.
-    serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
+        // MSC4278 media-preview config and Element's recent emoji changed in
+        // account data. Only the type crosses; C++ re-reads it.
+        accountprefs::install_change_handlers(client, Arc::clone(&events));
 
-    // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
-    iotrace::start_if_enabled(Arc::clone(&events));
+        // A room an administrator deleted from another of the user's sessions
+        // (serveradmin.rs): the server purged it, so sync never says it is gone.
+        serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
 
-    // A power-level change invalidates cached permission flags now. Routed
-    // through the existing members poke, since the member snapshot carries
-    // both per-member levels and the viewer's own permissions.
-    let power_level_events = Arc::clone(&events);
-    client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
-        let events = Arc::clone(&power_level_events);
-        async move {
-            enqueue(&events, json!({
-                "type": "room_members_changed",
-                "room_id": room.room_id().to_string(),
-            }));
-        }
-    });
+        // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
+        iotrace::start_if_enabled(Arc::clone(&events));
+
+        // A power-level change invalidates cached permission flags now. Routed
+        // through the existing members poke, since the member snapshot carries
+        // both per-member levels and the viewer's own permissions.
+        let power_level_events = Arc::clone(&events);
+        client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
+            let events = Arc::clone(&power_level_events);
+            async move {
+                enqueue(&events, json!({
+                    "type": "room_members_changed",
+                    "room_id": room.room_id().to_string(),
+                }));
+            }
+        });
+    }
 
     // Room messages, decrypted or plaintext (the SDK dispatches both here).
     // `encryption_info` is Some only when the SDK decrypted the payload, which
@@ -12749,13 +13233,28 @@ async fn run_authoritative_sync(
     sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
+    // Labs: a Background handle observes no calls (incoming-call notification
+    // is Phase 5) and runs the room-summary aggregator for its life instead.
+    let background = bgsession::for_queue(&events);
     // Call-signalling handlers live as long as this sync loop; their drop
     // guards unregister them on any exit, so none fires into a later account.
-    let _call_guards = calls::register_handlers(
-        &client, &events, &timelines, &call_media_capable);
+    let _call_guards = background.is_none().then(|| calls::register_handlers(
+        &client, &events, &timelines, &call_media_capable));
     // MatrixRTC observation shares that lifetime; kept separate because it
     // tracks who is in a call, not who is inviting whom.
-    let _rtc_guards = rtc::register_rtc_handlers(&client, &events, &timelines);
+    let _rtc_guards = background
+        .is_none()
+        .then(|| rtc::register_rtc_handlers(&client, &events, &timelines));
+    // Aborted with this loop on any exit (the guard), and by teardown.
+    let _aggregator = background.as_ref().map(|bg| {
+        let task = tokio::spawn(bgsession::run_aggregator(client.clone(), Arc::clone(bg)));
+        bg.set_aggregator(Some(task.abort_handle()));
+        AbortOnDrop(task.abort_handle())
+    });
+    // Labs: Background retries are jittered so live accounts do not retry in
+    // step against one server (design §3.2.11).
+    let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0x5eed));
+    let mut probe_failures = 0u32;
     // The local search index holds decrypted plaintext by exception (§6), on
     // condition that a redaction removes the row. Redactions reach C++ only as
     // a row flag, so this is handled here at the source; the sweep re-reads the
@@ -12785,9 +13284,14 @@ async fn run_authoritative_sync(
                 enqueue(&events, json!({
                     "type": "room_list_sync_state", "state": "offline"
                 }));
+                let pause = match jitter.as_mut() {
+                    Some(jitter) => jitter.backoff(probe_failures),
+                    None => std::time::Duration::from_secs(3),
+                };
+                probe_failures = probe_failures.saturating_add(1);
                 tokio::select! {
                     _ = &mut cancel => return,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+                    _ = tokio::time::sleep(pause) => {}
                 }
             }
         }
@@ -12822,6 +13326,15 @@ async fn run_authoritative_sync(
         )
         .await;
         run_classic_sync(client, events, verification_live, sync_notify, cancel).await;
+    }
+}
+
+/// Aborts a task when dropped: ties a spawned helper to a loop's lifetime.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -12959,6 +13472,14 @@ async fn run_modern_sync(
     // Everything from before this session is history to the sync handlers;
     // see syncnotify::CatchupClock for the edges below.
     sync_notify.catchup.begin(push_verdict::now_ms());
+    // Labs: a Background handle keeps sync, crypto and the latest-event watch
+    // maintenance, and skips every UI producer at its source (design §3.2.3):
+    // no room-list serialization, no spaces, no blank-preview looks, no
+    // response-harvested recency. Its retries are jittered. None: today.
+    let background = bgsession::for_queue(&events);
+    let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0x0dd5));
+    let mut rebuilds = 0u32;
+    let mut watch_stamps: HashMap<OwnedRoomId, u64> = HashMap::new();
     // Withdraws the published RoomListService on every exit path; a handle
     // outliving the loop would accept subscriptions that go nowhere.
     struct RoomListPublication(Arc<Mutex<Option<Arc<RoomListService>>>>);
@@ -13017,6 +13538,7 @@ async fn run_modern_sync(
     // its budget cannot clear or write into its successor's results.
     let backfill_results = client
         .user_id()
+        .filter(|_| background.is_none())
         .map(|user| previewbackfill::RunGuard::new(user.to_owned()));
 
     loop {
@@ -13043,7 +13565,7 @@ async fn run_modern_sync(
                 enqueue(&events, json!({ "type": "room_list_error", "category": category }));
                 tokio::select! {
                     _ = &mut cancel => return None,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => continue,
+                    _ = tokio::time::sleep(retry_pause(&mut jitter, &mut rebuilds)) => continue,
                 }
             }
         };
@@ -13061,7 +13583,7 @@ async fn run_modern_sync(
                 }));
                 tokio::select! {
                     _ = &mut cancel => return None,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+                    _ = tokio::time::sleep(retry_pause(&mut jitter, &mut rebuilds)) => {
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "retrying"
                         }));
@@ -13079,6 +13601,8 @@ async fn run_modern_sync(
         // and pops carry no room in `VectorDiff`, so this lets the producer name
         // the room instead of C++ deleting `order[index]` unchecked.
         let mut forwarded_order: Vec<OwnedRoomId> = Vec::new();
+        // Background: the same mirror for the watch maintenance alone.
+        let mut watch_order: Vec<OwnedRoomId> = Vec::new();
 
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
@@ -13096,7 +13620,8 @@ async fn run_modern_sync(
         // Response-harvested recency (see harvest_room_activity). Owned by this
         // loop only.
         let mut room_updates_sub = client.subscribe_to_all_room_updates();
-        let mut room_updates_live = true;
+        // Recency is room-list UI: a Background handle does not harvest it.
+        let mut room_updates_live = background.is_none();
         let mut activity_stamps: HashMap<OwnedRoomId, u64> = HashMap::new();
 
         // Publish the service and apply the room that is already open: on a
@@ -13139,6 +13664,15 @@ async fn run_modern_sync(
                 _ = &mut watchdog => {}
                 batch = entries.next() => {
                     let Some(batch) = batch else { break; };
+                    // Background: the watch maintenance alone, split out of the
+                    // serialization (R2-H5), and none of the UI work below.
+                    if let Some(bg) = &background {
+                        watch_room_list_diffs(batch, latest_events, &mut watched_latest,
+                                              &mut watch_stamps, &mut watch_order,
+                                              bg.watch_cap()).await;
+                        bg.note_skipped();
+                        continue;
+                    }
                     forward_room_list_diffs(&events, batch, latest_events,
                                             &mut watched_latest,
                                             &mut forwarded_order).await;
@@ -13298,6 +13832,7 @@ async fn run_modern_sync(
                         // costly to repeat per response.
                         if !list_running {
                             list_running = true;
+                            rebuilds = 0;
                             // From here an event is news only if it reached the server
                             // after this edge. Covers the first load too: Running is set
                             // after rooms 0..99, and the growing list then delivers
@@ -13367,7 +13902,7 @@ async fn run_modern_sync(
         // Bounded backoff before rebuilding; cancellation exits immediately.
         tokio::select! {
             _ = &mut cancel => return None,
-            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+            _ = tokio::time::sleep(retry_pause(&mut jitter, &mut rebuilds)) => {
                 enqueue(&events, json!({
                     "type": "room_list_sync_state", "state": "retrying"
                 }));
@@ -13869,6 +14404,14 @@ async fn run_classic_sync_with(
     // `sync_once`, BEFORE the callback below, so a catch-up response is judged
     // while the clock still says "catching up".
     sync_notify.catchup.begin(push_verdict::now_ms());
+    // Labs: a Background handle keeps the watch maintenance under its own cap
+    // and skips the per-response room snapshot, spaces build and watch report
+    // BEFORE they run (design §3.2.3, R2-H4). None: today.
+    let background = bgsession::for_queue(&events);
+    let watch_cap = background
+        .as_ref()
+        .map_or(LATEST_EVENT_WATCH_CAP, |bg| bg.watch_cap().min(LATEST_EVENT_WATCH_CAP));
+    let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0xc1a5));
 
     let first_response = Arc::new(AtomicBool::new(true));
     // Any callback, success or failure, is a sign of life; see
@@ -13922,6 +14465,7 @@ async fn run_classic_sync_with(
         let callback_gone = Arc::clone(&session_gone);
         let callback_progress = progress.clone();
         let callback_notify = Arc::clone(&sync_notify);
+        let callback_background = background.clone();
         // A new attempt starts its silence clock now, not at the last callback
         // of the attempt before it.
         progress.touch();
@@ -13943,6 +14487,7 @@ async fn run_classic_sync_with(
             let session_gone = Arc::clone(&callback_gone);
             let progress = callback_progress.clone();
             let notify = Arc::clone(&callback_notify);
+            let background = callback_background.clone();
             async move {
                 // Touched on entry and again on the way out, so neither a slow
                 // callback nor its own backoff sleep counts as SDK silence.
@@ -13973,13 +14518,20 @@ async fn run_classic_sync_with(
                         // Report once per outage; a success resets the counter and a later
                         // "running" clears the state in C++.
                         if seen == CLASSIC_SYNC_REPORT_AFTER {
-                            enqueue(&events, json!({
-                                "type": "sync_error",
-                                "message": format_matrix_error(
-                                    "Matrix Rust SDK sync failed", error),
-                            }));
+                            // Labs, Background: the rate-limit facts, from the error.
+                            let rate = background.as_ref().map(|_| sync_rate_facts(&error));
+                            enqueue(&events, sync_error_event(
+                                format_matrix_error("Matrix Rust SDK sync failed", error),
+                                rate,
+                            ));
                         }
-                        tokio::time::sleep(classic_sync_backoff(seen - 1)).await;
+                        let pause = if background.is_some() {
+                            // Labs: jittered, so live accounts do not retry in step.
+                            labs::Jitter::seeded(u64::from(seen)).backoff(seen - 1)
+                        } else {
+                            classic_sync_backoff(seen - 1)
+                        };
+                        tokio::time::sleep(pause).await;
                         progress.touch();
                         return Ok(LoopCtrl::Continue);
                     }
@@ -14051,7 +14603,7 @@ async fn run_classic_sync_with(
                     'fill: loop {
                         let mut any = false;
                         for key in &bucket_keys {
-                            if desired.len() >= LATEST_EVENT_WATCH_CAP {
+                            if desired.len() >= watch_cap {
                                 break 'fill;
                             }
                             if let Some((room, _)) =
@@ -14086,22 +14638,29 @@ async fn run_classic_sync_with(
                     }
 
                     // Counts and timing only, for tuning the cap.
-                    enqueue(&events, json!({
-                        "type": "latest_event_watch_report",
-                        "elapsed_ms": started.elapsed().as_millis() as u64,
-                        "watched": watched.len(),
-                        "buckets": bucket_keys.len(),
-                        "rooms": joined.len(),
-                        "forgot": forgot,
-                        "added": added,
-                    }));
+                    if background.is_none() {
+                        enqueue(&events, json!({
+                            "type": "latest_event_watch_report",
+                            "elapsed_ms": started.elapsed().as_millis() as u64,
+                            "watched": watched.len(),
+                            "buckets": bucket_keys.len(),
+                            "rooms": joined.len(),
+                            "forgot": forgot,
+                            "added": added,
+                        }));
+                    }
                 }
-                {
-                    let stamps = stamps.lock().await;
-                    enqueue_rooms_stamped(&events, &client, Some(&stamps)).await;
+                if let Some(bg) = &background {
+                    // The O(rooms) snapshot and the spaces build are UI work.
+                    bg.note_skipped();
+                } else {
+                    {
+                        let stamps = stamps.lock().await;
+                        enqueue_rooms_stamped(&events, &client, Some(&stamps)).await;
+                    }
+                    let spaces = SpaceService::new(client.clone()).await;
+                    enqueue_spaces(&events, &spaces, &client).await;
                 }
-                let spaces = SpaceService::new(client.clone()).await;
-                enqueue_spaces(&events, &spaces, &client).await;
                 enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
                 if first_response.swap(false, Ordering::SeqCst) {
                     enqueue(&events, json!({ "type": "initial_sync_done" }));
@@ -14151,10 +14710,11 @@ async fn run_classic_sync_with(
             result = &mut sync => if let Err(err) = result {
                 // The callback absorbs transient failures; reaching here means the SDK
                 // loop ended for another reason.
-                enqueue(&events, json!({
-                    "type": "sync_error",
-                    "message": format_matrix_error("Matrix Rust SDK sync failed", err),
-                }));
+                let rate = background.as_ref().map(|_| sync_rate_facts(&err));
+                enqueue(&events, sync_error_event(
+                    format_matrix_error("Matrix Rust SDK sync failed", err),
+                    rate,
+                ));
             },
             _ = &mut cancel => return,
             // Never resolves; see its construction above.
@@ -14195,14 +14755,18 @@ async fn run_classic_sync_with(
         // `seen == 1` is the first failure since one.
         if wedged && (!wedge_reported || seen == 1) {
             wedge_reported = true;
-            enqueue(&events, json!({
-                "type": "sync_error",
-                "message": CLASSIC_SYNC_WEDGED_MESSAGE,
-            }));
+            enqueue(&events, sync_error_event(
+                CLASSIC_SYNC_WEDGED_MESSAGE.to_owned(),
+                background.as_ref().map(|_| (false, None)),
+            ));
         }
+        let pause = match jitter.as_mut() {
+            Some(jitter) => jitter.backoff(seen - 1),
+            None => classic_sync_backoff(seen - 1),
+        };
         tokio::select! {
             _ = &mut cancel => return,
-            _ = tokio::time::sleep(classic_sync_backoff(seen - 1)) => {
+            _ = tokio::time::sleep(pause) => {
                 if !wedged {
                     enqueue(&events, json!({
                         "type": "room_list_sync_state", "state": "retrying"
@@ -14339,6 +14903,111 @@ async fn forward_room_list_diffs(
         };
         enqueue(events, value);
     }
+}
+
+/// The pause before a sync rebuild: today's fixed 3 s, or for a Background
+/// handle (Labs) the jittered backoff for the `attempt`th consecutive one.
+fn retry_pause(jitter: &mut Option<labs::Jitter>, attempt: &mut u32) -> std::time::Duration {
+    match jitter {
+        Some(jitter) => {
+            let pause = jitter.backoff(*attempt);
+            *attempt = attempt.saturating_add(1);
+            pause
+        }
+        None => std::time::Duration::from_secs(3),
+    }
+}
+
+/// Labs, Background: the latest-event watch maintenance of one batch of
+/// room-list diffs, without serializing anything (design §3.2.3, R2-H5). The
+/// watched set is capped at `cap` by bump stamp: a room more recent than the
+/// least recent watched one takes its place, so previews keep following
+/// activity instead of freezing on the first rooms delivered.
+/// A `sync_error` event. `rate`: Background only (contract §3.3), from
+/// [`sync_rate_facts`]; `None` writes exactly today's payload.
+fn sync_error_event(message: String, rate: Option<(bool, Option<u64>)>) -> serde_json::Value {
+    let value = json!({ "type": "sync_error", "message": message });
+    match rate {
+        Some(facts) => bgsession::with_rate_limit(value, facts),
+        None => value,
+    }
+}
+
+/// A sync failure's rate-limit facts, from the error's kind and HTTP status,
+/// never its text (review 2026-10-16, finding 5).
+fn sync_rate_facts(error: &matrix_sdk::Error) -> (bool, Option<u64>) {
+    bgsession::rate_limit_facts(
+        error.client_api_error_kind(),
+        error.as_client_api_error().map(|api| api.status_code.as_u16()),
+    )
+}
+
+async fn watch_room_list_diffs(
+    batches: Vec<VectorDiff<RoomListItem>>,
+    latest_events: &matrix_sdk::latest_events::LatestEvents,
+    watched: &mut BTreeSet<OwnedRoomId>,
+    stamps: &mut HashMap<OwnedRoomId, u64>,
+    order: &mut Vec<OwnedRoomId>,
+    cap: usize,
+) {
+    let mut left: Vec<OwnedRoomId> = Vec::new();
+    for diff in batches {
+        let diff = diff.map(|item| item.into_inner());
+        // The id mirror: a room that leaves the list gives its slot back
+        // (review 2026-10-16, finding 12). Today's forward path keeps them.
+        left.extend(
+            bgsession::apply_order_diff(order, diff.clone().map(|room| room.room_id().to_owned()))
+                .into_iter()
+                .filter(|id| watched.contains(id)),
+        );
+        let rooms: Vec<Room> = match diff {
+            VectorDiff::Reset { values } | VectorDiff::Append { values } => {
+                values.into_iter().collect()
+            }
+            VectorDiff::PushFront { value }
+            | VectorDiff::PushBack { value }
+            | VectorDiff::Insert { value, .. }
+            | VectorDiff::Set { value, .. } => vec![value],
+            _ => Vec::new(),
+        };
+        for room in rooms {
+            let room_id = room.room_id().to_owned();
+            let stamp = room.recency_stamp().map(u64::from).unwrap_or(0);
+            stamps.insert(room_id.clone(), stamp);
+            if watched.contains(&room_id) {
+                continue;
+            }
+            let current: Vec<(OwnedRoomId, u64)> = watched
+                .iter()
+                .map(|id| (id.clone(), stamps.get(id).copied().unwrap_or(0)))
+                .collect();
+            match bgsession::watch_decision(&current, cap, stamp) {
+                bgsession::WatchDecision::Skip => continue,
+                bgsession::WatchDecision::Replace(evicted) => {
+                    latest_events.forget_room(&evicted).await;
+                    watched.remove(&evicted);
+                }
+                bgsession::WatchDecision::Watch => {}
+            }
+            if latest_events.listen_to_room(&room_id).await.unwrap_or(false) {
+                watched.insert(room_id);
+            }
+        }
+    }
+    if !left.is_empty() {
+        // Only watched ids were kept, so this set is built rarely and the
+        // presence check is O(1) per id.
+        let present: HashSet<&OwnedRoomId> = order.iter().collect();
+        let gone: Vec<OwnedRoomId> =
+            left.into_iter().filter(|id| !present.contains(id)).collect();
+        for room_id in gone {
+            if watched.remove(&room_id) {
+                latest_events.forget_room(&room_id).await;
+            }
+        }
+    }
+    // Stamps are kept for watched rooms only, so the map stays bounded.
+    stamps.retain(|id, _| watched.contains(id));
 }
 
 /// One Space's direct children, in the order its `m.space.child` state
@@ -15370,6 +16039,18 @@ pub(crate) fn enqueue_terminal_routed(
     personal: Option<&Arc<Mutex<HashMap<u64, Vec<u8>>>>>,
     value: serde_json::Value,
 ) {
+    // Labs: no command result reaches a Background handle in Phase 1. Its
+    // parked payload (if any) goes with it, so no decrypted bytes linger.
+    if labs::active() && bgsession::refuses_command(queue) {
+        if let Some(op) = value.get("op_id").and_then(|o| o.as_u64()) {
+            for map in [media, personal].into_iter().flatten() {
+                if let Ok(mut results) = map.lock() {
+                    results.remove(&op);
+                }
+            }
+        }
+        return;
+    }
     let Ok(mut guard) = queue.lock() else { return };
     while guard.len() >= COMMAND_QUEUE_CAP {
         if let Some(dropped) = guard.pop_front() {
@@ -15987,6 +16668,17 @@ pub(crate) mod switchtrace {
 }
 
 pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
+    // Labs: a Background handle's queue takes only what its allow-list admits
+    // (bgsession.rs). One relaxed load and nothing else while Labs is off, so
+    // the stream is byte-identical (T-OFF-4).
+    let value = if labs::active() {
+        match bgsession::admit(events, value) {
+            Some(value) => value,
+            None => return,
+        }
+    } else {
+        value
+    };
     let Ok(serialized) = serde_json::to_string(&value) else {
         return;
     };
@@ -16019,8 +16711,18 @@ fn run_async<F>(events: Arc<Mutex<VecDeque<String>>>, label: &'static str, futur
 where
     F: std::future::Future<Output = ()>,
 {
+    // Labs: a Background handle's runtimes are named `lt-{sync,boot,op}-<slot>`
+    // with a bounded blocking pool, where `deadpool-sync` runs its SQLite I/O
+    // (design §3.2.11, R2-M2). Today's runtime otherwise.
+    let profile = bgsession::for_queue(&events).map(|bg| bg.profile.clone());
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let mut builder = tokio::runtime::Builder::new_current_thread();
+        if let Some(profile) = &profile {
+            builder
+                .thread_name(labs::thread_name(labs::runtime_kind(label), &profile.slot))
+                .max_blocking_threads(profile.max_blocking_threads);
+        }
+        let runtime = builder
             .enable_all()
             .build()
             .map_err(|err| format!("failed to create Tokio runtime for {label}: {err}"))?;
@@ -21200,6 +21902,675 @@ mod final_session_tokens_tests {
 // A retired bridge must leave nothing of its account store open (GitHub #2).
 #[cfg(all(test, target_os = "linux"))]
 mod store_close_tests;
+
+/// Labs, Phase 1 (design 2026-10-15 §3.2, contract la-p1 §1 and §3): the
+/// flag-off parity gate (T-OFF-4) and the Background handle end to end
+/// through the FFI, against a loopback homeserver that answers `/versions`
+/// (and, for the classic loop, `/sync`) and refuses everything else.
+#[cfg(test)]
+mod labs_tests {
+    use std::collections::VecDeque;
+    use std::ffi::{c_void, CStr, CString};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use serde_json::{json, Value};
+
+    use super::{bgsession, labs, storeclose, EventQueueRef};
+
+    /// The process switch on (or off) for one test, and off again when the
+    /// test ends, a panicking one included (`labs::LabsTestGuard`).
+    fn labs_on() -> labs::LabsTestGuard {
+        labs::LabsTestGuard::enabled()
+    }
+
+    fn labs_off() -> labs::LabsTestGuard {
+        labs::LabsTestGuard::off()
+    }
+
+    unsafe fn take(ptr: *mut std::ffi::c_char) -> String {
+        if ptr.is_null() {
+            return String::new();
+        }
+        let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+        unsafe { super::mx_rust_free_cstring(ptr) };
+        text
+    }
+
+    /// Everything queued so far.
+    unsafe fn drain(handle: *mut c_void, into: &mut Vec<Value>) {
+        loop {
+            let raw = unsafe { take(super::mx_rust_poll_event(handle)) };
+            if raw.is_empty() {
+                return;
+            }
+            into.push(serde_json::from_str(&raw).expect("queued JSON"));
+        }
+    }
+
+    /// Drain until `pred` matches one event; panics after `timeout`.
+    unsafe fn wait_for(
+        handle: *mut c_void,
+        seen: &mut Vec<Value>,
+        what: &str,
+        pred: impl Fn(&Value) -> bool,
+    ) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let from = seen.len();
+            unsafe { drain(handle, seen) };
+            if let Some(found) = seen[from..].iter().find(|v| pred(v)) {
+                return found.clone();
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}: {seen:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// `/versions` answered, `/v3/sync` answered with an empty batch, every
+    /// other request a Matrix 404 (so E2EE setup fails fast).
+    fn serve() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            static BATCH: AtomicUsize = AtomicUsize::new(0);
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 8192];
+                    let read = stream.read(&mut buf).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..read]).into_owned();
+                    let line = request.lines().next().unwrap_or("");
+                    let target = line.split_whitespace().nth(1).unwrap_or("");
+                    let path = target.split('?').next().unwrap_or("");
+                    let (status, body) = if path.starts_with("/_matrix/client/versions") {
+                        ("200 OK", r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#.to_owned())
+                    } else if path == "/_matrix/client/v3/sync" {
+                        let n = BATCH.fetch_add(1, Ordering::SeqCst);
+                        ("200 OK", format!(r#"{{"next_batch":"b{n}"}}"#))
+                    } else {
+                        ("404 Not Found",
+                         r#"{"errcode":"M_UNRECOGNIZED","error":"test"}"#.to_owned())
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+                         Connection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                });
+            }
+        });
+        format!("http://{}:{}", addr.ip(), addr.port())
+    }
+
+    struct StoreDir(PathBuf);
+
+    impl StoreDir {
+        fn new(tag: &str) -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "lightning-labs-{tag}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("store dir");
+            Self(std::fs::canonicalize(&path).unwrap_or(path))
+        }
+
+        fn c(&self) -> CString {
+            CString::new(self.0.to_string_lossy().as_bytes()).unwrap()
+        }
+    }
+
+    impl Drop for StoreDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const USER: &str = "@labs:localhost";
+    const DEVICE: &str = "LABSDEVICE";
+
+    fn profile(user: &str, device: &str) -> CString {
+        CString::new(
+            json!({
+                "v": 1, "slot": "t1",
+                "require_account": {"user_id": user, "device_id": device},
+                "strict_trust": false, "receipt_privacy": 2, "index_all_hold": 4294967295u64,
+                "floor_ms": 0, "local_rule_rooms": [], "max_blocking_threads": 8,
+                "sqlite": "low_memory", "retry_limit": 1, "max_retry_time_ms": 5000,
+                "watch_cap": 200
+            })
+            .to_string(),
+        )
+        .unwrap()
+    }
+
+    unsafe fn restore(handle: *mut c_void, homeserver: &str) {
+        let hs = CString::new(homeserver).unwrap();
+        let user = CString::new(USER).unwrap();
+        let device = CString::new(DEVICE).unwrap();
+        let token = CString::new("labs-fixture-token").unwrap();
+        let refresh = CString::new("").unwrap();
+        let started = unsafe {
+            take(super::mx_rust_restore(
+                handle,
+                hs.as_ptr(),
+                user.as_ptr(),
+                device.as_ptr(),
+                token.as_ptr(),
+                refresh.as_ptr(),
+            ))
+        };
+        assert!(started.is_empty(), "restore refused to start: {started}");
+    }
+
+    unsafe fn retire(handle: *mut c_void) -> String {
+        let _ = unsafe { take(super::mx_rust_shutdown_tasks(handle)) };
+        unsafe { take(super::mx_rust_destroy_and_report(handle)) }
+    }
+
+    // T-OFF-4, the stream half: with Labs off, `enqueue` writes exactly what it
+    // wrote before this change (the old body is `serde_json::to_string` and
+    // the push), with no `_ep` and no `bg`. With Labs on, a queue no
+    // Background handle owns (every foreground handle) is identical too.
+    #[test]
+    fn flag_off_enqueue_is_byte_identical_to_todays_serialization() {
+        let _labs = labs_off();
+        let golden: Vec<Value> = vec![
+            json!({"type": "status", "state": "syncing"}),
+            json!({"type": "login_ok", "user_id": "@a:x", "access_token": "tok", "refresh_token": "ref"}),
+            json!({"type": "session_tokens_refreshed", "access_token": "tok2", "refresh_token": null}),
+            json!({"type": "room_list_reset", "rooms": [{"id": "!r:x", "unread_count": 2}]}),
+            json!({"type": "timeline_event", "room_id": "!r:x",
+                   "event": {"event_id": "$e", "timestamp_ms": 1, "push_notify": false, "body": "hi"}}),
+            json!({"type": "typing_update", "room_id": "!r:x", "users": []}),
+            json!({"type": "a_type_from_the_future", "x": [1, 2, {"y": "z"}]}),
+        ];
+        for active in [false, true] {
+            if active {
+                labs::enable();
+            } else {
+                labs::disable_for_test();
+            }
+            let queue: EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+            for value in &golden {
+                super::enqueue(&queue, value.clone());
+            }
+            let written: Vec<String> = queue.lock().unwrap().iter().cloned().collect();
+            let expected: Vec<String> =
+                golden.iter().map(|v| serde_json::to_string(v).unwrap()).collect();
+            assert_eq!(written, expected, "labs active = {active}");
+            assert!(written.iter().all(|w| !w.contains("\"_ep\"") && !w.contains("\"bg\"")));
+        }
+        labs::disable_for_test();
+    }
+
+    // T-OFF-4, the store half: a flag-off restore reserves nothing, no
+    // Background handle can be made, and nothing is reported as Labs.
+    #[test]
+    fn flag_off_restore_reserves_nothing_and_no_background_handle_exists() {
+        let _labs = labs_off();
+        let homeserver = serve();
+        let store = StoreDir::new("off");
+        let before = storeclose::reserve_calls();
+        assert_eq!(super::mx_rust_labs_active(), 0);
+        let background = super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
+        assert!(background.is_null(), "a Background handle with Labs off");
+        unsafe {
+            let handle = super::mx_rust_create(store.c().as_ptr());
+            assert!(!handle.is_null());
+            restore(handle, &homeserver);
+            let mut seen = Vec::new();
+            wait_for(handle, &mut seen, "login_ok", |v| {
+                assert_ne!(v["type"], "login_failed", "{v}");
+                v["type"] == "login_ok"
+            });
+            assert_eq!(storeclose::reserve_calls(), before, "a flag-off restore reserved its store");
+            assert_eq!(storeclose::any_held_path(&store.0), 1, "the restored client holds it");
+            // The flag-off FFIs answer as before, with nothing refused.
+            assert_eq!(
+                take(super::mx_rust_set_receipt_privacy(handle, 1)),
+                "",
+                "a foreground handle may change its receipt privacy"
+            );
+            let mut status = super::MxRustBgStatus::default();
+            assert_eq!(super::mx_rust_bg_poll(handle, &mut status), -1, "not Background");
+            assert!(take(super::mx_rust_bg_take(handle, 0)).starts_with("error: "));
+            let report = retire(handle);
+            assert!(report.starts_with("store_closed=true "), "{report}");
+        }
+        assert_eq!(storeclose::reserve_calls(), before);
+    }
+
+    // R1-M4 end to end: a Background restore whose store has no crypto
+    // database is refused with a store-stage reason, and creates nothing.
+    #[test]
+    fn a_background_restore_without_its_crypto_store_is_refused_and_creates_nothing() {
+        let _labs = labs_on();
+        let homeserver = serve();
+        let store = StoreDir::new("missing");
+        // Review 2026-10-16, finding 6: the store DIRECTORY does not exist,
+        // and neither create nor restore may create it.
+        let missing = store.0.join("account-store");
+        let missing_c = CString::new(missing.to_string_lossy().as_bytes()).unwrap();
+        unsafe {
+            assert!(
+                super::mx_rust_create_background(
+                    missing_c.as_ptr(),
+                    CString::new("{\"v\":1}").unwrap().as_ptr()
+                )
+                .is_null(),
+                "an invalid profile"
+            );
+            let handle =
+                super::mx_rust_create_background(missing_c.as_ptr(), profile(USER, DEVICE).as_ptr());
+            assert!(!handle.is_null());
+            assert!(super::mx_rust_handle_serial(handle) > 0);
+            assert!(!missing.exists(), "create made the store directory");
+            restore(handle, &homeserver);
+            let mut seen = Vec::new();
+            let failed = wait_for(handle, &mut seen, "login_failed", |v| v["type"] == "login_failed");
+            assert_eq!(failed["stage"], "store", "{failed}");
+            assert_eq!(failed["reason"], "crypto_account_missing", "{failed}");
+            assert!(!missing.exists(), "the refused restore created the store directory");
+            for event in &seen {
+                let kind = event["type"].as_str().unwrap_or("");
+                assert!(labs::flows_in_background(labs::classify(kind)), "{kind} reached the queue");
+            }
+            let state: Value =
+                serde_json::from_str(&take(super::mx_rust_bg_take_session_state(handle))).unwrap();
+            assert_eq!(state["state"]["login_failed"]["reason"], "crypto_account_missing");
+            assert_eq!(take(super::mx_rust_take_custody(handle)), "", "no client, no custody");
+            let _ = retire(handle);
+            assert!(!missing.exists(), "retirement created the store directory");
+
+            // The directory exists but holds no crypto database: refused the
+            // same way, and the database it checks for is not created.
+            let handle =
+                super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
+            restore(handle, &homeserver);
+            let mut seen = Vec::new();
+            let failed = wait_for(handle, &mut seen, "login_failed", |v| v["type"] == "login_failed");
+            assert_eq!(failed["reason"], "crypto_account_missing", "{failed}");
+            assert!(
+                !store.0.join("matrix-sdk-crypto.sqlite3").exists(),
+                "the refused restore created the crypto store it was checking for"
+            );
+            assert!(!store.0.join("matrix-sdk-state.sqlite3").exists());
+            assert_eq!(storeclose::any_held_path(&store.0), 0, "the refusal released its reservation");
+            let _ = retire(handle);
+        }
+    }
+
+    // I1 + R1-M4 + custody, end to end: while a foreground handle holds the
+    // store, a Background handle for it is refused `store_in_use`; once the
+    // store is free, the Background restore passes the precheck against the
+    // identity the foreground created, and behaves as a Background handle.
+    #[test]
+    fn a_background_handle_waits_for_the_foreground_store_then_restores_as_background() {
+        let _labs = labs_on();
+        let homeserver = serve();
+        let store = StoreDir::new("handover");
+        unsafe {
+            let foreground = super::mx_rust_create(store.c().as_ptr());
+            restore(foreground, &homeserver);
+            let mut fg_seen = Vec::new();
+            wait_for(foreground, &mut fg_seen, "foreground login_ok", |v| {
+                assert_ne!(v["type"], "login_failed", "{v}");
+                v["type"] == "login_ok"
+            });
+
+            let background =
+                super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
+            assert!(!background.is_null());
+            assert_ne!(
+                super::mx_rust_handle_serial(background),
+                super::mx_rust_handle_serial(foreground)
+            );
+            restore(background, &homeserver);
+            let mut seen = Vec::new();
+            let refused = wait_for(background, &mut seen, "store_in_use", |v| {
+                v["type"] == "login_failed"
+            });
+            assert_eq!(refused["reason"], "store_in_use", "{refused}");
+
+            let report = retire(foreground);
+            assert!(report.starts_with("store_closed=true "), "{report}");
+            assert_eq!(storeclose::any_held_path(&store.0), 0);
+
+            restore(background, &homeserver);
+            let ok = wait_for(background, &mut seen, "background login_ok", |v| {
+                assert!(
+                    v["type"] != "login_failed" || v["reason"] == "store_in_use",
+                    "{v}"
+                );
+                v["type"] == "login_ok"
+            });
+            assert!(ok.get("access_token").is_none() && ok.get("refresh_token").is_none());
+            assert_eq!(storeclose::any_held_path(&store.0), 1);
+            // One handle, a refusal then a restore: the slot says it is running
+            // (review 2026-10-16, finding 2).
+            let state: Value =
+                serde_json::from_str(&take(super::mx_rust_bg_take_session_state(background))).unwrap();
+            assert!(state["state"].get("login_failed").is_none(), "a stale refusal: {state}");
+            assert!(state["state"]["login_ok"]["_v"].as_u64().is_some(), "{state}");
+
+            // Custody reads the live session.
+            let custody: Value =
+                serde_json::from_str(&take(super::mx_rust_take_custody(background))).unwrap();
+            assert_eq!(custody["has_session"], true);
+            assert_eq!(custody["access_token"], "labs-fixture-token");
+            assert_eq!(custody["revoked"], false);
+
+            // DECISION 2 and the fixed profile.
+            let status = CString::new("").unwrap();
+            assert_eq!(
+                take(super::mx_rust_set_presence(background, 0, status.as_ptr())),
+                "error: background handle publishes no presence"
+            );
+            assert!(take(super::mx_rust_set_receipt_privacy(background, 0)).starts_with("error: "));
+            assert!(take(super::mx_rust_search_index_all_hold(background, 0)).starts_with("error: "));
+            assert!(take(super::mx_rust_calls_set_media_capable(background, 1)).starts_with("error: "));
+
+            let mut status = super::MxRustBgStatus::default();
+            assert_eq!(super::mx_rust_bg_poll(background, &mut status), 0);
+            assert!(status.session_state_version > 0, "{status:?}");
+            assert_eq!(status.revoked, 0);
+            let summary: Value =
+                serde_json::from_str(&take(super::mx_rust_bg_take(background, 0))).unwrap();
+            assert_eq!(summary["v"], 1);
+            assert_eq!(summary["baseline"], true);
+            assert_eq!(summary["counts"], json!([]));
+            let rules = CString::new("[\"!a:localhost\"]").unwrap();
+            assert_eq!(take(super::mx_rust_bg_set_local_rules(background, rules.as_ptr())), "");
+            let bad = CString::new("{}").unwrap();
+            assert!(take(super::mx_rust_bg_set_local_rules(background, bad.as_ptr())).starts_with("error: "));
+
+            for event in &seen {
+                let kind = event["type"].as_str().unwrap_or("");
+                assert!(labs::flows_in_background(labs::classify(kind)), "{kind} reached the queue");
+            }
+            let report = retire(background);
+            assert!(report.starts_with("store_closed=true "), "{report}");
+            assert_eq!(storeclose::any_held_path(&store.0), 0);
+        }
+        labs::disable_for_test();
+    }
+
+    // Review 2026-10-16, finding 7: teardown runs twice (the FFI, then Drop
+    // in the retirement pool, possibly later), and by the second a NEWER
+    // handle of the same account may own the process-wide state. The
+    // per-account clear runs once per bridge.
+    #[test]
+    fn a_second_teardown_never_clears_a_newer_handles_account_state() {
+        use crate::previewbackfill::{remembered, Remembered, RunGuard};
+        let user: matrix_sdk::ruma::OwnedUserId = "@forget-once:localhost".try_into().unwrap();
+        let room = matrix_sdk::ruma::room_id!("!forget-once:localhost");
+        let identity = Some((user.to_string(), "OLDDEVICE".to_owned()));
+        let old = super::RustClient::new(std::env::temp_dir().join("lightning-labs-forget-once"))
+            .expect("bridge");
+        let old_run = RunGuard::new(user.clone());
+        old_run.remember(room, Remembered::Message("old session".into(), 1));
+        assert!(old.forget_account_state_once(identity.clone()), "the first teardown clears");
+        assert_eq!(remembered(&user, room), None);
+        drop(old_run);
+        // A newer handle of the same account starts its own run.
+        let new_run = RunGuard::new(user.clone());
+        new_run.remember(room, Remembered::Message("new session".into(), 2));
+        // The old bridge's second teardown (Drop) must leave it alone.
+        assert!(!old.forget_account_state_once(identity));
+        assert_eq!(remembered(&user, room), Some(Remembered::Message("new session".into(), 2)));
+        drop(new_run);
+        drop(old);
+    }
+
+    // 24a485c5 for a Background handle (liveacc port, 2026-10-20): a rotation
+    // recorded in the token ledger moves the custody generation inside the
+    // refresh, before the save callback's wait, so the host's next drain takes
+    // custody and answers while matrix-sdk still holds the retried request.
+    // A foreground handle's ledger never touches its custody (flag-off
+    // parity). Mutation: drop `attach_custody` in mx_rust_create_background
+    // and the generation stays put.
+    #[test]
+    fn a_background_rotation_moves_custody_before_its_wait_and_is_answered() {
+        let _labs = labs_on();
+        let store = StoreDir::new("ledger");
+        let path = store.c();
+        let handle =
+            super::mx_rust_create_background(path.as_ptr(), profile(USER, DEVICE).as_ptr());
+        assert!(!handle.is_null(), "a background handle");
+        let bridge = unsafe { super::bridge(handle) }.expect("bridge");
+        let mut status = super::MxRustBgStatus::default();
+        assert_eq!(unsafe { super::mx_rust_bg_poll(handle, &mut status) }, 0);
+        let before = status.token_generation;
+        let generation = bridge.token_ledger.record(matrix_sdk::SessionTokens {
+            access_token: "rotated-access".to_owned(),
+            refresh_token: Some("rotated-refresh".to_owned()),
+        });
+        assert_eq!(bridge.token_ledger.generation(), generation);
+        assert_eq!(unsafe { super::mx_rust_bg_poll(handle, &mut status) }, 0);
+        assert_eq!(status.token_generation, before + 1, "custody did not move with the rotation");
+        // The host's answer releases that rotation's wait at once.
+        unsafe { super::mx_rust_session_tokens_persisted(handle, generation, 1) };
+        assert_eq!(
+            bridge.token_ledger.wait_for_answer(generation),
+            crate::sessiontokens::WaitOutcome::Saved
+        );
+        // No client: custody is "" (nothing to hand over), as before.
+        assert_eq!(unsafe { take(super::mx_rust_take_custody(handle)) }, "");
+        let _ = unsafe { retire(handle) };
+
+        // A foreground handle, Labs on or off: its custody never moves.
+        let fg_store = StoreDir::new("ledger-fg");
+        let fg_path = fg_store.c();
+        let fg = super::mx_rust_create(fg_path.as_ptr());
+        assert!(!fg.is_null());
+        let fg_bridge = unsafe { super::bridge(fg) }.expect("bridge");
+        let fg_before = fg_bridge.custody.generation();
+        fg_bridge.token_ledger.record(matrix_sdk::SessionTokens {
+            access_token: "fg-access".to_owned(),
+            refresh_token: None,
+        });
+        assert_eq!(fg_bridge.custody.generation(), fg_before);
+        let _ = unsafe { retire(fg) };
+    }
+
+    // §18 round 1, MUST 6: a Background host's poll IS its drain. A rotation
+    // waiting on another thread for the host's answer must not be released
+    // as "drain stalled" while the host keeps polling every ~100 ms (the
+    // drainer's tick is 250 ms; DRAIN_STALL is 500 ms), and gets the answer
+    // the host sends after ~800 ms. Mutation: drop `note_drain()` from
+    // mx_rust_bg_poll and the wait ends Stalled at ~500 ms.
+    #[test]
+    fn a_background_poll_counts_as_a_drain_for_a_waiting_rotation() {
+        let _labs = labs_on();
+        let store = StoreDir::new("ledger-drain");
+        let path = store.c();
+        let handle =
+            super::mx_rust_create_background(path.as_ptr(), profile(USER, DEVICE).as_ptr());
+        assert!(!handle.is_null());
+        let bridge = unsafe { super::bridge(handle) }.expect("bridge");
+        let ledger = std::sync::Arc::clone(&bridge.token_ledger);
+        let generation = ledger.record(matrix_sdk::SessionTokens {
+            access_token: "rotated-access".to_owned(),
+            refresh_token: Some("rotated-refresh".to_owned()),
+        });
+        let waiter = {
+            let ledger = std::sync::Arc::clone(&ledger);
+            std::thread::spawn(move || ledger.wait_for_answer(generation))
+        };
+        let started = Instant::now();
+        let mut status = super::MxRustBgStatus::default();
+        while started.elapsed() < Duration::from_millis(800) {
+            assert_eq!(unsafe { super::mx_rust_bg_poll(handle, &mut status) }, 0);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        unsafe { super::mx_rust_session_tokens_persisted(handle, generation, 1) };
+        let outcome = waiter.join().expect("waiter");
+        assert_eq!(outcome, crate::sessiontokens::WaitOutcome::Saved,
+                   "a polling host was taken for a stalled drain");
+        let _ = unsafe { retire(handle) };
+    }
+
+    // ... and the rotation itself never rides a Background handle's command
+    // lane (tokens travel by custody only): the save callback's
+    // `session_tokens_refreshed` is refused there, and the lane stays empty.
+    #[test]
+    fn a_background_command_lane_refuses_session_tokens_refreshed() {
+        let _labs = labs_on();
+        let store = StoreDir::new("lane-refuse");
+        let path = store.c();
+        let handle =
+            super::mx_rust_create_background(path.as_ptr(), profile(USER, DEVICE).as_ptr());
+        assert!(!handle.is_null());
+        let bridge = unsafe { super::bridge(handle) }.expect("bridge");
+        super::enqueue_terminal_routed(
+            &bridge.command_events,
+            None,
+            None,
+            json!({
+                "type": "session_tokens_refreshed",
+                "access_token": "secret-access",
+                "refresh_token": "secret-refresh",
+                "generation": 1,
+            }),
+        );
+        assert!(bridge.command_events.lock().unwrap().is_empty(),
+                "a token rode a Background handle's command lane");
+        assert_eq!(unsafe { take(super::mx_rust_poll_command_event(handle)) }, "");
+        let _ = unsafe { retire(handle) };
+
+        // A foreground handle's lane still carries it (flag-off parity).
+        let fg_store = StoreDir::new("lane-fg");
+        let fg_path = fg_store.c();
+        let fg = super::mx_rust_create(fg_path.as_ptr());
+        let fg_bridge = unsafe { super::bridge(fg) }.expect("bridge");
+        super::enqueue_terminal_routed(
+            &fg_bridge.command_events,
+            None,
+            None,
+            json!({ "type": "session_tokens_refreshed", "access_token": "a", "generation": 1 }),
+        );
+        assert_eq!(fg_bridge.command_events.lock().unwrap().len(), 1);
+        let _ = unsafe { retire(fg) };
+    }
+
+    /// Runs the classic loop until two `/sync` responses have been processed,
+    /// with `events` as its queue.
+    fn run_classic_twice(homeserver: &str, events: &EventQueueRef) {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(homeserver)
+                .build()
+                .await
+                .expect("client");
+            let session = matrix_sdk::authentication::matrix::MatrixSession {
+                meta: matrix_sdk::SessionMeta {
+                    user_id: matrix_sdk::ruma::OwnedUserId::try_from(USER).unwrap(),
+                    device_id: matrix_sdk::ruma::OwnedDeviceId::from(DEVICE),
+                },
+                tokens: matrix_sdk::SessionTokens {
+                    access_token: "classic-token".to_owned(),
+                    refresh_token: None,
+                },
+            };
+            client
+                .matrix_auth()
+                .restore_session(session, matrix_sdk::store::RoomLoadSettings::default())
+                .await
+                .expect("restore");
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(events);
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                while tokio::time::Instant::now() < deadline {
+                    let runs = watched
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|e| e.contains("\"running\""))
+                        .count();
+                    if runs >= 2 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let silence = super::ClassicSilenceBudget {
+                report_after: Duration::from_secs(60),
+                restart_after: Duration::from_secs(120),
+                resume_gap: Duration::from_secs(3600),
+            };
+            tokio::join!(
+                super::run_classic_sync_with(
+                    client,
+                    Arc::clone(events),
+                    Arc::new(|| false),
+                    Default::default(),
+                    cancel_rx,
+                    silence,
+                ),
+                watcher
+            );
+        });
+    }
+
+    // R2-H4: in Background the classic loop's per-response room snapshot,
+    // spaces build and watch report are skipped BEFORE they run, not merely
+    // dropped at the queue. The foreground run of the same loop does them.
+    #[test]
+    fn a_background_classic_loop_skips_its_ui_work_at_the_source() {
+        let _labs = labs_on();
+        let homeserver = serve();
+
+        let foreground: EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        run_classic_twice(&homeserver, &foreground);
+        let fg: Vec<String> = foreground.lock().unwrap().iter().cloned().collect();
+        assert!(
+            fg.iter().any(|e| e.contains("\"latest_event_watch_report\"")),
+            "the foreground loop must still report its watch set: {fg:?}"
+        );
+
+        let background: EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        let commands: EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        let bg_profile = labs::parse_profile(&profile(USER, DEVICE).into_string().unwrap()).unwrap();
+        let state = Arc::new(bgsession::BgState::new(
+            bg_profile,
+            Arc::new(Mutex::new(None)),
+            &background,
+            &commands,
+        ));
+        bgsession::register(&background, &commands, &state);
+        run_classic_twice(&homeserver, &background);
+        let bg: Vec<Value> = background
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| serde_json::from_str(e).unwrap())
+            .collect();
+        assert!(state.work_skipped() >= 2, "one skip per response: {}", state.work_skipped());
+        assert!(bg.iter().any(|v| v["type"] == "initial_sync_done"), "{bg:?}");
+        for event in &bg {
+            let kind = event["type"].as_str().unwrap_or("");
+            assert!(labs::flows_in_background(labs::classify(kind)), "{kind} reached the queue");
+        }
+        bgsession::unregister(&background, &commands);
+        labs::disable_for_test();
+    }
+}
 
 /// The modern lane against a homeserver whose sliding sync answers
 /// `M_UNKNOWN_TOKEN` although the session is alive: the SDK refreshes, and the

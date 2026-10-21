@@ -291,9 +291,36 @@ pub(crate) fn spawn_token_persistence(
 #[must_use]
 pub(crate) fn spawn_token_persistence_with(
     client: &Client,
+    changes: tokio::sync::broadcast::Receiver<SessionChange>,
+    events: Arc<Mutex<VecDeque<String>>>,
+    ledger: Option<Arc<crate::sessiontokens::TokenLedger>>,
+) -> tokio::task::JoinHandle<()> {
+    spawn_token_persistence_custody(
+        client,
+        changes,
+        events,
+        ledger,
+        Arc::new(crate::labs::CustodyFacts::default()),
+    )
+}
+
+/// `spawn_token_persistence_with`, also recording what it sees in the
+/// handle's custody facts (design 2026-10-15 §3.2.7): a rotation bumps the
+/// generation, `UnknownToken` sets the sticky revoked flag. The queue output
+/// is unchanged; a Background handle's gate keeps `session_tokens_refreshed`
+/// off its queue, because custody is its only token path.
+///
+/// A rotation announced by the ledger's save callback has ALREADY bumped the
+/// custody generation inside the refresh (`sessiontokens::Sink::custody`), so
+/// a Background host takes custody and answers while the SDK waits; this
+/// watcher does not bump it a second time for the same rotation.
+#[must_use]
+pub(crate) fn spawn_token_persistence_custody(
+    client: &Client,
     mut changes: tokio::sync::broadcast::Receiver<SessionChange>,
     events: Arc<Mutex<VecDeque<String>>>,
     ledger: Option<Arc<crate::sessiontokens::TokenLedger>>,
+    custody: Arc<crate::labs::CustodyFacts>,
 ) -> tokio::task::JoinHandle<()> {
     let client = client.clone();
     tokio::spawn(async move {
@@ -304,6 +331,7 @@ pub(crate) fn spawn_token_persistence_with(
                         continue;
                     }
                     let Some(tokens) = client.session_tokens() else { continue };
+                    custody.note_refreshed();
                     enqueue(
                         &events,
                         json!({
@@ -325,6 +353,7 @@ pub(crate) fn spawn_token_persistence_with(
                     let had_refresh_token = client
                         .session_tokens()
                         .is_some_and(|tokens| tokens.refresh_token.is_some());
+                    custody.note_revoked(data.soft_logout, had_refresh_token);
                     let mut event = json!({
                         "type": "session_token_revoked",
                         "soft_logout": data.soft_logout,
@@ -347,7 +376,13 @@ pub(crate) fn spawn_token_persistence_with(
                     enqueue(&events, event);
                 }
                 // Lagged only means missed notifications; the next carries current tokens.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                // A missed one may have been a rotation, so the custody generation
+                // moves anyway: a host re-taking custody for nothing costs one read,
+                // one that never re-takes keeps a consumed refresh token.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    custody.note_refreshed();
+                    continue;
+                }
                 Err(_) => break,
             }
         }
@@ -877,10 +912,13 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let active_qr = Arc::clone(&bridge.active_qr);
         let sync_notify = Arc::clone(&bridge.sync_notify);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        let custody = Arc::clone(&bridge.custody);
+        // Labs: this handle's reservation and precheck (none with the flag off).
+        let open_context = bridge.open_context();
+        crate::spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_restore",
-                crate::switchtrace::restore_scope(
+                crate::labs::scope_open(open_context, crate::switchtrace::restore_scope(
                     crate::switchtrace::switch_trace_enabled(), async move {
                 let session = OAuthSession {
                     client_id: ClientId::new(client_id),
@@ -913,9 +951,9 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                         // OAuth access tokens are short-lived, so rotations must be persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
-                                spawn_token_persistence_with(
+                                spawn_token_persistence_custody(
                                     &client, changes, Arc::clone(&events),
-                                    Some(Arc::clone(&token_sink.ledger))))
+                                    Some(Arc::clone(&token_sink.ledger)), custody))
                             {
                                 previous.abort();
                             }
@@ -938,7 +976,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                             json!({ "type": "login_failed", "message": message })));
                     }
                 }
-            }));
+            })));
         });
 
         Ok(String::new())
@@ -1166,7 +1204,7 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
             // Held and announced only after `run_async_on` has returned, i.e.
             // after this thread's Client is gone, as `mx_rust_logout` does:
@@ -1586,7 +1624,7 @@ pub unsafe extern "C" fn mx_rust_oauth_management_url(
 mod token_persistence_tests {
     use super::{
         restore_oauth_client_then, revoke_refused_sign_in, spawn_token_persistence,
-        spawn_token_persistence_with,
+        spawn_token_persistence_custody, spawn_token_persistence_with,
     };
     use crate::modern_sync_auth_tests::respond;
     use std::io::Read;
@@ -1746,6 +1784,84 @@ mod token_persistence_tests {
             access_token: "access-0".to_owned(),
             refresh_token: Some("refresh-0".to_owned()),
         }
+    }
+
+    /// Labs custody (design §3.2.7): the token task records a rotation and a
+    /// revocation in the handle's facts, and its queue output is unchanged.
+    #[test]
+    fn the_token_task_records_rotation_and_revocation_in_custody() {
+        let (homeserver, _) = serve();
+        runtime().block_on(async {
+            // A rotation.
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(&homeserver)
+                .handle_refresh_tokens()
+                .build()
+                .await
+                .expect("client");
+            let changes = client.subscribe_to_session_changes();
+            client
+                .matrix_auth()
+                .restore_session(MatrixSession { meta: meta(), tokens: tokens() },
+                                 RoomLoadSettings::default())
+                .await
+                .expect("restore");
+            let custody = Arc::new(crate::labs::CustodyFacts::default());
+            let events = Arc::new(Mutex::new(VecDeque::new()));
+            let watcher = spawn_token_persistence_custody(
+                &client, changes, Arc::clone(&events), None, Arc::clone(&custody));
+            client.refresh_access_token().await.expect("refresh");
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while custody.generation() == 0 && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            watcher.abort();
+            assert!(custody.generation() >= 1, "a rotation did not bump the generation");
+            assert!(!custody.revoked());
+            assert_eq!(refreshed(&events).len(), 1, "the queue output must be unchanged");
+
+            // A revocation: no refresh token, and the server refuses the token.
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(&homeserver)
+                .build()
+                .await
+                .expect("client");
+            let changes = client.subscribe_to_session_changes();
+            client
+                .matrix_auth()
+                .restore_session(
+                    MatrixSession {
+                        meta: meta(),
+                        tokens: SessionTokens { access_token: "bad".to_owned(), refresh_token: None },
+                    },
+                    RoomLoadSettings::default(),
+                )
+                .await
+                .expect("restore");
+            let custody = Arc::new(crate::labs::CustodyFacts::default());
+            let events = Arc::new(Mutex::new(VecDeque::new()));
+            let watcher = spawn_token_persistence_custody(
+                &client, changes, Arc::clone(&events), None, Arc::clone(&custody));
+            let _ = client.whoami().await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while !custody.revoked() && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            watcher.abort();
+            assert!(custody.revoked(), "UnknownToken did not set the revoked flag");
+            let facts = custody.custody_json(|| None);
+            assert_eq!(facts["revoked_kind"], "unknown_token");
+            assert_eq!(facts["soft_logout"], false);
+            assert_eq!(facts["had_refresh_token"], false);
+            let revoked: Vec<serde_json::Value> = events
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|e| serde_json::from_str::<serde_json::Value>(e).unwrap())
+                .filter(|e| e["type"] == "session_token_revoked")
+                .collect();
+            assert_eq!(revoked.len(), 1, "the queue output must be unchanged");
+        });
     }
 
     fn refreshed(events: &Arc<Mutex<VecDeque<String>>>) -> Vec<serde_json::Value> {

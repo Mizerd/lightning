@@ -71,6 +71,15 @@ struct HandbackEntry {
 
 enum class Handback : quint8 { Written, WriteFailed, SkippedNoStore, SkippedSameDeviceRunning,
                                SkippedRecordGoneOrOtherDevice, SkippedKeyringChanged };
+// The digest a background host's handback compares against: `expected`,
+// unless the keyring holds the pair of one of that host's OWN live writes
+// that were still queued or running at its retirement (`accepted`), which is
+// still "what this host last wrote". Anything else (a foreground sign-in)
+// keeps `expected`, and the compare-and-swap refuses. One read of the store.
+QByteArray handbackExpectedDigest(TokenStore *store, const QString &userId,
+                                  const QByteArray &expected,
+                                  const QList<QByteArray> &accepted);
+
 // persistRetiredSessionTokens body. Caller computes sameDeviceRunningAndNotRestoring with
 // today's short-circuit expression. I/O order: accountRecord -> accessTokenFor -> update (CAS).
 Handback writeHandback(TokenStore *store /*nullable*/, const HandbackEntry &entry,

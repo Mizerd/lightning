@@ -204,12 +204,19 @@ pub(crate) async fn run_stale_invite_reconciler(client: Client, events: EventQue
         if any_pending(&client) {
             if let Some(answer) = fetch_server_invites(&client).await {
                 let retired = reconcile_with(&client, &answer).await;
-                if retired > 0 {
+                // Labs, Background: the retirement itself still runs (the
+                // aggregator's invite count follows the store, through the
+                // notable update it raises), but the O(rooms) snapshot is UI
+                // work and is skipped at its source (design §3.2.3).
+                let background = crate::bgsession::for_queue(&events);
+                if retired > 0 && background.is_none() {
                     crate::enqueue(
                         &events,
                         serde_json::json!({ "type": "stale_invites_retired", "count": retired }),
                     );
                     crate::enqueue_rooms(&events, &client).await;
+                } else if let Some(bg) = background.filter(|_| retired > 0) {
+                    bg.note_skipped();
                 }
             }
         }

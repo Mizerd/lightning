@@ -997,8 +997,15 @@ fn escalation_cooldown_ms(consecutive_asks: u32) -> u64 {
     ms.min(SERVER_ESCALATION_COOLDOWN_MAX_MS)
 }
 
-/// When each room last spent an implicit `/state`, and how many in a row
-/// found nothing live.
+/// The key of an escalation or ring mark: the account AND the room, so one
+/// account's session ending never clears another live account's marks
+/// (design 2026-10-15 §3.2.10, R1-H1). U+001F cannot occur in either id.
+fn account_room_mark_key(user_id: &str, room_id: &str) -> String {
+    format!("{user_id}\u{1f}{room_id}")
+}
+
+/// When each (account, room) last spent an implicit `/state`, and how many in
+/// a row found nothing live.
 fn server_escalation_marks() -> &'static std::sync::Mutex<
     std::collections::HashMap<String, (std::time::Instant, u32)>,
 > {
@@ -1010,7 +1017,7 @@ fn server_escalation_marks() -> &'static std::sync::Mutex<
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Rooms a MatrixRTC ring arrived for, and when.
+/// (account, room) pairs a MatrixRTC ring arrived for, and when.
 fn rtc_ring_marks()
     -> &'static std::sync::Mutex<
         std::collections::HashMap<String, std::time::Instant>,
@@ -1026,23 +1033,24 @@ fn rtc_ring_marks()
 
 /// Record that this room just rang. Uses `Instant`, so clock steps cannot
 /// move the window.
-pub(crate) fn note_rtc_ring(room_id: &str) {
+pub(crate) fn note_rtc_ring(user_id: &str, room_id: &str) {
+    let key = account_room_mark_key(user_id, room_id);
     if let Ok(mut marks) = rtc_ring_marks().lock() {
-        if marks.len() >= MAX_ROOM_MARKS && !marks.contains_key(room_id) {
+        if marks.len() >= MAX_ROOM_MARKS && !marks.contains_key(&key) {
             marks.clear();
         }
-        marks.insert(room_id.to_owned(), std::time::Instant::now());
+        marks.insert(key, std::time::Instant::now());
     }
     // A ring is fresh evidence of a session, so it also clears this room's
     // backoff: the next read may ask immediately.
-    clear_server_escalation_backoff(room_id);
+    clear_server_escalation_backoff(user_id, room_id);
 }
 
-fn rtc_ring_is_recent(room_id: &str) -> bool {
+fn rtc_ring_is_recent(user_id: &str, room_id: &str) -> bool {
     rtc_ring_marks()
         .lock()
         .ok()
-        .and_then(|marks| marks.get(room_id).copied())
+        .and_then(|marks| marks.get(&account_room_mark_key(user_id, room_id)).copied())
         .is_some_and(|at| {
             let since_ms = at.elapsed().as_millis() as u64;
             since_ms <= RING_ESCALATION_WINDOW_MS
@@ -1051,7 +1059,9 @@ fn rtc_ring_is_recent(room_id: &str) -> bool {
 
 /// May this room spend an implicit `/state` now? Records the attempt when
 /// it says yes.
-fn claim_server_escalation(room_id: &str) -> bool {
+fn claim_server_escalation(user_id: &str, room_id: &str) -> bool {
+    let room_id = account_room_mark_key(user_id, room_id);
+    let room_id = room_id.as_str();
     let Ok(mut marks) = server_escalation_marks().lock() else {
         // Fail open on a poisoned lock: a live call's media keys depend on this
         // fallback.
@@ -1076,18 +1086,18 @@ fn claim_server_escalation(room_id: &str) -> bool {
 /// An escalation that found somebody live resets the streak (the next gap
 /// is the base one) but keeps the gap, so a store that lags for a whole call
 /// does not escalate on every poke.
-fn note_server_escalation_found_live(room_id: &str) {
+fn note_server_escalation_found_live(user_id: &str, room_id: &str) {
     if let Ok(mut marks) = server_escalation_marks().lock() {
-        if let Some(entry) = marks.get_mut(room_id) {
+        if let Some(entry) = marks.get_mut(&account_room_mark_key(user_id, room_id)) {
             entry.1 = 0;
         }
     }
 }
 
 /// Forget a room's backoff entirely, so its next read may ask at once.
-fn clear_server_escalation_backoff(room_id: &str) {
+fn clear_server_escalation_backoff(user_id: &str, room_id: &str) {
     if let Ok(mut marks) = server_escalation_marks().lock() {
-        marks.remove(room_id);
+        marks.remove(&account_room_mark_key(user_id, room_id));
     }
 }
 
@@ -1195,18 +1205,19 @@ async fn read_membership_events(
 
     if !prefer_server {
         let room_id = room.room_id().as_str();
+        let user_id = room.own_user_id().as_str();
         match store_read_verdict(
             &from_store,
             now_ms,
             room_has_published_membership(room_id),
-            rtc_ring_is_recent(room_id),
+            rtc_ring_is_recent(user_id, room_id),
         ) {
             StoreVerdict::Answer => return (from_store, "store"),
             StoreVerdict::AnswerNoSession => {
                 return (from_store, "store-no-session")
             }
             StoreVerdict::AskServer(reason) => {
-                if !claim_server_escalation(room_id) {
+                if !claim_server_escalation(user_id, room_id) {
                     return (from_store, reason.cooling_word());
                 }
             }
@@ -1248,7 +1259,10 @@ async fn read_membership_events(
     if !prefer_server && store_view_is_usable(&merged, now_ms) {
         // Found what it was spent on, so the streak resets. Forced reads are paced
         // by their caller and do not touch this backoff.
-        note_server_escalation_found_live(room.room_id().as_str());
+        note_server_escalation_found_live(
+            room.own_user_id().as_str(),
+            room.room_id().as_str(),
+        );
     }
     (merged, "server")
 }
@@ -1713,14 +1727,14 @@ fn membership_publish_key(room_id: &str, state_key: &str) -> String {
     format!("{room_id}\u{1f}{state_key}")
 }
 
-fn mark_membership_published(key: &str) {
+fn mark_membership_published(user_id: &str, key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.insert(key.to_owned());
     }
     // Joining a call is fresh evidence of a session, so clear the room's
     // escalation backoff; otherwise the media key lane could read a stale store.
     if let Some(room_id) = key.split('\u{1f}').next() {
-        clear_server_escalation_backoff(room_id);
+        clear_server_escalation_backoff(user_id, room_id);
     }
 }
 
@@ -1737,28 +1751,50 @@ fn forget_membership_published(key: &str) {
 /// client or session. The sign-out path has no session left to derive the
 /// state key from, and a stale mark would make the next join inherit a
 /// ghost's `created_ts`.
-fn forget_room_memberships_published(room_id: &str) {
+///
+/// `account`: Labs only (design §3.2.10). With concurrent live accounts a
+/// second account may be in a call in the same room, and its marks are not
+/// this leave's to forget. `None` (the flag-off path, and a leave with no
+/// session left to name the account) clears the whole room as before.
+fn forget_room_memberships_published(room_id: &str, account: Option<(&str, &str)>) {
     let prefix = format!("{room_id}\u{1f}");
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
-        seen.retain(|key| !key.starts_with(&prefix));
+        seen.retain(|key| {
+            key.strip_prefix(&prefix).is_none_or(|state_key| {
+                account.is_some_and(|(user, device)| {
+                    !state_key_belongs_to(state_key, user, device)
+                })
+            })
+        });
     }
 }
 
-/// Drop the whole set. Only a membership this session published may be
-/// inherited, so the set is cleared when a session ends rather than relying
-/// on every leave path.
-pub(crate) fn forget_all_memberships_published() {
+/// Whether a membership state key is (user, device)'s, in either of the two
+/// shapes `membership_state_key` writes.
+fn state_key_belongs_to(state_key: &str, user_id: &str, device_id: &str) -> bool {
+    let bare = format!("{user_id}_{device_id}_{APPLICATION_CALL}");
+    state_key == bare || state_key.strip_prefix('_') == Some(bare.as_str())
+}
+
+/// Forget what ONE account (user, device) published, and that account's
+/// escalation and ring marks, leaving every other account's alone (design
+/// §3.2.10, DECISION 11: also on the flag-off path). A session ending runs
+/// this for its own identity; the wholesale clear it replaces cleared every
+/// account, which in an A -> B overlap or with concurrent live accounts
+/// cleared a session that was still running.
+pub(crate) fn forget_account_memberships_published(user_id: &str, device_id: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
-        seen.clear();
+        seen.retain(|key| {
+            key.split_once('\u{1f}')
+                .is_none_or(|(_, state_key)| !state_key_belongs_to(state_key, user_id, device_id))
+        });
     }
-    // The per-room mark tables are session state too; cleared here because
-    // every teardown path runs this (see lib.rs), so the next account starts
-    // clean.
+    let prefix = format!("{user_id}\u{1f}");
     if let Ok(mut marks) = server_escalation_marks().lock() {
-        marks.clear();
+        marks.retain(|key, _| !key.starts_with(&prefix));
     }
     if let Ok(mut marks) = rtc_ring_marks().lock() {
-        marks.clear();
+        marks.retain(|key, _| !key.starts_with(&prefix));
     }
 }
 
@@ -2004,7 +2040,7 @@ pub(crate) fn publish_membership(
         // refreshes. Only on an accepted write; a failed publish's retry is still a
         // join.
         if ok {
-            mark_membership_published(&publish_key);
+            mark_membership_published(&user_id, &publish_key);
         }
 
         // The delayed retraction is a `{}` PUT to our own state key, marked delayed
@@ -2286,8 +2322,21 @@ pub(crate) fn retract_membership(
     op_id: u64,
 ) -> Result<(), String> {
     // First, before anything that can fail: sign-out reaches here without a
-    // session, and leaving is an intent the bookkeeping must follow.
-    forget_room_memberships_published(&room_id);
+    // session, and leaving is an intent the bookkeeping must follow. In Labs
+    // only this account's marks go when the session can still name it.
+    let account = if crate::labs::active() {
+        bridge.client.lock().ok().and_then(|guard| {
+            guard.as_ref().and_then(|client| {
+                Some((client.user_id()?.to_string(), client.device_id()?.to_string()))
+            })
+        })
+    } else {
+        None
+    };
+    forget_room_memberships_published(
+        &room_id,
+        account.as_ref().map(|(user, device)| (user.as_str(), device.as_str())),
+    );
 
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
@@ -3447,7 +3496,7 @@ pub(crate) fn register_rtc_handlers(
                 async move {
                     // A ring is the strongest evidence of a session in a room we are not
                     // viewing, so it licenses one `/state`. Recorded for our own ring too.
-                    note_rtc_ring(room.room_id().as_str());
+                    note_rtc_ring(room.own_user_id().as_str(), room.room_id().as_str());
                     enqueue(&events, msc4075_notification_payload(
                         &ev,
                         room.room_id().as_str(),
@@ -4356,46 +4405,47 @@ mod tests {
     #[test]
     fn the_backoff_is_per_room_and_a_ring_cancels_it() {
         // Shares the global mark tables with the publish-set tests, hence
-        // PUBLISH_SET_TEST_LOCK (`forget_all_memberships_published` clears all
-        // three).
+        // PUBLISH_SET_TEST_LOCK (`forget_account_memberships_published` clears
+        // all three for an account).
         let _serialised = PUBLISH_SET_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        const ME: &str = "@me:matrix.example";
         let room = "!backoff:matrix.example";
         let other = "!neighbour:matrix.example";
-        clear_server_escalation_backoff(room);
-        clear_server_escalation_backoff(other);
+        clear_server_escalation_backoff(ME, room);
+        clear_server_escalation_backoff(ME, other);
 
-        assert!(claim_server_escalation(room), "the first ask is free");
+        assert!(claim_server_escalation(ME, room), "the first ask is free");
         assert!(
-            !claim_server_escalation(room),
+            !claim_server_escalation(ME, room),
             "a second ask inside the gap is exactly the storm this bounds"
         );
         assert!(
-            claim_server_escalation(other),
+            claim_server_escalation(ME, other),
             "one room's backoff must never silence another's — a per-process \
              gate would make a real call wait on an idle room's ghost"
         );
 
         // A ring cancels the gap.
-        note_rtc_ring(room);
-        assert!(rtc_ring_is_recent(room));
-        assert!(!rtc_ring_is_recent(other));
+        note_rtc_ring(ME, room);
+        assert!(rtc_ring_is_recent(ME, room));
+        assert!(!rtc_ring_is_recent(ME, other));
         assert!(
-            claim_server_escalation(room),
+            claim_server_escalation(ME, room),
             "a ring must not have to wait out a backoff the room earned \
              while it was idle: the Answer button is gated on this read"
         );
 
-        // A session ending clears them all.
-        forget_all_memberships_published();
-        assert!(!rtc_ring_is_recent(room));
+        // A session ending clears its own account's marks.
+        forget_account_memberships_published(ME, "DEVICE");
+        assert!(!rtc_ring_is_recent(ME, room));
         assert!(
-            claim_server_escalation(room),
+            claim_server_escalation(ME, room),
             "an account switch must not inherit the previous account's gap"
         );
-        clear_server_escalation_backoff(room);
-        clear_server_escalation_backoff(other);
+        clear_server_escalation_backoff(ME, room);
+        clear_server_escalation_backoff(ME, other);
     }
 
     #[test]
@@ -4997,7 +5047,7 @@ mod tests {
     }
 
     /// Serialises every test touching the process-global publish set and,
-    /// since `forget_all_memberships_published()` clears them together, the
+    /// since `forget_account_memberships_published()` clears them together, the
     /// escalation and ring tables too. Cargo runs tests in parallel in one
     /// process, so without it one test's clear wipes another's marks.
     static PUBLISH_SET_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -5018,12 +5068,12 @@ mod tests {
         let elsewhere = membership_publish_key(other, "_@a:example_DEVICEA_m.call");
 
         for key in [&mine, &sibling, &elsewhere] {
-            mark_membership_published(key);
+            mark_membership_published("@a:example", key);
             assert!(membership_published_in_this_process(key));
         }
 
         // By room: every state key in that room goes, and only that room.
-        forget_room_memberships_published(room);
+        forget_room_memberships_published(room, None);
         assert!(
             !membership_published_in_this_process(&mine),
             "leaving a room must forget what this session published in it,              and it must do so without needing the session that is already gone"
@@ -5037,8 +5087,8 @@ mod tests {
             "leaving one room must not disturb another room's bookkeeping"
         );
 
-        // Wholesale: a session ending clears everything.
-        forget_all_memberships_published();
+        // A session ending clears everything its account published.
+        forget_account_memberships_published("@a:example", "DEVICEA");
         assert!(
             !membership_published_in_this_process(&elsewhere),
             "teardown must clear the set, or a mark survives an account              switch and the next join inherits a ghost's created_ts"
@@ -5063,7 +5113,7 @@ mod tests {
             "a process that has published nothing must treat its first \
              publish as a JOIN, whatever is left in the room's state"
         );
-        mark_membership_published(&key);
+        mark_membership_published("@a:example", &key);
         assert!(
             membership_published_in_this_process(&key),
             "a refresh must inherit created_ts, or the membership's deadline \
@@ -5075,11 +5125,11 @@ mod tests {
         assert!(!membership_published_in_this_process(&key));
 
         // Scoped to the state key, so other rooms and accounts are unaffected.
-        mark_membership_published(&membership_publish_key(
+        mark_membership_published("@a:example", &membership_publish_key(
             "!other:matrix.example",
             "_@a:example_DEVICE_m.call",
         ));
-        mark_membership_published(&membership_publish_key(
+        mark_membership_published("@b:example", &membership_publish_key(
             room,
             "_@b:example_DEVICE_m.call",
         ));
@@ -5472,5 +5522,83 @@ mod tests {
             .expect("a public v6 literal resolves");
         assert!(v6.is_ipv6());
         assert_eq!(v6.port(), 443);
+    }
+
+    // R1-H1 / DECISION 11: one account's session ending keeps every other
+    // account's published memberships and marks.
+    #[test]
+    fn retiring_one_account_keeps_another_accounts_rtc_state() {
+        let _serialised = PUBLISH_SET_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let room = "!shared-call:matrix.example";
+        let (x, y) = ("@x:matrix.example", "@y:matrix.example");
+        let x_key = membership_publish_key(room, &membership_state_key(x, "XDEV", "10"));
+        let x_other_device =
+            membership_publish_key(room, &membership_state_key(x, "XDEV2", "org.matrix.msc3757.10"));
+        let y_key = membership_publish_key(room, &membership_state_key(y, "YDEV", "10"));
+        let y_new_shape =
+            membership_publish_key(room, &membership_state_key(y, "YDEV", "org.matrix.msc3757.10"));
+        for (user, key) in [(x, &x_key), (x, &x_other_device), (y, &y_key), (y, &y_new_shape)] {
+            mark_membership_published(user, key);
+        }
+        for user in [x, y] {
+            clear_server_escalation_backoff(user, room);
+            assert!(claim_server_escalation(user, room));
+            note_rtc_ring(user, room);
+            assert!(claim_server_escalation(user, room), "the ring cleared the gap");
+        }
+
+        forget_account_memberships_published(x, "XDEV");
+
+        assert!(!membership_published_in_this_process(&x_key), "X's own mark must go");
+        assert!(
+            membership_published_in_this_process(&x_other_device),
+            "another device of X is another session"
+        );
+        assert!(membership_published_in_this_process(&y_key), "Y's call was cleared by X's exit");
+        assert!(membership_published_in_this_process(&y_new_shape));
+        assert!(!rtc_ring_is_recent(x, room), "X's ring mark must go");
+        assert!(rtc_ring_is_recent(y, room), "Y's ring mark was cleared by X's exit");
+        assert!(claim_server_escalation(x, room), "X starts with no gap");
+        assert!(
+            !claim_server_escalation(y, room),
+            "Y's backoff must survive: its claim above is still inside the gap"
+        );
+
+        forget_account_memberships_published(x, "XDEV2");
+        forget_account_memberships_published(y, "YDEV");
+        for key in [&x_other_device, &y_key, &y_new_shape] {
+            assert!(!membership_published_in_this_process(key));
+        }
+        clear_server_escalation_backoff(x, room);
+        clear_server_escalation_backoff(y, room);
+    }
+
+    #[test]
+    fn a_leave_with_an_account_forgets_only_that_accounts_marks_in_the_room() {
+        let _serialised = PUBLISH_SET_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let room = "!leave-one:matrix.example";
+        let mine = membership_publish_key(room, &membership_state_key("@a:x", "A", "10"));
+        let theirs = membership_publish_key(room, &membership_state_key("@b:x", "B", "10"));
+        mark_membership_published("@a:x", &mine);
+        mark_membership_published("@b:x", &theirs);
+        forget_room_memberships_published(room, Some(("@a:x", "A")));
+        assert!(!membership_published_in_this_process(&mine));
+        assert!(membership_published_in_this_process(&theirs), "another account's call");
+        forget_room_memberships_published(room, None);
+        assert!(!membership_published_in_this_process(&theirs), "None keeps today's room-wide clear");
+    }
+
+    #[test]
+    fn a_state_key_belongs_to_exactly_its_user_and_device() {
+        assert!(state_key_belongs_to("_@a:x_DEV_m.call", "@a:x", "DEV"));
+        assert!(state_key_belongs_to("@a:x_DEV_m.call", "@a:x", "DEV"));
+        assert!(!state_key_belongs_to("_@a:x_DEV2_m.call", "@a:x", "DEV"));
+        assert!(!state_key_belongs_to("_@a:x_DEV_m.call", "@a:x", "DE"));
+        assert!(!state_key_belongs_to("_@a:x.evil_DEV_m.call", "@a:x", "DEV"));
+        assert!(!state_key_belongs_to("__@a:x_DEV_m.call", "@a:x", "DEV"));
     }
 }

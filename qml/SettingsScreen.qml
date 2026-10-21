@@ -570,6 +570,11 @@ Item {
                          + "webrtc rnnoise deepfilternet denoise"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "noiseSuppressionCard" },
+        { title: qsTr("Run several accounts at once"),
+          keywords: qsTr("accounts several multiple background always signed "
+                         + "in live keep running switch"),
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "labsConcurrentAccountsSwitch" },
         { title: qsTr("Game activity"),
           keywords: qsTr("playing game status steam presence activity"),
           section: "labs", breadcrumb: qsTr("Labs"),
@@ -9595,6 +9600,12 @@ Item {
                                 width: parent.width
                             }
                         }
+                        // Run several accounts at once (concurrent live
+                        // accounts), OFF by default; also where the "always
+                        // signed in" accounts are chosen. It hides itself
+                        // only when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs
+                        // off (a test override).
+                        LabsConcurrentAccountsCard {}
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width

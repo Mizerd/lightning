@@ -508,6 +508,28 @@ set(APP_SOURCES
     src/accounts/RevocationProofs.cpp
     src/accounts/SessionTokenCustody.h
     src/accounts/SessionTokenCustody.cpp
+    # Live accounts (Labs), Phase 1: background session machinery (WP1-S)
+    # and the per-account models (WP1-M). Compiled in every build; inert
+    # unless Labs is on (contract §1).
+    src/accounts/RustBridgeApi.h
+    src/accounts/SessionPool.h
+    src/accounts/SessionPool.cpp
+    src/accounts/BackgroundSessionHost.h
+    src/accounts/BackgroundSessionHost.cpp
+    src/accounts/BackgroundDrainer.h
+    src/accounts/BackgroundDrainer.cpp
+    src/accounts/SessionScheduler.h
+    src/accounts/SessionScheduler.cpp
+    src/accounts/RetirementLatches.h
+    src/accounts/RetirementLatches.cpp
+    src/accounts/HostRetirementPool.h
+    src/accounts/HostRetirementPool.cpp
+    src/accounts/KeyringWorker.h
+    src/accounts/KeyringWorker.cpp
+    src/models/AccountActivityModel.h
+    src/models/AccountActivityModel.cpp
+    src/models/AccountListModel.h
+    src/models/AccountListModel.cpp
     src/app/ConversationController.h
     src/app/ConversationController.cpp
     src/app/CustomAppIcon.h
@@ -1243,6 +1265,9 @@ set(APP_QML_FILES
     qml/EncryptionBrokenPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
+    qml/AccountActivityBadge.qml
+    qml/AccountActivityFeed.qml
+    qml/LabsConcurrentAccountsCard.qml
     qml/TrustCard.qml
     qml/RecoveryKeyEntry.qml
     qml/CrossSigningSetupCard.qml
@@ -2092,6 +2117,45 @@ if(BUILD_TESTING)
     target_link_libraries(account-registry-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME account-registry COMMAND account-registry-test)
 
+    # Labs (concurrent live accounts): per-account badge rows. Epoch-stamped
+    # summaries, one-row updates, Running-only visibility, totals without the
+    # active account.
+    qt_add_executable(account-activity-model-test
+        tests/AccountActivityModelTest.cpp
+        src/models/AccountActivityModel.h
+        src/models/AccountActivityModel.cpp
+    )
+    target_include_directories(account-activity-model-test PRIVATE src)
+    target_link_libraries(account-activity-model-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME account-activity-model COMMAND account-activity-model-test)
+    set_tests_properties(account-activity-model PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Labs switcher rows: no secret read at 200 accounts, sections, filter, the
+    # signals that change a row; AccountManager::sessionRevokedChanged; flag-off
+    # parity of today's account rows.
+    qt_add_executable(account-list-model-test
+        tests/AccountListModelTest.cpp
+        src/models/AccountListModel.h
+        src/models/AccountListModel.cpp
+        src/models/AccountActivityModel.h
+        src/models/AccountActivityModel.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/auth/AccountManager.h
+        src/auth/AccountManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(account-list-model-test PRIVATE src)
+    target_link_libraries(account-list-model-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME account-list-model COMMAND account-list-model-test)
+    set_tests_properties(account-list-model PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     qt_add_executable(emoji-catalog-test
         tests/EmojiCatalogTest.cpp
         src/models/EmojiCatalog.h
@@ -2826,6 +2890,57 @@ if(BUILD_TESTING)
     add_test(NAME account-switch COMMAND account-switch-test)
     set_tests_properties(account-switch PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Live accounts (Labs), Phase 1, WP1-S: the session pool, background
+    # hosts, the keyring worker and the retirement pool (FakeRustBridge).
+    foreach(_t session-pool:SessionPoolTest background-host:BackgroundHostTest
+               keyring-pause:KeyringPauseTest host-retirement-pool:HostRetirementPoolTest)
+        string(REPLACE ":" ";" _p "${_t}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        qt_add_executable(${_name}-test tests/${_src}.cpp ${APP_LIB_SOURCES})
+        lightning_configure_qml_test(${_name}-test)
+        target_link_libraries(${_name}-test PRIVATE Qt6::Test)
+        target_include_directories(${_name}-test PRIVATE src tests)
+        add_test(NAME ${_name} COMMAND ${_name}-test)
+        # A dead session bus: the hosts' NotificationManager must never reach
+        # the desktop's daemon (§18 round 1, MUST 5).
+        set_tests_properties(${_name} PROPERTIES ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
+    endforeach()
+    # Source scans: what a host may read (I8) and that every store open and
+    # deletion is claimed first.
+    foreach(_t host-settings-scan:HostSettingsScanTest claim-caller-scan:ClaimCallerScanTest)
+        string(REPLACE ":" ";" _p "${_t}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        qt_add_executable(${_name}-test tests/${_src}.cpp)
+        target_link_libraries(${_name}-test PRIVATE Qt6::Core Qt6::Test)
+        target_compile_definitions(${_name}-test PRIVATE
+            LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME ${_name} COMMAND ${_name}-test)
+    endforeach()
+
+    # Live accounts (Labs), Phase 1, WP1-A: app wiring on a real
+    # AppController (mock backend + tests/support/LabsAppHarness.h's
+    # scripted bridge), and flag-off parity against a golden captured on the
+    # merge base.
+    foreach(_t removal-order:RemovalOrderTest revocation:RevocationTest
+               quit-parallel:QuitParallelTest cross-account-open:CrossAccountOpenTest
+               flag-off-parity:FlagOffParityTest)
+        string(REPLACE ":" ";" _p "${_t}")
+        list(GET _p 0 _name)
+        list(GET _p 1 _src)
+        qt_add_executable(${_name}-test tests/${_src}.cpp ${APP_LIB_SOURCES})
+        lightning_configure_qml_test(${_name}-test)
+        target_link_libraries(${_name}-test PRIVATE Qt6::Test)
+        target_include_directories(${_name}-test PRIVATE src tests)
+        target_compile_definitions(${_name}-test PRIVATE
+            SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME ${_name} COMMAND ${_name}-test)
+        set_tests_properties(${_name} PROPERTIES ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
+    endforeach()
 
     # Setting the account's own display name on a real AppController: stale
     # generations and foreign op ids never update the cached identity; the
@@ -5001,6 +5116,36 @@ if(BUILD_TESTING)
 
     # Notification decision policy: privacy modes, mention metadata, room
     # modes, active-room suppression, never exposing ciphertext.
+    # Live accounts (Labs), WP1-A: background cards, rate limit, merges.
+    qt_add_executable(notification-flood-test
+        tests/NotificationFloodTest.cpp
+        src/notifications/NotificationManager.h
+        src/notifications/NotificationManager.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/notifications/FallbackAvatar.h
+        src/notifications/FallbackAvatar.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+    )
+    target_include_directories(notification-flood-test PRIVATE src)
+    target_link_libraries(notification-flood-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    if(TARGET Qt6::DBus)
+        target_link_libraries(notification-flood-test PRIVATE Qt6::DBus)
+        target_compile_definitions(notification-flood-test
+            PRIVATE HAVE_QT_DBUS=1)
+    endif()
+    add_test(NAME notification-flood COMMAND notification-flood-test)
+    set_tests_properties(notification-flood PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
+
     qt_add_executable(notification-manager-test
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
@@ -6299,6 +6444,37 @@ if(BUILD_TESTING)
 
     # Account switcher: identity cards, real data only, live-id switch guard,
     # confirmations.
+    # Live accounts (Labs): per-account badges, feed, rail dot, Labs-off parity.
+    qt_add_executable(account-badges-qml-test
+        tests/AccountBadgesQmlTest.cpp
+        tests/support/LabsQmlFixture.h
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(account-badges-qml-test)
+    target_include_directories(account-badges-qml-test PRIVATE src tests)
+    target_compile_definitions(account-badges-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(account-badges-qml-test PRIVATE Qt6::Test)
+    add_test(NAME account-badges-qml COMMAND account-badges-qml-test)
+    set_tests_properties(account-badges-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Live accounts (Labs): the hidden Settings card, pins and refusals.
+    qt_add_executable(labs-concurrent-accounts-card-test
+        tests/LabsConcurrentAccountsCardTest.cpp
+        tests/support/LabsQmlFixture.h
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(labs-concurrent-accounts-card-test)
+    target_include_directories(labs-concurrent-accounts-card-test PRIVATE src tests)
+    target_compile_definitions(labs-concurrent-accounts-card-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(labs-concurrent-accounts-card-test PRIVATE Qt6::Test)
+    add_test(NAME labs-concurrent-accounts-card
+        COMMAND labs-concurrent-accounts-card-test)
+    set_tests_properties(labs-concurrent-accounts-card PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     qt_add_executable(identity-card-account-menu-test
         tests/IdentityCardAccountMenuTest.cpp
         ${APP_LIB_SOURCES}
@@ -6626,6 +6802,26 @@ if(BUILD_TESTING)
     target_link_libraries(settings-portable-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME settings-portable COMMAND settings-portable-test)
+
+    # Labs settings: the switch and the warm slot, export-only portability, the
+    # per-account pin and last-live time, the local-rule set, what a host may
+    # read, flag-off parity.
+    qt_add_executable(labs-settings-test
+        tests/LabsSettingsTest.cpp
+        src/settings/SettingsPortable.h
+        src/settings/SettingsPortable.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(labs-settings-test PRIVATE src)
+    target_link_libraries(labs-settings-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME labs-settings COMMAND labs-settings-test)
+    set_tests_properties(labs-settings PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The notification settings page: device-only flags, the room-mode
     # change signal, search-index entries and the wording contracts.

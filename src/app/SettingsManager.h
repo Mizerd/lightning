@@ -83,6 +83,21 @@ class SettingsManager : public QObject
     // effect on restart: matrix-sdk 0.18 has no runtime setter for either half.
     Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
                    WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
+    // Labs: run several accounts at once (concurrent live accounts). Off by
+    // default, and only a stored bool `true` turns it on: a hand edit reading
+    // "1" or "yes" stays off. Never exported or synced (not in the settings
+    // schema), so a homeserver cannot switch on network activity for every
+    // saved account. AppController also requires the Rust bridge, and does
+    // nothing when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off.
+    Q_PROPERTY(bool labsConcurrentAccounts READ labsConcurrentAccounts
+                   WRITE setLabsConcurrentAccounts
+                   NOTIFY labsConcurrentAccountsChanged)
+    // Hold the account just switched away from for a while (Phase 2). On by
+    // default (DECISION 3). Nothing reads it in Phase 1.
+    Q_PROPERTY(bool labsConcurrentAccountsWarmSlot
+                   READ labsConcurrentAccountsWarmSlot
+                   WRITE setLabsConcurrentAccountsWarmSlot
+                   NOTIFY labsConcurrentAccountsWarmSlotChanged)
     // Keep media the user OPENS between sessions: the SDK media store
     // (encrypted with the account's key, rust/src/mediastore.rs), plus plain
     // kept files for what it refuses by size, never from an encrypted room.
@@ -581,6 +596,10 @@ public:
     void setCallShareAudioApps(const QStringList &keys);
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
+    bool labsConcurrentAccounts() const;
+    void setLabsConcurrentAccounts(bool on);
+    bool labsConcurrentAccountsWarmSlot() const;
+    void setLabsConcurrentAccountsWarmSlot(bool on);
     bool keepMediaOnDevice() const;
     bool developerTools() const;
     void setDeveloperTools(bool v);
@@ -1113,6 +1132,51 @@ public:
                               const QString &displayName,
                               const QString &avatarUrl);
 
+    // ── Labs: concurrent live accounts (per account) ──────────────────────
+    // GUI thread. Settings-file reads and writes only: nothing below ever
+    // touches the SecretStore. Kept in the account's own record
+    // (accounts/<slug>/), so they go when the record goes. Never exported or
+    // synced, written without QSettings::sync() and never emitting
+    // accountsChanged(): a pin or a timestamp is not a change to the record
+    // the switcher and the session lifecycle react to.
+    //
+    // The cap counts the foreground plus the pins; pins count whether the
+    // pinned account is in the foreground or not.
+    static constexpr int kMaxLiveAccounts = 5;
+    static constexpr int kMaxPinnedAccounts = 4;
+    enum class KeepRunningResult : quint8 { Ok, Unchanged, RefusedCap, RefusedNoRecord };
+    // "Keep running in the background". Refuses a pin past
+    // kMaxPinnedAccounts (nothing stored) and an id with no saved record.
+    // Turning a pin off is never refused. Emits keepRunningChanged(userId) on
+    // a real change only.
+    KeepRunningResult setKeepRunningFor(const QString &userId, bool on);
+    bool keepRunningFor(const QString &userId) const;
+    // The pinned accounts, in savedAccountUserIds() order.
+    QStringList keepRunningUserIds() const;
+    // When the account was last live (foreground or background), UNIX ms; 0
+    // when never recorded or unreadable. No signal.
+    qint64 lastLiveAtFor(const QString &userId) const;
+    // Ignored for an id with no saved record; a value <= 0 clears it.
+    void setLastLiveAtFor(const QString &userId, qint64 unixMs);
+    // Rooms whose stored mode for that account decides locally
+    // (roomNotificationModeDecidesLocallyFor() is true): the Rust local-rule
+    // set. Enumerates that account's own unsynced keys and the legacy
+    // device-global modes it has no key of its own for; never another
+    // account's keys. Sorted. Empty for an id with no saved record.
+    QStringList locallyDecidedNotificationRoomsFor(const QString &userId) const;
+    // A host may read and write this account's keyring items directly: the
+    // store is not shared between installs, or the items are current for this
+    // install (written for the recorded device); and the account is neither
+    // adopted-unverified nor declined as another install's sign-in. False
+    // without a record or without a SecretStore.
+    // Settings file only: a pre-scoping session would be ADOPTED (written) by
+    // its first read, which only the foreground path may do.
+    bool keyringItemsDirectlyReadableFor(const QString &userId) const;
+    // After another thread (KeyringWorker) wrote this account's tokens: what
+    // updateSessionTokens() does on success (records the keyring backend).
+    // GUI thread.
+    void noteSessionTokensWrittenElsewhere(const QString &userId);
+
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Screenshot demo only: register a fictional account as non-secret
     // metadata, never touching the SecretStore. `order` fixes addedAt for a
@@ -1207,6 +1271,8 @@ Q_SIGNALS:
     void callPictureInPictureChanged();
     void noiseSuppressionModeChanged();
     void strictDeviceTrustChanged();
+    void labsConcurrentAccountsChanged();
+    void labsConcurrentAccountsWarmSlotChanged();
     void keepMediaOnDeviceChanged();
     void developerToolsChanged();
     void alwaysAskWhereToSaveChanged();
@@ -1284,6 +1350,8 @@ Q_SIGNALS:
     void secretBackendChanged();
     // A saved-account record was added, removed, or updated.
     void accountsChanged();
+    // setKeepRunningFor() changed this account's pin. Never accountsChanged().
+    void keepRunningChanged(const QString &userId);
 
 private:
     // Per-account appearance state; friends so the private helpers stay

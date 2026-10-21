@@ -54,6 +54,10 @@ public:
 Q_SIGNALS:
     void activeUserIdChanged();
     void accountsChanged();
+    // markSessionRevoked()/clearSessionRevoked() changed this account's flag.
+    // Emitted right after accountsChanged(), so a view that keys on one row
+    // (the Labs switcher) need not rebuild every row.
+    void sessionRevokedChanged(const QString &userId);
 
 private:
     // True when the SecretStore backend itself cannot answer (no store

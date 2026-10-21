@@ -44,6 +44,9 @@
 #include "notifications/NotificationManager.h"
 #include "notifications/NotificationContextBuilder.h"
 #include "app/SwitchTrace.h"
+#include "accounts/RustBridgeApi.h"
+#include "accounts/SessionPool.h"
+#include "accounts/StoreOwnershipRegistry.h"
 #include "spaces/SpaceManager.h"
 #include "storage/SecretStore.h"
 #include "storage/InMemorySecretStore.h"
@@ -98,6 +101,14 @@
 #include <QUuid>
 #include <QLoggingCategory>
 #include <memory>
+#include <type_traits>
+
+#ifdef Q_OS_UNIX
+#include <sys/resource.h>
+#endif
+#ifdef Q_OS_MACOS
+#include <climits> // OPEN_MAX
+#endif
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
 
@@ -189,6 +200,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     , m_secretStoreFactory(std::move(secretStoreFactory))
     , m_settings(std::make_unique<SettingsManager>(this))
 {
+    // Live accounts (Labs): the base of a background account's backlog
+    // floor. Read nowhere while live accounts are off.
+    m_appStartWallMs = QDateTime::currentMSecsSinceEpoch();
 #ifdef LIGHTNING_RUST_ONLY
     // Fail closed: a release binary must never run a non-Rust backend.
     if (backend != RustBackend)
@@ -831,8 +845,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             : composedRoomId;
         if (roomId.isEmpty() || event.eventId.isEmpty())
             return;
-        m_notifications->processDecrypted(
-            event, notificationContextFor(roomId, event, fromThread));
+        NotificationManager::Context context =
+            notificationContextFor(roomId, event, fromThread);
+        // Live accounts (Labs): as handleLiveEvent(), the title's label.
+        if (m_sessionPool)
+            context.accountLabel =
+                liveAccountLabel(m_settings->activeAccountUserId());
+        m_notifications->processDecrypted(event, context);
     });
     // Aggregated edits (and removal of edits) arrive as an in-place SDK Set.
     // Refresh a card already showing this event without announcing it again.
@@ -885,18 +904,32 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
+        // Live accounts (Labs): the account-naming signal, emitted first for
+        // the same click, claimed this open for another account, which opens
+        // it once that account is in front. Never set otherwise.
+        if (m_claimedOpen) {
+            const ClaimedOpen claimed = *std::exchange(m_claimedOpen,
+                                                       std::nullopt);
+            if (claimed.roomId == roomId && claimed.eventId == eventId
+                && claimed.threadRootId == threadRootId)
+                return;
+        }
         routeNotificationOpen(roomId, eventId, threadRootId);
     });
-    // The same click, naming the account the card was raised for. It routes
-    // nothing yet: the three-argument signal above still opens the room. An
-    // open for an account that is not the active one is only recorded.
+    // The same click, naming the account the card was raised for. Without
+    // live accounts it routes nothing: the three-argument signal above opens
+    // the room, and an open for an account that is not the active one is
+    // only recorded. With them, that open is claimed and switches accounts.
     connect(m_notifications.get(), &NotificationManager::openRequestedForAccount,
-            this, [this](const QString &accountUserId, const QString &,
-                         const QString &, const QString &) {
+            this, [this](const QString &accountUserId, const QString &roomId,
+                         const QString &eventId, const QString &threadRootId) {
         if (!accountUserId.isEmpty()
             && accountUserId != m_settings->activeAccountUserId()) {
             qCInfo(lcApp) << "notification open for another account acct="
                           << matrix::app_data::safeUserSlug(accountUserId);
+            if (m_sessionPool)
+                claimCrossAccountOpen(accountUserId, roomId, eventId,
+                                      threadRootId);
         }
     });
     // A notification card outlives the account that raised it. Acting under
@@ -3447,6 +3480,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     }
 #endif
 
+    // Concurrent live accounts (Labs; lead decision 2026-10-20): offered in
+    // Settings > Labs and OFF by default; the stored labsConcurrentAccounts
+    // alone turns it on (with the Rust bridge built in). While it is off,
+    // applyLiveAccountsLabs() returns before asking anything and nothing is
+    // constructed, so the rest of this constructor is today's.
+    // LIGHTNING_LABS_LIVE_ACCOUNTS is a test override read once here: set to
+    // 0/false/off/no (or empty) it forces Labs off and hides the card;
+    // unset or any other value changes nothing.
+    m_liveAccountsLabsAvailable =
+        !qEnvironmentVariableIsSet("LIGHTNING_LABS_LIVE_ACCOUNTS")
+        || lightning::switchtrace::enabledFromEnvValue(
+            qgetenv("LIGHTNING_LABS_LIVE_ACCOUNTS"));
+    if (m_liveAccountsLabsAvailable) {
+        connect(m_settings.get(),
+                &SettingsManager::labsConcurrentAccountsChanged, this,
+                [this] { applyLiveAccountsLabs(); });
+        applyLiveAccountsLabs();
+    } else {
+        qCInfo(lcApp) << "live accounts (Labs) forced off by LIGHTNING_LABS_LIVE_ACCOUNTS";
+    }
+
     // Startup with a saved account is a restoration state: the login form
     // must not instantiate until the outcome is known. Success reaches
     // MainScreen via loginSucceeded, every failure via loginFailed. The mock
@@ -3546,6 +3600,35 @@ void AppController::updateVoicePrefetch()
 
 AppController::~AppController()
 {
+    // Live accounts (Labs): the pool may be destroyed only after its hosts
+    // were retired and awaited (SessionPool's contract), and it points at
+    // members destroyed before m_client. A quit has done both already
+    // (prepareForShutdown); a controller torn down without one (tests) does
+    // them here, while everything the pool points at is alive.
+    if (m_sessionPool) {
+        m_sessionPool->disconnect(this);
+        if (!m_liveAccountsQuitBegun) {
+            m_liveAccountsQuitBegun = true;
+            m_liveAccountsQuitTimer.start();
+            m_sessionPool->beginQuit();
+        }
+        const qint64 remaining = std::max<qint64>(
+            0, m_liveAccountsQuitBudgetMs - m_liveAccountsQuitTimer.elapsed());
+        m_sessionPool->waitForQuit(int(remaining));
+        m_parkedOpenTimer.reset();
+        // A runtime off finishing inside that wait has released it already
+        // (and, m_liveAccountsQuitBegun being set, started nothing again).
+        m_sessionPool.reset();
+        m_accountList.reset();
+        m_accountActivity.reset();
+    }
+    // What a runtime off released with deleteLater(): a quit on the same
+    // event-loop turn never ran it, and ~QObject would delete them only
+    // after the settings, the notifications and the accounts they point at.
+    // The pool first, as it points at the activity model.
+    delete m_retiredLivePool.data();
+    delete m_retiredAccountList.data();
+    delete m_retiredAccountActivity.data();
     // Members die in reverse declaration order. ~SfuCallController always
     // emits stateChanged (Idle -> Ended, even with no call), and our lambdas
     // on it touch m_messageSearch and m_voicePlayback, already destroyed: a
@@ -3637,6 +3720,21 @@ void AppController::prepareForShutdown()
     QElapsedTimer shutdownTimer;
     shutdownTimer.start();
 
+    // Live accounts (Labs): every background account starts retiring now,
+    // on its own pool, so it retires in parallel with the foreground's stop
+    // below; both share one budget (waitForQuit after the stop).
+    if (m_sessionPool) {
+        m_liveAccountsQuitBegun = true;
+        m_liveAccountsQuitTimer.start();
+        // The foreground was live until now: its backlog floor next time.
+        const QString foreground = m_settings->activeAccountUserId();
+        if (!foreground.isEmpty() && m_client && m_client->isLoggedIn())
+            m_settings->setLastLiveAtFor(foreground,
+                                         QDateTime::currentMSecsSinceEpoch());
+        noteLiveAccountsStep(QStringLiteral("quit:begin"), QString());
+        m_sessionPool->beginQuit();
+    }
+
     // Stop the Qt Multimedia players first: on Windows their Media Foundation
     // threads deliver state through queued signals that must not run into
     // teardown.
@@ -3673,6 +3771,59 @@ void AppController::prepareForShutdown()
     if (m_client) {
         stalltrace::Scope stallScope("quit-stop-sync");
         m_client->stopSync();
+    }
+
+    // Live accounts (Labs): what is left of the one budget, for the
+    // background accounts' retirements (started above) and their last token
+    // writes. A host still restoring past it has written no rotation since
+    // its last persist (the pool names each one in its log).
+    if (m_sessionPool) {
+        stalltrace::Scope stallScope("quit-live-accounts");
+        noteLiveAccountsStep(QStringLiteral("quit:foreground-stopped"),
+                             QString());
+#ifdef ENABLE_RUST_SDK_BACKEND
+        // The foreground's own store close starts now, BEFORE the wait below,
+        // so the two retire side by side within one budget (contract §6.6).
+        // Otherwise it starts only in ~RustSdkMatrixClient, after this wait,
+        // and a quit can take the background budget plus the foreground's.
+        // Asked by name: the hook is WP1-S's (RustSdkMatrixClient), and a
+        // build without it falls back, loudly, to waiting one after the other.
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+            noteLiveAccountsStep(QStringLiteral("quit:foreground-retiring"),
+                                 QString());
+            if (!QMetaObject::invokeMethod(rust, "beginQuitRetirement",
+                                           Qt::DirectConnection)) {
+                qCWarning(lcApp)
+                    << "live accounts: the foreground store cannot start "
+                       "closing before the background accounts are awaited; "
+                       "the quit waits for them one after the other";
+            }
+        }
+#endif
+        const qint64 remaining = std::max<qint64>(
+            0, m_liveAccountsQuitBudgetMs - m_liveAccountsQuitTimer.elapsed());
+        const bool drained = m_sessionPool->waitForQuit(int(remaining));
+        // A host still restoring at the deadline does not make the pool's
+        // answer false (its retirement is deferred to a login result that
+        // never came), so it is counted here, whatever that answer. A runtime
+        // off finishing inside the wait may have released the pool.
+        int stillRestoring = 0;
+        if (m_sessionPool) {
+            for (const QString &uid : m_settings->keepRunningUserIds()) {
+                if (m_sessionPool->liveState(uid)
+                    == AccountActivityModel::Starting)
+                    ++stillRestoring;
+            }
+        }
+        const bool overBudget = !drained || stillRestoring > 0;
+        noteLiveAccountsStep(overBudget ? QStringLiteral("quit:over-budget")
+                                        : QStringLiteral("quit:drained"),
+                             QString());
+        if (overBudget) {
+            qCWarning(lcApp) << "background accounts did not all retire within"
+                             << remaining << "ms at quit; still restoring:"
+                             << stillRestoring;
+        }
     }
 
     const qint64 elapsed = shutdownTimer.elapsed();
@@ -5099,8 +5250,14 @@ void AppController::handleLiveEvent(const QString &composedRoomId,
     // Activity prompts a presence refresh; it is never evidence of "online".
     if (m_presence && event.sender != m_client->currentUserId())
         m_presence->noteActivity(event.sender);
-    const NotificationManager::Context context =
+    NotificationManager::Context context =
         notificationContextFor(roomId, event, fromThread);
+    // Live accounts (Labs): the foreground's name, for a title that says
+    // which account a card is for. The account stays empty, so the card is
+    // still the foreground's ("" table, today's stamping).
+    if (m_sessionPool)
+        context.accountLabel =
+            liveAccountLabel(m_settings->activeAccountUserId());
     // A card is about to name a sender nothing on hand names (no member
     // name, no profile cached): ask for their profile, once per session, so
     // later cards use it rather than the localpart. Only for an event that
@@ -7018,13 +7175,19 @@ void AppController::refreshTrayUnread()
     // #18: a muted room is neither a dot nor a count), through the one
     // function every unread surface reads (a "Mentions" mode this device
     // cannot verify on the server is a dot, never a count).
+    // Live accounts (Labs): cards this account raised while it ran in the
+    // background live in its own table, and only this walk can still
+    // withdraw them now that it is in front. Empty while live accounts are
+    // off.
+    const QString liveForeground =
+        m_sessionPool ? m_settings->activeAccountUserId() : QString();
     const roomunread::Summary unread = roomunread::summarize(
         m_client->rooms(),
         [this](const QString &id) {
             return m_settings ? m_settings->roomUnreadMode(id)
                               : roomunread::kModeAllMessages;
         },
-        [this](const RoomInfo &room, bool roomUnread) {
+        [this, &liveForeground](const RoomInfo &room, bool roomUnread) {
             // A room that is no longer unread withdraws its notifications, a
             // read in another client (cleared via sync) included. The manager
             // waits until the room has read as unread since its latest card:
@@ -7032,9 +7195,22 @@ void AppController::refreshTrayUnread()
             // without a card.
             if (m_notifications)
                 m_notifications->observeRoomUnread(room.id, roomUnread);
+            if (m_notifications && !liveForeground.isEmpty())
+                m_notifications->observeRoomUnreadFor(liveForeground, room.id,
+                                                      roomUnread);
         });
-    const int total = unread.total;
-    const bool anyUnread = unread.any;
+    int total = unread.total;
+    bool anyUnread = unread.any;
+    // Live accounts (Labs): the background accounts' counts tables, by the
+    // same rule (RoomUnreadRule, applied by each host), the active one
+    // excluded. Their mentions add to the number; any activity lights it.
+    if (m_accountActivity) {
+        const AccountActivityModel::Totals others =
+            m_accountActivity->totalsExcluding(
+                m_settings->activeAccountUserId());
+        total += others.mentions;
+        anyUnread = anyUnread || others.accountsWithActivity > 0;
+    }
     if (m_tray.enabled())
         m_tray.setUnread(total, anyUnread);
     // The Dock (macOS), taskbar (Windows) and launcher (KDE, Unity) badge,
@@ -7146,6 +7322,11 @@ void AppController::onLoggedOut()
     // Second half of removeAccount() for the active account. Runs before
     // clearActiveUser() and the fallback loop, so the account being removed
     // can never be chosen to continue with.
+    // Live accounts (Labs) only: the account whose store the registry would
+    // not let go (its retirement overran the budget). Its record stays, it
+    // is never continued with, and the user is told below. Always empty
+    // without live accounts, where the registry refuses nothing.
+    QString removalRefusedUserId;
     if (!m_pendingRemovalUserId.isEmpty()) {
         const QString target = m_pendingRemovalUserId;
         const bool resolved = m_pendingRemovalResolved;
@@ -7158,13 +7339,25 @@ void AppController::onLoggedOut()
         // still proceeds with the captured identity; a session belonging to
         // a different account abandons the removal.
         if (m_lastSessionUserId.isEmpty() || m_lastSessionUserId == target) {
+            bool refused = false;
             if (resolved)
-                removeAccountLocalState(identity);
+                removeAccountLocalState(identity, &refused);
             else
                 qCWarning(lcApp) << "account removal completed without a "
                                     "resolvable local layout — record and "
                                     "secrets only";
-            m_accounts->removeAccount(target); // record + secrets
+            if (refused) {
+                // Nothing was deleted: the record that names the store stays
+                // with it (§6), and a later removal finishes the job.
+                removalRefusedUserId = target;
+                if (m_sessionPool) {
+                    noteLiveAccountsStep(QStringLiteral("removal:refused"),
+                                         target);
+                    reopenLiveAccountActivity(target);
+                }
+            } else {
+                m_accounts->removeAccount(target); // record + secrets
+            }
         } else {
             qCWarning(lcApp)
                 << "pending account removal abandoned: the session that "
@@ -7177,6 +7370,12 @@ void AppController::onLoggedOut()
     m_addAccountReturnTo.clear();
     m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
+    // After the blanket clear, so it is what the user reads.
+    if (!removalRefusedUserId.isEmpty()) {
+        Q_EMIT errorReported(
+            tr("Removal did not finish: the account's data is still in use. "
+               "Nothing was deleted."));
+    }
     // A genuine sign-out/removal ends whatever the last connection state
     // was; nothing else here re-derives it (the client's own
     // connectionStateChanged may not fire again for a session that is
@@ -7190,6 +7389,8 @@ void AppController::onLoggedOut()
     // keyring every account reads tokenless.
     bool anyUnreadable = false;
     for (auto it = remaining.crbegin(); it != remaining.crend(); ++it) {
+        if (*it == removalRefusedUserId)
+            continue;
         switch (signInStateFor(*it)) {
         case SignInState::Usable:
             switchToAccount(*it);
@@ -7622,6 +7823,11 @@ void AppController::switchToAccount(const QString &userId)
         Q_EMIT errorReported(tr("That account is not signed in on this device."));
         return;
     }
+    // Live accounts (Labs): an account running in the background holds its
+    // own store. It is freed first, asynchronously, while this account stays
+    // in front and usable; today's switch below follows once it is free.
+    if (m_sessionPool && beginLiveAccountSwitch(target))
+        return;
     // LIGHTNING_SWITCH_TRACE: every stamp below is a no-op unless it is set.
     namespace trace = lightning::switchtrace;
     if (trace::enabled())
@@ -7766,6 +7972,24 @@ void AppController::failAccountSwitch(const QString &message)
     if (!fallback.isEmpty() && m_settings->hasSavedAccount(fallback)) {
         qCInfo(lcApp) << "account switch falling back"
                       << "slug=" << matrix::app_data::safeUserSlug(fallback);
+        // Live accounts (Labs): the account switched away from may have
+        // started running in the background since. Its store is freed first
+        // (asynchronously; the switch stays in progress), or the restore
+        // below would meet a store its host still holds.
+        if (m_sessionPool && m_sessionPool->holdsSignIn(fallback)) {
+            noteLiveAccountsStep(QStringLiteral("switch:fallback-release"),
+                                 fallback);
+            m_liveFallbackTarget = fallback;
+            QPointer<AppController> self(this);
+            m_liveFallbackTicket = m_sessionPool->releaseForForeground(
+                fallback,
+                [self, fallback](
+                    lightning::accounts::SessionPool::ReleaseResult result) {
+                    if (self)
+                        self->finishFallbackRelease(fallback, int(result));
+                });
+            return;
+        }
         m_settings->setActiveAccountUserId(fallback);
         clearCrossAccountCaches();
         if (m_client->restoreSession())
@@ -7834,7 +8058,7 @@ bool AppController::resolveRemovalIdentity(
 }
 
 bool AppController::removeAccountLocalState(
-    const matrix::app_data::AccountIdentity &identity)
+    const matrix::app_data::AccountIdentity &identity, bool *refused)
 {
     // Retiring a Rust client is asynchronous, so its SQLite store may still be
     // open. Wait for the close before deleting, or key material can survive a
@@ -7843,6 +8067,34 @@ bool AppController::removeAccountLocalState(
     RustSdkMatrixClient::waitForRustRetirement(
         RustSdkMatrixClient::kStoreCloseBudgetMs);
 #endif
+    return removeAccountLocalStateFiles(identity, refused);
+}
+
+bool AppController::removeAccountLocalStateFiles(
+    const matrix::app_data::AccountIdentity &identity, bool *refused)
+{
+    if (refused)
+        *refused = false;
+    // The store registry decides whether anything may touch this store on
+    // disk. Without live accounts it records only and always grants; with
+    // them, a store still open, starting or retiring is refused and nothing
+    // is deleted (§6: never report a removal that removed nothing).
+    if (!identity.rustStorePath.isEmpty()) {
+        const auto verdict =
+            lightning::accounts::StoreOwnershipRegistry::process()
+                .claimForDeletion(identity.rustStorePath);
+        using Verdict = std::remove_cv_t<decltype(verdict)>;
+        if (verdict != Verdict::Granted) {
+            qCWarning(lcApp) << "removing account local state REFUSED: its store"
+                             << "is still in use slug=" << identity.slug
+                             << "verdict="
+                             << lightning::accounts::StoreOwnershipRegistry::
+                                    verdictName(verdict);
+            if (refused)
+                *refused = true;
+            return false;
+        }
+    }
     const auto removed = matrix::app_data::removeAccountRustState(identity);
     // The avatar store is app-level, not account-scoped, so the directory
     // sweep below does not cover it.
@@ -7927,6 +8179,19 @@ void AppController::removeAccount(const QString &userId)
     }
     if (!m_settings->hasSavedAccount(target))
         return;
+    // Live accounts (Labs): an account running in the background is signed
+    // out on the server and its store released before anything is deleted
+    // (DECISION 7). Never the active account, whose removal is today's.
+    // A keyring write of its sign-in still running (no host: a parked pair
+    // being written, a live write a retired host left stuck) counts too: the
+    // pool forbids further writes and waits for that one to return before
+    // anything is deleted, or a token would land with no record (§6, §18
+    // round 4, R4-1).
+    if (m_sessionPool && target != m_settings->activeAccountUserId()
+        && (m_sessionPool->holdsSignIn(target) || m_liveRemovals.contains(target))) {
+        removeLiveBackgroundAccount(target);
+        return;
+    }
     // Its sign-in is in a keyring that cannot be read now: removing the
     // account would delete the record and leave a live token in the keyring,
     // with nothing left that could ever remove it. A signed-in account reads
@@ -7945,6 +8210,14 @@ void AppController::removeAccount(const QString &userId)
         return;
     }
 
+    // Live accounts (Labs): what the account left from a background run (its
+    // cards, its badge row, an open waiting for it) goes with it.
+    if (m_sessionPool) {
+        noteLiveAccountsStep(QStringLiteral("removal:not-live"), target);
+        cancelParkedOpenFor(target);
+        m_notifications->clearPendingFor(target);
+        m_accountActivity->removeAccount(target);
+    }
     const bool isActive = target == m_settings->activeAccountUserId();
     if (isActive && m_client->isLoggedIn()) {
         // The active account's store is open and needs a real server logout
@@ -7968,7 +8241,22 @@ void AppController::removeAccount(const QString &userId)
     matrix::app_data::AccountIdentity identity;
     bool filesRemoved = false;
     if (resolveRemovalIdentity(target, &identity)) {
-        filesRemoved = removeAccountLocalState(identity);
+        bool refused = false;
+        filesRemoved = removeAccountLocalState(identity, &refused);
+        // Live accounts (Labs) only: the store registry would not let its
+        // store go (a retirement that overran its budget still holds it).
+        // Nothing was deleted, so the record that names the store stays
+        // with it (§6), and the user is told; a later removal finishes.
+        if (refused) {
+            if (m_sessionPool) {
+                noteLiveAccountsStep(QStringLiteral("removal:refused"), target);
+                reopenLiveAccountActivity(target);
+            }
+            Q_EMIT errorReported(
+                tr("Removal did not finish: the account's data is still in "
+                   "use. Nothing was deleted."));
+            return;
+        }
     } else {
         qCWarning(lcApp) << "removal could not resolve an account layout"
                          << "slug=" << matrix::app_data::safeUserSlug(target);
@@ -8129,4 +8417,762 @@ void AppController::dismissSoftwareRendererNotice()
         return;
     m_softwareRendererNoticeVisible = false;
     Q_EMIT softwareRendererNoticeVisibleChanged();
+}
+
+// ── Concurrent live accounts (Labs) ─────────────────────────────────────
+//
+// Everything below runs only while m_sessionPool exists (live accounts on:
+// the setting, the bridge, and LIGHTNING_LABS_LIVE_ACCOUNTS not forcing it off). Every call
+// into it from the shared paths above is behind `if (m_sessionPool)`, so with
+// live accounts off this controller is today's (FlagOffParityTest).
+
+namespace {
+#ifdef ENABLE_RUST_SDK_BACKEND
+// The background accounts share the foreground's quit budget.
+static_assert(RustSdkMatrixClient::kStoreCloseBudgetMs == 15000,
+              "keep m_liveAccountsQuitBudgetMs equal to the store-close budget");
+#endif
+
+// RLIMIT_NOFILE soft raised to the hard limit (Unix), so the configured
+// maximum of every live store (~56 fds per background account) fits. An
+// unlimited hard limit is capped, as the kernel refuses "infinity" for open
+// files; macOS caps at OPEN_MAX. Returns what happened, for the log.
+QString raiseOpenFileLimit()
+{
+#ifdef Q_OS_UNIX
+    struct rlimit limit {};
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
+        return QStringLiteral("unreadable");
+    rlim_t wanted = limit.rlim_max;
+    if (wanted == RLIM_INFINITY)
+        wanted = 65536;
+#ifdef Q_OS_MACOS
+    if (wanted > rlim_t(OPEN_MAX))
+        wanted = rlim_t(OPEN_MAX);
+#endif
+    if (limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur >= wanted)
+        return QStringLiteral("unchanged soft=%1")
+            .arg(qulonglong(limit.rlim_cur));
+    if (limit.rlim_cur == RLIM_INFINITY)
+        return QStringLiteral("unchanged soft=unlimited");
+    const rlim_t before = limit.rlim_cur;
+    limit.rlim_cur = wanted;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
+        return QStringLiteral("refused soft=%1").arg(qulonglong(before));
+    return QStringLiteral("raised from=%1 to=%2")
+        .arg(qulonglong(before))
+        .arg(qulonglong(wanted));
+#else
+    return QStringLiteral("not applicable");
+#endif
+}
+
+constexpr int kMaxLiveAccountsSteps = 256;
+} // namespace
+
+int AppController::maxLiveAccounts() const
+{
+    return SettingsManager::kMaxLiveAccounts;
+}
+
+int AppController::maxPinnedAccounts() const
+{
+    return SettingsManager::kMaxPinnedAccounts;
+}
+
+QString AppController::setAccountKeepRunning(const QString &userId, bool on)
+{
+    const QString uid = userId.trimmed();
+    const QString capRefusal =
+        tr("Up to %1 accounts can keep running. Turn one off first.")
+            .arg(SettingsManager::kMaxPinnedAccounts);
+    const QString noRecord = tr("That account is not signed in on this device.");
+    // Live: the pool writes the pin and reschedules. Off: the choice is
+    // only stored, for when live accounts are turned on.
+    if (m_sessionPool) {
+        using Pin = lightning::accounts::SessionPool::PinResult;
+        switch (m_sessionPool->setKeepRunning(uid, on)) {
+        case Pin::Ok:
+            return QString();
+        case Pin::RefusedCap:
+            return capRefusal;
+        case Pin::RefusedNoRecord:
+            return noRecord;
+        }
+        return QString();
+    }
+    using Keep = SettingsManager::KeepRunningResult;
+    switch (m_settings->setKeepRunningFor(uid, on)) {
+    case Keep::Ok:
+    case Keep::Unchanged:
+        return QString();
+    case Keep::RefusedCap:
+        return capRefusal;
+    case Keep::RefusedNoRecord:
+        return noRecord;
+    }
+    return QString();
+}
+
+void AppController::noteLiveAccountsStep(const QString &step,
+                                         const QString &userId)
+{
+    m_liveAccountsSteps.append(userId.isEmpty()
+                                   ? step
+                                   : step + QLatin1Char(' ') + userId);
+    while (m_liveAccountsSteps.size() > kMaxLiveAccountsSteps)
+        m_liveAccountsSteps.removeFirst();
+    qCInfo(lcApp) << "live accounts" << step << "acct="
+                  << matrix::app_data::safeUserSlug(userId);
+}
+
+QString AppController::liveAccountLabel(const QString &userId) const
+{
+    // The record's display name (a settings-file read; never the keyring),
+    // else the localpart. Never the full MXID.
+    const QString name = m_settings->accountRecord(userId)
+                             .value(QStringLiteral("displayName"))
+                             .toString()
+                             .trimmed();
+    if (!name.isEmpty())
+        return name;
+    if (userId.startsWith(QLatin1Char('@'))) {
+        const qsizetype colon = userId.indexOf(QLatin1Char(':'));
+        const QString local =
+            colon > 1 ? userId.mid(1, colon - 1) : userId.mid(1);
+        if (!local.isEmpty())
+            return local;
+    }
+    return userId;
+}
+
+void AppController::applyLiveAccountsLabs()
+{
+    // A runtime off still retiring the hosts re-applies when it is done; a
+    // quit (or a controller being destroyed) never starts anything.
+    if (m_liveAccountsStopping || m_shuttingDown || m_liveAccountsQuitBegun)
+        return;
+    // Short-circuits in this order, so a stored setting without the hidden
+    // switch never asks the bridge anything.
+    const bool wanted = m_liveAccountsLabsAvailable
+        && m_settings->labsConcurrentAccounts()
+        && lightning::accounts::rustBridgeApi().available();
+    if (wanted && !m_sessionPool)
+        startLiveAccounts();
+    else if (!wanted && m_sessionPool)
+        stopLiveAccounts();
+}
+
+void AppController::startLiveAccounts()
+{
+    namespace la = lightning::accounts;
+    noteLiveAccountsStep(QStringLiteral("labs:on"), QString());
+    // The GUI's own secret store, resolved here and only handed over: the
+    // pool reads it for the keyring mode and never for a secret.
+    SecretStore *const guiSecretStore = m_settings->secretStore();
+    // live-accounts host wiring: begin
+    // (HostSettingsScanTest: nothing between these markers may reach the
+    // active account's state, the foreground client or a keyring.)
+    m_accountActivity = std::make_unique<AccountActivityModel>(this);
+    m_accountList = std::make_unique<AccountListModel>(
+        m_settings.get(), m_accounts.get(), m_accountActivity.get(),
+        [this](const QString &uid) {
+            return m_revocationProofs.hardFor(uid).has_value()
+                || m_revocationProofs.softFor(uid).has_value();
+        },
+        this);
+    la::SessionPool::Deps deps;
+    deps.settings = m_settings.get();
+    deps.accounts = m_accounts.get();
+    deps.notifications = m_notifications.get();
+    deps.activity = m_accountActivity.get();
+    // The same per-account proofs the foreground client mirrors into, so a
+    // background revocation is what a later sign-in consults.
+    deps.proofs = &m_revocationProofs;
+    deps.guiSecretStore = guiSecretStore;
+    // The worker thread's own instance, made the way this controller makes
+    // its own (a test's factory included). Called on that thread.
+    deps.secretStoreFactory = [factory = m_secretStoreFactory] {
+        return makeSecretStore(factory, nullptr);
+    };
+    deps.appStartMs = m_appStartWallMs;
+    m_sessionPool = std::make_unique<la::SessionPool>(std::move(deps), this);
+    la::SessionPool *pool = m_sessionPool.get();
+    // live-accounts host wiring: end
+    // The switcher's "Needs sign-in" for an account whose keyring lost its
+    // token: asked on the pool's keyring worker, never on this thread
+    // (la1-M L2). The pool outlives no runtime off, so it is guarded.
+    m_accountList->setSignInProbe(
+        [guard = QPointer<la::SessionPool>(pool)](const QString &uid,
+                                                  std::function<void(bool)> done) {
+            if (guard)
+                guard->probeSignIn(uid, std::move(done));
+        });
+#ifdef ENABLE_RUST_SDK_BACKEND
+    // One-way for the process: store claims enforced, revocation proofs
+    // consulted by a sign-in, host retirements awaited by the settle.
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->setLiveAccountsLabs(true);
+#endif
+    m_notifications->setLiveAccountsMode(true);
+    qCInfo(lcApp) << "live accounts open-file limit:" << raiseOpenFileLimit();
+
+    // live-accounts host wiring: begin
+    connect(pool, &la::SessionPool::liveHostCountChanged, this,
+            [this](int) { refreshLiveAccountCount(); });
+    connect(pool, &la::SessionPool::hostSignInExpired, this,
+            &AppController::onHostSignInExpired);
+    connect(pool, &la::SessionPool::hostNeedsAttention, this,
+            [](const QString &uid, int liveState) {
+        qCInfo(lcApp) << "background account needs attention acct="
+                      << matrix::app_data::safeUserSlug(uid)
+                      << "state=" << liveState;
+    });
+    connect(m_accountActivity.get(), &AccountActivityModel::totalsChanged, this,
+            [this] { m_trayUnreadCoalesce.start(); });
+    // An account removed (its badge row tombstoned) and saved again in the
+    // same session: its row may be fed again. Never while a removal of it
+    // is still running, live or waiting for the server sign-out.
+    connect(m_settings.get(), &SettingsManager::accountsChanged, pool, [this] {
+        if (!m_accountActivity)
+            return;
+        for (const QString &uid : m_settings->savedAccountUserIds()) {
+            if (m_accountActivity->isRemoved(uid) && !m_liveRemovals.contains(uid)
+                && uid != m_pendingRemovalUserId)
+                reopenLiveAccountActivity(uid);
+        }
+    });
+    // live-accounts host wiring: end
+    // Foreground facts. Their context is the pool, so a runtime off drops
+    // every one of these with it.
+    connect(m_settings.get(), &SettingsManager::sessionChanged, pool,
+            [this] { feedLiveAccountsForeground(); });
+    connect(this, &AppController::loggedInChanged, pool,
+            [this] { refreshLiveAccountCount(); });
+    connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, pool,
+            [this] {
+        if (m_sessionPool && m_client->isLoggedIn()
+            && m_client->initialSyncDone())
+            m_sessionPool->noteForegroundInitialSyncDone();
+    });
+    connect(m_client.get(), &MatrixClient::connectionStateChanged, pool,
+            [this](MatrixClient::ConnectionState state) {
+        if (m_sessionPool && state == MatrixClient::Syncing)
+            m_sessionPool->noteForegroundHomeserverReachable(
+                m_client->homeserverUrl());
+    });
+    // A notification open parked for this account fires once its room is
+    // known, always from a later event-loop turn: never inside
+    // onLoginSucceeded (§16), which runs before these handlers.
+    const auto tryParkedOpenLater = [this] {
+        if (m_parkedOpen) {
+            QMetaObject::invokeMethod(this, [this] { tryFireParkedOpen(); },
+                                      Qt::QueuedConnection);
+        }
+    };
+    connect(m_client.get(), &MatrixClient::roomsChanged, pool,
+            tryParkedOpenLater);
+    connect(m_auth.get(), &AuthManager::loginSucceeded, pool,
+            tryParkedOpenLater);
+
+    feedLiveAccountsForeground();
+    if (m_client->isLoggedIn() && m_client->initialSyncDone())
+        pool->noteForegroundInitialSyncDone();
+    pool->start();
+    refreshLiveAccountCount();
+    Q_EMIT liveAccountsActiveChanged();
+}
+
+void AppController::stopLiveAccounts()
+{
+    if (!m_sessionPool || m_liveAccountsStopping)
+        return;
+    m_liveAccountsStopping = true;
+    noteLiveAccountsStep(QStringLiteral("labs:off"), QString());
+    // Nothing waits for another account any more.
+    m_parkedOpen.reset();
+    m_claimedOpen.reset();
+    if (m_parkedOpenTimer)
+        m_parkedOpenTimer->stop();
+    cancelLiveSwitchRelease();
+    m_liveSwitchReleased.clear();
+    // A failed switch's fallback waiting for its store: it ends on the login
+    // screen (finishFallbackRelease(), Cancelled).
+    if (m_liveFallbackTicket != 0)
+        m_sessionPool->cancelRelease(m_liveFallbackTicket);
+    m_liveFallbackTicket = 0;
+    m_liveFallbackTarget.clear();
+    // Every host retires (tokens persisted) and is awaited off the GUI
+    // thread; the foreground is kept. The store claims stay enforced until
+    // the next start (one-way), which the card says.
+    QPointer<AppController> self(this);
+    m_sessionPool->shutdownAsync([self] {
+        if (!self || !self->m_sessionPool)
+            return;
+        AppController *app = self.data();
+        // Called by the pool: it is deleted on a later turn, never inside
+        // its own callback. The models go after it (it points at one).
+        auto *pool = app->m_sessionPool.release();
+        pool->disconnect(app);
+        pool->deleteLater();
+        app->m_retiredLivePool = pool;
+        auto *list = app->m_accountList.release();
+        auto *activity = app->m_accountActivity.release();
+        app->m_retiredAccountList = list;
+        app->m_retiredAccountActivity = activity;
+        app->m_notifications->setLiveAccountsMode(false);
+        app->m_liveRemovals.clear();
+        app->m_liveAccountsForeground.clear();
+        app->m_liveAccountsStopping = false;
+        app->m_liveAccountCount = 0;
+        app->noteLiveAccountsStep(QStringLiteral("labs:off-done"), QString());
+        Q_EMIT app->liveAccountsActiveChanged();
+        Q_EMIT app->liveAccountCountChanged();
+        list->deleteLater();
+        activity->deleteLater();
+        app->m_trayUnreadCoalesce.start();
+        // Turned back on while the hosts retired.
+        app->applyLiveAccountsLabs();
+    });
+}
+
+void AppController::feedLiveAccountsForeground()
+{
+    if (!m_sessionPool)
+        return;
+    // The account in front, or restoring to be: never started as a host.
+    // Empty only while no account is.
+    const QString active = m_settings->activeAccountUserId();
+    if (active == m_liveAccountsForeground)
+        return;
+    const QString previous = std::exchange(m_liveAccountsForeground, active);
+    // Switch-away: the account that was in front was live until now, which
+    // is its backlog floor when it next runs in the background.
+    if (!previous.isEmpty() && m_settings->hasSavedAccount(previous))
+        m_settings->setLastLiveAtFor(previous,
+                                     QDateTime::currentMSecsSinceEpoch());
+    noteLiveAccountsStep(QStringLiteral("foreground"), active);
+    m_sessionPool->setForegroundUserId(active);
+    m_accountActivity->setActiveUserId(active);
+    m_trayUnreadCoalesce.start();
+    refreshLiveAccountCount();
+}
+
+void AppController::refreshLiveAccountCount()
+{
+    if (!m_sessionPool)
+        return;
+    const int count = (m_client && m_client->isLoggedIn() ? 1 : 0)
+        + m_sessionPool->liveHostCount();
+    // "Room · account" only while a card could be for more than one.
+    m_notifications->setAccountLabelsShown(count > 1);
+    if (count == m_liveAccountCount)
+        return;
+    m_liveAccountCount = count;
+    Q_EMIT liveAccountCountChanged();
+}
+
+bool AppController::beginLiveAccountSwitch(const QString &target)
+{
+    namespace la = lightning::accounts;
+    // Its store was just freed for this switch: today's switch runs now.
+    if (m_liveSwitchReleased == target) {
+        m_liveSwitchReleased.clear();
+        return false;
+    }
+    m_liveSwitchReleased.clear();
+    if (!m_liveSwitchTarget.isEmpty()) {
+        // A second click on the account already being freed.
+        if (m_liveSwitchTarget == target)
+            return true;
+        // Another account was clicked meanwhile: the newest click wins.
+        cancelLiveSwitchRelease();
+    }
+    // Being removed: its host is retiring for a removal that deletes its
+    // store once free, so it is never freed for the foreground instead.
+    if (m_liveRemovals.contains(target)) {
+        noteLiveAccountsStep(QStringLiteral("switch:refused-removing"), target);
+        Q_EMIT errorReported(
+            tr("That account is being removed from this device."));
+        endLiveSwitchWithoutSession();
+        return true;
+    }
+    // A host, or a keyring write of its sign-in still running: freed first,
+    // so today's switch never reads the keyring under that write (§18 round
+    // 3, R3-1).
+    if (!m_sessionPool->holdsSignIn(target))
+        return false;
+    // The background account is retired (its tokens handed back) and its
+    // store awaited, all off this thread; the account in front stays in
+    // front and usable meanwhile.
+    noteLiveAccountsStep(QStringLiteral("switch:release"), target);
+    m_liveSwitchTarget = target;
+    QPointer<AppController> self(this);
+    m_liveSwitchTicket = m_sessionPool->releaseForForeground(
+        target, [self, target](la::SessionPool::ReleaseResult result) {
+            if (self)
+                self->onLiveSwitchReleased(target, int(result));
+        });
+    return true;
+}
+
+void AppController::onLiveSwitchReleased(const QString &target, int result)
+{
+    using Release = lightning::accounts::SessionPool::ReleaseResult;
+    // Superseded by another click, a removal or a runtime off.
+    if (!m_sessionPool || m_liveSwitchTarget != target)
+        return;
+    m_liveSwitchTicket = 0;
+    m_liveSwitchTarget.clear();
+    // Answered while quitting (inside the quit's wait, or a destructor's):
+    // nothing switches any more.
+    if (m_shuttingDown || m_liveAccountsQuitBegun)
+        return;
+    switch (Release(result)) {
+    case Release::Free:
+        noteLiveAccountsStep(QStringLiteral("switch:free"), target);
+        // The release retired its host: an open parked for it now runs
+        // under the epoch that release left.
+        if (m_parkedOpen && m_parkedOpen->userId == target)
+            m_parkedOpen->epoch = m_sessionPool->epochFor(target);
+        m_liveSwitchReleased = target;
+        switchToAccount(target);
+        m_liveSwitchReleased.clear();
+        // Today's switch refused on the spot (an expired sign-in, a locked
+        // keyring, a sign-out in progress): the account was freed for
+        // nothing, and the pool would otherwise never start it again.
+        if (m_sessionPool && !m_accountSwitching
+            && m_settings->activeAccountUserId() != target) {
+            abandonLiveRelease(target);
+            endLiveSwitchWithoutSession();
+        }
+        return;
+    case Release::StoreBusy:
+        noteLiveAccountsStep(QStringLiteral("switch:store-busy"), target);
+        cancelParkedOpenFor(target);
+        // Not switched: the account is the pool's again (it restarts only
+        // once its store is free, and never while busy until restart).
+        m_sessionPool->abandonRelease(target);
+        // A store that never confirmed its close stays busy until restart
+        // ("Store busy (restart to reopen)"): another try cannot help.
+        if (m_sessionPool->liveState(target) == AccountActivityModel::StoreBusy) {
+            Q_EMIT errorReported(
+                tr("That account's data did not close. Restart Lightning to "
+                   "open it."));
+        } else {
+            Q_EMIT errorReported(
+                tr("That account is still closing. Try again in a moment."));
+        }
+        endLiveSwitchWithoutSession();
+        return;
+    case Release::Cancelled:
+        noteLiveAccountsStep(QStringLiteral("switch:cancelled"), target);
+        endLiveSwitchWithoutSession();
+        return;
+    }
+}
+
+void AppController::cancelLiveSwitchRelease()
+{
+    // The ticket and target are forgotten BEFORE the cancel: the pool answers
+    // Cancelled synchronously, and onLiveSwitchReleased() must read that as
+    // superseded (a newer click, a removal, Labs off) rather than as this
+    // switch failing, which ended on the login screen while logged out and
+    // flashed it under the newer click (§18 round 2, L-b).
+    const quint64 ticket = std::exchange(m_liveSwitchTicket, 0);
+    m_liveSwitchTarget.clear();
+    if (ticket != 0 && m_sessionPool)
+        m_sessionPool->cancelRelease(ticket);
+}
+
+void AppController::endLiveSwitchWithoutSession()
+{
+    // A live switch that did not switch, started when no session was in front
+    // (onLoggedOut's fallback to an account running in the background):
+    // nothing else will take the user anywhere, so it ends as onLoggedOut's
+    // own tail does, on the login screen (§18 round 1, MUST 3). With a
+    // session in front (a click from it), or a switch still in progress, the
+    // user stays where they are.
+    if (m_shuttingDown || m_liveAccountsQuitBegun || m_accountSwitching
+        || m_client->isLoggedIn())
+        return;
+    noteLiveAccountsStep(QStringLiteral("switch:to-login"), QString());
+    setCurrentScreen(LoginScreen);
+    Q_EMIT loggedInChanged();
+}
+
+void AppController::abandonLiveRelease(const QString &userId)
+{
+    if (!m_sessionPool)
+        return;
+    noteLiveAccountsStep(QStringLiteral("switch:abandoned"), userId);
+    // The pool forgets a release when the foreground changes to it, or on a
+    // cancelRelease() made before it answered; a release that answered and
+    // whose switch never landed is handed back explicitly. (It used to fake a
+    // foreground change, which also cleared the account's failure marks and
+    // could lift a removal's write ban.)
+    m_sessionPool->abandonRelease(userId);
+}
+
+void AppController::finishFallbackRelease(const QString &fallback, int result)
+{
+    using Release = lightning::accounts::SessionPool::ReleaseResult;
+    if (m_liveFallbackTarget != fallback)
+        return;
+    m_liveFallbackTicket = 0;
+    m_liveFallbackTarget.clear();
+    if (m_shuttingDown || m_liveAccountsQuitBegun)
+        return;
+    if (Release(result) == Release::Free && m_settings->hasSavedAccount(fallback)) {
+        noteLiveAccountsStep(QStringLiteral("switch:fallback-free"), fallback);
+        // failAccountSwitch()'s own fallback, now that nothing else holds
+        // the store.
+        m_settings->setActiveAccountUserId(fallback);
+        clearCrossAccountCaches();
+        if (m_client->restoreSession())
+            return; // completion (or a second failure) arrives async
+    } else {
+        noteLiveAccountsStep(QStringLiteral("switch:fallback-refused"),
+                             fallback);
+        if (Release(result) == Release::StoreBusy) {
+            Q_EMIT errorReported(
+                tr("That account is still closing. Try again in a moment."));
+        }
+    }
+    setAccountSwitching(false);
+    setCurrentScreen(LoginScreen);
+    Q_EMIT loggedInChanged();
+}
+
+bool AppController::claimCrossAccountOpen(const QString &accountUserId,
+                                          const QString &roomId,
+                                          const QString &eventId,
+                                          const QString &threadRootId)
+{
+    // An account no longer on this device: today's routing (the room-only
+    // signal) decides, which refuses a room this account is not in.
+    if (!m_sessionPool || !m_settings->hasSavedAccount(accountUserId))
+        return false;
+    m_claimedOpen = ClaimedOpen{ roomId, eventId, threadRootId };
+    // The newest click wins: one open waits at a time.
+    if (m_parkedOpen)
+        cancelParkedOpenFor(m_parkedOpen->userId);
+    if (!roomId.isEmpty()) {
+        m_parkedOpen = ParkedOpen{ accountUserId, roomId, eventId,
+                                   threadRootId,
+                                   m_sessionPool->epochFor(accountUserId) };
+        if (!m_parkedOpenTimer) {
+            m_parkedOpenTimer = std::make_unique<QTimer>();
+            m_parkedOpenTimer->setSingleShot(true);
+            connect(m_parkedOpenTimer.get(), &QTimer::timeout, this, [this] {
+                if (!m_parkedOpen)
+                    return;
+                qCInfo(lcApp) << "notification open for another account "
+                                 "expired before its rooms arrived acct="
+                              << matrix::app_data::safeUserSlug(
+                                     m_parkedOpen->userId);
+                noteLiveAccountsStep(QStringLiteral("open:expired"),
+                                     m_parkedOpen->userId);
+                m_parkedOpen.reset();
+            });
+        }
+        m_parkedOpenTimer->start(m_parkedOpenTimeoutMs);
+        noteLiveAccountsStep(QStringLiteral("open:parked"), accountUserId);
+    }
+    // The window comes forward now, naming no room; the room opens once its
+    // account is in front.
+    Q_EMIT notificationOpenRequested(QString(), QString(), QString());
+    // The switch starts on the next turn: this runs inside the manager's
+    // emission of the click, and a switch clears the manager's cards.
+    QMetaObject::invokeMethod(this, [this, accountUserId] {
+        if (!m_sessionPool)
+            return;
+        switchToAccount(accountUserId);
+        // Refused on the spot (an expired sign-in, a locked keyring, a
+        // sign-out in progress): nothing will ever open it.
+        if (!m_accountSwitching && m_liveSwitchTarget != accountUserId
+            && m_settings->activeAccountUserId() != accountUserId)
+            cancelParkedOpenFor(accountUserId);
+        else
+            tryFireParkedOpen();
+    }, Qt::QueuedConnection);
+    return true;
+}
+
+void AppController::tryFireParkedOpen()
+{
+    if (!m_parkedOpen || !m_sessionPool)
+        return;
+    const ParkedOpen open = *m_parkedOpen;
+    // Only once that account is the one in front, signed in, and done
+    // switching.
+    if (m_accountSwitching || !m_client->isLoggedIn()
+        || m_client->currentUserId() != open.userId
+        || m_settings->activeAccountUserId() != open.userId)
+        return;
+    // Retired or removed since the click (the pool bumps the epoch): not the
+    // session the click was for.
+    if (m_sessionPool->epochFor(open.userId) != open.epoch) {
+        noteLiveAccountsStep(QStringLiteral("open:stale"), open.userId);
+        cancelParkedOpenFor(open.userId);
+        return;
+    }
+    if (m_client->roomInfo(open.roomId).id.isEmpty())
+        return; // its rooms are not here yet
+    m_parkedOpen.reset();
+    if (m_parkedOpenTimer)
+        m_parkedOpenTimer->stop();
+    noteLiveAccountsStep(QStringLiteral("open:fired"), open.userId);
+    routeNotificationOpen(open.roomId, open.eventId, open.threadRootId);
+}
+
+void AppController::cancelParkedOpenFor(const QString &accountUserId)
+{
+    if (!m_parkedOpen || m_parkedOpen->userId != accountUserId)
+        return;
+    m_parkedOpen.reset();
+    if (m_parkedOpenTimer)
+        m_parkedOpenTimer->stop();
+    noteLiveAccountsStep(QStringLiteral("open:cancelled"), accountUserId);
+}
+
+void AppController::removeLiveBackgroundAccount(const QString &userId)
+{
+    // Already being removed: its completion reports.
+    if (m_liveRemovals.contains(userId))
+        return;
+    // As today's removal: a keyring that cannot answer would keep the
+    // sign-in it holds after the record goes. Asked of the settings file
+    // only; a live background account is never read from here.
+    if (m_settings->secretStore() && m_settings->secretBackendUnavailable()) {
+        qCWarning(lcApp) << "removal refused: the secret store cannot be read"
+                         << "slug=" << matrix::app_data::safeUserSlug(userId);
+        Q_EMIT errorReported(
+            tr("This account can't be removed while the system keyring can't "
+               "be read: its saved sign-in is there and would be left behind. "
+               "Unlock the keyring, or start it, and try again."));
+        return;
+    }
+    m_liveRemovals.insert(userId);
+    // (1) Nothing of it is acted on any more: a release for a switch, an
+    // open waiting for it, its cards and its badge row. Its epoch is bumped
+    // by the retirement below (the pool owns epochs).
+    noteLiveAccountsStep(QStringLiteral("removal:1-forget"), userId);
+    if (m_liveSwitchTarget == userId)
+        cancelLiveSwitchRelease();
+    cancelParkedOpenFor(userId);
+    m_notifications->clearPendingFor(userId);
+    m_accountActivity->removeAccount(userId);
+    // (2) The identity, while the record that binds its store still exists.
+    matrix::app_data::AccountIdentity identity;
+    const bool resolved = resolveRemovalIdentity(userId, &identity);
+    noteLiveAccountsStep(QStringLiteral("removal:2-identity"), userId);
+    if (!resolved) {
+        qCWarning(lcApp) << "removal could not resolve an account layout"
+                         << "slug=" << matrix::app_data::safeUserSlug(userId);
+    }
+    // (3)+(4) Signed out on the server (DECISION 7) and retired without
+    // writing anything back, then THIS store awaited, never the foreground
+    // pool's wait whose result today's removal ignores. Deletes nothing.
+    noteLiveAccountsStep(QStringLiteral("removal:3-retire"), userId);
+    QPointer<AppController> self(this);
+    m_sessionPool->retireForRemoval(
+        userId,
+        [self, userId, identity,
+         resolved](lightning::accounts::SessionPool::RemovalResult result) {
+            if (self)
+                self->finishLiveBackgroundRemoval(userId, identity, resolved,
+                                                  result.storeFree,
+                                                  int(result.serverSignOut));
+        });
+}
+
+void AppController::finishLiveBackgroundRemoval(
+    const QString &userId, const matrix::app_data::AccountIdentity &identity,
+    bool resolved, bool storeFree, int serverSignOut)
+{
+    using SignOut = lightning::accounts::SessionPool::ServerSignOut;
+    m_liveRemovals.remove(userId);
+    const SignOut signOut = SignOut(serverSignOut);
+    const char *signOutName = "not-live";
+    switch (signOut) {
+    case SignOut::Ok: signOutName = "ok"; break;
+    case SignOut::AlreadyInvalid: signOutName = "already-invalid"; break;
+    case SignOut::Failed: signOutName = "failed"; break;
+    case SignOut::TimedOut: signOutName = "timed-out"; break;
+    case SignOut::NotLive: signOutName = "not-live"; break;
+    }
+    qCInfo(lcApp) << "live account removal: released store_free=" << storeFree
+                  << "server_sign_out=" << signOutName
+                  << "slug=" << matrix::app_data::safeUserSlug(userId);
+    // (4) Its store did not close within budget (or never will): nothing is
+    // deleted, and the record stays so the user can try again.
+    if (!storeFree) {
+        noteLiveAccountsStep(QStringLiteral("removal:4-still-held"), userId);
+        // The account stays: its badge row may be fed again.
+        reopenLiveAccountActivity(userId);
+        Q_EMIT errorReported(
+            tr("Removal did not finish: the account's data is still in use. "
+               "Nothing was deleted."));
+        return;
+    }
+    noteLiveAccountsStep(QStringLiteral("removal:4-released"), userId);
+    // (5) Its local state, only if the store registry agrees the store is
+    // free (removeAccountLocalStateFiles() asks claimForDeletion() before it
+    // deletes anything); a refusal deletes nothing and keeps the record.
+    if (resolved) {
+        bool refused = false;
+        removeAccountLocalStateFiles(identity, &refused);
+        if (refused) {
+            noteLiveAccountsStep(QStringLiteral("removal:5-refused"), userId);
+            reopenLiveAccountActivity(userId);
+            Q_EMIT errorReported(
+                tr("Removal did not finish: the account's data is still in "
+                   "use. Nothing was deleted."));
+            return;
+        }
+        noteLiveAccountsStep(QStringLiteral("removal:5-delete"), userId);
+    }
+    // (6) The record and its secrets, last.
+    noteLiveAccountsStep(QStringLiteral("removal:6-record"), userId);
+    m_accounts->removeAccount(userId);
+    if (signOut == SignOut::Failed || signOut == SignOut::TimedOut) {
+        Q_EMIT errorReported(
+            tr("The account was removed from this device, but signing it out "
+               "on the server did not finish. It may still be listed among "
+               "your sessions on other devices."));
+    }
+}
+
+void AppController::reopenLiveAccountActivity(const QString &userId)
+{
+    if (!m_sessionPool || !m_accountActivity
+        || !m_accountActivity->isRemoved(userId))
+        return;
+    // At the pool's current epoch, so a late summary from the host that was
+    // retiring is still refused.
+    m_accountActivity->reopenAccount(userId, m_sessionPool->epochFor(userId));
+    noteLiveAccountsStep(QStringLiteral("activity:reopened"), userId);
+}
+
+void AppController::onHostSignInExpired(const QString &userId)
+{
+    // The pool has classified it (into the shared revocation proofs, so a
+    // later sign-in takes today's move-aside or resume path), marked the
+    // account and retired its host. Here: one notice, and nothing deleted.
+    noteLiveAccountsStep(QStringLiteral("revoked"), userId);
+    cancelParkedOpenFor(userId);
+    if (!m_settings->notificationsEnabled())
+        return;
+    // The label is a server-controlled display name: isolated (FSI ... PDI),
+    // as every account label in a card title is, so its own direction
+    // cannot reorder the title around it.
+    const QString label =
+        QChar(0x2068) + liveAccountLabel(userId) + QChar(0x2069);
+    // Stamped for that account: a click switches to it (§18 round 1, L5).
+    m_notifications->showGeneric(
+        tr("Sign-in expired · %1").arg(label),
+        tr("Sign in to this account again to keep receiving its messages."),
+        QString(), QString(), /*sound=*/false,
+        QStringLiteral("signin-expired:") + userId, userId);
 }

@@ -596,7 +596,11 @@ pub(crate) async fn open_media_in(
         }
         (Prepared::Encrypted, Some(key)) => {
             let dir = media_parent.join(DIR_NAME);
-            let config = SqliteStoreConfig::new(&dir).key(Some(&key.0));
+            // Labs: a Background handle's low-memory profile; today's config
+            // otherwise (`labs::sqlite_config(_, false)` is `new`).
+            let low_memory =
+                crate::labs::open_context().is_some_and(|context| context.low_memory_sqlite);
+            let config = crate::labs::sqlite_config(&dir, low_memory).key(Some(&key.0));
             match SqliteMediaStore::open_with_config(&config).await {
                 Ok(store) => {
                     restrict_tree(&dir);
@@ -643,6 +647,20 @@ pub(crate) async fn open_account_stores_with(
     lock_config: CrossProcessLockConfig,
     may_move_caches: bool,
 ) -> Result<(StoreConfig, StoreProbe), String> {
+    // Labs (design §3.2.6): the reservation comes FIRST, before cachelayout or
+    // the media store touches a file, and the crypto precheck before anything
+    // opens the crypto store. Both only while `labs::store_guards_active()`
+    // and inside a handle's open context; with the flag off there is none.
+    let context = crate::labs::open_context().filter(|_| crate::labs::store_guards_active());
+    let required = context.as_ref().and_then(|context| context.require_account.clone());
+    let reservation = match &context {
+        Some(context) => Some(reserve_store(store_path, context.serial, required.is_some())?),
+        None => None,
+    };
+    if required.is_some() {
+        crypto_file_precheck(store_path)?;
+    }
+    let low_memory = context.as_ref().is_some_and(|context| context.low_memory_sqlite);
     // Before any store is opened, so nothing is moved from under one.
     let placement = {
         let path = store_path.to_path_buf();
@@ -650,18 +668,26 @@ pub(crate) async fn open_account_stores_with(
             .await
             .map_err(build_error)?
     };
-    let config = SqliteStoreConfig::new(store_path);
+    let config = crate::labs::sqlite_config(store_path, low_memory);
     let state = Arc::new(
         SqliteStateStore::open_with_config(&config).await.map_err(build_error)?,
     );
     let event_cache = Arc::new(
-        SqliteEventCacheStore::open_with_config(&SqliteStoreConfig::new(&placement.event_cache))
-            .await
-            .map_err(build_error)?,
+        SqliteEventCacheStore::open_with_config(&crate::labs::sqlite_config(
+            &placement.event_cache,
+            low_memory,
+        ))
+        .await
+        .map_err(build_error)?,
     );
     let crypto = Arc::new(
         SqliteCryptoStore::open_with_config(&config).await.map_err(build_error)?,
     );
+    // The precheck's second half reads the store the client is built with,
+    // never a second open.
+    if let Some((user_id, device_id)) = &required {
+        crypto_account_precheck(&crypto, user_id, device_id).await?;
+    }
     let (media, active) = open_media_in(store_path, &placement.media_store, &config).await?;
     record_active(store_path, active);
     let cache_dir = store_path.join(crate::cachelayout::CACHE_DIR);
@@ -671,6 +697,9 @@ pub(crate) async fn open_account_stores_with(
     }
     let mut probe = StoreProbe::default();
     probe.set_owner(owner_for(store_path));
+    if let Some(reservation) = reservation {
+        probe.hold_reservation(reservation);
+    }
     probe.store("state", &state);
     probe.store("event_cache", &event_cache);
     probe.store("crypto", &crypto);
@@ -686,6 +715,67 @@ pub(crate) async fn open_account_stores_with(
         }
         OpenedMedia::Memory => (store_config.media_store(MemoryMediaStore::new()), probe),
     })
+}
+
+/// The crypto store's file name (matrix-sdk-sqlite 0.18 `crypto_store.rs`).
+pub(crate) const CRYPTO_DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
+
+/// Reserve the store directory for `serial` (storeclose.rs).
+///
+/// A Background open (`existing_only`: it requires an account) is for a store
+/// that EXISTS, and creates nothing: a missing directory is refused as a
+/// missing crypto account, before anything could create it (I5, R1-M4;
+/// review 2026-10-16, finding 6). A foreground open keeps today's behaviour,
+/// where the SQLite opens would create the directory anyway.
+fn reserve_store(
+    store_path: &Path,
+    serial: u64,
+    existing_only: bool,
+) -> Result<crate::storeclose::Reservation, String> {
+    if existing_only {
+        // `metadata`, not `symlink_metadata`: a store directory that is itself
+        // a symlink (moved to another disk) is the same store a foreground
+        // open accepts, and `path_id` canonicalizes it anyway (review
+        // 2026-10-16, WP1-R N1).
+        if !std::fs::metadata(store_path).is_ok_and(|meta| meta.is_dir()) {
+            return Err(crate::labs::refuse_store(crate::labs::REFUSAL_CRYPTO_MISSING));
+        }
+    } else {
+        std::fs::create_dir_all(store_path).map_err(build_error)?;
+    }
+    let id = crate::storeclose::path_id(store_path).map_err(build_error)?;
+    crate::storeclose::reserve(id, serial)
+        .map_err(|_| crate::labs::refuse_store(crate::labs::REFUSAL_STORE_IN_USE))
+}
+
+/// Precheck, first half: the crypto database must already exist as a regular,
+/// non-empty file. Checked WITHOUT opening it, because opening an absent one
+/// creates it, and an empty crypto store mints a new device identity
+/// (matrix-sdk-crypto 0.18 `machine/mod.rs`, `load_account` -> None).
+pub(crate) fn crypto_file_precheck(store_path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(store_path.join(CRYPTO_DATABASE_NAME)) {
+        Ok(meta) if meta.file_type().is_file() && meta.len() > 0 => Ok(()),
+        _ => Err(crate::labs::refuse_store(crate::labs::REFUSAL_CRYPTO_MISSING)),
+    }
+}
+
+/// Precheck, second half: the stored Olm account is the recorded identity.
+async fn crypto_account_precheck(
+    crypto: &SqliteCryptoStore,
+    user_id: &str,
+    device_id: &str,
+) -> Result<(), String> {
+    use matrix_sdk_base::crypto::store::CryptoStore;
+    let account = crypto.load_account().await.map_err(build_error)?;
+    match account {
+        Some(account)
+            if account.user_id().as_str() == user_id
+                && account.device_id().as_str() == device_id =>
+        {
+            Ok(())
+        }
+        _ => Err(crate::labs::refuse_store(crate::labs::REFUSAL_CRYPTO_MISMATCH)),
+    }
 }
 
 #[cfg(test)]
@@ -1170,5 +1260,170 @@ mod tests {
         assert_eq!(on_disk(&dir, &KEY_A), OnDisk::Matches, "the key record was touched");
         assert!(dir.join(MEDIA_DB).exists(), "the encrypted store was deleted");
         forget(14, &store.0);
+    }
+
+    // ---- Labs: reservation and crypto precheck (design §3.2.6) ------------
+
+    fn context(serial: u64, require: Option<(&str, &str)>) -> Arc<crate::labs::OpenContext> {
+        Arc::new(crate::labs::OpenContext {
+            serial,
+            require_account: require.map(|(u, d)| (u.to_owned(), d.to_owned())),
+            low_memory_sqlite: true,
+            ..Default::default()
+        })
+    }
+
+    async fn open_in(
+        store: &Path,
+        context: Option<Arc<crate::labs::OpenContext>>,
+    ) -> Result<(StoreConfig, StoreProbe), String> {
+        crate::labs::scope_open(
+            context,
+            open_account_stores_with(store, CrossProcessLockConfig::SingleProcess, true),
+        )
+        .await
+    }
+
+    /// An Olm account for (user, device) saved in the store's crypto DB.
+    async fn plant_account(store: &Path, user: &str, device: &str) {
+        let crypto = SqliteCryptoStore::open_with_config(&SqliteStoreConfig::new(store))
+            .await
+            .unwrap();
+        let user: matrix_sdk::ruma::OwnedUserId = user.try_into().unwrap();
+        let device: matrix_sdk::ruma::OwnedDeviceId = device.into();
+        let machine = matrix_sdk_base::crypto::OlmMachine::with_store(&user, &device, crypto, None)
+            .await
+            .unwrap();
+        drop(machine);
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    // R1-M4: a missing crypto database is refused WITHOUT creating it, and
+    // nothing else in the directory is touched (cachelayout never ran). The
+    // reason is recorded in the open's context, not in its text.
+    #[tokio::test]
+    async fn a_missing_crypto_store_is_refused_and_nothing_is_created() {
+        let _labs = crate::labs::LabsTestGuard::enabled();
+        let store = Store::new("labs-missing");
+        let ctx = context(501, Some(("@u:hs", "DEV")));
+        let err = open_in(&store.0, Some(Arc::clone(&ctx))).await.err().expect("refused");
+        assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_CRYPTO_MISSING), "{err}");
+        assert!(!err.contains("crypto_account_missing"), "a marker in the text: {err}");
+        assert!(entries(&store.0).is_empty(), "the refused open created {:?}", entries(&store.0));
+        assert!(!crate::cachelayout::recorded_split(&store.0));
+        // An empty file is missing too: it would open as a fresh store.
+        fs::write(store.0.join(CRYPTO_DATABASE_NAME), b"").unwrap();
+        let ctx = context(501, Some(("@u:hs", "DEV")));
+        open_in(&store.0, Some(Arc::clone(&ctx))).await.err().unwrap();
+        assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_CRYPTO_MISSING));
+        assert_eq!(fs::metadata(store.0.join(CRYPTO_DATABASE_NAME)).unwrap().len(), 0);
+        assert!(!crate::storeclose::any_held_id(&crate::storeclose::path_id(&store.0).unwrap()),
+                "a refused open keeps no reservation");
+    }
+
+    // I5 / R1-M4, review 2026-10-16 finding 6: a Background open of a store
+    // DIRECTORY that does not exist creates nothing at all, not even the
+    // directory, and is refused as a missing crypto account.
+    #[tokio::test]
+    async fn a_missing_store_directory_is_refused_and_not_created() {
+        let _labs = crate::labs::LabsTestGuard::enabled();
+        let parent = Store::new("labs-nodir");
+        let missing = parent.0.join("never-created");
+        let ctx = context(503, Some(("@u:hs", "DEV")));
+        open_in(&missing, Some(Arc::clone(&ctx))).await.err().expect("refused");
+        assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_CRYPTO_MISSING));
+        assert!(!missing.exists(), "the refused open created the store directory");
+        assert!(entries(&parent.0).is_empty(), "{:?}", entries(&parent.0));
+    }
+
+    // WP1-R review N1: a store directory reached through a symlink is the
+    // same store, and a Background open of it is not refused as missing.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_symlinked_store_directory_opens_in_the_background() {
+        let _labs = crate::labs::LabsTestGuard::enabled();
+        let store = Store::new("labs-symlinked");
+        plant_account(&store.0, "@u:hs", "DEV").await;
+        let links = Store::new("labs-symlinked-link");
+        let link = links.0.join("store");
+        std::os::unix::fs::symlink(&store.0, &link).unwrap();
+        let ctx = context(504, Some(("@u:hs", "DEV")));
+        let opened = open_in(&link, Some(Arc::clone(&ctx))).await;
+        assert_eq!(ctx.refusal(), None, "{:?}", opened.as_ref().err());
+        assert!(opened.is_ok());
+    }
+
+    // R1-M4: an account for another device (or none) is a mismatch; the
+    // recorded one opens.
+    #[tokio::test]
+    async fn only_the_recorded_identity_passes_the_precheck() {
+        let _labs = crate::labs::LabsTestGuard::enabled();
+        let store = Store::new("labs-identity");
+        plant_account(&store.0, "@u:hs", "DEV").await;
+        for (user, device) in [("@u:hs", "OTHER"), ("@v:hs", "DEV")] {
+            let ctx = context(502, Some((user, device)));
+            open_in(&store.0, Some(Arc::clone(&ctx))).await.err().unwrap();
+            assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_CRYPTO_MISMATCH),
+                       "{user} {device}");
+        }
+        let ctx = context(502, Some(("@u:hs", "DEV")));
+        let (config, probe) = open_in(&store.0, Some(Arc::clone(&ctx)))
+            .await
+            .expect("the recorded identity opens");
+        assert_eq!(ctx.refusal(), None);
+        drop((config, probe));
+    }
+
+    // I1: the loser of a reservation is refused before cachelayout runs
+    // (fail-if-reordered: a prepare before the reservation writes the layout
+    // record into the fresh directory).
+    #[tokio::test]
+    async fn a_store_reserved_by_another_serial_is_refused_before_any_file_is_touched() {
+        let _labs = crate::labs::LabsTestGuard::enabled();
+        let store = Store::new("labs-reserved");
+        let held = crate::storeclose::reserve(crate::storeclose::path_id(&store.0).unwrap(), 601)
+            .unwrap();
+        let ctx = context(602, None);
+        open_in(&store.0, Some(Arc::clone(&ctx))).await.err().unwrap();
+        assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_STORE_IN_USE));
+        assert!(entries(&store.0).is_empty(), "{:?}", entries(&store.0));
+        assert!(!crate::cachelayout::recorded_split(&store.0), "cachelayout ran for the loser");
+        // The holder itself may open (re-entry), and its build then holds it.
+        let (config, mut probe) = open_in(&store.0, Some(context(601, None))).await.expect("holder");
+        drop(held);
+        let id = crate::storeclose::path_id(&store.0).unwrap();
+        assert!(crate::storeclose::any_held_id(&id), "the open build's reservation");
+        assert!(crate::storeclose::reserve(id.clone(), 603).is_err());
+        drop(config);
+        drop(std::mem::take(&mut probe));
+        assert!(!crate::storeclose::any_held_id(&id), "a build dropped before register releases it");
+    }
+
+    // T-OFF-4 (store half): with the flag off, no context exists, nothing is
+    // reserved and a store without a crypto database opens exactly as today.
+    #[tokio::test]
+    async fn with_labs_off_no_reservation_or_precheck_runs() {
+        let _labs = crate::labs::LabsTestGuard::off();
+        let store = Store::new("labs-off");
+        let before = crate::storeclose::reserve_calls();
+        // Even a context in scope does nothing while the guards are off.
+        let (config, probe) = open_in(&store.0, Some(context(701, Some(("@u:hs", "DEV")))))
+            .await
+            .expect("today's open");
+        assert_eq!(crate::storeclose::reserve_calls(), before, "reserve was called with Labs off");
+        let id = crate::storeclose::path_id(&store.0).unwrap();
+        assert!(!crate::storeclose::any_held_id(&id), "an unregistered flag-off build holds nothing");
+        drop((config, probe));
+        let (config, probe) = open_in(&store.0, None).await.expect("no context");
+        assert_eq!(crate::storeclose::reserve_calls(), before);
+        drop((config, probe));
     }
 }

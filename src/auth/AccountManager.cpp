@@ -116,12 +116,15 @@ void AccountManager::markSessionRevoked(const QString &userId)
         return;
     m_revokedSessions.append(userId);
     Q_EMIT accountsChanged();
+    Q_EMIT sessionRevokedChanged(userId);
 }
 
 void AccountManager::clearSessionRevoked(const QString &userId)
 {
-    if (m_revokedSessions.removeAll(userId) > 0)
+    if (m_revokedSessions.removeAll(userId) > 0) {
         Q_EMIT accountsChanged();
+        Q_EMIT sessionRevokedChanged(userId);
+    }
 }
 
 bool AccountManager::sessionRevoked(const QString &userId) const

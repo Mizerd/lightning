@@ -24,9 +24,19 @@ Item {
     property string displayName: ""
     property string userId: ""
     property string avatarMxc: ""
-    // No per-account unread source exists yet; callers leave this at 0 rather
-    // than fabricate a count.
+    // Kept for compatibility and always 0: no caller sets it. Per-account
+    // activity arrives through the four properties below (Labs, concurrent
+    // accounts), copied by the switcher from AccountActivityModel; with Labs
+    // off they keep their defaults and no badge renders.
     property int unreadCount: 0
+    // Mentions and highlights on this account; a number badge.
+    property int mentionCount: 0
+    // Unread rooms or invites but no mention; a dot.
+    property bool activityDot: false
+    // `mentionCount` is a lower bound ("N+").
+    property bool mentionsLowerBound: false
+    // AccountActivityModel.LiveState; 0 (NotLive) outside Labs.
+    property int liveState: 0
     property bool needsSignIn: false
     property bool healthWarning: false
 
@@ -70,9 +80,20 @@ Item {
     Accessible.name: root.active
         ? qsTr("Active account, %1, %2").arg(root.visibleName).arg(root.userId)
         : qsTr("Switch to %1, %2").arg(root.visibleName).arg(root.userId)
-    Accessible.description: root.active ? qsTr("This is the active account")
-        : (root.needsSignIn ? qsTr("Needs sign-in")
-           : (root.healthWarning ? qsTr("Encryption needs attention") : ""))
+    // The live state and the badge are appended only when there is one, so
+    // outside Labs the description is exactly what it always was.
+    Accessible.description: {
+        const base = root.active ? qsTr("This is the active account")
+            : (root.needsSignIn ? qsTr("Needs sign-in")
+               : (root.healthWarning ? qsTr("Encryption needs attention") : ""))
+        if (root.active || root.liveState === 0)
+            return base
+        const parts = []
+        if (base.length > 0) parts.push(base)
+        if (activityBadge.stateLabel.length > 0) parts.push(activityBadge.stateLabel)
+        if (activityBadge.activityLabel.length > 0) parts.push(activityBadge.activityLabel)
+        return parts.join(", ")
+    }
     Accessible.onPressAction: root.activated()
 
     activeFocusOnTab: true
@@ -238,14 +259,25 @@ Item {
             Layout.alignment: Qt.AlignVCenter
             Accessible.ignored: true
         }
-        // Unread badges are bolt-on-dark.
-        StatusChip {
-            visible: !root.active && !root.pointerWithin
-                     && root.unreadCount > 0
+        // The account's activity (Labs): a mention count, or a dot. The rule,
+        // including "nothing on the active row" and "nothing unless
+        // running", is AccountActivityBadge's. Faded under the pointer, where
+        // the remove button is revealed — opacity only, like that button, so
+        // the slot is kept and the name and id do not re-elide under the
+        // cursor. Its words are already in the row's Accessible.description,
+        // so the badge itself is not announced a second time.
+        AccountActivityBadge {
+            id: activityBadge
+            objectName: "identityCardActivityBadge"
             Layout.alignment: Qt.AlignVCenter
-            storm: true
-            tone: "bolt"
-            label: root.unreadCount > 99 ? "99+" : String(root.unreadCount)
+            activeAccount: root.active
+            liveState: root.liveState
+            mentionCount: root.mentionCount
+            mentionsLowerBound: root.mentionsLowerBound
+            hasUnread: root.activityDot
+            visible: root.liveState !== 0 && activityBadge.shown
+            opacity: root.pointerWithin ? 0 : 1
+            Accessible.ignored: true
         }
         // Active marker 3 of 3: the tick (an "ACTIVE" chip would cost the id
         // width).

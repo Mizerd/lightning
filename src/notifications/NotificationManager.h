@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 #include <QTimer>
 
@@ -184,8 +185,51 @@ public:
     void avatarCacheChanged();
     /// The account notifications are raised for. Recorded in every click
     /// payload so actions taken after an account switch can be refused.
-    void setAccountUserId(const QString &userId) { m_accountUserId = userId; }
+    void setAccountUserId(const QString &userId)
+    {
+        m_accountUserId = userId;
+        if (m_liveAccountsMode)
+            noteAccountUsed(userId);
+    }
     QString accountUserId() const { return m_accountUserId; }
+
+    // ── Live accounts (Labs) ──
+    // Set by AppController while concurrent live accounts are active. Off
+    // (the default) is the Phase 0 behaviour exactly: no flood control, no
+    // event merge, no title suffix. On, for a card raised by a background
+    // account (Context::accountUserId non-empty): one card per account and
+    // room, updated as "N new messages"; at most one NEW such card per
+    // 2 s across all background accounts, the excess merged into its
+    // account and room's waiting card. And in every table, the foreground's
+    // included, one card for a (room, event) that two live accounts both
+    // see, labelled with both, whose open goes to the foreground account
+    // when it is one of them, else the most recently used one. Foreground
+    // cards otherwise behave exactly as today.
+    void setLiveAccountsMode(bool on);
+    bool liveAccountsMode() const { return m_liveAccountsMode; }
+    /// Titles read "Room · <account label>" only while true (AppController:
+    /// more than one account is live). Live-accounts mode only.
+    void setAccountLabelsShown(bool on);
+    bool accountLabelsShown() const { return m_accountLabelsShown; }
+    /// The uid-explicit twin of observeRoomUnread(): a background account's
+    /// counts table says `roomId` is (or is no longer) unread, and only that
+    /// account's cards are withdrawn. Live-accounts mode only; a no-op
+    /// otherwise.
+    void observeRoomUnreadFor(const QString &accountUserId,
+                              const QString &roomId, bool unread);
+    /// Spacing of new background-account cards; 2 s outside tests.
+    void setHostCardIntervalMsForTest(int ms) { m_hostCardIntervalMs = ms; }
+    /// Background-account cards waiting for the rate limit, one per account
+    /// and room.
+    int deferredHostCardCountForTest() const
+    { return int(m_hostCardQueue.size()); }
+    /// The title the one card for (room, event) carries now, with every
+    /// account that saw it; empty when no live-accounts card records it.
+    QString eventCardTitleForTest(const QString &roomId,
+                                  const QString &eventId) const;
+    /// The accounts that card stands for, in the order they saw it.
+    QStringList eventCardAccountsForTest(const QString &roomId,
+                                         const QString &eventId) const;
     /// Whose sound a notification makes; see SoundSource.
     void setSoundSource(int source);
     SoundSource soundSource() const { return m_soundSource; }
@@ -253,10 +297,14 @@ public:
     // `sound` asks for the message sound plan (the same coalescing, policy
     // and source). A non-empty `key` names the card: showing the same key
     // again replaces it, and withdrawGeneric() withdraws it.
+    // `accountUserId` stamps the card for that account (a live account's
+    // notice: a click opens that account); empty is the foreground's, as
+    // every caller before live accounts.
     void showGeneric(const QString &title, const QString &safeBody,
                      const QString &roomId = QString(),
                      const QString &avatarMxc = QString(),
-                     bool sound = false, const QString &key = QString());
+                     bool sound = false, const QString &key = QString(),
+                     const QString &accountUserId = QString());
     /// Withdraw the generic card raised with `key`, shown or still on its way.
     void withdrawGeneric(const QString &key);
 
@@ -324,6 +372,8 @@ public:
     void recordPayloadForTest(const QString &accountUserId, quint32 id,
                               const QVariantMap &payload)
     { recordPayload(accountUserId, id, payload); }
+    /// observeRoomUnreadFor()'s withdrawal passes so far (L14).
+    int hostUnreadPassesForTest() const { return m_hostUnreadPasses; }
     /// Click payloads held in the "" (foreground) table, or in one account's.
     int pendingPayloadCountForTest() const
     { return pendingPayloadCountForTest(QString()); }
@@ -581,6 +631,51 @@ private:
                          quint64 generation, std::optional<quint32> id);
     int avatarWaitCount(const QString &accountKey) const;
     const Card *foregroundAvatarWait(int index) const;
+
+    // ── Live accounts (Labs) internals; untouched while the mode is off ──
+    // The user id a card's table stands for: the context's account, or the
+    // foreground's for the "" table.
+    QString accountOfKey(const QString &accountKey) const
+    { return accountKey.isEmpty() ? m_accountUserId : accountKey; }
+    // A short label for titles: the given one, else the id's localpart.
+    static QString accountLabelOr(const QString &label, const QString &userId);
+    // " · A" or " · A, B" for the labels a card stands for; empty while
+    // labels are not shown.
+    QString accountSuffix(const QStringList &labels) const;
+    // refreshCard()'s title for a card deliverDecision() labelled: the same
+    // account suffix, read from the merge record (Labs only).
+    QString labelledTitleForRefresh(const TimelineEvent &event, const Context &context,
+                                    const QString &baseTitle);
+    // Another live account already raised a card for this (room, event):
+    // fold this account into it and return true, so no second card exists.
+    // A mention folded into a card that was not one upgrades it (mention
+    // flag and alert). False when no card stands for the message any more
+    // (withdrawn, dropped), or for a mention whose card has moved on: this
+    // account then raises its own.
+    bool mergeIntoEventCard(const TimelineEvent &event, const Context &context,
+                            const QString &roomId, const Decision &decision);
+    // Something of this account's could still be withdrawn: a card shown or
+    // being raised, or one waiting (avatar, capabilities, rate limit,
+    // balloon queue).
+    bool hasCardsFor(const QString &accountKey) const;
+    // Remember the card raised for (room, event), for a later merge.
+    void recordEventCard(const QString &eventKey, const QString &accountKey,
+                         const QString &groupKey, const QString &label,
+                         const QString &baseTitle, const Card &card);
+    // A background account's card through the rate limit.
+    void offerHostCard(Card card, const QString &groupKey, bool groupWasEmpty);
+    void flushHostCards();
+    void armHostCardTimer();
+    // A card update replaces the shown card in place (D-Bus). A balloon
+    // cannot, so there every update is another card.
+    bool deliveryReplacesInPlace() const;
+    // Most recently used account first; read for a merged card's open.
+    void noteAccountUsed(const QString &userId);
+    // The account a merged card's click opens with.
+    QString openAccountFor(const QVariantMap &payload) const;
+    // An account's cards are gone: forget its merge records and the
+    // background cards it had waiting.
+    void forgetLiveAccountsStateFor(const QString &accountKey);
 public:
     /// Withdraw every still-showing notification for a room that has been read
     /// (here or elsewhere), so the notification centre does not keep stale
@@ -889,4 +984,53 @@ private:
     // account.
     QList<Card> m_avatarWaits;
     QTimer m_avatarWaitTimer;
+
+    // ── Live accounts (Labs). Empty, null and false while the mode is off ──
+    bool m_liveAccountsMode = false;
+    bool m_accountLabelsShown = false;
+    int m_hostCardIntervalMs = 2000;
+    // Monotonic time the last NEW background-account card left; -1 = none.
+    qint64 m_lastHostNewCardMs = -1;
+    // Background-account cards held by the rate limit, one per account and
+    // card group, oldest first; each is its group's newest message.
+    struct DeferredHostCard {
+        QString groupKey;
+        Card card;
+    };
+    QList<DeferredHostCard> m_hostCardQueue;
+    // Created when the mode is first turned on.
+    std::unique_ptr<QTimer> m_hostCardTimer;
+    // One card per (room, event) across accounts (DECISION 12), bounded.
+    struct EventCard {
+        // The table holding the card, and its group there.
+        QString ownerKey;
+        QString groupKey;
+        // Every account that saw the event, and its label, in arrival order.
+        QStringList accounts;
+        QStringList labels;
+        // The decision's title, before any account suffix.
+        QString baseTitle;
+        // The card as last delivered, for an in-place relabel.
+        Card card;
+    };
+    QHash<QString, EventCard> m_eventCards;
+    QList<QString> m_eventCardOrder;
+    // Accounts in the order they were last the foreground, newest first.
+    QStringList m_accountRecency;
+    // observeRoomUnreadFor()'s twin of m_roomsAwaitingUnread, keyed
+    // account + U+001F + room.
+    QHash<QString, qint64> m_hostRoomsAwaitingUnread;
+    // observeRoomUnreadFor()'s memo (§18 round 1, L14): an account's card
+    // generation, bumped whenever a card for it can appear, and the
+    // generation each read room was last checked at. The tray walk asks
+    // every room on every refresh, so a room checked since the last card
+    // costs two lookups, not a pass over the account's cards. Live mode only.
+    QHash<QString, quint64> m_cardGeneration;
+    QHash<QString, quint64> m_hostRoomsCheckedAt;
+    int m_hostUnreadPasses = 0;
+    void noteCardFor(const QString &accountKey)
+    {
+        if (m_liveAccountsMode && !accountKey.isEmpty())
+            ++m_cardGeneration[accountKey];
+    }
 };

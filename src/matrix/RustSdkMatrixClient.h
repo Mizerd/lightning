@@ -46,6 +46,15 @@ public:
     /// Account switching must never wait.
     static bool waitForRustRetirement(int budgetMs);
 
+    /// Live accounts (Labs) quit only: start closing the foreground store
+    /// NOW, on the retirement pool, without waiting and without emitting
+    /// loggedOut, so it closes beside the background accounts' retirements
+    /// (contract §6.6). Idempotent; GUI thread. The destructor then finds
+    /// nothing to release and waits only for what is left of the one
+    /// kStoreCloseBudgetMs measured from this call. Never called with Labs
+    /// off, where the destructor alone retires the handle, as today.
+    Q_INVOKABLE void beginQuitRetirement();
+
     /// Runs the blocking half of releaseRustHandle() (joining managed tasks,
     /// dropping the tokio runtime) on a worker thread that takes ownership of
     /// `handle`. Public so a test can verify the caller returns immediately.
@@ -94,6 +103,17 @@ public:
     // detaches. Phase 0 writes every proof change into it and NEVER reads it:
     // every login and move-aside decision still reads the fields alone.
     void setRevocationProofs(lightning::accounts::RevocationProofs *proofs);
+
+    // Live accounts (Labs) on, called once by AppController. One-way per
+    // process: true stays true (false is ignored). It makes the store
+    // registry ENFORCE its claims (a store another handle holds is never
+    // opened, quarantined, moved aside or deleted from here); makes login()
+    // and the browser sign-in consult RevocationProofs for the record's
+    // account beside their own single-slot fields; and makes
+    // settleRetiringSignIn() notice a background host of that account still
+    // handing its sign-in back. Off (the default), every path is Phase 0's.
+    void setLiveAccountsLabs(bool on);
+    bool liveAccountsLabs() const { return m_liveAccountsLabs; }
 
     // Introspection surfaced for the Settings screen / logs.
     QString rustBackendName() const;
@@ -1051,6 +1071,27 @@ private:
     lightning::accounts::StoreOwnershipRegistry *m_storeOwnershipRegistry = nullptr;
     quint64 m_storeOwnershipSerial = 0;
     lightning::accounts::StoreOwnershipRegistry &storeOwnershipRegistry() const;
+    // setLiveAccountsLabs(); never cleared in-process.
+    bool m_liveAccountsLabs = false;
+    // A store claim refused the last move-aside (Labs only): its own words,
+    // returned by storeMoveFailureText(). Cleared at every attempt; empty
+    // (never set) without Labs.
+    QString m_storeClaimRefusalText;
+    // Labs only: the per-account proofs (RevocationProofs) answer for the
+    // record's account as the single-slot fields do for theirs.
+    bool labsHardProofAllowsReplace(const QString &recordUserId,
+                                    const QString &recordDeviceId) const;
+    bool labsSoftProofAllowsResume(const QString &typedUserId, const QString &typedHomeserver,
+                                   const QString &recordUserId,
+                                   const QString &recordHomeserver,
+                                   const QString &recordDeviceId) const;
+    // The log line and the user-visible refusal of a store claim. Never a path.
+    void reportStoreClaimRefused(int verdict, const QString &slug, const char *operation);
+    static QString storeInUseByBackgroundText();
+    // Which words a refusal gets: a background host holds the store, or a
+    // handle of this client's own that never confirmed its close.
+    bool storeHeldByBackgroundHost(const QString &storePath) const;
+    QString storeClaimRefusalText(const QString &storePath) const;
     // The device the password sign-in in flight asked to resume; empty for a
     // new device. Cleared by its terminal event.
     QString m_resumeDeviceId;
@@ -1365,6 +1406,10 @@ private:
     QByteArray m_persistedAccessDigest;
     // Set by the destructor before invalidate() clears the sign-out mark.
     bool m_retireAsSignOut = false;
+    // beginQuitRetirement() ran: the handle is already retiring, and the
+    // destructor's wait is what is left of one budget from then.
+    bool m_quitRetirementBegun = false;
+    QElapsedTimer m_quitRetirementClock;
     bool m_loggedIn = false;
     // Opened from the local store because the homeserver was unreachable (see
     // `session_restored_offline` in Rust); the connection state starts at

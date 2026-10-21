@@ -124,6 +124,11 @@ pub(crate) struct TokenLedger {
     answered: Condvar,
     wait_cap: Duration,
     drain_stall: Duration,
+    /// Live accounts (Labs): a Background handle's custody facts, bumped by
+    /// every rotation recorded here, so its host takes custody, writes the
+    /// pair and answers WHILE the refresh waits (its tokens never ride the
+    /// queue). `None` for every other handle, which this never touches.
+    custody: Mutex<Option<Arc<crate::labs::CustodyFacts>>>,
 }
 
 /// Counts for the "signed out" log line and the trace. No secret.
@@ -156,7 +161,22 @@ impl TokenLedger {
             answered: Condvar::new(),
             wait_cap,
             drain_stall,
+            custody: Mutex::new(None),
         })
+    }
+
+    /// Live accounts (Labs), a Background handle only: every rotation
+    /// recorded from now on also bumps `custody`'s generation, inside the
+    /// refresh and before its wait, so the host's next drain takes custody.
+    pub(crate) fn attach_custody(&self, custody: Arc<crate::labs::CustodyFacts>) {
+        *self.custody.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(custody);
+    }
+
+    /// The newest rotation recorded on this handle (0: none). Read BEFORE the
+    /// live tokens by custody, so the pair a host writes is at least as new
+    /// as the generation it answers for.
+    pub(crate) fn generation(&self) -> u64 {
+        self.lock().generation
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, LedgerState> {
@@ -183,11 +203,24 @@ impl TokenLedger {
 
     /// Record a rotation; returns its generation.
     pub(crate) fn record(&self, tokens: SessionTokens) -> u64 {
-        let mut state = self.lock();
-        state.generation += 1;
-        state.latest = Some(tokens);
-        state.last_rotation = Some(Instant::now());
-        state.generation
+        let generation = {
+            let mut state = self.lock();
+            state.generation += 1;
+            state.latest = Some(tokens);
+            state.last_rotation = Some(Instant::now());
+            state.generation
+        };
+        // After the pair is recorded: a host that sees the custody generation
+        // move reads a ledger generation (and live tokens) at least this new.
+        if let Some(custody) = self
+            .custody
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            custody.note_refreshed();
+        }
+        generation
     }
 
     /// C++'s answer for `generation`: written to the keyring (`saved`), or not.

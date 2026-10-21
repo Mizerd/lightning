@@ -298,6 +298,17 @@ impl Drop for RunGuard {
     }
 }
 
+/// Forget everything remembered for `user`, and end its current run's claim
+/// so a late `remember` from that run is refused too. Run when the account's
+/// session ends (design 2026-10-15 §3.2.10, R1-M8): a remembered preview is
+/// decrypted plaintext held in memory, and it must not outlive the session
+/// whatever happens to the run's guard. Other accounts are untouched.
+pub(crate) fn forget_user(user: &UserId) {
+    let mut st = state().lock().unwrap_or_else(|e| e.into_inner());
+    st.current.remove(user);
+    st.entries.retain(|(owner, _), _| owner != user);
+}
+
 /// What is remembered for `room` of the account `user`.
 pub(crate) fn remembered(user: &UserId, room: &RoomId) -> Option<Remembered> {
     let st = state().lock().unwrap_or_else(|e| e.into_inner());
@@ -755,5 +766,26 @@ mod tests {
         let room = server.sync_joined_room(&client, room_id!("!a:example.org")).await;
         // No /messages mock mounted: the request fails.
         assert_eq!(look(&room).await, Outcome::Failed);
+    }
+
+    #[test]
+    fn forgetting_a_user_clears_only_that_user_and_refuses_its_late_results() {
+        let carol: OwnedUserId = "@carol:x".try_into().unwrap();
+        let dave: OwnedUserId = "@dave:x".try_into().unwrap();
+        let room = room_id!("!forget:x");
+        let run = RunGuard::new(carol.clone());
+        run.remember(room, Remembered::Message("carol's plaintext".into(), 1));
+        let other = RunGuard::new(dave.clone());
+        other.remember(room, Remembered::Message("dave's".into(), 2));
+
+        forget_user(&carol);
+        assert_eq!(remembered(&carol, room), None);
+        assert_eq!(remembered(&dave, room), Some(Remembered::Message("dave's".into(), 2)));
+        // The ended run cannot write back in.
+        run.remember(room, Remembered::Message("late".into(), 3));
+        assert_eq!(remembered(&carol, room), None);
+        drop(run);
+        drop(other);
+        assert_eq!(remembered(&dave, room), None);
     }
 }

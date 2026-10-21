@@ -35,6 +35,83 @@ LIGHTNING_TIMELINE_TRACE=1 lightning-matrix --log-file=/tmp/timeline.log
 grep -E 'timeline-trace|room_list mode' /tmp/timeline.log
 ```
 
+## 2026-10-20 — Live accounts Phase 1 (Labs): ported onto `main`, gate OFF, NOT TESTED live
+
+The parked Phase 1 (`la1-*` patches, integrated at `02693a52`) ported onto
+`24a485c5`. Offered in Settings > Labs ("Run several accounts at once"), OFF
+by default (lead decision 2026-10-20, replacing DECISION 1's "hidden until
+Phase 2"); the same card is where the "always signed in" accounts are
+chosen. Nothing runs unless the stored `labsConcurrentAccounts` is `true`
+and the Rust bridge is built in; while it is off no pool, host, worker or
+model is constructed and the Rust `labs::ACTIVE` switch is never set.
+`LIGHTNING_LABS_LIVE_ACCOUNTS=0` is a test override that forces Labs off and
+hides the card. Known Phase 1 limit, now user-visible: switching TO an
+account running in the background first closes it there, so it is not
+faster than today (instant switching is Phase 2). Live: **NOT TESTED**
+(background mention, switch, quit while syncing, removal; the design's
+local-homeserver run is still owed).
+
+- **Background token rotations follow 24a485c5.** A background account's
+  rotation moves its custody generation inside matrix-sdk's refresh; the
+  host writes the pair on the keyring worker and answers
+  `mx_rust_session_tokens_persisted` before the SDK retries with the new
+  access token, and a retirement reads the token ledger after the destroy.
+  Without this, a background rotation waited 500 ms and was then used
+  before any keyring write. NOT TESTED live (needs an OAuth/MAS account
+  rotating while in the background).
+- **Background keyring reads follow the recorded backend (356668cb).** The
+  keyring worker's own store now reads each account where its record says
+  its sign-in is; before, a Flatpak launch on the other libsecret backend
+  read a background account as "Needs sign-in". NOT TESTED live.
+- **The Labs switcher shows "Needs sign-in" for a lost token** (la1-M L2,
+  FIXED): the keyring is asked off the GUI thread, a few accounts at a time,
+  and "cannot tell" shows nothing.
+- **NEEDS DECISION: badge contrast.** The account badge reuses the room
+  list's badge tokens, and measured on all twelve palettes they miss WCAG in
+  places: white on the mention fill is 3.20:1 on themes 9-12 and 4.05:1 on
+  theme 8 (4.5 needed); the unread dot is 2.08-2.70:1 against the quick
+  switcher's and settings card's surface on themes 2, 4, 5, 6 and 9 (3.0
+  needed). These are app-wide tokens, so this is a theme decision.
+  `AccountBadgesQmlTest` holds every pair at today's floor until then.
+- **Badge take cost, measured (L13).** One `mx_rust_bg_take` rebuilds the
+  whole counts table on the GUI thread whenever the account's table is
+  dirty. Measured 2026-10-20 on a real SDK Client synced from a loopback
+  homeserver, one room in ten unread, DEBUG build, median of 41
+  (`bgsession::take_cost_measure`, ignored by default): 500 rooms 0.59 ms,
+  1000 rooms 1.23 ms, 2000 rooms 2.42 ms, 4000 rooms 5.91 ms; four such
+  accounts 10.1 ms. Linear, ~1.5 us per room. A 4000-room account's single
+  take is over the drainer's 4 ms tick budget in a debug build; release is
+  NOT measured. Open: if release is still over budget, the take should
+  rebuild only the dirty rooms.
+- **Turning Labs off waits, boundedly (§18 round 2, L-c).** A runtime off
+  retires every background host and is done only when each has retired: a
+  host still restoring is waited for, never left holding its store. Bounds:
+  a background restore ends within 60 s (`labs::BACKGROUND_RESTORE_BUDGET`,
+  then `login_failed`; its client build has its own 10 s discovery budget),
+  a retirement's store close within 15 s, and a keyring call on the worker
+  thread within 3 s (read) or 10 s (write), after which queued calls fail
+  fast until it answers. With the keyring on the GUI thread (the backend
+  cannot be opened twice) a call blocks like every foreground keyring call,
+  and adds no wait of its own. As the card says, the off fully reverts at
+  the next start.
+- **Not portable.** The Labs switches are not in the settings file or
+  settings sync at all (the design had them export-only), so an export with
+  Labs off is exactly today's.
+- **Flag-off golden.** `tests/data/flag-off-switch-golden.txt` was captured
+  again on a pure `24a485c5` (no live-accounts code; the test file and a
+  throwaway target only), non-Rust build, offscreen, D-Bus pointed at a
+  dead address: three runs byte-identical, and identical to the earlier
+  `02693a52` capture. Captured once more (2026-10-20) on the integration
+  tree just before live accounts landed, with every other package of the
+  round applied: three runs, identical again. What it covers: ONE
+  mock-backend account switch, the
+  app's and client's signals in order, synchronous then settled. It does not
+  cover the Rust backend; if the integrator's Rust tree logs a different
+  sequence, recapture there and say so. Deliberate Rust-side differences
+  with Labs off, which no golden sees: rtc marks are kept per handle,
+  teardown calls `previewbackfill::forget_user`, and the preview backfill
+  keys by (user, room) instead of room.
+
 ## 2026-10-18 — DECIDED: product decisions that had no entry of their own
 
 Taken 2026-10-18 for Rokas under his standing rule (copy the mainstream

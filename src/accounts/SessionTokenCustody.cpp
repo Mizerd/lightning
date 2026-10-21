@@ -78,6 +78,16 @@ bool needsHandback(const QString &finalAccess, const QByteArray &lastWrittenDige
     return !finalAccess.isEmpty() && accessTokenDigest(finalAccess) != lastWrittenDigest;
 }
 
+QByteArray handbackExpectedDigest(TokenStore *store, const QString &userId,
+                                  const QByteArray &expected,
+                                  const QList<QByteArray> &accepted)
+{
+    if (!store || accepted.isEmpty())
+        return expected;
+    const QByteArray current = accessTokenDigest(store->accessTokenFor(userId));
+    return !current.isEmpty() && accepted.contains(current) ? current : expected;
+}
+
 Handback writeHandback(TokenStore *store, const HandbackEntry &entry,
                        bool sameDeviceRunningAndNotRestoring)
 {

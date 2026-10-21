@@ -22,6 +22,27 @@ Item {
     // attempt so a typo can be corrected.
     onVisibleChanged: if (!visible) passField.text = ""
 
+    // Labs (concurrent accounts): the saved accounts come from
+    // AccountListModel, which reads no secret per row. Its snapshot is a
+    // Q_INVOKABLE, so it is copied here by handlers and never read inside a
+    // binding. Null with Labs off (`app.accountList` is null), and then the
+    // list below reads AccountManager's accounts exactly as before.
+    property var labsAccountRows: null
+    function refreshLabsAccountRows() {
+        root.labsAccountRows = app.accountList
+            ? app.accountList.rowsSnapshot() : null
+    }
+    Connections {
+        target: app
+        // The signal only exists in builds that carry Labs.
+        ignoreUnknownSignals: true
+        function onLiveAccountsActiveChanged() { root.refreshLabsAccountRows() }
+    }
+    Connections {
+        target: app.accountList ? app.accountList : null
+        function onRowsChanged() { root.refreshLabsAccountRows() }
+    }
+
     // The homeserver's bare host, for the browser button's label ("Continue
     // with matrix.org"). Derived from the discovered address, never from
     // server data, so no server chooses the words on our button. Scheme, port
@@ -273,6 +294,7 @@ Item {
         if (lastDiscoveryState === "")
             lastDiscoveryState = app.auth.discoveryState
         applyFailureIdentityToFields()
+        root.refreshLabsAccountRows()
     }
     Connections {
         target: app
@@ -381,8 +403,10 @@ Item {
                     objectName: "signedInAccountsRecovery"
                     Layout.fillWidth: true
                     spacing: AppTheme.spacingS
-                    visible: app.accounts
-                             && app.accounts.accounts.length > 0
+                    visible: (app.accountList
+                              ? (root.labsAccountRows || []).length > 0
+                              : (app.accounts
+                                 && app.accounts.accounts.length > 0))
                              && !(app.accounts.hasActiveAccount && app.loggedIn)
 
                     Label {
@@ -393,7 +417,9 @@ Item {
                         font.weight: AppTheme.weightStrong
                     }
                     Repeater {
-                        model: app.accounts ? app.accounts.accounts : []
+                        model: app.accountList
+                               ? (root.labsAccountRows || [])
+                               : (app.accounts ? app.accounts.accounts : [])
                         delegate: AppButton {
                             required property var modelData
                             objectName: "recoverAccountButton"
