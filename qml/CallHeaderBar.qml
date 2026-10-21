@@ -36,6 +36,34 @@ Rectangle {
     /// controls, so the header must not duplicate them.
     readonly property bool stageOwnsControls:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
+    /// Header placement only: the room's pane is narrower than the full bar
+    /// asks for (live 2026-10-20, C59-F05: a 700 px window pushed the label
+    /// off the pane's left edge). The label text, the device chevrons and the
+    /// optional buttons stand down, as the dock's compact form does, so Mute,
+    /// Deafen and Leave stay inside the pane. Latched rather than bound:
+    /// `width < implicitWidth` would oscillate, because hiding things shrinks
+    /// the implicit width. `fullNeed` is learned while not narrow and frozen on
+    /// the way in; coming back asks whether that measured width fits again.
+    property bool narrow: false
+    property real fullNeed: 0
+    readonly property bool tight: root.compact || root.narrow
+    function reassessRoom() {
+        if (root.dock || !root.visible || root.width <= 0)
+            return;
+        if (!root.narrow) {
+            root.fullNeed = bar.implicitWidth + AppTheme.spacing16 * 2;
+            if (root.width + 0.5 < root.fullNeed)
+                root.narrow = true;
+        } else if (root.width + 0.5 >= root.fullNeed) {
+            root.narrow = false;
+        }
+    }
+    onWidthChanged: reassessRoom()
+    onVisibleChanged: reassessRoom()
+    Connections {
+        target: bar
+        function onImplicitWidthChanged() { root.reassessRoom(); }
+    }
     readonly property int controlDiameter:
         root.dock ? (root.compact ? 32 : 48) : 40
     readonly property int controlGlyph:
@@ -127,6 +155,7 @@ Rectangle {
 
     RowLayout {
         id: bar
+        objectName: "callHeaderBarRow"
         // Centred while it fits, but never past the parent's right edge.
         // A Layout lays out children by their own `visible`, not their
         // ancestors', so with no live call this row is still 199 px wide inside
@@ -154,6 +183,7 @@ Rectangle {
                        ? AppTheme.warning : AppTheme.accent
             }
             Text {
+                visible: !root.narrow
                 text: root.stateText
                 color: AppTheme.stormText
                 font.pixelSize: 13
@@ -189,7 +219,7 @@ Rectangle {
             }
             CallDeviceChevron {
                 objectName: "callBarMicChevron"
-                visible: !root.compact
+                visible: !root.tight
                 Layout.preferredWidth: visible ? implicitWidth : 0
                 kind: "microphone"
                 accessibleName: qsTr("Choose microphone")
@@ -220,7 +250,7 @@ Rectangle {
             }
             CallDeviceChevron {
                 objectName: "callBarSpeakerChevron"
-                visible: !root.compact
+                visible: !root.tight
                 Layout.preferredWidth: visible ? implicitWidth : 0
                 kind: "speaker"
                 accessibleName: qsTr("Choose output device")
@@ -248,7 +278,7 @@ Rectangle {
                 }
                 CallDeviceChevron {
                     objectName: "callBarCameraChevron"
-                    visible: !root.compact
+                    visible: !root.tight
                     // Zero width when hidden, or the RowLayout keeps its slot.
                     Layout.preferredWidth: visible ? implicitWidth : 0
                     kind: "camera"
@@ -368,7 +398,7 @@ Rectangle {
         // element-call's format: an m.reaction (U+1F590 U+FE0F) annotating the
         // sender's own membership state event, lowered by redaction.
         Loader {
-            active: root.richMedia && !root.compact
+            active: root.richMedia && !root.tight
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarHandButton"
@@ -394,7 +424,7 @@ Rectangle {
         // must match. rust/src/rtc.rs holds the same table and refuses pairs
         // not in it.
         Loader {
-            active: root.richMedia && !root.compact
+            active: root.richMedia && !root.tight
             visible: active
             sourceComponent: CallControlButton {
                 id: reactButton
@@ -503,7 +533,7 @@ Rectangle {
 
         // ── Participants (SFU lane only) ──
         Loader {
-            active: root.richMedia && !root.compact
+            active: root.richMedia && !root.tight
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarParticipantsButton"
@@ -525,7 +555,7 @@ Rectangle {
         // window Main.qml opens on minimise; Qt can't tell an unminimised
         // window behind another app from one in front.
         Loader {
-            active: root.live && !root.compact
+            active: root.live && !root.tight
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarPipButton"

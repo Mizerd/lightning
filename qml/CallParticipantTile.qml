@@ -432,6 +432,7 @@ Item {
                 visible: active
                 sourceComponent: CallTileBadge {
                     iconName: "warning"
+                    tooltip: qsTr("Poor connection")
                     tone: "danger"
                 }
             }
@@ -440,6 +441,7 @@ Item {
                 visible: active
                 sourceComponent: CallTileBadge {
                     iconName: "front_hand"
+                    tooltip: qsTr("Hand raised")
                     tone: "accent"
                 }
             }
@@ -448,6 +450,7 @@ Item {
                 visible: active
                 sourceComponent: CallTileBadge {
                     iconName: "screen_share"
+                    tooltip: qsTr("Sharing their screen")
                     tone: "accent"
                 }
             }
@@ -458,6 +461,7 @@ Item {
                 visible: active
                 sourceComponent: CallTileBadge {
                     iconName: "videocam_off"
+                    tooltip: qsTr("Camera off")
                     tone: "muted"
                 }
             }
@@ -552,6 +556,10 @@ Item {
                     size: 14
                     color: AppTheme.danger
                 }
+                HoverHandler { id: micBadgeHover }
+                ToolTip.visible: micBadgeHover.hovered
+                ToolTip.delay: 350
+                ToolTip.text: qsTr("Microphone muted")
             }
         }
 
@@ -580,7 +588,7 @@ Item {
             id: volumeAffordance
             active: root._volumeOffered
                     && (tileHover.hovered || volumePopup.visible
-                        || root.activeFocus)
+                        || root.activeFocus || root._focusWithin)
             visible: active
             anchors.left: parent.left
             anchors.top: parent.top
@@ -607,6 +615,33 @@ Item {
         }
 
         HoverHandler { id: tileHover }
+    }
+
+    // True while focus is on the tile or any descendant (the hover-revealed
+    // volume button). `activeFocus` alone goes false the moment that button
+    // takes focus, which destroyed the very button holding it (one Tab stop
+    // with no ring).
+    property bool _focusWithin: false
+    // Only tiles that offer the volume control track it: an N-tile grid does
+    // not walk the parent chain N times per focus change for nothing.
+    Connections {
+        target: root.Window.window
+        enabled: root._volumeOffered
+        function onActiveFocusItemChanged() {
+            var it = root.Window.window ? root.Window.window.activeFocusItem : null
+            var within = false
+            while (it) {
+                if (it === root) { within = true; break }
+                it = it.parent
+            }
+            root._focusWithin = within
+        }
+    }
+    // A Popup's `focus: true` focuses its contentItem, not the slider, so
+    // the arrows did nothing until a Tab. Focus the slider once open.
+    Connections {
+        target: volumePopup
+        function onOpened() { volumeSlider.forceActiveFocus() }
     }
 
     // ── The volume popup ──
@@ -691,6 +726,13 @@ Item {
                 to: 200
                 stepSize: 1
                 snapMode: Slider.SnapAlways
+                // The wheel adjusts it (Slider ignores it by default). Wheel
+                // steps emit `moved`, so they reach the controller.
+                wheelEnabled: true
+                // Custom background and handle set `height`, never
+                // `implicitHeight`, so the control measured 0 px high in the
+                // layout: nothing for a wheel or a press to hit.
+                implicitHeight: 24
                 Accessible.name: qsTr("Volume for %1").arg(root._label)
 
                 // `onMoved`, never `onValueChanged`: the latter also fires for

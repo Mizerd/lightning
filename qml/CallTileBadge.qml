@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import MatrixClient
 
 // Small circular state badge for a call participant tile (muted, sharing,
@@ -11,6 +12,9 @@ Rectangle {
     /// "accent" | "muted" | "danger"
     property string tone: "muted"
     property int glyphSize: 12
+    /// Names the state for a hovering pointer: a 12px glyph alone is not
+    /// self-explanatory. Empty draws no tooltip.
+    property string tooltip: ""
 
     implicitWidth: glyphSize + 8
     implicitHeight: glyphSize + 8
@@ -28,4 +32,12 @@ Rectangle {
         size: root.glyphSize
         color: root._ink
     }
+
+    HoverHandler {
+        id: badgeHover
+        enabled: root.tooltip.length > 0
+    }
+    ToolTip.visible: badgeHover.hovered && root.tooltip.length > 0
+    ToolTip.delay: 350
+    ToolTip.text: root.tooltip
 }

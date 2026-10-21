@@ -963,6 +963,15 @@ void CallController::handleInvite(const CallSignal &signal)
     m_endReason = EndReason::None;
     setState(State::Ringing);
     armLifetimeTimer(remaining);
+    // A room nobody has opened has no roster, so the card would name the
+    // caller by localpart (live 2026-10-20: "sw059a is calling" beside "Ada
+    // Tester" in the timeline). Ask once per ring; membersChanged re-emits
+    // callerDisplayNameChanged. Bounded: one request per accepted invite, and
+    // only while the sender is unnamed.
+    if (m_client
+        && m_client->roomInfo(signal.roomId)
+               .members.value(signal.sender).displayName.isEmpty())
+        m_client->requestRoomMembers(signal.roomId);
     Q_EMIT incomingCallStarted(signal.roomId, signal.callId, signal.sender,
                                remaining);
 }

@@ -1803,7 +1803,7 @@ QString SfuCallController::userFacingError(const QString &category) const
     // like. Said as a cause the user can act on.
     if (category == QLatin1String("camera_busy"))
         return tr("Lightning couldn't open the camera. It may be in use by "
-                  "another app.");
+                  "another app, or unplugged.");
     // Opened and never sent a frame: a virtual camera with nothing feeding
     // it, or a device node that is not a capture device.
     if (category == QLatin1String("camera_no_frames"))

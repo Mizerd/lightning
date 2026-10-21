@@ -41,7 +41,13 @@ public:
         }
         return room;
     }
+    quint64 requestRoomMembers(const QString &roomId) override
+    {
+        memberRequests.append(roomId);
+        return 1;
+    }
     QHash<QString, QString> names;
+    QStringList memberRequests;
 };
 
 CallSignal invite(const QString &callId)
@@ -230,6 +236,33 @@ private Q_SLOTS:
 
         QVERIFY(calls.rejectIncoming());
         QVERIFY(calls.callerDisplayName().isEmpty());
+    }
+
+    // Live 2026-10-20 (C59-F04): a ring from a room nobody opened named the
+    // caller by localpart because nothing ever asked for that room's roster.
+    void aRingFromAnUnloadedRoomAsksForTheRoster()
+    {
+        NamedMembersClient client;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setOwnUserId(QStringLiteral("@me:x"));
+        calls.setBacklogSuppressed(false);
+        client.emitCallSignalForTest(invite(QStringLiteral("call-r")));
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QCOMPARE(client.memberRequests, QStringList{kRoom});
+        QVERIFY(calls.rejectIncoming());
+
+        // A caller whose name is already known costs no request.
+        NamedMembersClient known;
+        known.names.insert(kRoom + QLatin1Char('|') + kCaller,
+                           QStringLiteral("Nheko Tester"));
+        CallController calls2;
+        calls2.setClient(&known);
+        calls2.setOwnUserId(QStringLiteral("@me:x"));
+        calls2.setBacklogSuppressed(false);
+        known.emitCallSignalForTest(invite(QStringLiteral("call-k")));
+        QCOMPARE(calls2.state(), CallController::State::Ringing);
+        QVERIFY(known.memberRequests.isEmpty());
     }
 };
 

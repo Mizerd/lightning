@@ -61,17 +61,51 @@ ColumnLayout {
         return ""
     }
 
+    // Index of the option that holds the group's single tab stop: the chosen
+    // one when it can run, else the first that can.
+    readonly property int tabStopIndex: {
+        let first = -1
+        for (let i = 0; i < choices.length; ++i) {
+            if (!choices[i].available)
+                continue
+            if (choices[i].key === selected)
+                return i
+            if (first < 0)
+                first = i
+        }
+        return first
+    }
+
+    // Arrow keys move among the options that can run and choose the one
+    // reached, as a radio group does.
+    function step(from, delta) {
+        const n = optionRepeater.count
+        for (let k = 1; k <= n; ++k) {
+            const i = ((from + delta * k) % n + n) % n
+            const o = optionRepeater.itemAt(i)
+            if (o && o.enabled) {
+                o.forceActiveFocus(Qt.TabFocusReason)
+                root.chosen(o.modelData.key)
+                return
+            }
+        }
+    }
+
     Repeater {
+        id: optionRepeater
         model: root.choices
         delegate: AbstractButton {
             id: option
             required property var modelData
+            required property int index
             readonly property bool current: root.selected === modelData.key
             objectName: "noiseSuppressionOption_" + modelData.key
             Layout.fillWidth: true
             enabled: modelData.available
             hoverEnabled: true
-            focusPolicy: Qt.StrongFocus
+            // One tab stop for the whole list; arrows move within it.
+            focusPolicy: index === root.tabStopIndex ? Qt.StrongFocus
+                                                     : Qt.ClickFocus
             padding: AppTheme.spacing12
 
             Accessible.role: Accessible.RadioButton
@@ -84,15 +118,32 @@ ColumnLayout {
             onClicked: root.chosen(modelData.key)
             Keys.onReturnPressed: root.chosen(modelData.key)
             Keys.onEnterPressed: root.chosen(modelData.key)
+            Keys.onUpPressed: root.step(index, -1)
+            Keys.onDownPressed: root.step(index, 1)
+            Keys.onLeftPressed: root.step(index, option.mirrored ? 1 : -1)
+            Keys.onRightPressed: root.step(index, option.mirrored ? -1 : 1)
 
             background: Rectangle {
                 radius: AppTheme.radiusMd
                 color: option.current ? AppTheme.stormSelection
                        : (option.enabled && (option.hovered || option.activeFocus)
                           ? AppTheme.hover : AppTheme.stormInset)
-                border.width: option.current || option.activeFocus ? 2 : 0
-                border.color: option.activeFocus ? AppTheme.focusRing
-                                                 : AppTheme.bolt
+                // The chosen card keeps its own ring; focus is a SEPARATE
+                // outer ring, so a focused card that is not chosen never
+                // looks chosen.
+                border.width: option.current ? 2 : 0
+                border.color: AppTheme.bolt
+
+                Rectangle {
+                    objectName: "noiseSuppressionFocusRing"
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: AppTheme.radiusMd + 3
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.focusRing
+                    visible: option.visualFocus
+                }
             }
 
             contentItem: RowLayout {

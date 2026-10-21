@@ -6353,6 +6353,11 @@ private Q_SLOTS:
             QVERIFY2(failed.at(0).at(0).toString().contains(
                          QStringLiteral("may be in use by another app")),
                      qPrintable(failed.at(0).at(0).toString()));
+            // A missing device node is the same resource error as a busy
+            // one, so the advice must not claim only "in use".
+            QVERIFY2(failed.at(0).at(0).toString().contains(
+                         QStringLiteral("unplugged")),
+                     qPrintable(failed.at(0).at(0).toString()));
             QVERIFY(!call.cameraOn());
         }
     }

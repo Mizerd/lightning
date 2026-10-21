@@ -122,6 +122,38 @@ private:
     StubGroupCall *m_groupCall = nullptr;
 };
 
+// A groupCall that records the volume writes the tile makes.
+class VolumeGroupCall : public QObject
+{
+    Q_OBJECT
+public:
+    using QObject::QObject;
+    Q_INVOKABLE int participantVolume(const QString &) const { return stored; }
+    Q_INVOKABLE void setParticipantVolume(const QString &id, int percent)
+    {
+        lastId = id;
+        stored = percent;
+        ++writes;
+    }
+    int stored = 100;
+    int writes = 0;
+    QString lastId;
+};
+
+class VolumeApp : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *groupCall READ groupCall CONSTANT)
+public:
+    explicit VolumeApp(QObject *parent = nullptr)
+        : QObject(parent), m_call(new VolumeGroupCall(this)) {}
+    QObject *groupCall() const { return m_call; }
+    VolumeGroupCall *call() const { return m_call; }
+
+private:
+    VolumeGroupCall *m_call = nullptr;
+};
+
 class StubMediaBackend : public CallMediaBackend
 {
 public:
@@ -547,6 +579,87 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 has no size")
                                     .arg(QLatin1String(name))));
         }
+    }
+
+    // Live 2026-10-20 (C59-F05): in the room's header placement a 700 px
+    // window pushed the call label and icon past the pane's left edge, because
+    // only the dock compacted. The header must fold its optional parts and keep
+    // every control inside its own width, and unfold again when widened.
+    void theHeaderPlacementFoldsInsteadOfOverflowingANarrowPane()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    id: outer
+    width: 1000
+    height: 80
+    property alias bar: hb
+    CallHeaderBar {
+        id: hb
+        objectName: "fixtureHeader"
+        previewMode: true
+        width: outer.width
+    }
+}
+)"),
+                          QUrl());
+        QVERIFY2(component.isReady(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> holder(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(holder.get());
+        QVERIFY(outer != nullptr);
+        QQuickWindow window;
+        window.resize(1000, 200);
+        outer->setParentItem(window.contentItem());
+        // Shown, or nothing polishes and the layouts keep their first size.
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        settle(6);
+
+        auto *bar = outer->findChild<QQuickItem *>(
+            QStringLiteral("fixtureHeader"));
+        QVERIFY(bar != nullptr);
+        QVERIFY(bar->isVisible());
+        const auto fits = [&](int width) -> QString {
+            outer->setWidth(width);
+            QTest::qWait(80);
+            settle(6);
+            auto *row = bar->findChild<QQuickItem *>(
+                QStringLiteral("callHeaderBarRow"));
+            if (!row)
+                return QStringLiteral("row missing");
+            const qreal left = row->mapToItem(outer, QPointF(0, 0)).x();
+            const qreal right =
+                row->mapToItem(outer, QPointF(row->width(), 0)).x();
+            if (left < -0.5 || right > width + 0.5)
+                return QStringLiteral("at %1 px the control row spans %2..%3 "
+                                      "(narrow=%4 need=%5)")
+                    .arg(width).arg(left).arg(right)
+                    .arg(bar->property("narrow").toBool())
+                    .arg(bar->property("fullNeed").toDouble());
+            return QString();
+        };
+        QCOMPARE(fits(1000), QString());
+        QVERIFY(!bar->property("narrow").toBool());
+        // The leading state label is the first thing to go off the left edge.
+        const QString narrowResult = fits(420);
+        QVERIFY2(narrowResult.isEmpty(), qPrintable(narrowResult));
+        QVERIFY(bar->property("narrow").toBool());
+        // Widening brings the full bar back.
+        QCOMPARE(fits(1000), QString());
+        QVERIFY(!bar->property("narrow").toBool());
     }
 
     // Real instantiation of the speaker strip, fed a ListModel because the
@@ -4710,6 +4823,157 @@ NoiseSuppressionSelector {
         QCOMPARE(chosen.first().at(0).toString(), QStringLiteral("deepfilternet"));
     }
 
+    // C62-F04: the list is ONE tab stop, arrows move to the next option that
+    // can run (skipping a disabled one) and choose it, and focus is drawn by
+    // its own ring so it never looks like the chosen card.
+    void theNoiseSelectorIsOneRadioGroupForTheKeyboard()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+
+NoiseSuppressionSelector {
+    width: 480
+    selected: "webrtc"
+    choices: [
+        { key: "off", available: true, reason: "" },
+        { key: "webrtc", available: true, reason: "" },
+        { key: "rnnoise", available: false, reason: "not-in-build" },
+        { key: "deepfilternet", available: true, reason: "" }
+    ]
+}
+)"), QUrl(QStringLiteral("qrc:/noisekeys.qml")));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        settle();
+        auto *item = qobject_cast<QQuickItem *>(root.data());
+        QVERIFY(item);
+        std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+            [&find](QQuickItem *from, const QString &name) -> QQuickItem * {
+            for (QQuickItem *child : from->childItems()) {
+                if (child->objectName() == name)
+                    return child;
+                if (QQuickItem *deeper = find(child, name))
+                    return deeper;
+            }
+            return nullptr;
+        };
+        // Exactly one option takes Tab: the chosen one.
+        int strong = 0;
+        for (const char *key : {"off", "webrtc", "rnnoise", "deepfilternet"}) {
+            QQuickItem *o = find(item, QStringLiteral("noiseSuppressionOption_")
+                                           + QLatin1String(key));
+            QVERIFY(o);
+            if (o->property("focusPolicy").toInt() == Qt::StrongFocus)
+                ++strong;
+        }
+        QCOMPARE(strong, 1);
+        QCOMPARE(find(item, QStringLiteral("noiseSuppressionOption_webrtc"))
+                     ->property("focusPolicy").toInt(),
+                 int(Qt::StrongFocus));
+
+        QSignalSpy chosen(root.data(), SIGNAL(chosen(QString)));
+        // Down from webrtc skips the disabled rnnoise.
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "step",
+                                          Q_ARG(QVariant, 1), Q_ARG(QVariant, 1)));
+        QCOMPARE(chosen.count(), 1);
+        QCOMPARE(chosen.last().at(0).toString(), QStringLiteral("deepfilternet"));
+        // Up from the first wraps to the last that can run.
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "step",
+                                          Q_ARG(QVariant, 0), Q_ARG(QVariant, -1)));
+        QCOMPARE(chosen.last().at(0).toString(), QStringLiteral("deepfilternet"));
+    }
+
+    // C62-F02 / F07: the microphone slider answers Home/End/Page/Up/Down
+    // (including the low end, where the arithmetic goes negative) and its fill
+    // follows the handle's edge in a right-to-left layout. Real component,
+    // real key events.
+    void theMicrophoneSliderIsKeyboardCompleteAndMirrorsItsFill()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    id: outer
+    width: 520
+    height: 900
+    property bool rtl: false
+    LayoutMirroring.enabled: rtl
+    LayoutMirroring.childrenInherit: true
+    CallDeviceSettings { id: s; width: 480 }
+}
+)"), QUrl(QStringLiteral("qrc:/micslider.qml")));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *outer = qobject_cast<QQuickItem *>(root.data());
+        QVERIFY(outer);
+        QQuickWindow window;
+        window.resize(520, 900);
+        outer->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        settle();
+
+        std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+            [&find](QQuickItem *from, const QString &name) -> QQuickItem * {
+            for (QQuickItem *child : from->childItems()) {
+                if (child->objectName() == name)
+                    return child;
+                if (QQuickItem *deeper = find(child, name))
+                    return deeper;
+            }
+            return nullptr;
+        };
+        QQuickItem *slider = find(outer, QStringLiteral("microphoneGainSlider"));
+        QVERIFY(slider);
+        slider->forceActiveFocus();
+        QVERIFY(slider->hasActiveFocus());
+        SettingsManager *settings = controller.settings();
+
+        auto press = [&](Qt::Key key, int from, int expected) {
+            settings->setMicrophoneGain(from);
+            settle();
+            QTest::keyClick(&window, key);
+            settle();
+            QCOMPARE(settings->microphoneGain(), expected);
+            QVERIFY(slider->hasActiveFocus());
+        };
+        const int to = slider->property("to").toInt();
+        press(Qt::Key_Home, 80, int(slider->property("from").toDouble()));
+        press(Qt::Key_End, 80, to);
+        press(Qt::Key_PageUp, 80, 90);
+        press(Qt::Key_PageUp, to - 3, to);
+        press(Qt::Key_PageDown, 80, 70);
+        press(Qt::Key_PageDown, 5, 0);   // negative arithmetic, must clamp
+        press(Qt::Key_Down, 0, 0);       // must not fall through
+        press(Qt::Key_Up, 0, 1);
+        press(Qt::Key_Down, 50, 49);
+
+        // The fill, left-to-right then mirrored, at 3/4 of the range.
+        settings->setMicrophoneGain(to * 3 / 4);
+        settle();
+        QQuickItem *fill = find(outer, QStringLiteral("microphoneGainFill"));
+        QVERIFY(fill);
+        const qreal track = fill->parentItem()->width();
+        QVERIFY(track > 50);
+        QVERIFY2(qAbs(fill->width() - track * 0.75) < 2.0,
+                 qPrintable(QString::number(fill->width())));
+        QVERIFY(qAbs(fill->x()) < 1.0);
+
+        root->setProperty("rtl", true);
+        settle();
+        QVERIFY2(qAbs(fill->width() - track * 0.75) < 2.0,
+                 qPrintable(QString::number(fill->width())));
+        QVERIFY2(qAbs(fill->x() - (track - fill->width())) < 2.0,
+                 qPrintable(QString::number(fill->x())));
+    }
+
     // The input level is reachable from the call menu, and writes the same
     // stored value as Settings: `microphoneGainChanged` -> applyAudioState()
     // is the only path to the engine's volume element.
@@ -5620,7 +5884,11 @@ Item {
     {
         const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
         QVERIFY(!bar.isEmpty());
-        const int hidden = bar.count(QStringLiteral("!root.compact"));
+        // Compact gates through `tight` (compact || narrow, C59), so the
+        // optional controls also stand down in a narrow window.
+        QVERIFY(bar.contains(QStringLiteral("readonly property bool tight: root.compact || root.narrow")));
+        const int hidden = bar.count(QStringLiteral("!root.compact"))
+            + bar.count(QStringLiteral("!root.tight"));
         QVERIFY2(hidden >= 4,
                  qPrintable(QStringLiteral("expected compact to gate several "
                                            "controls, found %1").arg(hidden)));
@@ -5968,8 +6236,135 @@ Item {
         QVERIFY(controller.contains(QStringLiteral("setNoiseSuppressionMode(")));
     }
 
+    /// Text scan: the badge tooltips exist and every state badge names itself.
+    void everyTileStateBadgeNamesItselfOnHover()
+    {
+        const QString tile = normalized(
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml")));
+        const QString badge = normalized(
+            read(QStringLiteral(QML_DIR "/CallTileBadge.qml")));
+        QVERIFY(!tile.isEmpty() && !badge.isEmpty());
+        QVERIFY(badge.contains(QStringLiteral("ToolTip.text: root.tooltip")));
+        for (const char *tip : { "Poor connection", "Hand raised",
+                                 "Sharing their screen", "Camera off",
+                                 "Microphone muted" }) {
+            QVERIFY2(tile.contains(QStringLiteral("tooltip: qsTr(\"%1\")")
+                                       .arg(QLatin1String(tip)))
+                         || tile.contains(QStringLiteral("ToolTip.text: qsTr(\"%1\")")
+                                              .arg(QLatin1String(tip))),
+                     tip);
+        }
+    }
+
+    /// Real tile in a real (offscreen) window: the hover-revealed volume
+    /// button must survive taking focus, the popup must put focus on the
+    /// slider, and the wheel must reach the controller.
+    void theVolumeControlIsReachableByKeyboardAndWheel()
+    {
+        VolumeApp app;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &app);
+        QQuickWindow window;
+        window.resize(400, 300);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400
+    height: 300
+    CallParticipantTile {
+        objectName: "volTile"
+        x: 20; y: 20
+        width: 300
+        height: 180
+        identity: "PA_remote"
+        userId: "@bob:mock.local"
+        displayName: "Bob"
+        activeFocusOnTab: true
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callvolumefocustest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(outer != nullptr);
+        outer->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        settle();
+
+        auto *tile = outer->findChild<QQuickItem *>(QStringLiteral("volTile"));
+        QVERIFY(tile != nullptr);
+        QVERIFY2(tile->property("_volumeOffered").toBool(),
+                 "the fixture must offer the volume control");
+        const auto button = [&]() {
+            return tile->findChild<QQuickItem *>(
+                QStringLiteral("callParticipantVolumeButton"));
+        };
+        QVERIFY2(button() == nullptr, "no hover and no focus: no button yet");
+
+        // Focus on the tile reveals the button ...
+        tile->forceActiveFocus();
+        settle();
+        QVERIFY(tile->hasActiveFocus());
+        QVERIFY2(button() != nullptr, "tile focus must reveal the button");
+
+        // ... and the button taking focus must not destroy it.
+        button()->forceActiveFocus();
+        settle();
+        QVERIFY(window.activeFocusItem() != nullptr);
+        QVERIFY2(button() != nullptr && button()->hasActiveFocus(),
+                 "the focused volume button was destroyed as it took focus");
+
+        // Opening the popup focuses the slider, not the popup's content item.
+        QMetaObject::invokeMethod(tile, "openVolumeControl");
+        settle(6);
+        auto *slider = tile->findChild<QQuickItem *>(
+            QStringLiteral("callParticipantVolumeSlider"));
+        QVERIFY(slider != nullptr);
+        QTRY_VERIFY(slider->hasActiveFocus());
+        auto *popup = tile->findChild<QObject *>(
+            QStringLiteral("callParticipantVolumePopup"));
+        QVERIFY(popup != nullptr);
+        // Past the enter transition, so the slider is where it will be drawn.
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QTRY_COMPARE(popup->property("opacity").toDouble(), 1.0);
+
+        // The wheel moves it and reaches the controller.
+        const QPointF local(slider->width() / 2, slider->height() / 2);
+        const QPointF scene = slider->mapToScene(local);
+        QTest::mouseMove(&window, scene.toPoint());
+        settle();
+        QWheelEvent wheel(scene, window.mapToGlobal(scene.toPoint()),
+                          QPoint(), QPoint(0, 120), Qt::NoButton,
+                          Qt::NoModifier, Qt::NoScrollPhase, false);
+        QGuiApplication::sendEvent(&window, &wheel);
+        settle();
+
+        QVERIFY2(app.call()->writes > 0 && app.call()->stored > 100,
+                 qPrintable(QStringLiteral("the wheel did not change the "
+                                           "volume (slider value %1, wheelEnabled %2, writes %3)")
+                                .arg(slider->property("value").toDouble())
+                                .arg(slider->property("wheelEnabled").toBool())
+                                .arg(app.call()->writes)));
+        QCOMPARE(app.call()->lastId, QStringLiteral("PA_remote"));
+
+        // Escape closes the popup and must not strand the keyboard: focus
+        // lands somewhere in the tile again, not on nothing.
+        QTest::keyClick(&window, Qt::Key_Escape);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        settle();
+        QVERIFY2(window.activeFocusItem() != nullptr,
+                 "no item has focus after the volume popup closed");
+        QVERIFY2(tile->hasActiveFocus() || button() != nullptr,
+                 "the tile lost its keyboard focus when the popup closed");
+    }
+
 private:
     QTemporaryDir m_configHome;
+
 };
 
 QTEST_MAIN(CallUiContractTest)

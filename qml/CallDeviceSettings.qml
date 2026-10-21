@@ -202,6 +202,28 @@ ColumnLayout {
             // `onMoved`, not `onValueChanged`, which also fires for values from
             // the store and would write them straight back.
             onMoved: app.settings.microphoneGain = Math.round(value)
+            // Home/End/Page/Up/Down as every slider answers them; the Slider
+            // itself takes Left/Right only. The setting is written, never
+            // `value`, so the binding above survives.
+            Keys.onPressed: event => {
+                // `handled` is separate from the arithmetic: a legitimate
+                // result can be negative (PageDown at 5, Down at 0) and must
+                // still clamp to `from` rather than fall through.
+                let handled = true
+                let target = 0
+                const cur = Math.round(value)
+                if (event.key === Qt.Key_Home) target = from
+                else if (event.key === Qt.Key_End) target = to
+                else if (event.key === Qt.Key_PageUp) target = cur + 10
+                else if (event.key === Qt.Key_PageDown) target = cur - 10
+                else if (event.key === Qt.Key_Up) target = cur + 1
+                else if (event.key === Qt.Key_Down) target = cur - 1
+                else handled = false
+                if (!handled)
+                    return
+                app.settings.microphoneGain = Math.max(from, Math.min(to, target))
+                event.accepted = true
+            }
 
             background: Rectangle {
                 x: micGainSlider.leftPadding
@@ -212,7 +234,13 @@ ColumnLayout {
                 color: AppTheme.stormInset
 
                 Rectangle {
-                    width: micGainSlider.visualPosition * parent.width
+                    objectName: "microphoneGainFill"
+                    // visualPosition is already mirrored in RTL, so the fill
+                    // runs from the edge the handle travels away from.
+                    x: micGainSlider.mirrored ? parent.width - width : 0
+                    width: (micGainSlider.mirrored
+                            ? 1 - micGainSlider.visualPosition
+                            : micGainSlider.visualPosition) * parent.width
                     height: parent.height
                     radius: AppTheme.radiusPill
                     color: AppTheme.bolt
