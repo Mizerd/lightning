@@ -4956,6 +4956,29 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+    // The tray controls are hidden where there is no tray, so a search must
+    // not offer them there (the jump would land on the page top).
+    void trayEntriesFollowTrayAvailability()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(screen && search);
+        search->setProperty("text", QStringLiteral("tray"));
+        QCoreApplication::processEvents();
+        int trayHits = 0;
+        const QVariantList hits = screen->property("matchedSearchResults").toList();
+        for (const QVariant &hit : hits) {
+            const QString a = hit.toMap().value(QStringLiteral("anchor")).toString();
+            if (a == QStringLiteral("closeToTrayCheck")
+                || a == QStringLiteral("startInTrayCheck"))
+                ++trayHits;
+        }
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QCOMPARE(trayHits, m_controller->trayAvailable() ? 2 : 0);
+    }
+
     // "call keys" found nothing though the control is labelled "Use call keys
     // from any window". Old code: no such index entry, so no hit. The entry
     // is Linux-only (the card is `visible: Qt.platform.os === "linux"`), so

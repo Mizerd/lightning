@@ -247,12 +247,12 @@ Item {
           keywords: qsTr("tray system tray minimize close background icon "
                          + "taskbar quit close to tray menu bar"),
           section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
-          anchor: "closeToTrayCheck" },
+          anchor: "closeToTrayCheck", requiresTray: true },
         { title: qsTr("Start in the tray"),
           keywords: qsTr("tray start startup minimized background icon "
                          + "menu bar hidden"),
           section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
-          anchor: "startInTrayCheck" },
+          anchor: "startInTrayCheck", requiresTray: true },
         { title: qsTr("Side panel width"),
           keywords: qsTr("side panel width members threads size"),
           section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
@@ -650,6 +650,10 @@ Item {
         return root.searchIndex.filter(function(e) {
             // `platform` marks a control that only exists on that OS.
             if (e.platform !== undefined && e.platform !== Qt.platform.os)
+                return false
+            // The tray card is hidden where there is no tray; an entry for
+            // it would jump to the top of the page.
+            if (e.requiresTray === true && !app.trayAvailable)
                 return false
             var hay = (e.title + " " + e.keywords + " " + e.breadcrumb).toLowerCase()
             for (var i = 0; i < words.length; ++i) {
