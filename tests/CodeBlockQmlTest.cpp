@@ -7,14 +7,20 @@
 //   * the gutter has one number per source line and is not selectable;
 //   * Copy yields exactly the program, with no line numbers or padding;
 //   * the height is bounded and the content scrolls past the bound;
-//   * a vertical wheel notch is left to the timeline's WheelHandler (wheel
-//     events go innermost-first, so accepting it would trap the reader).
+//   * the wheel: sideways scrolls the code; vertical scrolls a tall block
+//     to its edge and then reaches the timeline's WheelHandler, but only once
+//     the pointer has rested on the block, so a gesture scrolling the
+//     conversation is never captured by a block passing under the pointer
+//     (wheel events go innermost-first). Checked against the real
+//     TimelinePane as well as a stand-in owner.
 
 #include <QtTest/QtTest>
 
 #include <QClipboard>
 #include <QColor>
+#include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QPointingDevice>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -24,16 +30,22 @@
 #include <QQuickTextDocument>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSignalSpy>
+#include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextDocument>
 #include <QVariantMap>
 #include <QWheelEvent>
 
+#include <algorithm>
+#include <functional>
 #include <memory>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "matrix/MockMatrixClient.h"
+#include "matrix/TimelineEvent.h"
 #include "models/TimelineModel.h"
 
 namespace {
@@ -93,13 +105,25 @@ Item {
     width: 420
     height: 600
     // Stands in for TimelinePane's timelineWheelHandler: the single
-    // pointer-wheel owner an ancestor away from the message row.
+    // pointer-wheel owner an ancestor away from the message row, restricted
+    // to the same devices as production's.
     property int outerWheelNotches: 0
+    // Of those, the ones that carried motion (a touchpad's ScrollBegin and
+    // ScrollEnd carry none).
+    property int outerMotionEvents: 0
+    // The hook TimelinePane provides (see CodeBlock's wheelRouter): called
+    // for every wheel event with motion that the block keeps for itself.
+    property int nestedTaken: 0
+    function nestedWheelTaken() { outer.nestedTaken += 1 }
     WheelHandler {
         objectName: "outerWheel"
         target: null
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: (event) => {
             outer.outerWheelNotches += 1
+            if (event.angleDelta.x !== 0 || event.angleDelta.y !== 0
+                    || event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0)
+                outer.outerMotionEvents += 1
             event.accepted = true
         }
     }
@@ -141,15 +165,154 @@ Item {
         return true;
     }
 
+    // A mouse wheel notch from an explicit mouse device: production's wheel
+    // owner accepts Mouse | TouchPad only, so the device is part of what is
+    // tested.
     static void sendWheel(QQuickWindow &window, const QPointF &scenePos,
                           const QPoint &angleDelta,
                           Qt::KeyboardModifiers modifiers)
     {
         QWheelEvent wheel(scenePos, window.mapToGlobal(scenePos.toPoint()),
                           QPoint(0, 0), angleDelta, Qt::NoButton, modifiers,
-                          Qt::NoScrollPhase, false);
+                          Qt::NoScrollPhase, false,
+                          Qt::MouseEventNotSynthesized, mouseDevice());
         QCoreApplication::sendEvent(&window, &wheel);
         QCoreApplication::processEvents();
+    }
+
+    static const QPointingDevice *mouseDevice()
+    {
+        const QPointingDevice *device = QPointingDevice::primaryPointingDevice();
+        Q_ASSERT(device->type() == QInputDevice::DeviceType::Mouse);
+        return device;
+    }
+
+    // A touchpad that reports pixel deltas and scroll phases, as on Wayland
+    // and macOS.
+    static const QPointingDevice *touchpadDevice()
+    {
+        // Owned by the application, so it goes before Qt's device registry.
+        static const QPointingDevice *device = new QPointingDevice(
+            QStringLiteral("code-block-test touchpad"), 0x7c0b,
+            QInputDevice::DeviceType::TouchPad,
+            QPointingDevice::PointerType::Finger,
+            QInputDevice::Capability::Position | QInputDevice::Capability::Scroll
+                | QInputDevice::Capability::PixelScroll,
+            1, 3, QString(), QPointingDeviceUniqueId(), qApp);
+        return device;
+    }
+
+    static void sendTouchpad(QQuickWindow &window, const QPointF &scenePos,
+                             Qt::ScrollPhase phase, const QPoint &pixelDelta)
+    {
+        // Qt sends an angle delta beside the pixels, at twice their size on
+        // macOS: a pixel-reading owner must use the pixels, on both axes.
+        QWheelEvent wheel(scenePos, window.mapToGlobal(scenePos.toPoint()),
+                          pixelDelta, pixelDelta * 2, Qt::NoButton,
+                          Qt::NoModifier,
+                          phase, false, Qt::MouseEventNotSynthesized,
+                          touchpadDevice());
+        QCoreApplication::sendEvent(&window, &wheel);
+        QCoreApplication::processEvents();
+    }
+
+    // The block's rest interval. The fallback keeps a component without the
+    // property failing on behaviour rather than on a missing name.
+    static int restMsOf(QQuickItem *block)
+    {
+        const QVariant v = block->property("wheelRestMs");
+        return v.isValid() ? v.toInt() : 300;
+    }
+
+    static int trainMsOf(QQuickItem *block)
+    {
+        const QVariant v = block->property("wheelTrainMs");
+        return v.isValid() ? v.toInt() : 500;
+    }
+
+    // Brings the pointer to `scenePos` and leaves it there past the block's
+    // rest interval, so the next wheel event belongs to whatever is under it.
+    // It first moves off the block: Qt delivers no hover for a move to where
+    // the pointer already is, which made a second resting case in one
+    // process start from a stale hover state. Returns whether the block's
+    // hover state matches where the pointer ended up.
+    [[nodiscard]] static bool restPointerAt(QQuickWindow &window,
+                                            QQuickItem *block,
+                                            const QPointF &scenePos)
+    {
+        const QRectF blockRect = block->mapRectToScene(block->boundingRect());
+        QPointF away(window.width() - 2.0, window.height() - 2.0);
+        if (blockRect.contains(away))
+            away = QPointF(window.width() - 2.0, 2.0);
+        if (blockRect.contains(away))
+            away = QPointF(2.0, window.height() - 2.0);
+        QTest::mouseMove(&window, away.toPoint());
+        QCoreApplication::processEvents();
+        QTest::mouseMove(&window, scenePos.toPoint());
+        QCoreApplication::processEvents();
+        QTest::qWait(restMsOf(block) + 80);
+
+        auto *hover = block->findChild<QObject *>(
+            QStringLiteral("codeBlockBodyHover"));
+        auto *body = block->findChild<QQuickItem *>(
+            QStringLiteral("codeBlockBody"));
+        auto *router = block->findChild<QObject *>(
+            QStringLiteral("codeBlockWheelRouter"));
+        if (!hover || !body || !router) {
+            // A component without the latch (the old code) has no state to
+            // check; the behaviour is what the case asserts.
+            return true;
+        }
+        const bool onBody =
+            body->mapRectToScene(body->boundingRect()).contains(scenePos);
+        if (hover->property("hovered").toBool() != onBody) {
+            qWarning("restPointerAt: hovered=%d but the pointer is %s the "
+                     "body", hover->property("hovered").toBool(),
+                     onBody ? "on" : "off");
+            return false;
+        }
+        return !onBody || router->property("restSinceMs").toReal() >= 0.0;
+    }
+
+    // Runs a timing-sensitive scenario up to three times. The scenario sets
+    // `stalled` when the machine paused for longer than the interval it
+    // measures, which makes that run say nothing either way; only a run that
+    // was not stalled counts.
+    static void retryOnStall(const std::function<void(bool *stalled)> &scenario)
+    {
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            bool stalled = false;
+            scenario(&stalled);
+            if (QTest::currentTestFailed() || !stalled)
+                return;
+            qWarning("attempt %d stalled past the latch's interval; retrying",
+                     attempt);
+        }
+        QFAIL("the machine stalled past the latch's interval on three "
+              "attempts; the latch could not be measured");
+    }
+
+    static QPointF bodyCentre(QQuickItem *body)
+    {
+        return body->mapToScene(
+            QPointF(body->width() / 2.0, body->height() / 2.0));
+    }
+
+    // Taller than the body cap and wider than any pane.
+    static QString tallWideCode()
+    {
+        QStringList lines;
+        for (int i = 1; i <= 60; ++i)
+            lines << (i == 30 ? QString(300, QLatin1Char('w'))
+                              : QStringLiteral("line %1").arg(i));
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    static qreal maxContentY(QQuickItem *scroll)
+    {
+        return std::max<qreal>(0.0, scroll->property("contentHeight").toReal()
+                                        + scroll->property("bottomMargin").toReal()
+                                        - scroll->height());
     }
 
     // The segment host: MessageDelegate replaces the body TextEdit with a
@@ -321,6 +484,176 @@ Item {
         h.segments = h.row->findChild<QQuickItem *>(
             QStringLiteral("messageSegments"));
         return true;
+    }
+
+    // The production wheel stack: the REAL TimelinePane (rotated timeline
+    // Flickable, timelineWheelHandler restricted to Mouse | TouchPad, the
+    // MiddleClickScroller MouseArea drawn over the timeline) with one
+    // code-block message as the newest row. The CodeBlock harness's stand-in
+    // owner shares none of that stack, so it cannot show a wheel that never
+    // reaches the block's router.
+    struct PaneHarness {
+        QStringList warnings;
+        std::unique_ptr<AppController> controller;
+        std::unique_ptr<QQmlApplicationEngine> engine;
+        std::unique_ptr<QQuickWindow> window;
+        std::unique_ptr<QObject> rootOwner;
+        QQuickItem *root = nullptr;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *block = nullptr;
+        QQuickItem *body = nullptr;
+        QQuickItem *scroll = nullptr;
+
+        ~PaneHarness()
+        {
+            // The QML tree goes before the engine and the controller its
+            // bindings reach.
+            rootOwner.reset();
+            window.reset();
+            engine.reset();
+            controller.reset();
+        }
+    };
+
+    // A Repeater parents its delegates with setParentItem() only, so they are
+    // not QObject descendants and findChildren() cannot see them.
+    static QQuickItem *findVisual(QQuickItem *parent, const QString &name)
+    {
+        if (!parent)
+            return nullptr;
+        const auto kids = parent->childItems();
+        for (QQuickItem *child : kids) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem *hit = findVisual(child, name))
+                return hit;
+        }
+        return nullptr;
+    }
+
+    bool buildPane(PaneHarness &h, const QString &code)
+    {
+        h.controller =
+            std::make_unique<AppController>(AppController::MockBackend);
+        auto *mock = h.controller->findChild<MockMatrixClient *>();
+        if (!mock)
+            return false;
+        const QString roomId = QStringLiteral("!general:mock.local");
+        h.controller->setCurrentRoomId(roomId);
+
+        h.engine = std::make_unique<QQmlApplicationEngine>();
+        connect(h.engine.get(), &QQmlEngine::warnings, this,
+                [&h](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        h.warnings << e.toString();
+                });
+        h.engine->rootContext()->setContextProperty("app", h.controller.get());
+        QSignalSpy createdSpy(h.engine.get(),
+                              &QQmlApplicationEngine::objectCreated);
+        h.engine->loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty() && !createdSpy.wait(kTimeoutMs))
+            return false;
+        h.root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        if (!h.root)
+            return false;
+        h.window = std::make_unique<QQuickWindow>();
+        h.window->resize(760, 900);
+        h.root->setParentItem(h.window->contentItem());
+        h.root->setSize(QSizeF(h.window->width(), h.window->height()));
+        h.window->show();
+        // Not asserted: the offscreen platform may decline.
+        (void)QTest::qWaitForWindowExposed(h.window.get(), 2000);
+        QCoreApplication::processEvents();
+
+        // Plain rows first, so the timeline itself has range to scroll; the
+        // code block is the newest message and sits on screen at the bottom.
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-9000);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$plain%1").arg(i);
+            e.itemId = QStringLiteral("uid-plain%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("plain row %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            events.append(e);
+        }
+        TimelineEvent codeEvent;
+        codeEvent.eventId = QStringLiteral("$code");
+        codeEvent.itemId = QStringLiteral("uid-code");
+        codeEvent.roomId = roomId;
+        codeEvent.sender = QStringLiteral("@alice:mock.local");
+        codeEvent.senderDisplayName = QStringLiteral("Alice");
+        codeEvent.body = QStringLiteral("```\n") + code
+                         + QStringLiteral("\n```");
+        codeEvent.formattedBody = QStringLiteral("<pre><code>")
+                                  + code.toHtmlEscaped()
+                                  + QStringLiteral("</code></pre>");
+        codeEvent.timestamp = base.addSecs(60 * 30);
+        events.append(codeEvent);
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        h.timeline = h.root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        if (!h.timeline)
+            return false;
+        if (!QTest::qWaitFor([&] {
+                return h.timeline->property("presentationReady").toBool();
+            }, 5000))
+            return false;
+        if (!QTest::qWaitFor([&] {
+                h.body = findVisual(h.root, QStringLiteral("codeBlockBody"));
+                return h.body != nullptr && h.body->height() > 4.0
+                       && h.body->width() > 4.0;
+            }, 5000))
+            return false;
+        h.scroll = findVisual(h.body, QStringLiteral("codeBlockScroll"));
+        for (QQuickItem *p = h.body; p; p = p->parentItem()) {
+            if (p->objectName() == QLatin1String("codeBlockWheelRouter"))
+                continue;
+            if (p->property("lineCount").isValid()
+                && p->property("verticalOverflow").isValid()) {
+                h.block = p;
+                break;
+            }
+        }
+        // Settle the bottom pin before measuring.
+        QTest::qWait(400);
+        return h.scroll != nullptr && h.block != nullptr;
+    }
+
+    // The pane's warnings minus the one that belongs to the mock fixture
+    // (image rows resolving `mock.local`), as TimelinePaneQmlTest filters it.
+    static QStringList paneWarnings(const PaneHarness &h)
+    {
+        QStringList out;
+        for (const QString &w : h.warnings) {
+            if (w.contains(QLatin1String("QQuickImage: Host mock.local"))
+                && w.contains(QLatin1String("not found")))
+                continue;
+            out << w;
+        }
+        return out;
+    }
+
+    // Wheel with an explicit mouse device: the production WheelHandler
+    // accepts Mouse | TouchPad only, so the device is part of what is tested.
+    static void sendPaneWheel(QQuickWindow &window, const QPointF &scenePos,
+                              const QPoint &pixelDelta,
+                              const QPoint &angleDelta,
+                              Qt::KeyboardModifiers modifiers,
+                              Qt::ScrollPhase phase = Qt::NoScrollPhase)
+    {
+        QWheelEvent wheel(scenePos, window.mapToGlobal(scenePos.toPoint()),
+                          pixelDelta, angleDelta, Qt::NoButton, modifiers,
+                          phase, false, Qt::MouseEventNotSynthesized,
+                          mouseDevice());
+        QCoreApplication::sendEvent(&window, &wheel);
+        QCoreApplication::processEvents();
     }
 
 private:
@@ -505,9 +838,329 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // A plain vertical notch over a code block reaches the outer wheel owner
-    // (timelineWheelHandler in production) and does not move the block.
-    void verticalWheelIsLeftToTheTimeline()
+    // Reads the harness's stand-in timeline owner.
+    static int outerNotches(const Harness &h)
+    {
+        return h.outer->property("outerWheelNotches").toInt();
+    }
+    static int outerMotion(const Harness &h)
+    {
+        return h.outer->property("outerMotionEvents").toInt();
+    }
+    static int nestedTaken(const Harness &h)
+    {
+        return h.outer->property("nestedTaken").toInt();
+    }
+
+    // Taller than the body cap; with `wide`, wider than any pane too.
+    static QString tallCode(int count, bool wide)
+    {
+        QStringList lines;
+        for (int i = 1; i <= count; ++i)
+            lines << (wide && i == 7 ? QString(300, QLatin1Char('w'))
+                                     : QStringLiteral("row %1").arg(i));
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    // Moves the block by `dy`, as the timeline does when it scrolls a block
+    // under a still pointer.
+    static void carryBlockBy(Harness &h, qreal dy)
+    {
+        h.column->setY(h.column->y() + dy);
+        QCoreApplication::processEvents();
+        // A frame, so Qt re-delivers hover to what is now under the pointer.
+        QTest::qWait(30);
+    }
+
+    // Moves the block so its body's centre sits under `scenePos`.
+    static void carryBlockUnder(Harness &h, QQuickItem *body,
+                                const QPointF &scenePos)
+    {
+        carryBlockBy(h, scenePos.y() - bodyCentre(body).y());
+    }
+
+    // (a) A pointer at rest over a tall block: the notch scrolls the code,
+    // by the system's lines per notch, the timeline gets nothing, and the
+    // timeline's hook still hears that the reader scrolled.
+    void aRestingPointerScrollsATallBlockAndTheTimelineGetsNothing()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *body = h.find(QStringLiteral("codeBlockBody"));
+        auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(body != nullptr);
+        QVERIFY(scroll != nullptr);
+        QVERIFY(text != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+        QVERIFY(h.block->property("verticalOverflow").toBool());
+
+        const QPointF centre = bodyCentre(body);
+        QVERIFY(restPointerAt(*h.window, h.block, centre));
+        sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+
+        const qreal afterOne = scroll->property("contentY").toReal();
+        QVERIFY2(afterOne > 0.0,
+                 "a notch over a tall block the pointer rests on did not "
+                 "scroll it");
+        QCOMPARE(outerNotches(h), 0);
+        const qreal lineHeight = text->implicitHeight() / 400.0;
+        QCOMPARE(qRound(afterOne),
+                 qRound(QGuiApplication::styleHints()->wheelScrollLines()
+                        * lineHeight));
+
+        sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+        QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+        QCOMPARE(outerNotches(h), 0);
+        QCOMPARE(nestedTaken(h), 2);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // A fine-grained source (an X11 libinput touchpad, a Windows precision
+    // touchpad) sends notches of a few 1/120ths, each well under a pixel of
+    // code. Mid-block they are the block's and add up; none of them reads
+    // as "at the edge".
+    void aOneUnitWheelMidBlockMovesTheCodeAndIsKept()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *body = h.find(QStringLiteral("codeBlockBody"));
+        auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(body != nullptr);
+        QVERIFY(scroll != nullptr);
+        QVERIFY(text != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+
+        const QPointF centre = bodyCentre(body);
+        QVERIFY(restPointerAt(*h.window, h.block, centre));
+        sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+        QVERIFY(scroll->property("contentY").toReal() > 0.0);
+        // Past the stream's end, so the next event is decided afresh.
+        QTest::qWait(trainMsOf(h.block) + 80);
+
+        const qreal before = scroll->property("contentY").toReal();
+        const qreal unit = QGuiApplication::styleHints()->wheelScrollLines()
+                           * (text->implicitHeight() / 400.0) / 120.0;
+        QVERIFY2(unit < 0.5, "one unit is a pixel or more here; the case "
+                             "would not exercise a sub-pixel step");
+        for (int i = 0; i < 21; ++i)
+            sendWheel(*h.window, centre, QPoint(0, -1), Qt::NoModifier);
+        QCOMPARE(outerNotches(h), 0);
+        QVERIFY2(qAbs(scroll->property("contentY").toReal() - before
+                      - 21 * unit) < 0.01,
+                 qPrintable(QStringLiteral("21 one-unit notches moved the code "
+                                           "%1 px, expected %2")
+                                .arg(scroll->property("contentY").toReal()
+                                     - before)
+                                .arg(21 * unit)));
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // (b) Browser-style latching. A stream the block has taken stays the
+    // block's at its edge, so the conversation never lurches when the code
+    // runs out; after a pause the next notch at the edge goes to the
+    // timeline, the rest of that stream stays there, and after another pause
+    // the block takes the reversal, up to its top, and so on.
+    void atTheBlocksEdgeTheStreamStaysAndThePauseHandsOn()
+    {
+        Harness h;
+        QVERIFY(build(h, tallCode(400, true)));
+        auto *body = h.find(QStringLiteral("codeBlockBody"));
+        auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+        QVERIFY(body != nullptr);
+        QVERIFY(scroll != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+        QVERIFY(h.block->property("verticalOverflow").toBool());
+        QVERIFY2(scroll->property("bottomMargin").toReal() > 0.0,
+                 "no horizontal bar band, so the edge cannot show whether the "
+                 "last line clears it");
+        const qreal maxY = maxContentY(scroll);
+        QVERIFY(maxY > 0.0);
+        const int restMs = restMsOf(h.block);
+        const int trainMs = trainMsOf(h.block);
+        const QPointF centre = bodyCentre(body);
+        const auto contentY = [scroll] {
+            return scroll->property("contentY").toReal();
+        };
+
+        retryOnStall([&](bool *stalled) {
+            scroll->setProperty("contentY", 0.0);
+            const int base = outerNotches(h);
+            QVERIFY(restPointerAt(*h.window, h.block, centre));
+            QElapsedTimer gap;
+            gap.start();
+            int notches = 0;
+            while (contentY() < maxY && notches < 500) {
+                sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+                ++notches;
+                if (gap.restart() >= trainMs) { *stalled = true; return; }
+            }
+            QCOMPARE(contentY(), maxY);
+            // The same stream, at the edge: still the block's.
+            for (int i = 0; i < 3; ++i) {
+                sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+                if (gap.restart() >= trainMs) { *stalled = true; return; }
+            }
+            QCOMPARE(outerNotches(h), base);
+            QCOMPARE(contentY(), maxY);
+
+            // A pause: a stream starting at the edge is the conversation's...
+            QTest::qWait(trainMs + 80);
+            gap.restart();
+            sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), base + 1);
+            // ...both ways, while it runs.
+            sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+            if (gap.elapsed() >= restMs) { *stalled = true; return; }
+            QCOMPARE(outerNotches(h), base + 2);
+            QCOMPARE(contentY(), maxY);
+
+            // Another pause: the block takes the reversal, up to its top,
+            // and keeps the stream there too.
+            QTest::qWait(std::max(restMs, trainMs) + 80);
+            gap.restart();
+            notches = 0;
+            while (contentY() > 0.0 && notches < 500) {
+                sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+                ++notches;
+                if (gap.restart() >= trainMs) { *stalled = true; return; }
+            }
+            sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+            if (gap.restart() >= trainMs) { *stalled = true; return; }
+            QCOMPARE(outerNotches(h), base + 2);
+            QCOMPARE(contentY(), 0.0);
+            QTest::qWait(trainMs + 80);
+            sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), base + 3);
+        });
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // (c) A block without vertical overflow never takes a vertical notch,
+    // rested pointer or not, and a sideways overflow does not change that.
+    void aShortBlockLeavesEveryVerticalNotchToTheTimeline()
+    {
+        for (const QString &code :
+             {QStringLiteral("ls -la\ncd /tmp\nmake"),
+              QStringLiteral("ls -la\n") + QString(300, QLatin1Char('x'))
+                  + QStringLiteral("\nmake")}) {
+            Harness h;
+            QVERIFY(build(h, code));
+            auto *body = h.find(QStringLiteral("codeBlockBody"));
+            auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+            QVERIFY(body != nullptr);
+            QVERIFY(scroll != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+            QVERIFY(!h.block->property("verticalOverflow").toBool());
+
+            const QPointF centre = bodyCentre(body);
+            QVERIFY(restPointerAt(*h.window, h.block, centre));
+            sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+            sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+            sendWheel(*h.window, centre, QPoint(0, -120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), 3);
+            QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+            QCOMPARE(scroll->property("contentX").toReal(), 0.0);
+            QCOMPARE(h.warnings, QStringList{});
+        }
+    }
+
+    // (d) The latch. A notch train scrolling the timeline carries a tall
+    // block under the still pointer: the train stays on the timeline, however
+    // long it runs, and only a notch after a pause is the block's.
+    void aBlockArrivingUnderAStillPointerDoesNotTakeTheTrain()
+    {
+        const int trainGapMs = 40;
+        retryOnStall([&](bool *stalled) {
+            Harness h;
+            QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+            auto *body = h.find(QStringLiteral("codeBlockBody"));
+            auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+            QVERIFY(body != nullptr);
+            QVERIFY(scroll != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+            QVERIFY(h.block->property("verticalOverflow").toBool());
+            const int restMs = restMsOf(h.block);
+
+            // The pointer rests on the timeline, below the block.
+            const qreal blockBottom =
+                h.block->mapToScene(QPointF(0.0, h.block->height())).y();
+            const QPointF pointer(bodyCentre(body).x(), blockBottom + 40.0);
+            QVERIFY(pointer.y() < h.outer->height());
+            QVERIFY(restPointerAt(*h.window, h.block, pointer));
+            sendWheel(*h.window, pointer, QPoint(0, -120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), 1);
+
+            // Each gap is timed from before the previous event, so a stall
+            // cannot pass for a pause.
+            QElapsedTimer gap;
+            gap.start();
+            carryBlockUnder(h, body, pointer);
+            QVERIFY(body->mapRectToScene(body->boundingRect())
+                        .contains(pointer));
+            // The train runs on for twice the rest interval.
+            const int train = (restMs * 2) / trainGapMs + 1;
+            for (int i = 0; i < train; ++i) {
+                QTest::qWait(trainGapMs);
+                sendWheel(*h.window, pointer, QPoint(0, -120), Qt::NoModifier);
+                if (gap.restart() >= restMs) { *stalled = true; return; }
+            }
+            QCOMPARE(outerNotches(h), 1 + train);
+            QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+
+            // A pause: the block under the pointer takes the next notch.
+            QTest::qWait(restMs + 80);
+            sendWheel(*h.window, pointer, QPoint(0, -120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), 1 + train);
+            QVERIFY2(scroll->property("contentY").toReal() > 0.0,
+                     "after a pause the block under the pointer did not take "
+                     "the notch");
+            QCOMPARE(h.warnings, QStringList{});
+        });
+    }
+
+    // The latch's other way in: the pointer rests on the block, then the
+    // block moves under it (a timeline glide still running, a row above
+    // resizing). A moving block is not a resting one, so the next notch is
+    // the timeline's; once the block is still again, the block's.
+    void aBlockMovingUnderARestingPointerIsNotRested()
+    {
+        retryOnStall([&](bool *stalled) {
+            Harness h;
+            QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+            auto *body = h.find(QStringLiteral("codeBlockBody"));
+            auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+            QVERIFY(body != nullptr);
+            QVERIFY(scroll != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+            const int restMs = restMsOf(h.block);
+
+            const QPointF pointer = bodyCentre(body);
+            QVERIFY(restPointerAt(*h.window, h.block, pointer));
+            QElapsedTimer gap;
+            gap.start();
+            carryBlockBy(h, 30.0);
+            QVERIFY(body->mapRectToScene(body->boundingRect())
+                        .contains(pointer));
+            sendWheel(*h.window, pointer, QPoint(0, -120), Qt::NoModifier);
+            if (gap.elapsed() >= restMs) { *stalled = true; return; }
+            QCOMPARE(outerNotches(h), 1);
+            QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+
+            QTest::qWait(restMs + 80);
+            sendWheel(*h.window, pointer, QPoint(0, -120), Qt::NoModifier);
+            QCOMPARE(outerNotches(h), 1);
+            QVERIFY(scroll->property("contentY").toReal() > 0.0);
+            QCOMPARE(h.warnings, QStringList{});
+        });
+    }
+
+    // Touchpad swipes (pixel deltas with scroll phases) are owned whole: one
+    // that began on the timeline stays there when a block slides under the
+    // fingers, and one that begins on a rested block moves it pixel for
+    // pixel, to its edge and no further, with nothing reaching the timeline.
+    void aTouchpadSwipeBelongsWhollyToWhereItBegan()
     {
         Harness h;
         QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
@@ -516,14 +1169,151 @@ private Q_SLOTS:
         QVERIFY(body != nullptr);
         QVERIFY(scroll != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+        const int restMs = restMsOf(h.block);
 
-        const QPointF centre = body->mapToScene(
-            QPointF(body->width() / 2.0, body->height() / 2.0));
-        QCOMPARE(h.outer->property("outerWheelNotches").toInt(), 0);
-        sendWheel(*h.window, centre, QPoint(0, 120), Qt::NoModifier);
+        const qreal blockBottom =
+            h.block->mapToScene(QPointF(0.0, h.block->height())).y();
+        const QPointF pointer(bodyCentre(body).x(), blockBottom + 40.0);
+        QVERIFY(restPointerAt(*h.window, h.block, pointer));
+        sendTouchpad(*h.window, pointer, Qt::ScrollBegin, QPoint());
+        sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(0, -30));
+        QCOMPARE(outerMotion(h), 1);
 
-        QTRY_COMPARE_WITH_TIMEOUT(
-            h.outer->property("outerWheelNotches").toInt(), 1, kTimeoutMs);
+        // Mid-swipe the block slides under the fingers, and the fingers keep
+        // moving for longer than the rest interval: still the timeline's.
+        carryBlockUnder(h, body, pointer);
+        QTest::qWait(restMs + 80);
+        for (int i = 0; i < 5; ++i)
+            sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(0, -30));
+        sendTouchpad(*h.window, pointer, Qt::ScrollEnd, QPoint());
+        QCOMPARE(outerMotion(h), 6);
+        QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+
+        // A new swipe over the rested block is the block's, in its own pixels.
+        QVERIFY(restPointerAt(*h.window, h.block, pointer));
+        sendTouchpad(*h.window, pointer, Qt::ScrollBegin, QPoint());
+        sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(0, -40));
+        QCOMPARE(scroll->property("contentY").toReal(), 40.0);
+        const qreal maxY = maxContentY(scroll);
+        for (int i = 0; i < 200 && scroll->property("contentY").toReal() < maxY;
+             ++i)
+            sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(0, -400));
+        QCOMPARE(scroll->property("contentY").toReal(), maxY);
+        // Past the edge, still inside the same swipe: the conversation does
+        // not jump.
+        sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(0, -400));
+        sendTouchpad(*h.window, pointer, Qt::ScrollEnd, QPoint());
+        QCOMPARE(outerMotion(h), 6);
+        QCOMPARE(scroll->property("contentY").toReal(), maxY);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // A swipe that starts sideways claims only the sideways axis unless the
+    // pointer had rested: a block carried under the fingers, then a swipe
+    // starting (-2,-1) and going straight down, scrolls the code 2 px
+    // sideways and leaves every vertical frame to the timeline.
+    void aSidewaysStartBeforeRestOwnsOnlyTheSidewaysAxis()
+    {
+        retryOnStall([&](bool *stalled) {
+            Harness h;
+            QVERIFY(build(h, tallCode(400, true)));
+            auto *body = h.find(QStringLiteral("codeBlockBody"));
+            auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+            QVERIFY(body != nullptr);
+            QVERIFY(scroll != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+            QVERIFY(h.block->property("verticalOverflow").toBool());
+            QVERIFY(h.block->property("horizontalOverflow").toBool());
+            const int restMs = restMsOf(h.block);
+
+            const qreal blockBottom =
+                h.block->mapToScene(QPointF(0.0, h.block->height())).y();
+            const QPointF pointer(bodyCentre(body).x(), blockBottom + 40.0);
+            QVERIFY(restPointerAt(*h.window, h.block, pointer));
+            QElapsedTimer gap;
+            gap.start();
+            carryBlockUnder(h, body, pointer);
+            sendTouchpad(*h.window, pointer, Qt::ScrollBegin, QPoint());
+            if (gap.elapsed() >= restMs) { *stalled = true; return; }
+            sendTouchpad(*h.window, pointer, Qt::ScrollUpdate, QPoint(-2, -1));
+            for (int i = 0; i < 5; ++i)
+                sendTouchpad(*h.window, pointer, Qt::ScrollUpdate,
+                             QPoint(0, -30));
+            sendTouchpad(*h.window, pointer, Qt::ScrollEnd, QPoint());
+            QCOMPARE(scroll->property("contentY").toReal(), 0.0);
+            QCOMPARE(scroll->property("contentX").toReal(), 2.0);
+            QCOMPARE(outerMotion(h), 5);
+            QCOMPARE(h.warnings, QStringList{});
+        });
+    }
+
+    // macOS momentum. A ScrollBegin carrying motion right after a block-owned
+    // ScrollEnd, and momentum frames after it, continue that gesture, even at
+    // the block's edge where a new gesture would go to the timeline; a swipe
+    // that starts later is decided afresh.
+    void momentumRightAfterABlockOwnedSwipeStaysWithTheBlock()
+    {
+        retryOnStall([&](bool *stalled) {
+            Harness h;
+            QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+            auto *body = h.find(QStringLiteral("codeBlockBody"));
+            auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+            QVERIFY(body != nullptr);
+            QVERIFY(scroll != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+            const qreal maxY = maxContentY(scroll);
+            const QPointF centre = bodyCentre(body);
+
+            QVERIFY(restPointerAt(*h.window, h.block, centre));
+            sendTouchpad(*h.window, centre, Qt::ScrollBegin, QPoint());
+            sendTouchpad(*h.window, centre, Qt::ScrollUpdate,
+                         QPoint(0, -100000));
+            QCOMPARE(scroll->property("contentY").toReal(), maxY);
+            QElapsedTimer sinceEnd;
+            sendTouchpad(*h.window, centre, Qt::ScrollEnd, QPoint());
+            sinceEnd.start();
+            sendTouchpad(*h.window, centre, Qt::ScrollBegin, QPoint(0, -30));
+            if (sinceEnd.elapsed() >= 100) { *stalled = true; return; }
+            sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(0, -30));
+            sendTouchpad(*h.window, centre, Qt::ScrollEnd, QPoint());
+            sendTouchpad(*h.window, centre, Qt::ScrollMomentum, QPoint(0, -30));
+            QCOMPARE(outerMotion(h), 0);
+            QCOMPARE(scroll->property("contentY").toReal(), maxY);
+
+            // Later, a new swipe starting at the edge is the conversation's.
+            QTest::qWait(1100);
+            sendTouchpad(*h.window, centre, Qt::ScrollBegin, QPoint(0, -30));
+            sendTouchpad(*h.window, centre, Qt::ScrollEnd, QPoint());
+            QCOMPARE(outerMotion(h), 1);
+            QCOMPARE(h.warnings, QStringList{});
+        });
+    }
+
+    // A swipe over a wide but short block that starts sideways is the
+    // block's sideways, and its vertical part still scrolls the conversation:
+    // owning a swipe never swallows motion the block has no range for.
+    void aSwipeOverAWideShortBlockStillScrollsTheTimelineVertically()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("ls -la\n") + QString(300, QLatin1Char('x'))));
+        auto *body = h.find(QStringLiteral("codeBlockBody"));
+        auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+        QVERIFY(body != nullptr);
+        QVERIFY(scroll != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(body->height() > 4.0, kTimeoutMs);
+        QVERIFY(h.block->property("horizontalOverflow").toBool());
+        QVERIFY(!h.block->property("verticalOverflow").toBool());
+
+        const QPointF centre = bodyCentre(body);
+        QVERIFY(restPointerAt(*h.window, h.block, centre));
+        sendTouchpad(*h.window, centre, Qt::ScrollBegin, QPoint());
+        sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(-20, -4));
+        QCOMPARE(scroll->property("contentX").toReal(), 20.0);
+        QCOMPARE(outerMotion(h), 0);
+        sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(0, -30));
+        sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(-1, -30));
+        sendTouchpad(*h.window, centre, Qt::ScrollEnd, QPoint());
+        QCOMPARE(outerMotion(h), 2);
         QCOMPARE(scroll->property("contentY").toReal(), 0.0);
         QCOMPARE(h.warnings, QStringList{});
     }
@@ -831,6 +1621,72 @@ private Q_SLOTS:
                                 .arg(scroll->width()).arg(cap)));
         QVERIFY2(scroll->property("contentWidth").toReal() > scroll->width(),
                  "the long line did not become horizontal scroll range");
+    }
+
+    // The production stack: in the REAL TimelinePane every sideways wheel
+    // gesture over an overflowing block reaches the block's router (the
+    // MiddleClickScroller over the timeline passes it on, and
+    // timelineWheelHandler is never offered it), and the conversation does
+    // not move.
+    void theRealTimelineDeliversSidewaysWheelToTheBlock()
+    {
+        PaneHarness h;
+        QVERIFY(buildPane(h, tallWideCode()));
+        QVERIFY(h.block->property("horizontalOverflow").toBool());
+        const QPointF centre = bodyCentre(h.body);
+        const qreal timelineY = h.timeline->property("contentY").toReal();
+
+        sendPaneWheel(*h.window, centre, QPoint(), QPoint(-120, 0),
+                      Qt::NoModifier);
+        QCOMPARE(h.scroll->property("contentX").toReal(), 120.0);
+        sendPaneWheel(*h.window, centre, QPoint(), QPoint(0, -120),
+                      Qt::ShiftModifier);
+        QCOMPARE(h.scroll->property("contentX").toReal(), 240.0);
+        sendTouchpad(*h.window, centre, Qt::ScrollBegin, QPoint());
+        sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(-30, 0));
+        sendTouchpad(*h.window, centre, Qt::ScrollUpdate, QPoint(-30, 0));
+        sendTouchpad(*h.window, centre, Qt::ScrollEnd, QPoint());
+        QCOMPARE(h.scroll->property("contentX").toReal(), 300.0);
+
+        QTest::qWait(300);
+        QCOMPARE(h.timeline->property("contentY").toReal(), timelineY);
+        QCOMPARE(h.scroll->property("contentY").toReal(), 0.0);
+        QCOMPARE(paneWarnings(h), QStringList{});
+    }
+
+    // The production stack, vertically: a rested pointer's notches scroll
+    // the block and the conversation stays put; at the block's top the next
+    // notch reaches timelineWheelHandler and the conversation moves.
+    void theRealTimelineLeavesARestedBlockItsNotchesUntilItsEdge()
+    {
+        PaneHarness h;
+        QVERIFY(buildPane(h, tallWideCode()));
+        QVERIFY(h.block->property("verticalOverflow").toBool());
+        const QPointF centre = bodyCentre(h.body);
+        const qreal timelineY = h.timeline->property("contentY").toReal();
+
+        QVERIFY(restPointerAt(*h.window, h.block, centre));
+        sendPaneWheel(*h.window, centre, QPoint(), QPoint(0, -120),
+                      Qt::NoModifier);
+        QVERIFY2(h.scroll->property("contentY").toReal() > 0.0,
+                 "in the real timeline a rested pointer's notch did not "
+                 "scroll the block");
+        sendPaneWheel(*h.window, centre, QPoint(), QPoint(0, 120),
+                      Qt::NoModifier);
+        QCOMPARE(h.scroll->property("contentY").toReal(), 0.0);
+        // A pause longer than the block's stream latch, which also lets any
+        // glide the timeline might have started finish.
+        QTest::qWait(trainMsOf(h.block) + 80);
+        QCOMPARE(h.timeline->property("contentY").toReal(), timelineY);
+
+        // At the top, a new stream: the conversation's.
+        sendPaneWheel(*h.window, centre, QPoint(), QPoint(0, 120),
+                      Qt::NoModifier);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            h.timeline->property("contentY").toReal() > timelineY + 1.0,
+            kTimeoutMs);
+        QCOMPARE(h.scroll->property("contentY").toReal(), 0.0);
+        QCOMPARE(paneWarnings(h), QStringList{});
     }
 };
 

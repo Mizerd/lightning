@@ -3122,6 +3122,15 @@ Rectangle {
                     firstUnreadPagesLeft = 0
                     firstUnreadRetryTimer.stop()
                 }
+                // Called by a nested scroller (CodeBlock's wheelRouter) for
+                // each wheel event with motion that it keeps for itself: the
+                // reader is scrolling, so do what timelineWheelHandler does
+                // before it moves anything (stop an autoscroll, cancel a
+                // pending jump or landing).
+                function nestedWheelTaken() {
+                    root.stopAutoscroll()
+                    timeline.noteReaderTookControl()
+                }
                 function beginNavigationLanding(row, pixelOffset, highlight) {
                     // Hold the target by stable id, not row number: a
                     // pagination batch during the wait renumbers source rows.

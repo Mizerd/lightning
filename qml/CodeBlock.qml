@@ -35,9 +35,16 @@ Rectangle {
     readonly property int lineCount: root.code.length === 0
                                      ? 1 : root.code.split("\n").length
 
-    // Bounded height; taller code scrolls internally (not on the mouse wheel;
-    // see below).
+    // Bounded height; taller code scrolls internally, on the wheel too once
+    // the pointer has come to rest on it (see wheelRouter).
     readonly property real maxBodyHeight: AppTheme.scaled(360)
+    // How long the pointer must have been over the block, with no wheel event
+    // handed on to the timeline, before a vertical notch scrolls the block
+    // instead of the conversation (the latch, see wheelRouter).
+    readonly property int wheelRestMs: 300
+    // A vertical wheel stream the block has taken stays the block's, at its
+    // edges too, until it pauses this long (the latch's other half).
+    readonly property int wheelTrainMs: 500
     readonly property real framePadding: AppTheme.spacing8
     readonly property real gutterGap: AppTheme.spacing8
 
@@ -59,6 +66,14 @@ Rectangle {
     // rather than as a margin because the overflow check, the Right key and the
     // wheel router all clamp on contentWidth.
     readonly property real verticalBarSpace: root.verticalOverflow ? 8 : 0
+
+    // The furthest the code can scroll down. The horizontal bar's band is the
+    // Flickable's bottomMargin, so it is part of the range: without it the
+    // last line stops under the bar.
+    function maxContentY() {
+        return Math.max(0, codeFlick.contentHeight + codeFlick.bottomMargin
+                           - codeFlick.height)
+    }
 
     // Natural width of the widest line, so a short snippet doesn't stretch the
     // bubble. Clamped: past it, overflow becomes contentX, never geometry.
@@ -139,9 +154,8 @@ Rectangle {
             break
         case Qt.Key_Down:
             if (!root.verticalOverflow) { event.accepted = false; break }
-            codeFlick.contentY = Math.min(
-                Math.max(0, codeFlick.contentHeight - codeFlick.height),
-                codeFlick.contentY + step)
+            codeFlick.contentY = Math.min(root.maxContentY(),
+                                          codeFlick.contentY + step)
             event.accepted = true
             break
         default:
@@ -255,13 +269,13 @@ Rectangle {
                 contentHeight: codeArea.implicitHeight
                 bottomMargin: root.horizontalBarSpace
 
-                // ── Nested scrolling ── Wheel events reach this before
+                // ── Nested scrolling ── Wheel events reach the block before
                 // TimelinePane's timelineWheelHandler, which owns pagination,
                 // anchoring and follow-latest. A non-interactive Flickable
-                // ignores wheel events so they propagate, so vertical notches
-                // scroll the conversation. Inside the block, scrolling is by
-                // scrollbars, the keyboard and Shift/horizontal wheel
-                // (wheelRouter). selectByMouse owns press-and-drag anyway.
+                // ignores wheel events, so every wheel decision is made in one
+                // place, wheelRouter below, and whatever it does not take
+                // propagates to the timeline. selectByMouse owns press-and-drag
+                // anyway.
                 interactive: false
 
                 TextEdit {
@@ -316,31 +330,276 @@ Rectangle {
                 }
             }
 
-            // Horizontal-intent wheel only. NoButton lets presses reach the
-            // editor; an unaccepted wheel is passed on, so vertical notches go
-            // to the timeline.
+            // The latch's rest clock (see wheelRouter). It starts when the
+            // pointer arrives, whether the pointer moved or the timeline
+            // carried the block under a still pointer (Qt re-delivers hover
+            // when the scene moves), and it starts again whenever the block
+            // moves under a pointer that has not moved (a timeline glide still
+            // running): only a pointer resting on a resting block has rested.
+            // Passive: the row's own hover handling is untouched.
+            HoverHandler {
+                id: bodyHover
+                objectName: "codeBlockBodyHover"
+                property point lastScenePos: Qt.point(-1, -1)
+                property point lastLocalPos: Qt.point(-1, -1)
+                onHoveredChanged: {
+                    wheelRouter.restSinceMs = bodyHover.hovered ? Date.now() : -1
+                    if (!bodyHover.hovered) {
+                        wheelRouter.gesture = ""
+                        wheelRouter.trainLastMs = 0
+                    }
+                }
+                onPointChanged: {
+                    if (!bodyHover.hovered)
+                        return
+                    var sp = bodyHover.point.scenePosition
+                    var lp = bodyHover.point.position
+                    var pointerStill = Math.abs(sp.x - lastScenePos.x) < 0.5
+                                       && Math.abs(sp.y - lastScenePos.y) < 0.5
+                    var blockMoved = Math.abs(lp.x - lastLocalPos.x) >= 0.5
+                                     || Math.abs(lp.y - lastLocalPos.y) >= 0.5
+                    if (pointerStill && blockMoved)
+                        wheelRouter.restSinceMs = Date.now()
+                    lastScenePos = sp
+                    lastLocalPos = lp
+                }
+            }
+
+            // Every wheel decision for the block. NoButton lets presses reach
+            // the editor; an unaccepted wheel propagates to the timeline.
+            //
+            // Horizontal intent (a sideways wheel, Shift+wheel, or motion more
+            // sideways than vertical) scrolls the code sideways whenever it
+            // overflows, as before.
+            //
+            // Vertical intent: a block with vertical overflow takes a vertical
+            // stream only when it starts on a pointer that has REST on it (the
+            // latch): wheelRestMs over the block, the block not moving under
+            // it, and nothing handed on to the timeline in that time. Every
+            // event handed on restarts that clock, so a stream scrolling the
+            // conversation stays on the conversation when a block scrolls
+            // under a still pointer, however long it runs.
+            //
+            // Once the block takes a stream it keeps it, edges included, until
+            // the stream pauses for wheelTrainMs (browser-style latching, as
+            // Chromium does): the conversation never lurches because the code
+            // ran out. A stream that STARTS where the block cannot move that
+            // way (at its edge) is the conversation's.
+            //
+            // Phased touchpad gestures (Wayland, macOS) are decided on their
+            // first moving frame and held to ScrollEnd: Qt delivers each frame
+            // afresh with no grab (measured), so ownership lives here, per
+            // axis. A sideways start claims the sideways axis whenever the code
+            // overflows that way, but the vertical axis only under the rest
+            // rule. A gesture that began elsewhere stays the timeline's; a
+            // ScrollBegin with motion right after a ScrollEnd, and momentum
+            // frames, continue the gesture that just ended (macOS momentum).
+            //
+            // Each event the block takes is reported to the nearest ancestor
+            // that defines nestedWheelTaken() (the timeline), so it can do what
+            // its own wheel handler does when the reader scrolls: stop an
+            // autoscroll and cancel a pending jump.
             MouseArea {
                 id: wheelRouter
                 objectName: "codeBlockWheelRouter"
                 anchors.fill: parent
                 acceptedButtons: Qt.NoButton
-                onWheel: (wheel) => {
+
+                // Since when the pointer has rested on the block (see above);
+                // -1 while it is not known to be over the block.
+                property real restSinceMs: -1
+                // When the block last took a vertical notch of a non-phased
+                // stream it owns; 0 when it owns none.
+                property real trainLastMs: 0
+                // Phased gesture in progress: "", "pending" (no motion yet) or
+                // "active", with what the block owns of it.
+                property string gesture: ""
+                property bool gestureRested: false
+                property bool ownX: false
+                property bool ownY: false
+                // The gesture that ended last, for momentum continuation.
+                property bool lastOwnX: false
+                property bool lastOwnY: false
+                property real lastGestureEndMs: 0
+
+                function rested(now) {
+                    if (restSinceMs < 0) {
+                        // First contact without a hover report: the clock
+                        // starts now, so this event is not the block's.
+                        restSinceMs = now
+                        return false
+                    }
+                    return now - restSinceMs >= root.wheelRestMs
+                }
+
+                // Hands the event to the timeline. Motion handed on restarts
+                // the rest clock.
+                function passOn(wheel, moving) {
+                    if (moving)
+                        restSinceMs = Date.now()
+                    wheel.accepted = false
+                }
+
+                function take(wheel, moving) {
+                    wheel.accepted = true
+                    if (!moving)
+                        return
+                    for (var p = root.parent; p; p = p.parent) {
+                        if (typeof p.nestedWheelTaken === "function") {
+                            p.nestedWheelTaken()
+                            return
+                        }
+                    }
+                }
+
+                // Sideways motion: a continuous source's own pixels (macOS
+                // reports angleDelta at twice pixelDelta), otherwise the raw
+                // angle (or pixel) delta, as before. Shift turns vertical into
+                // horizontal.
+                function horizontalDelta(wheel, shifted) {
+                    if (wheel.phase !== Qt.NoScrollPhase)
+                        return shifted && wheel.pixelDelta.x === 0
+                               ? wheel.pixelDelta.y : wheel.pixelDelta.x
                     var dx = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x
                                                       : wheel.pixelDelta.x
-                    var shifted = (wheel.modifiers & Qt.ShiftModifier) !== 0
                     if (dx === 0 && shifted)
                         dx = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y
                                                       : wheel.pixelDelta.y
-                    if (dx === 0 || !root.horizontalOverflow) {
-                        // Vertical (or nothing to scroll): the timeline's.
-                        wheel.accepted = false
-                        return
-                    }
+                    return dx
+                }
+
+                // Vertical motion in pixels: the touchpad's own pixels, or the
+                // system's lines per notch (fractions included: a 1/120 notch
+                // from a fine-grained touchpad moves a fraction of a pixel). A
+                // continuous frame with no pixel delta moves nothing, as on
+                // the timeline.
+                function verticalDelta(wheel) {
+                    if (wheel.pixelDelta.y !== 0)
+                        return wheel.pixelDelta.y
+                    if (wheel.phase !== Qt.NoScrollPhase)
+                        return 0
+                    var lineHeight = codeArea.implicitHeight
+                                     / Math.max(1, root.lineCount)
+                    return wheel.angleDelta.y / 120.0
+                           * Qt.styleHints.wheelScrollLines * lineHeight
+                }
+
+                function scrollByX(dx) {
                     var maxX = Math.max(0, codeFlick.contentWidth
                                            - codeFlick.width)
                     codeFlick.contentX = Math.max(
                         0, Math.min(maxX, codeFlick.contentX - dx))
-                    wheel.accepted = true
+                }
+                // Whether the code can move at all in dy's direction; the edge
+                // is decided here, never by the size of the step.
+                function canScrollY(dy) {
+                    if (dy === 0)
+                        return false
+                    return dy < 0 ? codeFlick.contentY < root.maxContentY() - 0.01
+                                  : codeFlick.contentY > 0.01
+                }
+                function scrollByY(dy) {
+                    codeFlick.contentY = Math.max(
+                        0, Math.min(root.maxContentY(), codeFlick.contentY - dy))
+                }
+
+                onWheel: (wheel) => {
+                    var now = Date.now()
+                    var shifted = (wheel.modifiers & Qt.ShiftModifier) !== 0
+                    var ax = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x
+                                                      : wheel.pixelDelta.x
+                    var ay = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y
+                                                      : wheel.pixelDelta.y
+                    var horizontal = shifted ? (ax !== 0 || ay !== 0)
+                                             : Math.abs(ax) > Math.abs(ay)
+                    var vertical = !horizontal && ay !== 0
+                    var moving = horizontal || vertical
+
+                    if (wheel.phase !== Qt.NoScrollPhase) {
+                        var sinceEnd = lastGestureEndMs > 0
+                                       ? now - lastGestureEndMs : Infinity
+                        if (wheel.phase === Qt.ScrollBegin) {
+                            if (moving && sinceEnd < 100) {
+                                // Momentum restarting right after the finger
+                                // lifted: the same gesture.
+                                gesture = "active"
+                                ownX = lastOwnX
+                                ownY = lastOwnY
+                            } else {
+                                gesture = "pending"
+                                gestureRested = rested(now)
+                            }
+                        } else if (gesture === "") {
+                            // Momentum after ScrollEnd follows the gesture that
+                            // just ended; anything else began off the block
+                            // and stays where it began.
+                            var momentum = wheel.phase === Qt.ScrollMomentum
+                                           && sinceEnd < 1000
+                            gesture = "active"
+                            ownX = momentum && lastOwnX
+                            ownY = momentum && lastOwnY
+                        }
+                        if (gesture === "pending" && moving) {
+                            gesture = "active"
+                            if (horizontal) {
+                                ownX = root.horizontalOverflow
+                                ownY = gestureRested && root.verticalOverflow
+                            } else {
+                                ownY = gestureRested && root.verticalOverflow
+                                       && canScrollY(verticalDelta(wheel))
+                                ownX = ownY && root.horizontalOverflow
+                            }
+                        }
+                        var owned = gesture === "active"
+                                    && (horizontal ? ownX
+                                                   : vertical ? ownY
+                                                              : ownX || ownY)
+                        if (owned) {
+                            if (ownX)
+                                scrollByX(horizontalDelta(wheel, shifted))
+                            if (ownY && !shifted)
+                                scrollByY(verticalDelta(wheel))
+                            take(wheel, moving)
+                        } else {
+                            passOn(wheel, gesture === "active" && moving)
+                        }
+                        if (wheel.phase === Qt.ScrollEnd) {
+                            lastOwnX = gesture === "active" && ownX
+                            lastOwnY = gesture === "active" && ownY
+                            lastGestureEndMs = now
+                            gesture = ""
+                        }
+                        return
+                    }
+
+                    if (horizontal) {
+                        if (!root.horizontalOverflow) {
+                            // Nothing to scroll sideways: the timeline's.
+                            passOn(wheel, true)
+                            return
+                        }
+                        scrollByX(horizontalDelta(wheel, shifted))
+                        take(wheel, true)
+                        return
+                    }
+                    if (!vertical || !root.verticalOverflow) {
+                        // A short block never takes a vertical notch.
+                        wheel.accepted = false
+                        return
+                    }
+                    var dy = verticalDelta(wheel)
+                    var ownsTrain = trainLastMs > 0
+                                    && now - trainLastMs < root.wheelTrainMs
+                    if (!ownsTrain && (!rested(now) || !canScrollY(dy))) {
+                        // Not rested, or starting at the edge: the
+                        // conversation's.
+                        trainLastMs = 0
+                        passOn(wheel, true)
+                        return
+                    }
+                    scrollByY(dy)
+                    trainLastMs = now
+                    take(wheel, true)
                 }
             }
         }
