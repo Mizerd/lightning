@@ -557,6 +557,59 @@ private slots:
         QCOMPARE(settings.storeSlugFor(canonical), standInSlug);
         QVERIFY(QFileInfo(record.rustStorePath).isDir());
     }
+
+    // R6: login() records the sign-in as unfinished before the SDK creates
+    // its store, so a store left by a sign-in that never got an answer (a
+    // cancel, a quit, a kill) is not counted at the next start as an account
+    // the settings file lost. A failed attempt rolls its store back and the
+    // next start drops the marker; a finished one leaves none, although the
+    // marker is the typed stand-in's and the record the server's.
+    void aSignInIsUnfinishedUntilItsAnswerIsRecorded()
+    {
+        LocalpartHomeserver homeserver;
+        const quint16 port = homeserver.listen();
+        QVERIFY(port);
+        const QString server = QStringLiteral("http://127.0.0.1:%1").arg(port);
+        const auto markers = [] {
+            QSettings raw;
+            raw.beginGroup(QStringLiteral("pendingSignIn"));
+            return raw.childGroups();
+        };
+        FixtureSecrets secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        {
+            RustSdkMatrixClient client(&settings);
+            QSignalSpy succeeded(&client, &MatrixClient::loginSucceeded);
+            QSignalSpy failed(&client, &MatrixClient::loginFailed);
+            // An account the server does not have: refused after the store
+            // was created.
+            client.login(server, QStringLiteral("nobody"), QString::fromLatin1(kPassword));
+            QTRY_VERIFY_WITH_TIMEOUT(!succeeded.isEmpty() || !failed.isEmpty(), 30000);
+            QVERIFY(succeeded.isEmpty());
+        }
+        QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
+        // Old code: none, so a store left by a kill here was a "lost" account.
+        QCOMPARE(markers().size(), 1);
+        {
+            SettingsManager next;
+            QCOMPARE(next.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+        }
+        QVERIFY2(markers().isEmpty(), "a rolled-back attempt kept its marker");
+
+        {
+            RustSdkMatrixClient client(&settings);
+            QSignalSpy succeeded(&client, &MatrixClient::loginSucceeded);
+            QSignalSpy failed(&client, &MatrixClient::loginFailed);
+            client.login(server, QStringLiteral("bk010"), QString::fromLatin1(kPassword));
+            QTRY_VERIFY_WITH_TIMEOUT(!succeeded.isEmpty() || !failed.isEmpty(), 30000);
+            QVERIFY2(failed.isEmpty(), qPrintable(failed.value(0).value(0).toString()));
+            QCOMPARE(succeeded.first().at(0).toString(), QString::fromLatin1(kCanonical));
+            QVERIFY2(markers().isEmpty(), "a finished stand-in sign-in kept its marker");
+            QVERIFY(client.detachSession());
+        }
+        QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
+    }
 };
 
 QTEST_MAIN(LoginLocalpartTest)

@@ -15,6 +15,7 @@
 #include <QDBusError>
 #include <QDBusMessage>
 #include <QDBusVirtualObject>
+#include <QHash>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QMutex>
@@ -57,6 +58,9 @@ public:
             "<arg type=\"a{sv}\" direction=\"in\"/><arg type=\"i\" direction=\"in\"/>"
             "<arg type=\"u\" direction=\"out\"/></method>"
             "<method name=\"CloseNotification\"><arg type=\"u\" direction=\"in\"/></method>"
+            "<method name=\"GetServerInformation\"><arg type=\"s\" direction=\"out\"/>"
+            "<arg type=\"s\" direction=\"out\"/><arg type=\"s\" direction=\"out\"/>"
+            "<arg type=\"s\" direction=\"out\"/></method>"
             "<signal name=\"ActionInvoked\"><arg type=\"u\"/><arg type=\"s\"/></signal>"
             "<signal name=\"NotificationClosed\"><arg type=\"u\"/><arg type=\"u\"/></signal>"
             "</interface>"
@@ -76,8 +80,10 @@ public:
         if (m_mode == Mode::Silent)
             return true; // never answered
         const QString member = message.member();
+        // The two questions asked before the first card.
         if (m_mode == Mode::CapabilitiesOnly
-            && member != QLatin1String("GetCapabilities"))
+            && member != QLatin1String("GetCapabilities")
+            && member != QLatin1String("GetServerInformation"))
             return true;
         if (member == QLatin1String("GetCapabilities")) {
             if (m_capabilityErrors > 0) {
@@ -89,6 +95,16 @@ public:
                     QDBusError::NotSupported, QStringLiteral("no")));
             else
                 m_bus.send(message.createReply(QVariant(m_capabilities)));
+        } else if (member == QLatin1String("GetServerInformation")) {
+            if (m_serverInfo.size() == 4) {
+                QDBusMessage reply = message.createReply();
+                for (const QString &field : std::as_const(m_serverInfo))
+                    reply << field;
+                m_bus.send(reply);
+            } else {
+                m_bus.send(message.createErrorReply(
+                    QDBusError::UnknownMethod, QStringLiteral("no")));
+            }
         } else if (member == QLatin1String("Get")) {
             // KDE's Do Not Disturb; most daemons have no such property.
             if (m_inhibited.has_value()
@@ -105,8 +121,11 @@ public:
             } else {
                 // As the spec says: a replacement keeps the card's id.
                 const quint32 replaces = message.arguments().value(1).toUInt();
-                m_bus.send(message.createReply(
-                    QVariant(replaces != 0 ? replaces : ++m_nextId)));
+                const quint32 id = replaces != 0 ? replaces : ++m_nextId;
+                m_hintsById.insert(id, qdbus_cast<QVariantMap>(
+                    message.arguments().value(6).value<QDBusArgument>()));
+                m_lastId = id;
+                m_bus.send(message.createReply(QVariant(id)));
             }
         } else {
             m_bus.send(message.createReply());
@@ -124,6 +143,44 @@ public:
         m_capabilityErrors = 0;
         m_held.clear();
         m_calls.clear();
+        m_hintsById.clear();
+        m_lastId = 0;
+        m_serverInfo.clear();
+    }
+    // GetServerInformation's answer: name, vendor, version, spec version.
+    // Unset answers UnknownMethod.
+    void setServerInformation(const QStringList &info)
+    {
+        QMutexLocker lock(&m_mutex);
+        m_serverInfo = info;
+    }
+    // The id the last answered Notify was given, and the hints it carried.
+    quint32 lastId() const
+    {
+        QMutexLocker lock(&m_mutex);
+        return m_lastId;
+    }
+    QVariantMap hintsFor(quint32 id) const
+    {
+        QMutexLocker lock(&m_mutex);
+        return m_hintsById.value(id);
+    }
+    // Plasma 6.3 (the 2026-10-18 KDE VM), R13: a popup that times out is
+    // expired on the server unless it is resident (applets/notifications
+    // Globals.qml onExpired: `if (model.resident) model.expired = true; else
+    // expire()`), and an expired notification loses its actions
+    // (libnotificationmanager abstractnotificationsmodel.cpp: "it cannot have
+    // any actions unless it is resident"). A click on its history entry then
+    // sends nothing; a resident one sends its default action.
+    void plasma63PopupTimesOutThenHistoryClick(quint32 id)
+    {
+        const bool resident =
+            hintsFor(id).value(QStringLiteral("resident")).toBool();
+        if (!resident) {
+            emitNotificationClosed(id, 1);
+            return;
+        }
+        emitActionInvoked(id, QStringLiteral("default"));
     }
     // Answer the next `count` GetCapabilities with `type`, as a daemon that is
     // not up yet (ServiceUnknown) or not answering (NoReply).
@@ -196,6 +253,14 @@ public:
         signal << id << action;
         m_bus.send(signal);
     }
+    void emitNotificationReplied(quint32 id, const QString &text)
+    {
+        QDBusMessage signal =
+            QDBusMessage::createSignal(kPath, kInterface,
+                                       QStringLiteral("NotificationReplied"));
+        signal << id << text;
+        m_bus.send(signal);
+    }
     void emitNotificationClosed(quint32 id, quint32 reason)
     {
         QDBusMessage signal =
@@ -225,6 +290,9 @@ private:
     QDBusError::ErrorType m_capabilityError = QDBusError::ServiceUnknown;
     std::optional<bool> m_inhibited;
     quint32 m_nextId = 40;
+    quint32 m_lastId = 0;
+    QStringList m_serverInfo;
+    QHash<quint32, QVariantMap> m_hintsById;
     QList<QDBusMessage> m_held;
     QList<QDBusMessage> m_calls;
 };
@@ -280,6 +348,12 @@ private Q_SLOTS:
     void aKeyedNoticeIsReplacedAndWithdrawn();
     void theCallCardIsQuietWhenSilentAndStaysDismissed();
     void theDesktopsDoNotDisturbSilencesTheChime();
+    // 2026-10-18 live (KDE VM, Plasma 6.3): R13.
+    void aCardStillOpensItsRoomFromTheHistoryAfterItsPopupTimedOut();
+    void aCardAnsweredFromTheHistoryIsWithdrawnAndNoOtherIs();
+    void onlyPlasmaBefore64GetsResidentCards();
+    void theCallCardIsNeitherResidentNorClosedByItsClick();
+    void aRepliedOrStaleCardIsWithdrawn();
     // Last: it hands the service name over and back.
     void aRestartedDaemonForgetsItsIds();
 
@@ -952,8 +1026,184 @@ void NotificationDbusTest::aRestartedDaemonForgetsItsIds()
     TimelineEvent next = incomingText();
     next.roomId = QStringLiteral("!next:example.org");
     manager.processEvent(next, context());
-    QTRY_COMPARE(m_fake->count(QStringLiteral("GetCapabilities")), 2);
+    // At least once more: the bus reports the restart as two owner changes
+    // (gone, then back), and when the second arrives after this event's
+    // request went out, that request's answer belongs to the old generation
+    // and the new daemon is asked again (3). Both orders are correct; which
+    // one happens is timing (more often 3 since the server-information
+    // query adds a round trip, robust 2026-10-20).
+    QTRY_VERIFY(m_fake->count(QStringLiteral("GetCapabilities")) >= 2);
     QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+}
+
+// R13. Clicking a Lightning card in Plasma's history did nothing while the
+// live popup worked: Plasma 6.3 expired the non-resident popup and dropped its
+// actions, so no ActionInvoked ever came. A resident card keeps them, and the
+// click opens the room it named.
+void NotificationDbusTest::aCardStillOpensItsRoomFromTheHistoryAfterItsPopupTimedOut()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer,
+                  { QStringLiteral("body"), QStringLiteral("actions"),
+                    QStringLiteral("persistence") });
+    m_fake->setServerInformation({ QStringLiteral("Plasma"), QStringLiteral("KDE"),
+                                   QStringLiteral("6.3.5"), QStringLiteral("1.2") });
+    NotificationManager manager;
+    QSignalSpy open(&manager, &NotificationManager::openRequested);
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    const quint32 id = m_fake->lastId();
+    QVERIFY(id != 0);
+
+    m_fake->plasma63PopupTimesOutThenHistoryClick(id);
+    QTRY_COMPARE(open.size(), 1);
+    QCOMPARE(open.first().at(0).toString(), kRoom);
+    QCOMPARE(m_fake->hintsFor(id).value(QStringLiteral("resident")).toBool(), true);
+    // Resident, so the daemon keeps it: the click spends it, and it is
+    // withdrawn rather than left in the history to be clicked again.
+    QTRY_VERIFY(m_fake->closedIds().contains(id));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// Every handled action withdraws the resident card it came from; an action
+// on an id that is not ours (the daemon's signals reach every client) never
+// closes another application's card.
+void NotificationDbusTest::aCardAnsweredFromTheHistoryIsWithdrawnAndNoOtherIs()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer,
+                  { QStringLiteral("body"), QStringLiteral("actions") });
+    NotificationManager manager;
+    QSignalSpy read(&manager, &NotificationManager::markReadRequested);
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    const quint32 id = m_fake->lastId();
+    // Expired into the history first: the payload stays for that.
+    m_fake->emitNotificationClosed(id, 1);
+    m_fake->emitActionInvoked(id, QStringLiteral("mark-read"));
+    QTRY_COMPARE(read.size(), 1);
+    QCOMPARE(read.first().at(1).toString(), kRoom);
+    QTRY_VERIFY(m_fake->closedIds().contains(id));
+
+    const quint32 foreign = id + 1000;
+    m_fake->emitActionInvoked(foreign, QStringLiteral("default"));
+    m_fake->emitActionInvoked(foreign, QStringLiteral("mark-read"));
+    // A later card of ours is the evidence both signals were processed.
+    TimelineEvent other = incomingText();
+    other.roomId = QStringLiteral("!other:example.org");
+    other.eventId = QStringLiteral("$ev2:example.org");
+    QSignalSpy open(&manager, &NotificationManager::openRequested);
+    manager.processEvent(other, context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    m_fake->emitActionInvoked(m_fake->lastId(), QStringLiteral("default"));
+    QTRY_COMPARE(open.size(), 1);
+    QVERIFY(!m_fake->closedIds().contains(foreign));
+    QCOMPARE(read.size(), 1);
+}
+
+// R13 review: `resident` only where it is needed. GNOME Shell acknowledges a
+// resident card of the focused app (notificationDaemon.js), which then gets no
+// banner and no sound; Plasma from 6.4 keeps an expired card's actions anyway.
+void NotificationDbusTest::onlyPlasmaBefore64GetsResidentCards()
+{
+    struct Daemon {
+        QStringList info;
+        bool resident;
+    };
+    const QList<Daemon> daemons{
+        { { QStringLiteral("gnome-shell"), QStringLiteral("GNOME"),
+            QStringLiteral("48.2"), QStringLiteral("1.2") }, false },
+        { { QStringLiteral("Plasma"), QStringLiteral("KDE"),
+            QStringLiteral("6.3.5"), QStringLiteral("1.2") }, true },
+        { { QStringLiteral("Plasma"), QStringLiteral("KDE"),
+            QStringLiteral("5.27.11"), QStringLiteral("1.2") }, true },
+        { { QStringLiteral("Plasma"), QStringLiteral("KDE"),
+            QStringLiteral("6.4.0"), QStringLiteral("1.2") }, false },
+        { { QStringLiteral("Plasma"), QStringLiteral("KDE"),
+            QStringLiteral("6.6.6"), QStringLiteral("1.2") }, false },
+        { { QStringLiteral("dunst"), QStringLiteral("knopwob"),
+            QStringLiteral("1.12.2"), QStringLiteral("1.2") }, false },
+        // No answer at all: plain cards.
+        { {}, false },
+    };
+    int checked = 0;
+    for (const Daemon &daemon : daemons) {
+        m_fake->reset(FakeDaemon::Mode::Answer,
+                      { QStringLiteral("body"), QStringLiteral("actions") });
+        m_fake->setServerInformation(daemon.info);
+        NotificationManager manager;
+        manager.processEvent(incomingText(), context());
+        QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+        const QVariantMap hints = m_fake->hintsFor(m_fake->lastId());
+        QVERIFY2(hints.value(QStringLiteral("resident")).toBool() == daemon.resident,
+                 qPrintable(daemon.info.join(QLatin1Char(' '))));
+        // GNOME acknowledges on the hint's presence, so absent, not false.
+        if (!daemon.resident)
+            QVERIFY(!hints.contains(QStringLiteral("resident")));
+        ++checked;
+    }
+    QCOMPARE(checked, daemons.size());
+}
+
+// The call card is not resident, and its "Open" click leaves its close to the
+// daemon, whose reason (dismissed or not) means something to the ringer.
+void NotificationDbusTest::theCallCardIsNeitherResidentNorClosedByItsClick()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer,
+                  { QStringLiteral("body"), QStringLiteral("actions") });
+    m_fake->setServerInformation({ QStringLiteral("Plasma"), QStringLiteral("KDE"),
+                                   QStringLiteral("6.3.5"), QStringLiteral("1.2") });
+    NotificationManager manager;
+    QSignalSpy open(&manager, &NotificationManager::openRequested);
+    manager.showIncomingCall(kRoom, QStringLiteral("$call"), QStringLiteral("Call"),
+                             QStringLiteral("Bob is calling"), true, 30);
+    QTRY_VERIFY(manager.activeCallNotificationIdForTest() != 0);
+    const quint32 id = manager.activeCallNotificationIdForTest();
+    QVERIFY(!m_fake->hintsFor(id).contains(QStringLiteral("resident")));
+    m_fake->emitActionInvoked(id, QStringLiteral("default"));
+    QTRY_COMPARE(open.size(), 1);
+    // A message card raised afterwards is the evidence the click was handled
+    // with nothing else sent for the call card.
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(m_fake->count(QStringLiteral("Notify")), 2);
+    QVERIFY(m_fake->hintsFor(m_fake->lastId()).value(QStringLiteral("resident")).toBool());
+    QVERIFY(!m_fake->closedIds().contains(id));
+}
+
+// An inline reply, and an action on a card withdrawn at sign-out (ours by its
+// tombstone), each withdraw the card they came from.
+void NotificationDbusTest::aRepliedOrStaleCardIsWithdrawn()
+{
+    m_fake->reset(FakeDaemon::Mode::Answer,
+                  { QStringLiteral("body"), QStringLiteral("actions"),
+                    QStringLiteral("inline-reply") });
+    m_fake->setServerInformation({ QStringLiteral("Plasma"), QStringLiteral("KDE"),
+                                   QStringLiteral("6.3.5"), QStringLiteral("1.2") });
+    NotificationManager manager;
+    QSignalSpy replied(&manager, &NotificationManager::replyRequested);
+    manager.processEvent(incomingText(), context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    const quint32 replyId = m_fake->lastId();
+    m_fake->emitActionInvoked(replyId, QStringLiteral("inline-reply"));
+    m_fake->emitNotificationReplied(replyId, QStringLiteral("on my way"));
+    QTRY_COMPARE(replied.size(), 1);
+    QCOMPARE(replied.first().at(1).toString(), kRoom);
+    QTRY_VERIFY(m_fake->closedIds().contains(replyId));
+
+    TimelineEvent other = incomingText();
+    other.roomId = QStringLiteral("!other:example.org");
+    other.eventId = QStringLiteral("$ev2:example.org");
+    manager.processEvent(other, context());
+    QTRY_COMPARE(manager.pendingPayloadCountForTest(), 1);
+    const quint32 staleId = m_fake->lastId();
+    // Sign-out withdraws it (one close) and keeps a tombstone; a click on it
+    // in the history afterwards closes it once more instead of leaving a
+    // resident card that refuses every click.
+    manager.clearPending();
+    QTRY_COMPARE(m_fake->closedIds().count(staleId), 1);
+    QSignalSpy open(&manager, &NotificationManager::openRequested);
+    m_fake->emitActionInvoked(staleId, QStringLiteral("default"));
+    QTRY_COMPARE(open.size(), 1);
+    QCOMPARE(open.first().at(0).toString(), QString());
+    QTRY_COMPARE(m_fake->closedIds().count(staleId), 2);
 }
 
 QTEST_MAIN(NotificationDbusTest)

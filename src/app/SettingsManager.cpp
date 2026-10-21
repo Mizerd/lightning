@@ -134,6 +134,9 @@ constexpr auto kSyncToken           = "session/syncToken";
 constexpr auto kAccountsGroup       = "accounts";
 // Sign-outs begun and not finished (B044), one group per identity slug.
 constexpr auto kPendingSignOutGroup = "pendingSignOut";
+// Sign-ins begun and not finished (R6), one group per identity slug: the
+// store a fresh password sign-in creates before the server has answered.
+constexpr auto kPendingSignInGroup = "pendingSignIn";
 constexpr auto kActiveAccount       = "accounts/active";
 constexpr auto kAccountUserId       = "userId";
 constexpr auto kAccountHomeserver   = "homeserver";
@@ -220,10 +223,15 @@ SettingsManager::SettingsManager(QObject *parent)
     // constructor), and
     // most garbage parses "fine" as no keys, so the account stores on disk are
     // the other witness. Count only; nothing is rebuilt from them.
-    if (m_store->status() != QSettings::NoError) {
+    // R6: stores of sign-ins that never finished. Read (and markers whose
+    // store is gone dropped, one stat each) at every start.
+    const QSettings::Status readStatus = m_store->status();
+    const QSet<QString> unfinished = readStatus == QSettings::NoError
+        ? pendingSignInStorePaths() : QSet<QString>{};
+    if (readStatus != QSettings::NoError) {
         m_settingsReadProblem = SettingsUnreadable;
         qCWarning(lcSettings) << "the settings file could not be read status="
-                              << int(m_store->status());
+                              << int(readStatus);
     } else if (savedAccountUserIds().isEmpty()) {
         QSet<QString> pending;
         m_store->beginGroup(QLatin1String(kPendingSignOutGroup));
@@ -231,12 +239,23 @@ SettingsManager::SettingsManager(QObject *parent)
             pending.insert(QDir::cleanPath(
                 m_store->value(slug + QLatin1String("/storePath")).toString()));
         m_store->endGroup();
+        // R6: the store of a sign-in that never finished (cancelled, or the
+        // process quit or was killed before the server answered) was never an
+        // account on this device, so it is no witness that the file lost one.
         int unlisted = 0;
+        int unfinishedStores = 0;
         for (const QString &store :
              matrix::app_data::findRustStoresIn(matrix::app_data::primaryRoot())) {
-            if (!pending.contains(QDir::cleanPath(store)))
+            const QString clean = QDir::cleanPath(store);
+            if (unfinished.contains(clean))
+                ++unfinishedStores;
+            else if (!pending.contains(clean))
                 ++unlisted;
         }
+        if (unfinishedStores > 0)
+            qCInfo(lcSettings) << unfinishedStores
+                               << "store(s) left by a sign-in that did not finish;"
+                                  " not counted as a missing account";
         if (unlisted > 0) {
             m_settingsReadProblem = AccountsMissing;
             qCWarning(lcSettings) << "the settings file lists no account but"
@@ -336,9 +355,13 @@ void SettingsManager::setStoreSlugFor(const QString &userId,
     if (storeSlug.trimmed().isEmpty()) {
         m_store->remove(key);
     } else {
-        if (m_store->value(key).toString() == storeSlug)
-            return;
-        m_store->setValue(key, storeSlug);
+        if (m_store->value(key).toString() != storeSlug)
+            m_store->setValue(key, storeSlug);
+        // R6: the store is an account's now, whatever identity the sign-in
+        // that created it was typed as (a bare username, other casing).
+        matrix::app_data::AccountIdentity recorded;
+        if (resolveSavedIdentity(userId, &recorded))
+            dropPendingSignInsNaming(recorded.rustStorePath);
     }
     // The store directory already exists; flush so the mapping survives a
     // crash.
@@ -4201,6 +4224,8 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     // Signed in again: an unfinished sign-out of this account must not delete
     // the store this sign-in uses at the next start.
     clearPendingSignOut(uidCanonical);
+    // The sign-in finished: its store now has a record.
+    clearPendingSignIn(uidCanonical);
     m_store->setValue(kActiveAccount, uidCanonical);
     // Keep the login prefill on the most recently used homeserver.
     m_store->setValue(kHomeserver, hsCanonical);
@@ -4278,6 +4303,92 @@ void SettingsManager::clearPendingSignOut(const QString &userId)
         return;
     m_store->remove(group);
     m_store->sync();
+}
+
+void SettingsManager::recordPendingSignIn(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    if (!identity.isValid())
+        return;
+    const QString base = QLatin1String(kPendingSignInGroup) + QLatin1Char('/')
+        + identity.slug + QLatin1Char('/');
+    m_store->setValue(base + QLatin1String("userId"), identity.userId);
+    m_store->setValue(base + QLatin1String("storePath"),
+                      QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath()));
+    // Durable before the SDK creates the store: that is the window it covers.
+    m_store->sync();
+}
+
+void SettingsManager::clearPendingSignIn(const QString &userId)
+{
+    const QString slug = matrix::app_data::safeUserSlug(userId.trimmed());
+    if (slug.isEmpty())
+        return;
+    const QString group = QLatin1String(kPendingSignInGroup) + QLatin1Char('/') + slug;
+    if (!m_store->contains(group + QLatin1String("/storePath")))
+        return;
+    // The slug is not injective; only the record of this very user id goes.
+    if (m_store->value(group + QLatin1String("/userId")).toString() != userId.trimmed())
+        return;
+    m_store->remove(group);
+    m_store->sync();
+}
+
+void SettingsManager::clearPendingSignIn(
+    const matrix::app_data::AccountIdentity &attempt)
+{
+    if (!attempt.isValid())
+        return;
+    // The attempt's own marker, under the identity it was typed as: the
+    // record (saveSession) may be under the server's canonical id instead.
+    dropPendingSignInsNaming(attempt.rustStorePath);
+}
+
+void SettingsManager::dropPendingSignInsNaming(const QString &storePath)
+{
+    if (storePath.isEmpty())
+        return;
+    const QString target = QDir::cleanPath(QFileInfo(storePath).absoluteFilePath());
+    m_store->beginGroup(QLatin1String(kPendingSignInGroup));
+    const QStringList slugs = m_store->childGroups();
+    m_store->endGroup();
+    bool dropped = false;
+    for (const QString &slug : slugs) {
+        const QString group = QLatin1String(kPendingSignInGroup) + QLatin1Char('/') + slug;
+        if (QDir::cleanPath(m_store->value(group + QLatin1String("/storePath")).toString())
+            == target) {
+            m_store->remove(group);
+            dropped = true;
+        }
+    }
+    if (dropped)
+        m_store->sync();
+}
+
+QSet<QString> SettingsManager::pendingSignInStorePaths()
+{
+    QSet<QString> out;
+    m_store->beginGroup(QLatin1String(kPendingSignInGroup));
+    const QStringList slugs = m_store->childGroups();
+    m_store->endGroup();
+    bool pruned = false;
+    for (const QString &slug : slugs) {
+        const QString group = QLatin1String(kPendingSignInGroup) + QLatin1Char('/') + slug;
+        const QString storePath = QDir::cleanPath(
+            m_store->value(group + QLatin1String("/storePath")).toString());
+        // Gone (a failed attempt rolled it back, a later sign-in quarantined
+        // it): nothing left to explain, so the marker goes too.
+        if (storePath.isEmpty() || storePath == QLatin1String(".")
+            || !QFileInfo(storePath).isDir()) {
+            m_store->remove(group);
+            pruned = true;
+            continue;
+        }
+        out.insert(storePath);
+    }
+    if (pruned)
+        m_store->sync();
+    return out;
 }
 
 QList<matrix::app_data::AccountIdentity> SettingsManager::pendingSignOuts()

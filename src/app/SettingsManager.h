@@ -476,9 +476,14 @@ public:
         SettingsUnreadable = 1,
         // The file reads, but lists no account while account stores exist on
         // this device (garbage or a replaced file reads as empty, NoError).
-        // NOT proof of damage: a store left by a kill during a first-ever
-        // sign-in, or by a removal that failed outside sign-out, looks the
-        // same, so a notice for it must not say the file is damaged.
+        // NOT proof of damage: a store left by a removal that failed outside
+        // sign-out looks the same, so a notice for it must not say the file
+        // is damaged. A store left by a sign-in that never finished is not
+        // counted (recordPendingSignIn). Where the settings are an INI file
+        // (Linux, every portable install) QSettings writes it through
+        // QSaveFile, so a kill during a write leaves the old file or the new
+        // one, never a torn one; an installed Windows build keeps them in the
+        // registry and macOS in a plist, which this does not speak for.
         AccountsMissing = 2,
     };
     Q_ENUM(SettingsReadProblem)
@@ -1167,6 +1172,21 @@ public:
     // delete a store it cannot prove is the one that was being signed out.
     QList<matrix::app_data::AccountIdentity> pendingSignOuts();
 
+    // A fresh sign-in whose store the SDK is about to create, before the
+    // server has accepted the password (R6). Written and flushed before the
+    // store exists, under the identity as TYPED (a bare username's stand-in,
+    // the typed casing). Cleared when the sign-in finishes: by the attempt
+    // itself (clearPendingSignIn(attempt)), by saveSession() for an
+    // identical user id, and by setStoreSlugFor() for the store it records;
+    // and dropped at every start that finds its store gone (a failed attempt
+    // rolls it back). Its only reader is the start-up check behind the
+    // settingsReadProblem property: a store left by a cancelled, quit or
+    // killed sign-in is not an account the settings file lost. Names a store,
+    // never a secret.
+    void recordPendingSignIn(const matrix::app_data::AccountIdentity &identity);
+    void clearPendingSignIn(const QString &userId);
+    void clearPendingSignIn(const matrix::app_data::AccountIdentity &attempt);
+
 Q_SIGNALS:
     void homeserverUrlChanged();
     void loginHomeserverPrefillChanged();
@@ -1276,6 +1296,12 @@ private:
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
+    // Store paths of recorded unfinished sign-ins whose store still exists;
+    // markers whose store is gone are removed. Called at every start. See
+    // recordPendingSignIn().
+    QSet<QString> pendingSignInStorePaths();
+    // Removes every unfinished-sign-in marker naming this store.
+    void dropPendingSignInsNaming(const QString &storePath);
     // This install's scope in a shared secret store, created once in the
     // settings file. Empty only when it could not be saved.
     QString keyringInstallId();

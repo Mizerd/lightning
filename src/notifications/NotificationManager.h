@@ -90,6 +90,15 @@ public:
     static CardShape messageCardShape(bool actionable,
                                       bool inlineReplySupported);
 
+    /// Whether message cards carry the `resident` hint, from the daemon's
+    /// GetServerInformation (R13). Only Plasma before 6.4 needs it: it expires
+    /// a timed-out non-resident popup and strips its actions, so its history
+    /// entry cannot be clicked. Nowhere else: GNOME Shell acknowledges a
+    /// resident card of the focused app, which then shows no banner and plays
+    /// no sound. Pure.
+    static bool residentHintWanted(const QString &name, const QString &vendor,
+                                   const QString &version);
+
     /// The desktop-entry hint and app icon for this install. Pure: tests pass
     /// the environment. An empty appIcon means "the themed name if it
     /// resolves, else the bundled icon written to the cache".
@@ -619,6 +628,12 @@ private:
     // a request is in flight; false in the pause after a failed one, when the
     // caller goes on with the fallback (escaped body, no inline reply).
     bool requestCapabilities();
+    // GetServerInformation, asynchronously, beside GetCapabilities: decides
+    // m_residentCards. Cards wait for both answers.
+    void requestServerInformation();
+    // Releases the cards (and the call card) that waited for the daemon's
+    // answers, once neither question is in flight.
+    void releaseCapabilityWaits();
     // Do Not Disturb: the daemon's Inhibited, and GNOME's show-banners through
     // the settings portal. Asked once per daemon, before the first delivery.
     void queryDesktopInhibition();
@@ -804,6 +819,11 @@ private:
     int m_capabilityRetryMs = 30000;
     QList<Card> m_capabilityWaits;
     bool m_callWaitsForCapabilities = false;
+    // GetServerInformation (R13). Asked again with each capability request
+    // until it answers; an answer that is not Plasma's leaves cards plain.
+    bool m_serverInfoInFlight = false;
+    bool m_serverInfoKnown = false;
+    bool m_residentCards = false;
     // The call card's Notify is in flight; a redraw meanwhile waits for it.
     bool m_callNotifyInFlight = false;
     bool m_callRedrawPending = false;

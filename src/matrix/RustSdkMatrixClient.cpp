@@ -1358,6 +1358,11 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // Remember fresh-store attempts so a failure can clean up after itself.
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
+    // Durable before the SDK creates the store: a sign-in cancelled, quit or
+    // killed before the server answers leaves a store that is no account, and
+    // the next start must not report the settings file as having lost one (R6).
+    if (m_freshLoginIdentity.isValid() && m_settings)
+        m_settings->recordPendingSignIn(m_freshLoginIdentity);
     m_freshBrowserRecord = {};
     // A record and store exist but the secret backend cannot be read. The
     // session may be intact, so this must not be classified as "store with no
@@ -6297,7 +6302,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 return;
             }
         }
-        m_freshLoginIdentity = {};
+        // R6: the attempt as typed, whose unfinished-sign-in marker this
+        // answer settles below (the record may be under another id).
+        const matrix::app_data::AccountIdentity attempt =
+            std::exchange(m_freshLoginIdentity, {});
         m_freshBrowserRecord = {};
         // SENSITIVE: this event carries `access_token`. Never log `event` or
         // `accessToken`; the token goes only to SettingsManager::saveSession.
@@ -6361,6 +6369,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             && identity.userId == m_userId) {
             recordStoreLocation(identity);
         }
+        // The sign-in finished: its store has a record now (R6).
+        if (m_loggedIn && m_settings && !accessToken.isEmpty())
+            m_settings->clearPendingSignIn(attempt);
         // The client exists now, so its media store has opened.
         refreshMediaKeepState();
         // Offline unless the restore reached the server; otherwise the footer

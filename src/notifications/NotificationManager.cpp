@@ -1797,6 +1797,8 @@ bool NotificationManager::requestCapabilities()
     }
     m_capabilityRequestInFlight = true;
     ++m_capabilityRequests;
+    if (!m_serverInfoKnown)
+        requestServerInformation();
     auto *watcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(
             notificationsCall(QStringLiteral("GetCapabilities")),
@@ -1842,16 +1844,84 @@ bool NotificationManager::requestCapabilities()
         }
         if (!caps.isError())
             m_bodyMarkupKnown = true;
-        // Delivered now, with what is known; a retry only serves later ones.
-        const QList<Card> waiting = std::exchange(m_capabilityWaits, {});
-        for (const Card &wait : waiting)
-            deliverNow(wait);
-        if (std::exchange(m_callWaitsForCapabilities, false))
-            deliverCallNotification();
+        releaseCapabilityWaits();
     });
     return true;
 }
+
+void NotificationManager::requestServerInformation()
+{
+    if (m_serverInfoInFlight)
+        return;
+    m_serverInfoInFlight = true;
+    auto *watcher = new QDBusPendingCallWatcher(
+        QDBusConnection::sessionBus().asyncCall(
+            notificationsCall(QStringLiteral("GetServerInformation")),
+            kCapabilitiesTimeoutMs),
+        this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, daemon = m_daemonGeneration] {
+        watcher->deleteLater();
+        if (daemon != m_daemonGeneration)
+            return;
+        m_serverInfoInFlight = false;
+        const QDBusPendingReply<QString, QString, QString, QString> info = *watcher;
+        if (info.isError()) {
+            // Not up yet: asked again with the next capability request. Any
+            // other error is an answer: plain cards.
+            const QDBusError::ErrorType type = info.error().type();
+            m_serverInfoKnown = !(type == QDBusError::ServiceUnknown
+                                  || type == QDBusError::NoReply
+                                  || type == QDBusError::Timeout
+                                  || type == QDBusError::TimedOut
+                                  || type == QDBusError::Disconnected
+                                  || type == QDBusError::NoServer);
+            m_residentCards = false;
+        } else {
+            m_serverInfoKnown = true;
+            m_residentCards = residentHintWanted(info.argumentAt<0>(),
+                                                 info.argumentAt<1>(),
+                                                 info.argumentAt<2>());
+            qCInfo(lcNotify) << "notification server" << info.argumentAt<0>()
+                             << info.argumentAt<2>()
+                             << "resident cards =" << m_residentCards;
+        }
+        releaseCapabilityWaits();
+    });
+}
+
+void NotificationManager::releaseCapabilityWaits()
+{
+    if (m_capabilityRequestInFlight || m_serverInfoInFlight)
+        return;
+    // Delivered now, with what is known; a retry only serves later ones.
+    const QList<Card> waiting = std::exchange(m_capabilityWaits, {});
+    for (const Card &wait : waiting)
+        deliverNow(wait);
+    if (std::exchange(m_callWaitsForCapabilities, false))
+        deliverCallNotification();
+}
 #endif
+
+bool NotificationManager::residentHintWanted(const QString &name,
+                                             const QString &vendor,
+                                             const QString &version)
+{
+    // Plasma reports ("Plasma", "KDE", its own version); 6.4.0 keeps the
+    // actions of an expired card that has any (Globals.qml onExpired).
+    if (name != QLatin1String("Plasma") || vendor != QLatin1String("KDE"))
+        return false;
+    const QStringList parts = version.split(QLatin1Char('.'));
+    bool majorOk = false;
+    bool minorOk = false;
+    const int major = parts.value(0).toInt(&majorOk);
+    const int minor = parts.value(1).toInt(&minorOk);
+    // An unreadable version is treated as an old one: a resident card on any
+    // Plasma only means it stays until it is clicked or read.
+    if (!majorOk || !minorOk)
+        return true;
+    return major < 6 || (major == 6 && minor < 4);
+}
 
 void NotificationManager::queryDesktopInhibition()
 {
@@ -1972,8 +2042,9 @@ void NotificationManager::deliverNow(Card card)
         throughTray(card);
         return;
     }
-    if (!m_bodyMarkupKnown && requestCapabilities()) {
-        // The capabilities decide how the body is escaped; wait for them.
+    if ((!m_bodyMarkupKnown && requestCapabilities()) || m_serverInfoInFlight) {
+        // The capabilities decide how the body is escaped, the server
+        // information whether it is resident; wait for them.
         if (m_capabilityWaits.size() < kMaxCapabilityWaits)
             m_capabilityWaits.append(std::move(card));
         else
@@ -2016,10 +2087,20 @@ void NotificationManager::deliverNow(Card card)
     const NotificationManager::DesktopIdentity identity = notificationIdentity();
     const CardShape shape =
         messageCardShape(!roomId.isEmpty() && isMessage, m_inlineReply);
+    // `resident` (R13), Plasma before 6.4 only (residentHintWanted()): a card
+    // must still open its room when clicked in the history after its popup
+    // timed out. That Plasma expires a non-resident popup (NotificationClosed
+    // reason 1) and strips its actions (libnotificationmanager: "it cannot
+    // have any actions unless it is resident"), so the history entry did
+    // nothing; a resident one is only marked expired and keeps them. The
+    // daemon then no longer removes a clicked card, so every action handled
+    // in onActionInvoked() closes it (a no-op where it is already gone).
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },
         { QStringLiteral("urgency"), QVariant::fromValue(shape.urgency) },
     };
+    if (m_residentCards)
+        hints.insert(QStringLiteral("resident"), true);
     if (!card.avatar.isNull()) {
         hints.insert(QStringLiteral("image-data"),
                      QVariant::fromValue(notificationImage(card.avatar)));
@@ -2629,6 +2710,8 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
             return;
         }
         forgetPayload(id);
+        // Resident: the daemon keeps a card it was answered from (R13).
+        closeNotification(id);
         // A room id, never a timeline id: markRoomRead has no composite
         // entries.
         Q_EMIT markReadRequested(
@@ -2650,6 +2733,11 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
     }
     applyActivationToken(id);
     forgetPayload(id);
+    // Resident: the daemon keeps a clicked card (R13). Once it has opened the
+    // room it is spent, as a non-resident card would be. The call card is not
+    // resident; its own close (and what it means) stays the daemon's.
+    if (id != m_activeCallNotificationId)
+        closeNotification(id);
     emitOpenFor(payload);
 }
 
@@ -2661,6 +2749,8 @@ void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
         return;
     }
     forgetPayload(id);
+    // Resident: the daemon keeps a card replied from (R13).
+    closeNotification(id);
     // Ignore empty submissions.
     const QString body = text.trimmed();
     if (body.isEmpty())
@@ -2689,6 +2779,9 @@ void NotificationManager::handleStaleAction(quint32 id, const QString &action,
     const QString account = tomb.value();
     m_tombstones.remove(id);
     m_tombstoneOrder.removeOne(id);
+    // Ours (the tombstone says so) and resident: answered once, then gone,
+    // rather than staying in the history to refuse every later click (R13).
+    closeNotification(id);
     const bool reply = action == QLatin1String("inline-reply-text");
     qCInfo(lcNotify) << "action on a withdrawn notification:"
                      << (reply ? QStringLiteral("reply") : action);
@@ -2801,6 +2894,9 @@ void NotificationManager::onDaemonOwnerChanged(const QString &service,
     m_capabilityRequestInFlight = false;
     m_capabilityRequests = 0;
     m_capabilityRetryAtMs = 0;
+    m_serverInfoInFlight = false;
+    m_serverInfoKnown = false;
+    m_residentCards = false;
     m_daemonInhibited = false;
     m_inhibitionQueried = false;
     if (newOwner.isEmpty())

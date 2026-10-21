@@ -12,6 +12,7 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <QSettings>
+#include <QSysInfo>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -167,6 +168,13 @@ private Q_SLOTS:
     void aPendingSignOutNeverNamesAStoreItCannotProve();
     void anUnreadableSettingsFileIsReported();
     void aSettingsFileThatListsNoAccountBesideAStoreIsReported();
+    // R6: a store left by a sign-in that never finished is not a lost account.
+    void aStoreLeftByAnUnfinishedSignInIsNotAMissingAccount();
+    void aPendingSignInEndsWithItsSignInOrItsStore();
+    // R6 review M1: typed as a stand-in, recorded under the server's id.
+    void aPendingSignInTypedAsAStandInEndsWhenItsStoreIsRecorded();
+    // R6: what a writer killed mid-write leaves behind never reads as damage.
+    void aWriterKilledMidWriteLeavesTheLastGoodFile();
 
 private:
     // Writes the QSettings shape SettingsManager::upsertAccountRecord produces
@@ -2934,6 +2942,209 @@ void SettingsSessionTest::aSettingsFileThatListsNoAccountBesideAStoreIsReported(
     }
     SettingsManager listed;
     QCOMPARE(listed.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+}
+
+// R6. Reported as "Lightning couldn't read its saved settings" after a
+// SIGTERM: the file was intact (the log said AccountsMissing), and the only
+// store on disk was the one a cancelled first sign-in had created before the
+// server answered. A store whose sign-in is recorded as unfinished is not
+// evidence that the file lost an account; any other stray store still is.
+void SettingsSessionTest::aStoreLeftByAnUnfinishedSignInIsNotAMissingAccount()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    matrix::app_data::AccountIdentity attempt;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://localhs.test"), QStringLiteral("r6signin"), &attempt));
+    // The marker in the shape recordPendingSignIn() writes, written raw so the
+    // case states the on-disk contract, then the store the SDK created.
+    {
+        QSettings raw;
+        const QString base = QStringLiteral("pendingSignIn/") + attempt.slug + QLatin1Char('/');
+        raw.setValue(base + QStringLiteral("userId"), attempt.userId);
+        raw.setValue(base + QStringLiteral("storePath"),
+                     QDir::cleanPath(QFileInfo(attempt.rustStorePath).absoluteFilePath()));
+        raw.sync();
+    }
+    QVERIFY(QDir().mkpath(attempt.rustStorePath));
+    {
+        SettingsManager afterTheKill;
+        QCOMPARE(afterTheKill.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+    }
+
+    // A second, unexplained store beside it is still reported.
+    matrix::app_data::AccountIdentity lost;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://localhs.test"), QStringLiteral("r6lost"), &lost));
+    QVERIFY(QDir().mkpath(lost.rustStorePath));
+    {
+        SettingsManager damaged;
+        QCOMPARE(damaged.settingsReadProblem(), int(SettingsManager::AccountsMissing));
+    }
+    QVERIFY(QDir(QFileInfo(lost.rustStorePath).absolutePath()).removeRecursively());
+
+    // A marker naming a different store explains nothing about this one.
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("pendingSignIn/") + attempt.slug
+                         + QStringLiteral("/storePath"),
+                     QDir::cleanPath(data.path() + QStringLiteral("/elsewhere")));
+        raw.sync();
+    }
+    QVERIFY(QDir().mkpath(data.path() + QStringLiteral("/elsewhere")));
+    {
+        SettingsManager misnamed;
+        QCOMPARE(misnamed.settingsReadProblem(), int(SettingsManager::AccountsMissing));
+    }
+}
+
+// The marker lives exactly as long as the window it covers: recorded before
+// the store exists, gone once saveSession() records the account, and gone at a
+// start that finds its store removed (a failed attempt rolls its store back).
+void SettingsSessionTest::aPendingSignInEndsWithItsSignInOrItsStore()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    matrix::app_data::AccountIdentity attempt;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://localhs.test"), QStringLiteral("r6finish"), &attempt));
+    const QString key = QStringLiteral("pendingSignIn/") + attempt.slug
+        + QStringLiteral("/storePath");
+
+    FakeSecretStore secrets;
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.recordPendingSignIn(attempt);
+        // Durable at once: the next thing that happens may be the kill.
+        QVERIFY(QSettings().contains(key));
+        QVERIFY(QDir().mkpath(attempt.rustStorePath));
+        // Another user id on the same slug never clears it.
+        settings.clearPendingSignIn(attempt.userId + QStringLiteral("x"));
+        QVERIFY(QSettings().contains(key));
+        settings.saveSession(attempt.homeserver, attempt.userId, QStringLiteral("D"),
+                             QStringLiteral("d-fixture"));
+        QVERIFY2(!QSettings().contains(key), "a finished sign-in kept its marker");
+    }
+
+    // Abandoned, then its store rolled back: the next start drops the marker.
+    QVERIFY(QDir(QFileInfo(attempt.rustStorePath).absolutePath()).removeRecursively());
+    QVERIFY(QDir().mkpath(QFileInfo(attempt.rustStorePath).absolutePath()));
+    {
+        QSettings().clear();
+        SettingsManager settings;
+        settings.recordPendingSignIn(attempt);
+    }
+    QVERIFY(QSettings().contains(key));
+    {
+        SettingsManager next;
+        QCOMPARE(next.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+    }
+    QVERIFY2(!QSettings().contains(key), "a marker outlived the store it named");
+}
+
+// The marker is written under the identity as TYPED (a bare username's
+// stand-in, other casing) and the record under the server's canonical id, so
+// saveSession() alone never finds it. Recording the store the sign-in opened
+// ends it, and so does the attempt clearing its own marker.
+void SettingsSessionTest::aPendingSignInTypedAsAStandInEndsWhenItsStoreIsRecorded()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray oldData = qgetenv("XDG_DATA_HOME");
+    qputenv("XDG_DATA_HOME", data.path().toUtf8());
+    const auto restore = qScopeGuard([&] { qputenv("XDG_DATA_HOME", oldData); });
+
+    const QString canonical = QStringLiteral("@r6m1:localhs.test");
+    matrix::app_data::AccountIdentity typed;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("http://127.0.0.1:18008"), QStringLiteral("R6m1"), &typed));
+    QVERIFY(typed.userId != canonical);
+    const QString key = QStringLiteral("pendingSignIn/") + typed.slug
+        + QStringLiteral("/storePath");
+
+    FakeSecretStore secrets;
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.recordPendingSignIn(typed);
+        QVERIFY(QDir().mkpath(typed.rustStorePath));
+        settings.saveSession(QStringLiteral("https://localhs.test"), canonical,
+                             QStringLiteral("D"), QStringLiteral("d-fixture"));
+        // The record is the server's; the marker is the stand-in's.
+        QVERIFY2(QSettings().contains(key), "the fixture is not a stand-in case");
+        // What login_ok records next: the store the sign-in opened.
+        settings.setStoreSlugFor(canonical, typed.effectiveStoreSlug());
+        QVERIFY2(!QSettings().contains(key),
+                 "a finished stand-in sign-in kept its marker");
+
+        // The attempt's own clear, by identity, finds it as well.
+        settings.recordPendingSignIn(typed);
+        QVERIFY(QSettings().contains(key));
+        settings.clearPendingSignIn(canonical);
+        QVERIFY(QSettings().contains(key));
+        settings.clearPendingSignIn(typed);
+        QVERIFY(!QSettings().contains(key));
+    }
+}
+
+// R6, the hypothesis that was refuted. QSettings writes through QSaveFile (a
+// temporary sibling renamed over the file) under a QLockFile, so a writer
+// killed mid-write leaves at most a partial temporary and a lock naming a dead
+// process. Neither may read as damage, and the next write must not wedge.
+// Passes on the old code too: a guard on the Qt behaviour the fix relies on,
+// not a regression test (the kill measurement is in the R6 notes).
+void SettingsSessionTest::aWriterKilledMidWriteLeavesTheLastGoodFile()
+{
+    const QString account = QStringLiteral("@r6kill:localhs.test");
+    FakeSecretStore secrets;
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(QStringLiteral("https://localhs.test"), account,
+                             QStringLiteral("D"), QStringLiteral("d-fixture"));
+    }
+    const QString path = QSettings().fileName();
+    QByteArray good;
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        good = file.readAll();
+    }
+    QVERIFY(good.contains("r6kill"));
+    {
+        // QSaveFile's temporary: the name QTemporaryFile derives, half written.
+        QFile partial(path + QStringLiteral(".kIlLd1"));
+        QVERIFY(partial.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        partial.write(good.left(good.size() / 2));
+        // QLockFile's contents, for a process that no longer exists.
+        QFile lock(path + QStringLiteral(".lock"));
+        QVERIFY(lock.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        lock.write("2147483646\nlightning-matrix\n" + QSysInfo::machineHostName().toUtf8()
+                   + "\n\n\n");
+    }
+    const auto cleanup = qScopeGuard([&] {
+        QFile::remove(path + QStringLiteral(".kIlLd1"));
+        QFile::remove(path + QStringLiteral(".lock"));
+    });
+
+    SettingsManager next;
+    QCOMPARE(next.settingsReadProblem(), int(SettingsManager::NoReadProblem));
+    QVERIFY(next.savedAccountUserIds().contains(account));
+    // The stale lock is taken over, not waited on for ever.
+    QSettings writer;
+    writer.setValue(QStringLiteral("r6/afterTheKill"), true);
+    writer.sync();
+    QCOMPARE(writer.status(), QSettings::NoError);
+    QVERIFY(QSettings().value(QStringLiteral("r6/afterTheKill")).toBool());
 }
 
 QTEST_MAIN(SettingsSessionTest)
