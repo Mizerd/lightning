@@ -181,7 +181,7 @@ and no request made); `open-room-permissions` (new C++ suite);
   topic and room-name hints in the completion rows) still reads `app.roomInfo`
   only, so those hints appear only while the info panel is on the open room.
 
-## 2026-10-16 — OPEN, pre-existing: a live append while parked at the oldest loaded row shifts the view by the appended height
+## 2026-10-16 — FIXED 2026-10-20, pre-existing: a live append while parked at the oldest loaded row shifts the view by the appended height
 
 **Measured** (offscreen, mock, `LIGHTNING_SCROLL_TRACE=1`): `TimelinePaneQmlTest`'s
 80-row text fixture at 600 px, `goToEarliestLoaded()`, then one live message
@@ -201,6 +201,11 @@ DECIDED 2026-10-18: yes, the reader is held on their row (what Element and
 Discord do away from the bottom). It ships only after a live
 `LIGHTNING_SCROLL_TRACE=1` capture shows the shift, as part of the
 event-focused timeline work (`docs/roadmap.md`, after 0.10.2).
+2026-10-20: captured live (local homeserver) and fixed in the active branch
+(a hold for proven newest-end inserts only), see `docs/timeline-scrolling.md`,
+"Non-wheel inputs and the live append". Linux Xvfb live PASS: settle-tail
+appends 10/10 held, and a glide to the latest with a mid-glide message lands at
+the bottom, following. Windows NOT TESTED.
 
 ## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
 

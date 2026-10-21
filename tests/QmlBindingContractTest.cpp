@@ -1235,18 +1235,30 @@ private Q_SLOTS:
             pane.indexOf(QStringLiteral("desired = anchorY + viewAnchorOffset"),
                          guardStart);
         QVERIFY(maintainEnd > guardStart);
-        const QString maintainGuard =
+        QString maintainGuard =
             pane.mid(guardStart, maintainEnd - guardStart);
         // The mid-gesture path writes nothing: the raw anchor delta cannot
         // distinguish rows resizing under the reader from the view re-anchoring,
-        // and applying it pulled the reader both ways.
+        // and applying it pulled the reader both ways. The ONE exception (open
+        // item O3, 2026-10-20) is the hold for rows proven inserted at the
+        // newest end, gated on insertedBelowAnchorHeight(); it is cut out
+        // here and must stay the only write.
+        const int hold = maintainGuard.indexOf(QStringLiteral("if (heldDelta > 0) {"));
+        QVERIFY2(hold > 0, "the newest-end hold moved or was renamed");
+        QVERIFY(maintainGuard.lastIndexOf(QStringLiteral("insertedBelowAnchorHeight("), hold) > 0);
+        const int holdEnd = maintainGuard.indexOf(QStringLiteral("return"), hold);
+        QVERIFY(holdEnd > hold);
+        QCOMPARE(maintainGuard.mid(hold, holdEnd - hold).count(QStringLiteral("contentY =")), 1);
+        maintainGuard.remove(hold, holdEnd - hold);
         QVERIFY(!maintainGuard.contains(QStringLiteral("contentY +=")));
         QVERIFY(!maintainGuard.contains(QStringLiteral("contentY =")));
 
         // userScrollActive covers the touchpad path via the settle timer
         // (moving and wheelAnimating are both false there).
-        QVERIFY(pane.contains(QStringLiteral(
-            "moving || wheelAnimating || scrollSettleTimer.running")));
+        // (and a held scroll bar, 2026-10-20: its drag is user input too).
+        QVERIFY(pane.contains(QRegularExpression(QStringLiteral(
+            "userScrollActive:\\s*moving \\|\\| scrollBarHeld \\|\\| wheelAnimating"
+            "\\s*\\|\\| scrollSettleTimer\\.running"))));
 
         // The anchor is captured on gesture settle (mouse path and settle
         // timer).

@@ -2643,6 +2643,23 @@ Rectangle {
                 // tell the two causes apart.
                 property real viewAnchorOriginY: 0
                 function captureViewAnchor() {
+                    // A newest-end insertion not yet reconciled: settle it
+                    // against the anchor first, on current geometry, or this
+                    // capture would adopt the displaced position as the
+                    // reader's own (live: the settle's capture landing between
+                    // an append's relayout and its coalesced maintain left the
+                    // reader 23 px off the oldest row, `activeDeferrals=1
+                    // materializedMaxAbsDelta=0 topDist=23`). Paths that paid
+                    // for their own insertions, or that place the reader
+                    // deliberately, zero the counter first. Active input only:
+                    // idle, the coalesced maintainViewAnchor() is still due and
+                    // a capture here is what a finished drag wants to adopt.
+                    if (newestEndInsertedRows > 0 && viewAnchorId !== ""
+                            && !stickToBottom && count > 0
+                            && userScrollActive && !moving && !scrollBarHeld) {
+                        rowColumn.forceLayout()
+                        maintainViewAnchor()
+                    }
                     if (stickToBottom || count === 0) {
                         viewAnchorId = ""
                         viewAnchorLastY = 0
@@ -2680,6 +2697,59 @@ Rectangle {
                     if (scrollTrace)
                         viewAnchorOriginY = originY
                 }
+                // Rows the view model inserted at its NEWEST end (view row 0)
+                // since maintainViewAnchor() last ran: the proof a live hold
+                // requires. Not the anchor's rising row index: that says rows
+                // went in somewhere newer than the anchor, not which rows, and
+                // a sum over the k newest rows matches any insertion of k
+                // equally tall rows (review round 1). The index can also lose
+                // the race: the anchor re-captured between the insertion and
+                // the relayout that moves it (live: `row=113 anchorRow=113
+                // count=114 anchorCount=114 delta=23`).
+                property int newestEndInsertedRows: 0
+                Connections {
+                    target: app.timelineView
+                    function onRowsInserted(parent, first, last) {
+                        if (first === 0)
+                            timeline.newestEndInsertedRows += last - first + 1
+                    }
+                    function onModelReset() {
+                        timeline.newestEndInsertedRows = 0
+                    }
+                }
+                // A glide heading for newer rows is not held: it is usually on
+                // its way to the live edge (Jump to latest, End, wheel notches
+                // down), and the hold translates the glide's TARGET too, so it
+                // would stop one message short of the bottom with follow-latest
+                // and read receipts off (review round 1: contentY 44, stick
+                // false, against -12 / true without the hold). Unheld, the
+                // glide lands on its own target as before. Set where a glide
+                // starts: the wheel notch, beginWheelTo() and goToLatest().
+                property bool glideTowardsNewer: false
+                // The height of the rows the model inserted at its newest end
+                // since the anchor's last measurement, when exactly those rows
+                // account for how far the anchor moved (`delta`); otherwise 0.
+                // See the active branch of maintainViewAnchor().
+                function insertedBelowAnchorHeight(delta, newestInserted) {
+                    if (moving || scrollBarHeld || navigationPendingRow >= 0)
+                        return 0
+                    if (wheelAnimating
+                            && (glideTowardsNewer || followLatestOnArrival))
+                        return 0
+                    if (delta <= 0.5 || newestInserted <= 0)
+                        return 0
+                    var sum = 0
+                    for (var r = 0; r < newestInserted; ++r) {
+                        var item = itemAtViewRow(r)
+                        // A built row of zero height (a collapsed or hidden
+                        // row) contributes nothing; an unbuilt one leaves the
+                        // measurement unproven.
+                        if (!item)
+                            return 0
+                        sum += Math.max(0, item.height)
+                    }
+                    return Math.abs(sum - delta) <= 1 ? delta : 0
+                }
                 property bool viewAnchorScheduled: false
                 function maintainViewAnchorCoalesced() {
                     if (viewAnchorScheduled)
@@ -2691,6 +2761,9 @@ Rectangle {
                     })
                 }
                 function maintainViewAnchor() {
+                    // Consumed by every run, whichever branch it takes.
+                    var newestInserted = newestEndInsertedRows
+                    newestEndInsertedRows = 0
                     if (viewAnchorId === "" || stickToBottom) {
                         // Diagnostics: distinguish "ran with nothing to
                         // correct" from "never engaged". The two early returns
@@ -2830,6 +2903,36 @@ Rectangle {
                         // holds the message on screen while rows around it
                         // resize.
                         var deferredDelta = anchorY - viewAnchorLastY
+                        // The one active-input case that IS a displacement of
+                        // the reader, and can be told apart from every other
+                        // reason anchorY moves: the model inserted rows at its
+                        // NEWEST end (rowsInserted at row 0, counted since the
+                        // last run) and the anchor moved by exactly the
+                        // measured height of those rows. That is a live message
+                        // landing below the reader. Hold them, as the idle
+                        // restore already does (decided 2026-10-18, open item
+                        // O3). Measured without this: a reader parked at the
+                        // oldest row, a message landing inside the 250 ms
+                        // settle tail, `materializedMaxAbsDelta=23
+                        // activeDeferrals=1 netY=0` and topDist 0 -> 23. Never
+                        // during a native drag or a held scroll bar (their own
+                        // position wins on the next move), never for a glide
+                        // heading newer (see glideTowardsNewer), never while a
+                        // navigation landing is pending, positive only.
+                        var heldDelta = insertedBelowAnchorHeight(
+                                    deferredDelta, newestInserted)
+                        if (heldDelta > 0) {
+                            if (scrollTrace) {
+                                diagLiveInsertHolds += 1
+                                diagLiveInsertHeldSum += heldDelta
+                            }
+                            contentY = Math.min(wheelMaxY(), contentY + heldDelta)
+                            // Translate an in-flight glide rather than letting
+                            // it pull the reader back.
+                            app.timelineScroll.translateActiveMotion(heldDelta)
+                            captureViewAnchor()
+                            return
+                        }
                         diagNoteActiveDeferral(deferredDelta)
                         if (scrollTrace) {
                             diagMaterializedFirings += 1
@@ -3277,6 +3380,9 @@ Rectangle {
                     stickToBottom = atBottomEdge()
                     ++diagNavigationLandings
                     saveRoomPosition()
+                    // The landing placed the reader on current geometry; rows
+                    // released for it are not a displacement to hold.
+                    newestEndInsertedRows = 0
                     captureViewAnchor()
                     diagNavigationShape("landed")
                     return true
@@ -3508,11 +3614,22 @@ Rectangle {
                 // paging.
                 property bool wheelAnimating: app.timelineScroll.motionActive
 
+                // The scroll bar's handle is held. The bar sits outside the
+                // rotated Flickable and writes contentY itself, so `moving`
+                // never says so.
+                readonly property bool scrollBarHeld: timelineScrollBar.pressed
+
                 // True while user input owns the viewport: native drag/flick,
-                // wheel/keyboard animation, or touchpad deltas (settle timer).
-                // No anchor correction may be written then.
+                // a held scroll bar, wheel/keyboard animation, or touchpad
+                // deltas (settle timer). No anchor correction may be written
+                // then. The held bar was missing (C26): with nothing here true
+                // during a drag, every page landing ran the IDLE restore of
+                // maintainViewAnchor() against the drag, yanking the reader
+                // back to an old anchor (`inputs=scrollbar anchorCorrections=91
+                // topDist=7490`, the handle held at the top of the track).
                 readonly property bool userScrollActive:
-                    moving || wheelAnimating || scrollSettleTimer.running
+                    moving || scrollBarHeld || wheelAnimating
+                    || scrollSettleTimer.running
 
                 // Speculative media work (full-payload prefetch and poster
                 // extraction) waits until the view settles: rows swept through
@@ -3529,12 +3646,13 @@ Rectangle {
                 // onTriggered, where `running` is still true, so that guard
                 // would stop the row window from ever applying.
                 readonly property bool viewportMotionActive:
-                    moving || wheelAnimating
+                    moving || scrollBarHeld || wheelAnimating
 
                 // True only while Lightning itself drives contentY. Diagnostic
                 // only: no active input path receives an anchor write.
                 readonly property bool selfDrivenScrollActive:
-                    !moving && (wheelAnimating || scrollSettleTimer.running)
+                    !moving && !scrollBarHeld
+                    && (wheelAnimating || scrollSettleTimer.running)
 
                 // Per-gesture scroll diagnostics, off unless
                 // LIGHTNING_SCROLL_TRACE is set. One summary line per
@@ -3613,11 +3731,52 @@ Rectangle {
                             > Math.abs(diagActiveDeferredMaxAbs))
                         diagActiveDeferredMaxAbs = delta
                 }
+                // Which inputs drove this gesture (wheel, autoscroll,
+                // scrollbar), and how the near-top band answered them:
+                // dispatches made, and in-band samples the approach budget
+                // refused (non-zero names a top that stopped loading).
+                property string diagInputs: ""
+                property int diagAutoscrollSteps: 0
+                property int diagScrollbarMoves: 0
+                property int diagScrollbarTopHolds: 0
+                property int diagTopRequests: 0
+                property int diagTopBudgetBlocked: 0
+                // Live insertions newer than the anchor held during active
+                // input (maintainViewAnchor). Drained at print, like the anchor
+                // counters.
+                property int diagLiveInsertHolds: 0
+                property real diagLiveInsertHeldSum: 0
+                function diagNoteInput(kind) {
+                    if (!scrollTrace)
+                        return
+                    diagBegin()
+                    if (diagInputs.split(",").indexOf(kind) < 0)
+                        diagInputs = diagInputs === "" ? kind
+                                                       : diagInputs + "," + kind
+                    if (kind === "autoscroll")
+                        diagAutoscrollSteps += 1
+                    else if (kind === "scrollbar")
+                        diagScrollbarMoves += 1
+                }
                 function diagNoteEvent(isPixel) {
                     if (!scrollTrace)
                         return
+                    diagNoteInput("wheel")
+                    diagEvents += 1
+                    if (isPixel)
+                        diagPixelEvents += 1
+                    else
+                        diagAngleEvents += 1
+                }
+                function diagBegin() {
                     if (!diagActive) {
                         diagActive = true
+                        diagInputs = ""
+                        diagAutoscrollSteps = 0
+                        diagScrollbarMoves = 0
+                        diagScrollbarTopHolds = 0
+                        diagTopRequests = 0
+                        diagTopBudgetBlocked = 0
                         diagEvents = 0
                         diagPixelEvents = 0
                         diagAngleEvents = 0
@@ -3629,11 +3788,6 @@ Rectangle {
                         diagWindowApplications = 0
                         diagWindowNewEndExtensions = 0
                     }
-                    diagEvents += 1
-                    if (isPixel)
-                        diagPixelEvents += 1
-                    else
-                        diagAngleEvents += 1
                 }
                 // Wall clock spent in one wheel event: distinguishes a large
                 // timeline from individually expensive rows.
@@ -3669,6 +3823,16 @@ Rectangle {
                         return
                     diagActive = false
                     console.info("scroll-gesture"
+                        + " inputs=" + (diagInputs === "" ? "none" : diagInputs)
+                        + " autoSteps=" + diagAutoscrollSteps
+                        + " barMoves=" + diagScrollbarMoves
+                        + " barTopHolds=" + diagScrollbarTopHolds
+                        + " topReqs=" + diagTopRequests
+                        + " topBudgetBlocked=" + diagTopBudgetBlocked
+                        + " approachRows=" + nearTopRowsThisApproach
+                        + " approachReqs=" + nearTopRequestsThisApproach
+                        + " armed=" + (nearTopArmed ? 1 : 0)
+                        + " reachedStart=" + (app.pagination && app.pagination.reachedStart ? 1 : 0)
                         + " events=" + diagEvents
                         + " pixel=" + diagPixelEvents
                         + " angle=" + diagAngleEvents
@@ -3696,6 +3860,8 @@ Rectangle {
                         + " unresolvedId=" + diagUnresolvedIdFallbacks
                         + " evictedNoInsert=" + diagEvictedNoInsertFallbacks
                         + " dragDeferrals=" + diagDragDeferrals
+                        + " liveInsertHolds=" + diagLiveInsertHolds
+                        + " liveInsertHeld=" + Math.round(diagLiveInsertHeldSum)
                         + " activeDeferrals=" + diagActiveDeferrals
                         + " activeDeferredSum=" + Math.round(diagActiveDeferredSum)
                         + " activeDeferredMaxAbs=" + Math.round(diagActiveDeferredMaxAbs)
@@ -3749,6 +3915,8 @@ Rectangle {
                     diagUnresolvedIdFallbacks = 0
                     diagEvictedNoInsertFallbacks = 0
                     diagDragDeferrals = 0
+                    diagLiveInsertHolds = 0
+                    diagLiveInsertHeldSum = 0
                     diagActiveDeferrals = 0
                     diagActiveDeferredSum = 0
                     diagActiveDeferredMaxAbs = 0
@@ -3880,6 +4048,9 @@ Rectangle {
                         ++diagWindowUnmeasuredRows
                     }
                     ++diagWindowApplications
+                    // Rows the window re-exposed at its newest end are paid
+                    // for by the anchor-offset write above.
+                    newestEndInsertedRows = 0
                     updateStickAndPaginate()
                     captureViewAnchor()
                 }
@@ -3960,6 +4131,12 @@ Rectangle {
                     // One exact write, no deferred follow-up: a Qt.callLater
                     // snap runs before the Column relayout and reads a stale y.
                     ++diagWindowNewEndExtensions
+                    // Re-base the anchor on the corrected geometry: these rows
+                    // were inserted newer than it and are already paid for, so
+                    // maintainViewAnchor() must not hold the reader for them a
+                    // second time.
+                    newestEndInsertedRows = 0
+                    captureViewAnchor()
                     return true
                 }
 
@@ -4076,7 +4253,11 @@ Rectangle {
                                     < nearTopApproachRequestBudget) {
                                 nearTopArmed = false
                                 ++nearTopRequestsThisApproach
+                                if (scrollTrace)
+                                    ++diagTopRequests
                                 maybeRequestNearTop(userInitiated)
+                            } else if (scrollTrace) {
+                                ++diagTopBudgetBlocked
                             }
                         }
                         // Ratchet after the gate has read the old value, on
@@ -4092,6 +4273,59 @@ Rectangle {
                         nearTopRowsThisApproach = 0
                         nearTopRequestsThisApproach = 0
                     }
+                }
+
+                // An explicit, continuous ask for older history (a scroll bar
+                // handle grabbed, an autoscroll started) is its own approach to
+                // the top: fresh row/request budget and an armed latch, or a
+                // reader who already spent one on the wheel is never served.
+                function beginExplicitTopApproach() {
+                    nearTopArmed = true
+                    nearTopRequestDistance = Infinity
+                    nearTopRowsThisApproach = 0
+                    nearTopRequestsThisApproach = 0
+                    explicitTopStartRows = count
+                    explicitTopCeilingLogged = false
+                }
+                // Ceiling on what one explicit gesture may add by renewing the
+                // budget: rows INSTANTIATED (count, not loaded) since it began.
+                // Every row is a delegate in the un-virtualized Column and the
+                // frame cost tracks them (~3 ms at ~108 rows, ~14 ms at ~916,
+                // docs/timeline-scrolling.md), and the row window trims only at
+                // settle, never mid-gesture. 600 keeps a gesture that starts
+                // near the fill's 240 rows under that measured 900-row frame.
+                // Past it the automatic budget applies again; letting go and
+                // starting a new gesture renews it once the settle has trimmed.
+                readonly property int explicitTopRowCeiling: 600
+                property int explicitTopStartRows: 0
+                property bool explicitTopCeilingLogged: false
+                // Held against the oldest loaded row and still asking for more
+                // (handle at the top of the track, autoscroll pointer above its
+                // anchor): the automatic-chain budget does not apply, since it
+                // exists to stop a PARKED reader walking the whole room. Measured
+                // without it (C26): an autoscroll pinned at the top of a room of
+                // one-line messages stopped after the 240-row budget,
+                // `topBudgetBlocked=719 reachedStart=0`, because a pinned reader
+                // never leaves the exit band that renews it. Renewed only while
+                // no page is in flight, so it never stacks requests, and only
+                // up to explicitTopRowCeiling rows per gesture.
+                function renewPinnedTopBudget() {
+                    if (app.pagination && app.pagination.busy)
+                        return
+                    if (count - explicitTopStartRows >= explicitTopRowCeiling) {
+                        if (!explicitTopCeilingLogged) {
+                            explicitTopCeilingLogged = true
+                            console.info("scroll-top-ceiling rows=" + count
+                                + " addedThisGesture="
+                                + (count - explicitTopStartRows)
+                                + " ceiling=" + explicitTopRowCeiling
+                                + " srcRows="
+                                + (app.timeline ? app.timeline.count : -1))
+                        }
+                        return
+                    }
+                    nearTopRowsThisApproach = 0
+                    nearTopRequestsThisApproach = 0
                 }
 
                 function cancelWheelMotion() {
@@ -4149,6 +4383,7 @@ Rectangle {
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     targetY = targetY < lo ? lo : (targetY > hi ? hi : targetY)
+                    glideTowardsNewer = targetY < contentY - 0.5
                     app.timelineScroll.animateTo(targetY, contentY, lo, hi,
                                                  height)
                     updateStickAndPaginate()
@@ -4251,6 +4486,7 @@ Rectangle {
                     if (height > 0 && distance > 0 && rowWindowSkip === 0
                         && distance <= height * smoothJumpViewports) {
                         followLatestOnArrival = true
+                        glideTowardsNewer = true
                         app.timelineScroll.animateTo(lo, contentY, lo,
                                                      wheelMaxY(), height)
                         // The settle pass recomputes pagination and anchoring,
@@ -4481,6 +4717,8 @@ Rectangle {
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
+                            // Rotated: a negative delta is towards newer.
+                            timeline.glideTowardsNewer = event.angleDelta.y < 0
                             app.timelineScroll.wheelNotch(
                                 -event.angleDelta.y, timeline.contentY,
                                 minY, maxY, timeline.height)
@@ -5009,10 +5247,13 @@ Rectangle {
                 // who already spent one on the wheel is never served.
                 onPressedChanged: {
                     if (pressed) {
-                        timeline.nearTopArmed = true
-                        timeline.nearTopRequestDistance = Infinity
-                        timeline.nearTopRowsThisApproach = 0
-                        timeline.nearTopRequestsThisApproach = 0
+                        timeline.diagNoteInput("scrollbar")
+                        timeline.beginExplicitTopApproach()
+                    } else {
+                        // A drag ends like any gesture: the settle saves the
+                        // position, captures the anchor where the reader now
+                        // is, applies the row window and emits the trace line.
+                        scrollSettleTimer.restart()
                     }
                 }
                 function handleFraction() {
@@ -5032,12 +5273,11 @@ Rectangle {
                         // frac 0 is the top of the track (oldest row).
                         if (timelineScrollBar.handleFraction() > 0.001)
                             return
+                        if (timeline.scrollTrace)
+                            ++timeline.diagScrollbarTopHolds
                         // Holding the handle at the top is an explicit ask
                         // for more; the automatic-chain budget is not.
-                        if (!app.pagination.busy) {
-                            timeline.nearTopRowsThisApproach = 0
-                            timeline.nearTopRequestsThisApproach = 0
-                        }
+                        timeline.renewPinnedTopBudget()
                         timeline.contentY = timeline.wheelMaxY()
                         timeline.updateStickAndPaginate()
                     }
@@ -5047,6 +5287,7 @@ Rectangle {
                     if (!pressed)
                         return
                     var frac = handleFraction()
+                    timeline.diagNoteInput("scrollbar")
                     timeline.cancelWheelMotion()
                     // Dragging the handle retires an unlanded jump, like the
                     // wheel.
@@ -5203,6 +5444,8 @@ Rectangle {
                 visible: app.currentRoomId !== "" && timeline.presentationReady
                 view: timeline
                 inverted: true
+                trace: timeline.scrollTrace
+                property real lastMediaBandMs: 0
                 minYFunc: function() { return timeline.wheelMinY() }
                 maxYFunc: function() { return timeline.wheelMaxY() }
                 // Cancel a wheel glide once at gesture start. stickToBottom is
@@ -5212,8 +5455,34 @@ Rectangle {
                     timeline.cancelWheelMotion()
                     // Starting an autoscroll is the reader taking the view.
                     timeline.noteReaderTookControl()
+                    timeline.beginExplicitTopApproach()
                 }
                 onScrolled: {
+                    timeline.diagNoteInput("autoscroll")
+                    // Pointer beyond the dead zone, and which way. Rotated
+                    // view: above the anchor is towards older history.
+                    var travel = middleClickScroller.pointerY
+                                 - middleClickScroller.anchorY
+                    var steering = Math.abs(travel) > middleClickScroller.deadZone
+                    if (steering && travel < 0
+                            && timeline.distanceFromTop() <= 1)
+                        timeline.renewPinnedTopBudget()
+                    // Towards newer under a row window: give rows back at the
+                    // window's newest edge as the wheel does, or the scroll
+                    // pins against a synthetic bottom (C26, measured
+                    // `pinnedSteps=958 winSkip=424 winExtendNew=0`).
+                    if (steering && travel > 0 && timeline.nearWindowNewEdge())
+                        timeline.extendRowWindowAtNewEnd()
+                    // The media band moves at settle, which a running
+                    // autoscroll never reaches; re-derive it at most twice a
+                    // second so pictures the reader passes are not left as
+                    // placeholders for the whole gesture. Index range only,
+                    // nothing bound to contentY.
+                    var now = Date.now()
+                    if (now - middleClickScroller.lastMediaBandMs >= 500) {
+                        middleClickScroller.lastMediaBandMs = now
+                        timeline.refreshMediaBand()
+                    }
                     timeline.updateStickAndPaginate()
                     // The scroller writes contentY directly, leaving
                     // Flickable.moving false, so without this userScrollActive

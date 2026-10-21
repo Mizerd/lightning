@@ -3,9 +3,10 @@
 // ends a latch and goes no further, and nothing starts over a link, editable
 // text or a MouseArea that takes the middle button. The 2026-08-21 defects
 // that removed the first latch (82794ed9) each have a case: a click that turns
-// into a drag, a latch that outlives the pane or the window, and rows losing
-// their clicks and hover. The last case drives the room list's real scroller
-// over the mock backend.
+// into a drag, a latch that outlives the window, and rows losing their clicks
+// and hover. Since C26 (2026-10-20) a latch keeps steering from anywhere in the
+// window, as in browsers, and the speed follows Firefox's curve. The last case
+// drives the room list's real scroller over the mock backend.
 
 #include <QtTest/QtTest>
 
@@ -415,23 +416,75 @@ private Q_SLOTS:
         QVERIFY(!f.marker->isVisible());
     }
 
-    // 2026-08-21: a latched pointer that left the pane kept scrolling at its
-    // last speed. Leaving the pane ends it.
-    void leavingThePaneEndsALatch()
+    // C26 (2026-10-20): moving the pointer onto the header or the composer to
+    // go faster ended the latch (`end=exited` 0.9 s into a live gesture), which
+    // is the "breaks when it hits the top/bottom" report. Browsers keep
+    // steering from anywhere in the window. The 2026-08-21 rule still holds in
+    // its real form: the pointer is SEEN out there, so the speed follows it
+    // (it does not keep a stale speed), and the exit click outside the pane is
+    // swallowed too.
+    void leavingThePaneKeepsSteeringFromTheRestOfTheWindow()
     {
         Fixture f;
         QVERIFY(load(f));
         QVERIFY(latchAt(f, spot));
-        const QPoint below = spot + QPoint(0, 150);
+        // Out of the pane (x 450 is in the window only), below the anchor.
+        QTest::mouseMove(&f.window, QPoint(450, spot.y() + 150));
         const qreal start = contentY(f);
-        QTest::mouseMove(&f.window, below);
-        QTRY_VERIFY_WITH_TIMEOUT(contentY(f) > start + 20, kTimeoutMs);
-        // Out of the pane, still in the window.
-        QTest::mouseMove(&f.window, QPoint(450, below.y()));
-        QTRY_VERIFY2_WITH_TIMEOUT(!active(f),
-                                  "a latch outlived the pointer leaving the pane",
+        QTRY_VERIFY2_WITH_TIMEOUT(contentY(f) > start + 40,
+                                  "a latch stopped steering outside the pane",
                                   kTimeoutMs);
-        QVERIFY2(holdsStill(f, 200), "the view kept scrolling after the latch");
+        QVERIFY2(active(f) && latched(f), "leaving the pane ended the latch");
+        // Still outside, now above the anchor: the direction follows.
+        QTest::mouseMove(&f.window, QPoint(450, spot.y() - 150));
+        const qreal turned = contentY(f);
+        QTRY_VERIFY2_WITH_TIMEOUT(contentY(f) < turned - 40,
+                                  "the pointer outside the pane is not tracked",
+                                  kTimeoutMs);
+        // Back at the anchor's height: it stops, wherever the pointer is.
+        QTest::mouseMove(&f.window, QPoint(450, spot.y()));
+        QCoreApplication::processEvents();
+        QVERIFY2(holdsStill(f, 200), "the speed did not follow the pointer");
+        // The exit click outside the pane ends it and reaches nothing.
+        click(f, Qt::LeftButton, QPoint(450, spot.y()));
+        QVERIFY2(!active(f), "a click outside the pane did not end the latch");
+        QCOMPARE(hostInt(f, "rowLeftClicks"), 0);
+    }
+
+    // Firefox's autoscroll curve, ((d / 12)^1.5 - 1) px per 20 ms. The squared
+    // ramp it replaces gave 59 / 336 / 1573 px/s at 50 / 100 / 200 px and
+    // stopped at 2200 ("notably slower than scrolling", C26).
+    void theSpeedFollowsFirefoxsCurve()
+    {
+        Fixture f;
+        QVERIFY(load(f));
+        struct Point { int travel; double expected; };
+        const Point points[] = {{10, 0}, {50, 375}, {100, 1151},
+                                {200, 3352}, {300, 6200}};
+        for (const Point &p : points) {
+            for (int sign : {1, -1}) {
+                QVariant speed;
+                QVERIFY(QMetaObject::invokeMethod(
+                    f.scroller, "speedAt", Q_RETURN_ARG(QVariant, speed),
+                    Q_ARG(QVariant, sign * p.travel)));
+                QVERIFY2(qAbs(speed.toDouble() - p.expected)
+                             <= qMax(2.0, p.expected * 0.01),
+                         qPrintable(QStringLiteral("travel %1: %2 px/s, want %3")
+                                        .arg(sign * p.travel)
+                                        .arg(speed.toDouble())
+                                        .arg(p.expected)));
+            }
+        }
+        // And the scroll really moves that fast: 200 px from the anchor for
+        // half a second covers well over the old curve's 786 px.
+        QVERIFY(latchAt(f, spot));
+        QTest::mouseMove(&f.window, spot + QPoint(0, 200));
+        const qreal start = contentY(f);
+        QTest::qWait(500);
+        const qreal moved = contentY(f) - start;
+        QVERIFY2(moved > 1100,
+                 qPrintable(QStringLiteral("200 px of travel moved %1 px in "
+                                           "0.5 s").arg(moved)));
     }
 
     void leavingTheWindowEndsALatch()

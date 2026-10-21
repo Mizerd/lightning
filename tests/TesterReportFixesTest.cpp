@@ -568,7 +568,7 @@ private Q_SLOTS:
         QVERIFY(!pane.isEmpty());
         const int at = pane.indexOf(QStringLiteral("MiddleClickScroller {"));
         QVERIFY2(at > 0, "the timeline has no middle-click autoscroll");
-        const QString block = pane.mid(at, 700);
+        const QString block = pane.mid(at, 1200);
         QVERIFY2(block.contains(QStringLiteral("view: timeline")),
                  "the scroller must be given its view explicitly");
         QVERIFY2(block.contains(QStringLiteral("inverted: true")),
@@ -590,9 +590,17 @@ private Q_SLOTS:
         QVERIFY2(block.contains(QStringLiteral("timelineScrollBarTopHold"))
                      && block.contains(QStringLiteral("running: timelineScrollBar.pressed")),
                  "no timer re-asks for history while the handle rests at the top");
-        QVERIFY2(block.contains(QStringLiteral("onPressedChanged"))
-                     && block.contains(QStringLiteral("nearTopRowsThisApproach = 0")),
+        // The fresh budget is the explicit-approach reset (2026-10-20), which
+        // the bar's press shares with autoscroll.
+        const int press = block.indexOf(QStringLiteral("onPressedChanged"));
+        QVERIFY2(press >= 0
+                     && block.mid(press, 300).contains(
+                         QStringLiteral("beginExplicitTopApproach()")),
                  "a handle drag does not start a fresh approach budget");
+        const int begin = pane.indexOf(QStringLiteral("function beginExplicitTopApproach()"));
+        QVERIFY(begin > 0);
+        QVERIFY2(pane.mid(begin, 400).contains(QStringLiteral("nearTopRowsThisApproach = 0")),
+                 "the explicit approach no longer resets the budget");
     }
 
     // The audio card fits its slider, remembers volume and speed, and offers a

@@ -525,3 +525,66 @@ as well (measured: a ydotool wheel arrives `dev=4 phase=0`). A wheel is always
 Also, Qt drops a finger frame outright when `angleDelta` rounds to 0
 (`|delta| < 1/24 px`) — upstream behaviour, nothing here can recover it.
 `ThreadPanel.qml` and `SmoothWheelArea.qml` carry the same routing.
+
+## Non-wheel inputs and the live append (2026-10-20, C26 + O3)
+
+Captured with `LIGHTNING_SCROLL_TRACE=1` on the real client against the local
+homeserver (Xvfb, xdotool). The trace now names the input
+(`inputs=wheel|autoscroll|scrollbar`), the near-top band's answer (`topReqs`,
+`topBudgetBlocked`, `approachRows`/`approachReqs`), the live-insert hold
+(`liveInsertHolds`/`liveInsertHeld`), an `autoscroll-gesture` line (speed,
+pinned steps, end reason) and a one-shot `scroll-top-ceiling` info line.
+
+* **Autoscroll speed** follows Firefox's curve, `(d/12)^1.5 - 1` px per 20 ms
+  (375/1150/3350/6200 px/s at 50/100/200/300 px, cap 12000), replacing the
+  squared ramp (59/336/1573 px/s, cap 2200).
+* **THE 2026-08-21 RULE "LEAVING THE PANE ENDS A LATCH" IS REVERSED (C26).** A
+  latched autoscroll is tracked by a window-wide catcher and keeps steering
+  over the header, the composer and the rest of the window, as in browsers.
+  It ended with `end=exited` the moment the pointer reached the header or the
+  composer, which is what "it breaks at the edge" was. LEAVING THE WINDOW still
+  ends it (the pointer can no longer be seen), as do the click, Escape, the
+  wheel and focus loss.
+* **Pinned-top autoscroll and the scroll bar's top hold renew the
+  per-approach budget** while no page is in flight (it stopped after the
+  240-row approach budget, `topBudgetBlocked=719`), up to 600 rows
+  instantiated per gesture (frame cost ~3 ms at ~108 rows, ~14 ms at ~916);
+  past that the automatic budget applies again and `scroll-top-ceiling` is
+  logged once.
+* **Autoscroll towards newer opens the row window's newest edge**
+  (`extendRowWindowAtNewEnd()`), as the wheel does; it pinned on the window's
+  synthetic edge (`winSkip=424 winExtendNew=0`).
+* **The media band moves mid-gesture during autoscroll**, throttled to at
+  most one `refreshMediaBand()` every 500 ms; a wheel gesture still moves it
+  only at the settle.
+* **A held scroll bar is user input** (`scrollBarHeld` is the bar's
+  `pressed`), and its release goes through the settle. Before, idle anchor
+  restores ran under the drag (`inputs=scrollbar anchorCorrections=91
+  topDist=7490`, the reader stuck at msg 0882 while the handle sat at the top).
+* **O3, a live append while parked at the oldest row.** Idle readers were
+  already held (`anchorCorrections=1`); inside the settle tail they were not
+  (`materializedMaxAbsDelta=23 activeDeferrals=1 topDist=23`). The active branch
+  of `maintainViewAnchor()` now holds the reader only when the model inserted
+  rows at its NEWEST end (`rowsInserted(first=0)` since the last maintain) and
+  the anchor moved by exactly those rows' measured height. Positive only;
+  never during a native drag, a held bar, a pending landing, or a glide heading
+  newer (it would move the glide's target and stop Jump-to-latest / End /
+  wheel-down one message short with follow-latest off).
+  `captureViewAnchor()` reconciles a pending newest-end insertion first (active
+  input only); `applyRowWindow()`, `extendRowWindowAtNewEnd()` and the
+  navigation landing zero the counter, because they pay for their own
+  insertions (without that the extension is corrected twice). The
+  positive-only displaced guard is untouched.
+* **The anchor's rising row index is NOT proof of a newest-end insert.** It
+  does not say which rows went in: an earlier round used it and held the
+  reader by 112 px during a pure back-pagination with no message sent (run5,
+  `liveInsertHolds=1 liveInsertHeld=112`). What inserted those rows was **not
+  determined** from the logs (there is no row-level diff logging); the
+  candidates are an SDK virtual-row insert newer than the anchor or the stale-y
+  capture `viewRowAtContentY()` used to produce. It is impossible by
+  construction now: the hold needs `rowsInserted(first=0)` and measures
+  exactly those rows.
+
+Live on Linux Xvfb against the local homeserver: settle-tail appends held 10
+of 10; a glide to the latest with a message arriving mid-glide lands at the
+bottom, following. Windows: NOT TESTED.

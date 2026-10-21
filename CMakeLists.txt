@@ -3004,6 +3004,19 @@ if(BUILD_TESTING)
     set_tests_properties(middle-click-scroller-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # The timeline's non-wheel scroll inputs over the real TimelinePane: a held
+    # scroll bar is user input, a pinned autoscroll renews its top budget and
+    # opens the row window's newest edge, and a live message in the settle
+    # tail does not move a reader at the oldest row (C26, open item O3).
+    qt_add_executable(timeline-scroll-input-qml-test
+        tests/TimelineScrollInputQmlTest.cpp)
+    lightning_configure_qml_test(timeline-scroll-input-qml-test)
+    target_link_libraries(timeline-scroll-input-qml-test PRIVATE Qt6::Test)
+    add_test(NAME timeline-scroll-input-qml
+             COMMAND timeline-scroll-input-qml-test)
+    set_tests_properties(timeline-scroll-input-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # CodeBlock.qml: a long line becomes horizontal scroll range, never
     # geometry; the gutter is never copied; a vertical wheel notch still
     # scrolls the timeline.
