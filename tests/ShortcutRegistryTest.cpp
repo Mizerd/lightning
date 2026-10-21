@@ -238,6 +238,30 @@ private Q_SLOTS:
         QVERIFY(!resolved.contains(QStringLiteral("app.settingsSearch")));
     }
 
+    // Room history: the conventional browser keys, free of every other
+    // binding and reserved sequence (so neither is left unbound).
+    void roomHistoryShipsOnAltLeftAndAltRight()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto resolved = resolvedById(registry);
+        QVERIFY(resolved.contains(QStringLiteral("nav.historyBack")));
+        QVERIFY(resolved.contains(QStringLiteral("nav.historyForward")));
+        QCOMPARE(resolved.value(QStringLiteral("nav.historyBack")),
+                 QStringLiteral("Alt+Left"));
+        QCOMPARE(resolved.value(QStringLiteral("nav.historyForward")),
+                 QStringLiteral("Alt+Right"));
+        QCOMPARE(registry.conflictCount(), 0);
+        // Nothing else resolves to either key.
+        int left = 0, right = 0;
+        for (auto it = resolved.cbegin(); it != resolved.cend(); ++it) {
+            left += it.value() == QStringLiteral("Alt+Left");
+            right += it.value() == QStringLiteral("Alt+Right");
+        }
+        QCOMPARE(left, 1);
+        QCOMPARE(right, 1);
+    }
+
     // More rows pinned by id and key, since sweeps pass vacuously on a missing
     // row. Each is wired in qml/MainScreen.qml, which
     // theShortcutRowsWiredInQmlCoverEveryRegistryId keeps true.

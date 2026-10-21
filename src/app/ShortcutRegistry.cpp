@@ -131,6 +131,16 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("nav.newDirectMessage"), navCat,
           tr("Start a direct message"), QStringLiteral("Ctrl+Shift+T"),
           GlobalContext },
+        // Browser-style room history; the mouse's Back/Forward buttons do the
+        // same (src/app/MouseNavigationFilter.h). Alt+Left/Right is free here;
+        // the message box does not bind it (word movement is Ctrl+Left/Right,
+        // and on macOS a focused text field still wins the keypress).
+        { QStringLiteral("nav.historyBack"), navCat,
+          tr("Go back to the previous conversation"), QStringLiteral("Alt+Left"),
+          GlobalContext },
+        { QStringLiteral("nav.historyForward"), navCat,
+          tr("Go forward to the next conversation"), QStringLiteral("Alt+Right"),
+          GlobalContext },
         // Not Ctrl+I: that is `composer.italic`, and one more Global/Editor
         // shadow was not worth it.
         { QStringLiteral("nav.activityCenter"), navCat,

@@ -113,6 +113,12 @@
 #include <QVariantList>
 #include <memory>
 
+#include "RoomHistory.h"
+
+namespace lightning {
+class MouseNavigationFilter;
+}
+
 class MatrixClient;
 class NotificationManager;
 class QQuickItem;
@@ -864,6 +870,36 @@ public Q_SLOTS:
     // Returns whether it moved, so the key is consumed only then. Closing
     // clears the timeline's room, so nothing more is marked read.
     Q_INVOKABLE bool navigateBack();
+    // Room history, like a browser's: Back/Forward revisit the rooms opened in
+    // this session (at most RoomHistory::kMaxBackEntries behind the open one),
+    // for the mouse's Back/Forward buttons and nav.historyBack/Forward. In
+    // memory only; cleared on sign-out and account switch. A room that was
+    // left or forgotten is skipped. Return whether a room was opened, so the
+    // caller can tell "nowhere to go" from "went".
+    Q_INVOKABLE bool navigateRoomBack();
+    Q_INVOKABLE bool navigateRoomForward();
+    // The keyboard's way in (nav.historyBack/Forward): the same gate as the
+    // mouse, popups included. Qt already keeps a window Shortcut out of a
+    // modal or Escape-closing popup, but not out of the composer's mention,
+    // emoji-completion and slash-command popups (non-modal, NoAutoClose).
+    Q_INVOKABLE bool navigateRoomHistoryFromKeyboard(QQuickItem *within,
+                                                     bool forward);
+    // Routes the mouse's Back/Forward buttons in `within`'s window to
+    // navigateRoomBack/Forward (lightning::MouseNavigationFilter, a window
+    // event filter, so a press is judged before any popup can close itself).
+    // Called by MainScreen; installs once per window, and waits for the
+    // window if the item has none yet.
+    Q_INVOKABLE void installMouseNavigation(QQuickItem *within);
+    // Whether any popup other than a tooltip is visible in `within`'s window:
+    // a dialog, menu, picker or viewer, MODAL OR NOT. A Back/Forward press
+    // while one is open only dismisses it (browser behaviour), so the mouse
+    // filter asks this on the press, before delivery. For a modal popup the
+    // overlay would also swallow the press; for a non-modal click-away one
+    // (every AppMenu) nothing else stops it, and by the time an item beneath
+    // sees the press the popup has already closed.
+    Q_INVOKABLE bool hasOpenPopup(QQuickItem *within) const;
+    // Tests start each case from an empty history.
+    void clearRoomHistoryForTest() { m_roomHistory.clear(); }
     // Escape's owner of last resort, asked before navigateBack(): a popup that
     // is open in `within`'s window keeps Escape even when it does not hold
     // the keyboard focus (a tap that opened it can hand the focus back to the
@@ -1451,6 +1487,15 @@ private:
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
+    // See navigateRoomBack(); `Navigating` keeps a history move from being
+    // recorded as a new visit.
+    lightning::RoomHistory m_roomHistory;
+    bool m_roomHistoryNavigating = false;
+    bool stepRoomHistory(bool forward);
+    // The screen/session half of the gate (no popup check), shared by the
+    // keyboard path, the mouse filter's press and the step itself.
+    bool roomHistoryNavigationAllowed() const;
+    QPointer<lightning::MouseNavigationFilter> m_mouseNavigation;
     /// Event ids already handed to the notification and Activity paths, from
     /// any producer (a thread copy, the room's sync, an SDK insert observed
     /// live, a re-delivery after a sliding-sync reset). Bounded; forgets the

@@ -250,6 +250,17 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QCOMPARE(app.auth()->currentUserId(), kAlice);
 
+        // Room history works before the sign-out (so the refusal below is
+        // the gate, not an empty history or an unlisted room).
+        const QString general = QStringLiteral("!general:mock.local");
+        const QString devs = QStringLiteral("!devs:mock.local");
+        app.setCurrentRoomId(general);
+        app.setCurrentRoomId(devs);
+        QVERIFY(app.navigateRoomBack());
+        QCOMPARE(app.currentRoomId(), general);
+        QVERIFY(app.navigateRoomForward());
+        QCOMPARE(app.currentRoomId(), devs);
+
         SfuCallController *call = app.groupCall();
         call->setClient(&rtc);
         call->setMembershipForTest(QStringLiteral("!call:one.example"),
@@ -273,6 +284,10 @@ private Q_SLOTS:
         QVERIFY(app.settings()->hasSavedAccount(kBob));
         app.showLogin();
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
+        // Nor does room history move under "Signing out…".
+        QVERIFY2(!app.navigateRoomBack(),
+                 "Back navigated while a sign-out was waiting");
+        QCOMPARE(app.currentRoomId(), devs);
 
         // The call is left; the sign-out goes ahead for alice, and only
         // alice.
@@ -346,6 +361,10 @@ private Q_SLOTS:
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
 
+        // Rooms the mock really lists, so Back would have somewhere to go;
+        // the switch must forget them (room history is per account).
+        app.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
         // Open a room so the switch has composer/thread targets to clear.
         app.setCurrentRoomId(QStringLiteral("!mock-room:mock.local"));
         QVERIFY(!app.currentRoomId().isEmpty());
@@ -369,6 +388,13 @@ private Q_SLOTS:
         QCOMPARE(app.settings()->deviceId(), QStringLiteral("BOBDEV"));
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
         QVERIFY(!sawLoginScreen);
+
+        // The previous account's room history did not come along.
+        app.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QVERIFY2(!app.navigateRoomBack(),
+                 "Back after an account switch reached the previous "
+                 "account's rooms");
+        QCOMPARE(app.currentRoomId(), QStringLiteral("!general:mock.local"));
 
         // Both accounts keep their credentials.
         QCOMPARE(app.settings()->accessTokenFor(kAlice),

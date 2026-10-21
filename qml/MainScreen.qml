@@ -294,6 +294,29 @@ Item {
         enabled: app.loggedIn && !!app.activity
         onActivated: roomsPanel.openActivityCenter()
     }
+    // Browser-style room history: Alt+Left / Alt+Right by default, and the
+    // mouse's Back / Forward buttons anywhere in the window
+    // (installMouseNavigation in Component.onCompleted). The list lives in
+    // AppController; this only routes. Not under Settings (it has its own
+    // screen), and not while any popup is open: Qt keeps window shortcuts out
+    // of a modal or Escape-closing popup only, so the composer's completion
+    // popups are gated in C++ like the mouse.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.historyBack")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.navigateRoomHistoryFromKeyboard(shellRoot, false)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.historyForward")]
+        }
+        enabled: app.loggedIn && app.currentScreen !== 2
+        onActivated: app.navigateRoomHistoryFromKeyboard(shellRoot, true)
+    }
     // Every conversation. markAllRoomsRead() is already a no-op when nothing is
     // unread.
     Shortcut {
@@ -402,7 +425,14 @@ Item {
             app.thread.model.setMentionStyle(accent, soft, code, linkInk,
                                              AppTheme.underlineLinks)
     }
-    Component.onCompleted: _pushMentionStyle()
+    Component.onCompleted: {
+        _pushMentionStyle()
+        // The mouse's Back / Forward buttons (see the room-history Shortcuts):
+        // routed in C++ by a filter on the window, which judges a press before
+        // any popup can close itself, so a press that dismisses a menu only
+        // dismisses it.
+        app.installMouseNavigation(shellRoot)
+    }
     Connections {
         target: AppTheme
         function onSelfMentionInkChanged() { _pushMentionStyle() }

@@ -5,6 +5,7 @@
 #include "app/FontManager.h"
 #include "app/LogExport.h"
 #include "app/GuiStallTracer.h"
+#include "app/MouseNavigationFilter.h"
 
 #include "app/RichComposerBridge.h"
 #include "app/RendererNotice.h"
@@ -1081,6 +1082,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // this; the session's reads and writes do not. Shared with
                 // the add-account path, which sees no loggedOut.
                 resetSessionNotificationState();
+                // Room history is the outgoing session's; never carried over.
+                m_roomHistory.clear();
                 // A rename in flight must not lock renaming for the next
                 // account.
                 if (m_sessionDeviceRenameOp != 0
@@ -4531,6 +4534,9 @@ void AppController::setCurrentRoomId(const QString &roomId)
         return;
     m_currentRoomId = roomId;
     ++m_currentRoomOpenSerial;
+    // In-memory Back/Forward list; a history move itself is not a new visit.
+    if (!m_roomHistoryNavigating)
+        m_roomHistory.visit(roomId);
     // Whether the room list holds it now; the roomsChanged handler closes a
     // listed room that then leaves the list (closeCurrentRoomNoLongerIn).
     if (!roomId.isEmpty() && m_client) {
@@ -5584,6 +5590,91 @@ bool AppController::navigateBack()
         return true;
     }
     return false;
+}
+
+bool AppController::roomHistoryNavigationAllowed() const
+{
+    // Nothing navigates under the Settings screen, a switch, or a sign-out,
+    // including one still waiting (bounded) for its call to be left: the
+    // shell is covered by "Signing out…" then, and the session is going.
+    return m_currentScreen == MainScreen && !m_accountSwitching && m_client
+           && m_client->isLoggedIn() && !(m_auth && m_auth->logoutPending());
+}
+
+bool AppController::stepRoomHistory(bool forward)
+{
+    if (!roomHistoryNavigationAllowed())
+        return false;
+    // Left and forgotten rooms are skipped; an invite is still a place to go.
+    const auto openable = [this](const QString &roomId) {
+        const RoomInfo info = m_client->roomInfo(roomId);
+        return !info.id.isEmpty() && info.membership != RoomInfo::Left;
+    };
+    const QString target = forward ? m_roomHistory.forward(openable)
+                                   : m_roomHistory.back(openable);
+    if (target.isEmpty())
+        return false;
+    const QScopedValueRollback moving(m_roomHistoryNavigating, true);
+    openRoom(target);
+    return true;
+}
+
+bool AppController::navigateRoomBack()
+{
+    return stepRoomHistory(false);
+}
+
+bool AppController::navigateRoomForward()
+{
+    return stepRoomHistory(true);
+}
+
+bool AppController::navigateRoomHistoryFromKeyboard(QQuickItem *within,
+                                                    bool forward)
+{
+    if (!roomHistoryNavigationAllowed() || hasOpenPopup(within))
+        return false;
+    return stepRoomHistory(forward);
+}
+
+bool AppController::hasOpenPopup(QQuickItem *within) const
+{
+    return lightning::MouseNavigationFilter::windowHasOpenPopup(
+        within ? within->window() : nullptr);
+}
+
+void AppController::installMouseNavigation(QQuickItem *within)
+{
+    if (!within)
+        return;
+    QQuickWindow *window = within->window();
+    if (!window) {
+        // Not in a window yet (a Loader can complete an item before parenting
+        // it): install when it gets one.
+        QPointer<QQuickItem> item(within);
+        auto pending = std::make_shared<QMetaObject::Connection>();
+        *pending = connect(within, &QQuickItem::windowChanged, this,
+                           [this, item, pending](QQuickWindow *w) {
+            if (!w || !item)
+                return;
+            disconnect(*pending);
+            installMouseNavigation(item);
+        });
+        return;
+    }
+    if (m_mouseNavigation && m_mouseNavigation->window() == window)
+        return;
+    delete m_mouseNavigation;
+    // Owned by this controller (the lambdas use it); the window drops a
+    // deleted filter on its own, and the filter forgets a deleted window.
+    m_mouseNavigation = new lightning::MouseNavigationFilter(
+        window,
+        [this] { return roomHistoryNavigationAllowed(); },
+        [this](lightning::MouseNavigationFilter::Direction direction) {
+            return stepRoomHistory(
+                direction == lightning::MouseNavigationFilter::Direction::Forward);
+        },
+        this);
 }
 
 bool AppController::dismissPopupForEscape(QQuickItem *within)
@@ -7099,6 +7190,7 @@ void AppController::clearCrossAccountCaches()
     // seen marker and keywords, and never be seeded.
     m_activity->clear();
     resetSessionNotificationState();
+    m_roomHistory.clear();
     // Encrypted-room drafts are memory-only and account-scoped.
     if (m_draftStore)
         m_draftStore->clearMemoryDrafts();
@@ -7348,6 +7440,7 @@ void AppController::endRevokedSession(const QString &userId)
     if (m_groupCall)
         m_groupCall->leave();
     setCurrentRoomId(QString{});
+    m_roomHistory.clear();
     m_roomInfo->setRoomId(QString{});
     m_composer->setRoomId({});
     // A local end only: no server logout (the server already ended it), and

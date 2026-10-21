@@ -492,6 +492,10 @@ set(APP_SOURCES
     src/app/AppController.h
     src/app/NotificationNotices.h
     src/app/AppController.cpp
+    src/app/RoomHistory.h
+    src/app/RoomHistory.cpp
+    src/app/MouseNavigationFilter.h
+    src/app/MouseNavigationFilter.cpp
     src/app/SwitchTrace.h
     src/app/SwitchTrace.cpp
     src/notifications/NotificationContextBuilder.h
@@ -4641,6 +4645,18 @@ if(BUILD_TESTING)
     set_tests_properties(escape-navigation-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Mouse Back/Forward buttons and Alt+Left/Right walk the rooms opened
+    # this session, in the real shell: routing over the timeline, message box
+    # and text fields, no navigation under a dialog or Settings.
+    qt_add_executable(mouse-navigation-qml-test
+        tests/MouseNavigationQmlTest.cpp
+    )
+    lightning_configure_qml_test(mouse-navigation-qml-test)
+    target_include_directories(mouse-navigation-qml-test PRIVATE src)
+    add_test(NAME mouse-navigation-shell-qml COMMAND mouse-navigation-qml-test)
+    set_tests_properties(mouse-navigation-shell-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A room opened by a click puts the keyboard in the message box (GitHub
     # #29); a notification or keyboard activation leaves it where it was.
     qt_add_executable(composer-focus-on-open-qml-test
@@ -6430,6 +6446,33 @@ if(BUILD_TESTING)
     target_compile_definitions(updates-ui-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME updates-ui-contract COMMAND updates-ui-contract-test)
+
+    # Room history behind the mouse Back/Forward buttons and
+    # nav.historyBack/Forward: cap, truncation, skipping, lobby. Pure Qt Core.
+    qt_add_executable(room-history-test
+        tests/RoomHistoryTest.cpp
+        src/app/RoomHistory.h
+        src/app/RoomHistory.cpp
+    )
+    target_include_directories(room-history-test PRIVATE src)
+    target_link_libraries(room-history-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-history COMMAND room-history-test)
+
+    # The window filter behind the mouse Back/Forward buttons, on real Qt
+    # Quick Controls popups: a press that dismisses a click-away Menu only
+    # dismisses it, the buttons work over all-buttons text fields, the
+    # BTN_BACK/BTN_FORWARD mapping, taps only, never touch.
+    qt_add_executable(mouse-navigation-filter-test
+        tests/MouseNavigationFilterTest.cpp
+        src/app/MouseNavigationFilter.h
+        src/app/MouseNavigationFilter.cpp
+    )
+    target_include_directories(mouse-navigation-filter-test PRIVATE src)
+    target_link_libraries(mouse-navigation-filter-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+    add_test(NAME mouse-navigation-filter COMMAND mouse-navigation-filter-test)
+    set_tests_properties(mouse-navigation-filter PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
     # Conflict refusal, reserved sequences and global-vs-editor shadowing for
     # rebindable shortcuts.
