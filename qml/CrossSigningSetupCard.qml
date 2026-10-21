@@ -50,6 +50,17 @@ Rectangle {
     // "" | "reset" | "replace": which destructive button has been pressed once.
     property string pendingConfirm: ""
 
+    // Closing Settings hides this card with the page; an armed destructive
+    // confirmation or a half-typed account password must not wait for the next
+    // visit (the secrets are wiped, not just hidden).
+    onVisibleChanged: {
+        if (!visible) {
+            pendingConfirm = ""
+            passwordField.text = ""
+            currentKeyField.text = ""
+        }
+    }
+
     visible: app.backendName === "rust"
              && app.cryptoHealth && app.cryptoHealth.cryptoSupported
              && app.backup

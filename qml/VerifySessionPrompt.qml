@@ -33,6 +33,16 @@ Rectangle {
     }
 
     objectName: "verifySessionPrompt"
+
+    // The card sits last in the window's focus chain (about 70 Tab stops in),
+    // so it gets a direct way in: F6 moves focus to its primary action while it
+    // is showing. Escape on any of its buttons means "Not now".
+    Shortcut {
+        objectName: "verifySessionPromptFocusShortcut"
+        sequence: "F6"
+        enabled: root.shouldShow
+        onActivated: verifyButton.forceActiveFocus(Qt.TabFocusReason)
+    }
     visible: opacity > 0
     opacity: shouldShow ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 140 } }
@@ -96,7 +106,9 @@ Rectangle {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
             AppButton {
+                id: verifyButton
                 objectName: "verifySessionPromptVerify"
+                Keys.onEscapePressed: app.dismissVerificationWarning()
                 storm: true
                 kind: "primary"
                 Layout.fillWidth: true
@@ -108,6 +120,7 @@ Rectangle {
             }
             AppButton {
                 objectName: "verifySessionPromptDismiss"
+                Keys.onEscapePressed: app.dismissVerificationWarning()
                 storm: true
                 Layout.fillWidth: true
                 text: qsTr("Not now")

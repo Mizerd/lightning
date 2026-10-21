@@ -12,6 +12,8 @@ import MatrixClient
 // verification/import state survives switching categories.
 Item {
     id: root
+    // Device id whose inline session-rename field is open, "" when none.
+    property string renamingSessionDeviceId: ""
     // Named so a suite can reach searchIndex and the reveal helpers.
     objectName: "settingsScreenRoot"
     // A minted recovery key must not stay in memory once the user leaves the
@@ -1466,6 +1468,7 @@ Item {
         // hidden, and a second enabled Escape in the window would make Qt fire
         // neither.
         enabled: root.visible && !accountIdentityCard.editingDisplayName
+                 && root.renamingSessionDeviceId === ""
         // Escape peels one layer at a time (as ThemeEditor.peelEscape does):
         // a non-empty search query, then an open name-colour picker, and only
         // then Settings itself.
@@ -9178,7 +9181,23 @@ Item {
                                                             modelData.deviceId, text)
                                                     visible = false
                                                 }
-                                                Keys.onEscapePressed: visible = false
+                                                // The window-level Escape Shortcut is dispatched before
+                                                // this handler, so it is disabled while a rename is open
+                                                // (renamingSessionDeviceId); otherwise Escape also left Settings.
+                                                onVisibleChanged: {
+                                                    if (visible)
+                                                        root.renamingSessionDeviceId = modelData.deviceId
+                                                    else if (root.renamingSessionDeviceId === modelData.deviceId)
+                                                        root.renamingSessionDeviceId = ""
+                                                }
+                                                Component.onDestruction: {
+                                                    if (root.renamingSessionDeviceId === modelData.deviceId)
+                                                        root.renamingSessionDeviceId = ""
+                                                }
+                                                Keys.onEscapePressed: function(event) {
+                                                    event.accepted = true
+                                                    visible = false
+                                                }
                                             }
                                             AppButton {
                                                 objectName: "sessionSignOutButton_"

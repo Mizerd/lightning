@@ -12,6 +12,43 @@ ColumnLayout {
     id: root
     spacing: AppTheme.spacing8
 
+    // Hands keyboard focus to the SAFE action of the current step: Dismiss on a
+    // finished flow, otherwise Cancel. Never Accept / They match / It reported
+    // success: the step appears asynchronously, and a stray Space or Enter must
+    // not confirm a SAS without the emoji being compared (CLAUDE.md section 6).
+    // The affirmative buttons are reached deliberately with Tab.
+    function focusPrimary() {
+        var order = [dismissButton, cancelButton]
+        for (var i = 0; i < order.length; ++i) {
+            var b = order[i]
+            if (b && b.visible && b.enabled) {
+                b.forceActiveFocus(Qt.TabFocusReason)
+                return true
+            }
+        }
+        return false
+    }
+    // Focus already on one of the panel's buttons is left alone: the user may
+    // have tabbed to a button on purpose.
+    function _holdsFocus() {
+        var all = [acceptButton, matchButton, qrConfirmButton,
+                   dismissButton, cancelButton]
+        for (var i = 0; i < all.length; ++i)
+            if (all[i] && all[i].visible && all[i].activeFocus)
+                return true
+        return false
+    }
+    onVisibleChanged: if (visible) focusPrimary()
+    Connections {
+        target: app
+        function onVerificationStateChanged() {
+            Qt.callLater(function() {
+                if (!root._holdsFocus())
+                    root.focusPrimary()
+            })
+        }
+    }
+
     RowLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
@@ -68,8 +105,18 @@ ColumnLayout {
                         "Verification request sent. Accept it in " +
                         "another session, such as Element.")
                 if (app.verificationState === "requested")
+                {
+                    // Name the asking SESSION: for self-verification the user
+                    // id is the user's own, so it cannot tell a genuine new
+                    // session from a rogue one.
+                    if (app.verificationOtherDevice !== "")
+                        return qsTr("Incoming verification request from "
+                                    + "%1, session %2")
+                            .arg(app.verificationOtherUser)
+                            .arg(app.verificationOtherDevice)
                     return qsTr("Incoming verification request from %1")
                         .arg(app.verificationOtherUser)
+                }
                 if (app.verificationState === "ready")
                     return qsTr(
                         "Both sessions accepted. Exchanging keys — " +
@@ -208,6 +255,7 @@ ColumnLayout {
             visible: app.verificationQrScanned
             AppButton {
                 storm: true
+                id: qrConfirmButton
                 objectName: "verificationQrConfirmButton"
                 text: qsTr("It reported success")
                 kind: "primary"
@@ -278,6 +326,8 @@ ColumnLayout {
         spacing: AppTheme.spacing8
         AppButton {
             storm: true
+            id: acceptButton
+            objectName: "verificationAcceptButton"
             text: qsTr("Accept")
             visible: app.verificationState === "requested"
             kind: "primary"
@@ -285,6 +335,8 @@ ColumnLayout {
         }
         AppButton {
             storm: true
+            id: matchButton
+            objectName: "verificationMatchButton"
             text: qsTr("They match")
             // Stays visible but disabled through the confirm/peer wait so the
             // card does not jump; only sas_ready accepts the press
@@ -298,6 +350,7 @@ ColumnLayout {
         }
         AppButton {
             storm: true
+            objectName: "verificationMismatchButton"
             text: qsTr("They do not match")
             visible: app.verificationState === "sas_ready"
                     || app.verificationState === "confirming"
@@ -307,6 +360,8 @@ ColumnLayout {
         }
         AppButton {
             storm: true
+            id: cancelButton
+            objectName: "verificationCancelButton"
             text: qsTr("Cancel verification")
             // Cancel must exist in every non-terminal state, so the condition
             // is inverted rather than listing states: a newly added state
@@ -319,6 +374,8 @@ ColumnLayout {
         }
         AppButton {
             storm: true
+            id: dismissButton
+            objectName: "verificationDismissButton"
             text: qsTr("Dismiss")
             visible: app.verificationState === "done"
                     || app.verificationState === "cancelled"

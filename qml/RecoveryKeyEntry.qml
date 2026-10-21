@@ -56,6 +56,20 @@ ColumnLayout {
         d.failMessage = ""
     }
 
+    // A result belongs to the moment it was reported: leaving the page (or
+    // closing the settings page) must not leave "Recovery failed" or a success claim
+    // waiting for the next visit. A request still in flight is kept.
+    onVisibleChanged: {
+        if (!visible && !d.running) {
+            d.outcome = ""
+            d.failMessage = ""
+            // A half-typed recovery key does not wait in a hidden page for
+            // the next visit (MASTER-2 L1; as CrossSigningSetupCard wipes its
+            // secrets on hide).
+            field.text = ""
+        }
+    }
+
     GridLayout {
         Layout.fillWidth: true
         columnSpacing: AppTheme.spacing8
@@ -76,6 +90,14 @@ ColumnLayout {
             enabled: !root.running
             Accessible.name: root.fieldPlaceholder
             onAccepted: submitButton.submit()
+            // The first edit after an answer retires it: the red "Recovery
+            // failed" line must not stay beside a key that is being corrected.
+            onTextChanged: {
+                if (text.length > 0 && !d.running && d.outcome !== "") {
+                    d.outcome = ""
+                    d.failMessage = ""
+                }
+            }
         }
         AppButton {
             id: submitButton
@@ -184,8 +206,13 @@ ColumnLayout {
         // reports: the backend's task dies with the session. Without this the
         // field and button stayed disabled at "Restoring…" for good.
         function onLoggedInChanged() {
-            if (!d.started)
+            if (!d.started) {
+                // A finished attempt's answer is about the session that made
+                // it; a sign-out or a new sign-in must not carry it over.
+                d.outcome = ""
+                d.failMessage = ""
                 return
+            }
             const sameAccount = d.userId === d.activeUserId()
             root.clear()
             if (sameAccount)

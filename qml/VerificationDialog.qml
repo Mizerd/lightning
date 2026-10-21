@@ -15,6 +15,15 @@ Popup {
     modal: true
     width: Math.min(440, (parent ? parent.width : 440) - 2 * AppTheme.spacing16)
     padding: 0
+    // Take keyboard focus: without it Tab/Space/Enter act on the page behind
+    // the scrim and Escape never reaches the popup. A modal Popup also keeps
+    // Tab inside itself once it holds active focus.
+    focus: true
+    // Never taller than the window: the body scrolls instead, so Cancel stays
+    // reachable at small window sizes.
+    height: Math.min(implicitHeight,
+                     (parent ? parent.height : implicitHeight)
+                     - 2 * AppTheme.spacing16)
     // Escape must not abandon a live flow: NoAutoClose while non-terminal, so
     // the only way out is Cancel (which tells the SDK); once ended,
     // Dismiss/Escape.
@@ -48,6 +57,7 @@ Popup {
         }
     }
     onFlowPresentChanged: _syncOpenState()
+    onOpened: verificationPanel.focusPrimary()
     Component.onCompleted: _syncOpenState()
 
     // Closing a finished flow means the same as Dismiss: cancelVerification(),
@@ -80,59 +90,76 @@ Popup {
         }
     }
 
-    contentItem: ColumnLayout {
-        spacing: 0
+    contentItem: Flickable {
+        id: scroller
+        objectName: "verificationDialogScroller"
+        clip: true
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        implicitHeight: column.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("Session verification")
 
-        // Header: title and a close affordance only when closing is allowed.
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: AppTheme.spacing16
-            Layout.bottomMargin: AppTheme.spacing8
-            spacing: AppTheme.spacing8
+        ColumnLayout {
+            id: column
+            width: scroller.width
+            spacing: 0
+
+            // Header: title and a close affordance only when closing is allowed.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: AppTheme.spacing16
+                Layout.bottomMargin: AppTheme.spacing8
+                spacing: AppTheme.spacing8
+                Label {
+                    Layout.fillWidth: true
+                    objectName: "verificationDialogTitle"
+                    text: qsTr("Verify this session")
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textTitle
+                    font.weight: AppTheme.weightBold
+                    elide: Label.ElideRight
+                }
+                IconButton {
+                    objectName: "verificationDialogClose"
+                    iconName: "close"
+                    storm: true
+                    visible: !root.flowIsLive
+                    Accessible.name: qsTr("Close")
+                    onClicked: root.close()
+                }
+            }
+
             Label {
                 Layout.fillWidth: true
-                objectName: "verificationDialogTitle"
-                text: qsTr("Verify this session")
-                color: AppTheme.stormText
-                font.pixelSize: AppTheme.textTitle
-                font.weight: AppTheme.weightBold
-                elide: Label.ElideRight
+                Layout.leftMargin: AppTheme.spacing16
+                Layout.rightMargin: AppTheme.spacing16
+                Layout.bottomMargin: AppTheme.spacing8
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textBody
+                // Says what verification is for. Pre-verification copy: it
+                // contradicts a failure, so it goes once the flow ended badly.
+                visible: app.verificationState !== "cancelled"
+                         && !app.verificationState.startsWith("failed")
+                text: qsTr("Verifying proves this device is really yours, so "
+                           + "your other sessions will share encryption keys "
+                           + "with it and encrypted history becomes readable "
+                           + "here.")
             }
-            IconButton {
-                objectName: "verificationDialogClose"
-                iconName: "close"
-                storm: true
-                visible: !root.flowIsLive
-                Accessible.name: qsTr("Close")
-                onClicked: root.close()
+
+            VerificationPanel {
+                id: verificationPanel
+                objectName: "verificationPanel"
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing16
+                Layout.rightMargin: AppTheme.spacing16
+                Layout.bottomMargin: AppTheme.spacing16
             }
-        }
-
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing16
-            Layout.rightMargin: AppTheme.spacing16
-            Layout.bottomMargin: AppTheme.spacing8
-            lineHeight: AppTheme.lineHeightBody
-            lineHeightMode: Text.ProportionalHeight
-            wrapMode: Text.WordWrap
-            color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.textBody
-            // Says what verification is for.
-            text: qsTr("Verifying proves this device is really yours, so "
-                       + "your other sessions will share encryption keys "
-                       + "with it and encrypted history becomes readable "
-                       + "here.")
-        }
-
-        VerificationPanel {
-            objectName: "verificationPanel"
-            Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing16
-            Layout.rightMargin: AppTheme.spacing16
-            Layout.bottomMargin: AppTheme.spacing16
         }
     }
 }

@@ -2632,6 +2632,16 @@ if(BUILD_TESTING)
     add_test(NAME verification-card-contract
         COMMAND verification-card-contract-test)
 
+    # Verification dialog keyboard focus / small-window / prompt reachability.
+    qt_add_executable(verification-dialog-contract-test
+        tests/VerificationDialogContractTest.cpp)
+    target_compile_definitions(verification-dialog-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(verification-dialog-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME verification-dialog-contract
+        COMMAND verification-dialog-contract-test)
+
     # Context-menu contracts: grouping, accelerators, quick-react liveness,
     # radio flyouts, signal-only mutation, permalink/leave wiring.
     qt_add_executable(context-menu-contract-test
@@ -6784,6 +6794,19 @@ if(BUILD_TESTING)
     target_link_libraries(recovery-key-entry-test PRIVATE Qt6::Test)
     add_test(NAME recovery-key-entry COMMAND recovery-key-entry-test)
     set_tests_properties(recovery-key-entry PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # C56: stale state of RecoveryKeyEntry and CrossSigningSetupCard after a
+    # closed Settings page / sign-out.
+    qt_add_executable(encryption-prompts-stale-state-test
+        tests/EncryptionPromptsStaleStateTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(encryption-prompts-stale-state-test)
+    target_link_libraries(encryption-prompts-stale-state-test PRIVATE Qt6::Test)
+    add_test(NAME encryption-prompts-stale-state
+        COMMAND encryption-prompts-stale-state-test)
+    set_tests_properties(encryption-prompts-stale-state PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Invite dialog: chips, already-member pre-check, room header, per-user
