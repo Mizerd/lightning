@@ -159,7 +159,7 @@
   </content_rating>
 
   <releases>
-    <release version="0.10.2" date="2026-10-14" type="stable">
+    <release version="0.10.2" date="2026-10-21" type="stable">
       <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.2</url>
       <description>
         <p>
@@ -171,6 +171,7 @@
           <li>Screen-share sound no longer plays the call back to its participants, and your choice is remembered.</li>
           <li>Saving a file asks where to save it, with the original name filled in.</li>
           <li>Edits from other clients update reliably.</li>
+          <li>Much more of the app works from the keyboard, with visible focus and F6 to move between the main areas.</li>
           <li>Call keys work from any window on Wayland, and Lightning is now available in German.</li>
           <li>A rebuilt theme editor, read receipts as faces and a notification troubleshooter.</li>
           <li>Windows MSI upgrades keep every file; macOS restores from the menu bar without crashing.</li>
