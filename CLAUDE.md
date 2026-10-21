@@ -969,7 +969,7 @@ deliberate decisions and validation status have not.
 
 **THIS FILE HAS A HARD 150,000-CHARACTER LIMIT AND IT TRUNCATES SILENTLY,
 dropping its own TAIL — §§17-19, the completion-report requirements and the
-multi-agent review protocol — from agent context.** SEVEN moves so far: §7 to
+multi-agent review protocol — from agent context.** EIGHT moves so far: §7 to
 `docs/feature-contracts.md` on 2026-08-28; §16's round history to
 `docs/round-history.md` on 2026-09-03 at 150,397 characters; §2's release
 inventory and operational traps to `docs/release-operations.md` on 2026-09-10
@@ -977,8 +977,9 @@ at 146,262; §16's open-items and NOT TESTED inventory to `docs/open-items.md`
 on 2026-09-11 at 140,752; the live-validation record to
 `docs/live-validation.md` on 2026-09-15 at 139,949; the timeline scrolling and
 anchoring lessons to `docs/timeline-scrolling.md` on 2026-09-18 at 141,409;
-and the history fill, pagination and row window to that same file on
-2026-09-20 at 139,505. Before adding a block here, run `wc -c CLAUDE.md`; past
+the history fill, pagination and row window to that same file on
+2026-09-20 at 139,505; and the screen share's CPU measurement to
+`docs/voice-calls.md` on 2026-10-20 at 139,932. Before adding a block here, run `wc -c CLAUDE.md`; past
 roughly 140,000 the answer is a new file under `docs/` and a pointer, never a
 longer section. **The count above has been wrong before** — it read FOUR while
 seven had happened, because each mover updated its own pointer and not this
@@ -1043,36 +1044,10 @@ drew U+1F600 with colouredPx=0, preferring a MONOCHROME font that claims the
 codepoint, where Qt 6.11.1 drew 2580; naming the family gave 4400 on both. That
 is why emoji looked right locally and came out monochrome-or-tofu when packaged.
 
-**WHERE A SCREEN SHARE'S CPU ACTUALLY GOES, measured 2026-08-30 — and it is
-NOT where two rounds of "GPU scaling" work assumed.** Per 5 s of video, one
-core-second is 20% of a core; `videotestsrc` at 4K into the real share stages,
-machine otherwise idle:
-
-| Stage (4K desktop shared at 1080p) | CPU / 5 s | Share |
-|---|---|---|
-| BGRA -> I420 convert, at 4K | 3.32 s | **57%** |
-| `videoscale` 4K -> 1080p | 0.12 s | **2%** |
-| `vp8enc` at 1080p | 2.35 s | **41%** |
-
-**SCALING IS 2% OF THE COST.** A GPU path justified as "moving the scaling to
-the GPU" would be worth almost nothing. What makes `glupload ! glcolorconvert
-! glcolorscale ! gldownload` worth having is different and must be described
-correctly or the next round will optimise the wrong stage: it moves the COLOUR
-CONVERSION onto the GPU and downloads only the REDUCED frame, so the 57% is
-what it removes, not the 2%.
-
-Encoder alone, by rung (5 s of video): 1080p30 **2.80 s** (0.56 cores),
-1440p30 **5.29 s** (1.06), 4K30 **9.53 s** (1.91), 4K60 **14.35 s** (2.87). A
-4K share at 4K therefore costs convert+encode ~12.9 s per 5 s, ~2.6 cores
-sustained, which is the measured shape of "4K is laggy".
-
-**None of this explains an OS-WIDE stall on a 20-core machine** — 2.6 cores is
-13%. Before blaming the encoder for that, measure the CAPTURE: Windows uses
-`gdiscreencapsrc`, a GDI BitBlt that contends with the compositor every frame,
-where Discord and OBS use DXGI Desktop Duplication (`d3d11screencapturesrc`,
-currently blocked here by the mingw-w64 UCRT/msvcrt break recorded above).
-That is a hypothesis, NOT a measurement — the numbers in this block are Linux
-`videotestsrc` and say nothing about either capture element.
+**WHERE A SCREEN SHARE'S CPU GOES — MOVED: the measurement is in
+`docs/voice-calls.md`. READ IT before any "GPU scaling" work**: scaling is 2%
+of the cost, the 4K BGRA->I420 conversion 57%, and none of it explains an
+OS-wide stall, which points at Windows' GDI capture (a hypothesis).
 
 **THE WEBRTC=OFF BUILD IS SOURCE HYGIENE, NOT A RELEASE GATE — CORRECTED
 2026-09-12, and this block said the opposite for months.** It used to read
@@ -1248,7 +1223,10 @@ trip.
 alone and fail intermittently; `message-html` joined them on 2026-09-10, when
 the quadratic-scan fix added two WALL-CLOCK assertions (complexity is the
 property under test and there is no branch to assert on; the headroom is 24x
-and documented in-source).
+and documented in-source). Within `timeline-pane-qml`,
+`composerFocusKeepsItsCaretKeysAndForwardsThePagingKeys` is a CONFIRMED
+pre-existing load flake (2026-10-20: base 15/30 and patched 14/30 failed
+under load, 6/6 passed quiet): re-run it alone before reading it as news.
 
 **AND IT IS NOT ONLY `-j14`/`-j18`.** Measured 2026-09-10 with a game running:
 `timeline-pane-qml` failed at `-j4` and again at `-j2`, in BOTH trees, on two
