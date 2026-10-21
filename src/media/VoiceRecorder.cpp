@@ -1,5 +1,6 @@
 #include "media/VoiceRecorder.h"
 
+#include "media/QtAudioGate.h"
 #include "storage/PortableMode.h"
 
 
@@ -182,8 +183,41 @@ qint64 VoiceRecorder::durationMs() const
 
 bool VoiceRecorder::start()
 {
-    if (m_state != State::Idle)
+    if (m_state != State::Idle || m_startPending)
         return false;
+    // record() opens the microphone stream, which aborts the process while
+    // Qt's PulseAudio backend has no connection (QtAudioGate.h). Then the
+    // whole start waits for it, bounded; true is returned because the start
+    // is on its way, and failed() reports it if it cannot happen.
+    using lightning::media::QtAudioGate;
+    QtAudioGate *gate = m_audioGate ? m_audioGate.data() : QtAudioGate::current();
+    if (gate && !gate->checkNow()) {
+        m_startPending = true;
+        gate->whenReady(
+            this,
+            [this] {
+                if (!m_startPending)
+                    return;
+                m_startPending = false;
+                startNow();
+            },
+            [this] {
+                if (!m_startPending)
+                    return;
+                m_startPending = false;
+                Q_EMIT failed(tr("The sound server is not answering. Try "
+                                 "recording again in a moment."));
+            });
+        return true;
+    }
+    return startNow();
+}
+
+bool VoiceRecorder::startNow()
+{
+    ++m_startNowCalls;
+    if (m_startNowForTest)
+        return m_startNowForTest();
     const EncoderProfile *profile = resolveProfile();
     if (QMediaDevices::defaultAudioInput().isNull() || !profile) {
         Q_EMIT failed(tr("No microphone or audio encoder is available."));
@@ -215,6 +249,12 @@ bool VoiceRecorder::start()
     m_recorder->setOutputLocation(QUrl::fromLocalFile(m_activeFile));
     m_cancelRequested = false;
     m_finalDurationMs = 0;
+    return beginRecording();
+}
+
+bool VoiceRecorder::beginRecording()
+{
+    ++m_recordStarts;
     m_recorder->record();
     if (m_recorder->error() != QMediaRecorder::NoError) {
         Q_EMIT failed(tr("Recording could not start."));
@@ -276,8 +316,29 @@ bool VoiceRecorder::ownsPath(const QString &path) const
     return info.canonicalPath() == dir;
 }
 
+void VoiceRecorder::dropPendingStart()
+{
+    m_startPending = false;
+    using lightning::media::QtAudioGate;
+    if (QtAudioGate *gate =
+            m_audioGate ? m_audioGate.data() : QtAudioGate::current())
+        gate->cancel(this);
+    // Nothing of this start exists yet; an earlier unsent recording is kept.
+}
+
+void VoiceRecorder::setAudioGateForTest(lightning::media::QtAudioGate *gate)
+{
+    m_audioGate = gate;
+}
+
 void VoiceRecorder::cancel()
 {
+    if (m_startPending) {
+        // Never started: nothing was recorded, nothing to finalize.
+        dropPendingStart();
+        qCDebug(lcVoice, "pending recording start cancelled");
+        return;
+    }
     if (m_state == State::Idle)
         return;
     m_maxDurationGuard.stop();
@@ -307,6 +368,14 @@ void VoiceRecorder::cancel()
 
 void VoiceRecorder::stop()
 {
+    if (m_startPending) {
+        // Released before the microphone could open: nothing to send, and
+        // the owner must hear about it so it lets go of the recorder.
+        dropPendingStart();
+        Q_EMIT failed(tr("The sound server is not answering. Try recording "
+                         "again in a moment."));
+        return;
+    }
     if (m_state != State::Recording)
         return;
     m_maxDurationGuard.stop();

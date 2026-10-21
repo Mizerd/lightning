@@ -3,14 +3,19 @@
 #include <QAudioDecoder>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <functional>
 #include <memory>
 
 class QMediaCaptureSession;
 class QAudioInput;
 class QMediaRecorder;
+namespace lightning::media {
+class QtAudioGate;
+}
 
 // Microphone capture for MSC3245 voice messages. Records into a
 // session-scoped 0700 temp dir (OGG/Opus when available, the Matrix
@@ -76,6 +81,21 @@ public:
     static constexpr qint64 kBucketMs = 100;
     static constexpr int kMaxWaveformBuckets = 100;
 
+    // A start() is waiting for the audio gate (QtAudioGate.h): accepted, the
+    // microphone not open yet. stop() or cancel() drops it.
+    bool startPending() const { return m_startPending; }
+    // Tests: the gate to ask before record(); production uses the process's.
+    void setAudioGateForTest(lightning::media::QtAudioGate *gate);
+    // Tests: record() calls that reached Qt.
+    int recordStartsForTest() const { return m_recordStarts; }
+    // Tests: the real start (device, encoder, record()) replaced, so a test
+    // never opens a microphone; and how often a start got that far.
+    void setStartNowForTest(std::function<bool()> start)
+    {
+        m_startNowForTest = std::move(start);
+    }
+    int startNowCallsForTest() const { return m_startNowCalls; }
+
 Q_SIGNALS:
     void stateChanged();
     void durationChanged();
@@ -91,6 +111,9 @@ private:
     enum class State { Idle, Recording, Processing };
 
     bool ensureCaptureChain();
+    bool startNow();
+    bool beginRecording();
+    void dropPendingStart();
     void beginWaveformExtraction();
     /// Finishes the waveform decode from the event loop: finishWithWaveform()
     /// destroys the decoder, and deleting a QObject during its own emission is
@@ -101,6 +124,11 @@ private:
     void discardActiveFile();
 
     State m_state = State::Idle;
+    QPointer<lightning::media::QtAudioGate> m_audioGate;
+    bool m_startPending = false;
+    int m_recordStarts = 0;
+    int m_startNowCalls = 0;
+    std::function<bool()> m_startNowForTest;
     std::unique_ptr<QTemporaryDir> m_dir;
     std::unique_ptr<QMediaCaptureSession> m_session;
     std::unique_ptr<QAudioInput> m_audioInput;

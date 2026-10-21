@@ -8798,8 +8798,18 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
         if (it == m_receiveBins.end() || it->isolateProbe == 0
             || it->rebuilding)
             return;
-        // A failure long after the last rebuild starts a fresh run.
-        if (it->rebuilds > 0 && now - it->lastRebuildMs > 60000)
+        // A failure long after the last rebuild starts a fresh run, and so
+        // does one that comes after a rebuild which worked and then played
+        // for a while: the budget bounds a run of FAILED attempts. Counting
+        // the successes too made every sound-server restart cost one
+        // attempt, so the fifth restart of a call (measured live, restarts
+        // 12-18 s apart) gave the far end up for the rest of the call, and
+        // with Qt's PipeWire backend no "outputs changed" ever re-arms it.
+        // A chain that opens and fails at once still uses the budget up.
+        if (it->rebuilds > 0
+            && (now - it->lastRebuildMs > 60000
+                || (it->recoveredMs > 0
+                    && now - it->recoveredMs >= m_freshRebuildRunAfterMs)))
             it->rebuilds = 0;
         attempt = it->rebuilds;
     }
@@ -9102,6 +9112,7 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
         it->givenUp = false;
         it->rebuilds += 1;
         it->lastRebuildMs = QDateTime::currentMSecsSinceEpoch();
+        it->recoveredMs = 0;
         entry = it.value();
         it->bin = nullptr;
     }
@@ -9207,6 +9218,19 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
                            rebuildJobFree);
 }
 
+void SfuMediaEngine::noteReceiveChainRendering(GstPad *pad, quint64 generation)
+{
+    if (!m_active || generation != m_generation.load())
+        return;
+    QMutexLocker lock(&m_receiveBinMutex);
+    auto it = m_receiveBins.find(pad);
+    // Only the chain that is playing now: one failed again or being rebuilt
+    // since its sink rendered is no recovery.
+    if (it == m_receiveBins.end() || it->isolateProbe != 0 || it->rebuilding)
+        return;
+    it->recoveredMs = QDateTime::currentMSecsSinceEpoch();
+}
+
 void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
                                           GstElement *bin, bool ok,
                                           const QString &why, double level,
@@ -9248,7 +9272,9 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
             it->bin = bin;
             probe = it->isolateProbe;
             it->isolateProbe = 0;
-            // The run is over; a later failure starts a fresh one.
+            // The run is over once this chain RENDERS: recoveredMs is stamped
+            // from its sink (noteReceiveChainRendering()), never here, so a
+            // chain that opens but plays nothing keeps using the budget.
             it->rearmed = false;
             it->rearmOnGiveUp = false;
             it->givenUp = false;
@@ -9270,9 +9296,32 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
             gst_object_unref(volume);
         }
     }
+    if (m_rebuiltChainsNeverRenderForTest) {
+        // Test-only: the chain opens, but nothing reaches its sink.
+        if (GstElement *volume = gst_bin_get_by_name(
+                GST_BIN(bin), volumeName.toUtf8().constData())) {
+            if (GstPad *out = gst_element_get_static_pad(volume, "src")) {
+                gst_pad_add_probe(
+                    out, GST_PAD_PROBE_TYPE_BUFFER,
+                    [](GstPad *, GstPadProbeInfo *, gpointer) {
+                        return GST_PAD_PROBE_DROP;
+                    },
+                    nullptr, nullptr);
+                gst_object_unref(out);
+            }
+            gst_object_unref(volume);
+        }
+    }
     gst_pad_remove_probe(pad, probe);
     // Say which output it got, and say again when that output actually
-    // takes audio: a rebuilt chain that never renders is not a recovery.
+    // takes audio: a rebuilt chain that never renders is not a recovery, and
+    // only one that renders ends the run of failures (recoveredMs).
+    struct Rendering {
+        SfuMediaEngine *engine; // compared by marshal(), never dereferenced
+        GstPad *pad;            // the map key, never dereferenced
+        quint64 generation;
+        QString streamId;
+    };
     if (GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin))) {
         GValue item = G_VALUE_INIT;
         while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
@@ -9281,19 +9330,29 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
             if (factory && !GST_IS_BIN(element)
                 && GST_OBJECT_FLAG_IS_SET(element, GST_ELEMENT_FLAG_SINK)) {
                 if (GstPad *in = gst_element_get_static_pad(element, "sink")) {
-                    auto *label = new QString(entry.streamId);
+                    auto *rendering =
+                        new Rendering{this, pad, generation, entry.streamId};
                     gst_pad_add_probe(
                         in, GST_PAD_PROBE_TYPE_BUFFER,
                         [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                            const auto *r = static_cast<Rendering *>(data);
                             qCInfo(lcSfuMedia)
                                 << "call diagnosis: the rebuilt receive chain "
                                    "for stream="
-                                << *static_cast<QString *>(data)
-                                << "is RENDERING again";
+                                << r->streamId << "is RENDERING again";
+                            SfuMediaEngine *engine = r->engine;
+                            GstPad *key = r->pad;
+                            const quint64 generation = r->generation;
+                            marshal(engine, [engine, key, generation] {
+                                engine->noteReceiveChainRendering(key,
+                                                                  generation);
+                            });
                             return GST_PAD_PROBE_REMOVE;
                         },
-                        label,
-                        [](gpointer data) { delete static_cast<QString *>(data); });
+                        rendering,
+                        [](gpointer data) {
+                            delete static_cast<Rendering *>(data);
+                        });
                     gst_object_unref(in);
                 }
             }

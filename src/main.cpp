@@ -12,7 +12,10 @@
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
 #include "app/SandboxEnvironment.h"
+#include "app/UrlLauncher.h"
+#include "calls/PulseServerProbe.h"
 #include "calls/QtAudioBackendChoice.h"
+#include "media/QtAudioGate.h"
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
 #include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
@@ -55,8 +58,10 @@
 #include <QCoreApplication>
 #include <QAudioDevice>
 #include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QMediaDevices>
 #include <QThread>
+#include <QVersionNumber>
 #include <QDir>
 #include <QSet>
 #include <QFileInfo>
@@ -103,9 +108,12 @@
 #endif
 
 namespace {
-/// Lightning itself set QT_AUDIO_BACKEND (the Flatpak default), as opposed
-/// to the user; reported by --call-sounds-status.
+/// Lightning itself set QT_AUDIO_BACKEND (see QtAudioBackendChoice.h), as
+/// opposed to the user; reported by --call-sounds-status with its reason.
 bool g_qtAudioBackendSetHere = false;
+const char *g_qtAudioBackendReason = "";
+QString g_qtAudioBackendLine;
+Q_LOGGING_CATEGORY(lcQtAudioBackend, "lightning.calls.sound")
 } // namespace
 
 namespace {
@@ -1875,20 +1883,60 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
 
-    // In the Flatpak, Qt Multimedia's audio goes through its PulseAudio
-    // backend (pipewire-pulse): the native PipeWire sink can orphan a stream
-    // whose device went away and, when the daemon then restarts, spin the GUI
-    // thread for ever (Qt bug; docs/open-items.md, 2026-10-07). Qt picks the
-    // backend on first use, so this is set before ANY of it, including the
+    // Qt Multimedia's audio goes through its PulseAudio backend
+    // (pipewire-pulse) wherever the running Qt (6.10+) would otherwise use its
+    // native PipeWire one: that sink can orphan a stream whose device went
+    // away and, when the daemon then restarts, spin the GUI thread for ever
+    // (Qt bug; docs/open-items.md, 2026-10-07), and after a restart it stops
+    // reporting device changes (measured 2026-10-20). Qt picks the backend on
+    // first use, so this is set before ANY of it, including the
     // --call-sounds-status preflight below (the Flatpak validator runs it, and
-    // must see the backend a real launch uses). A user override wins.
-    // sandboxenv needs no QCoreApplication.
-    if (const QByteArray backend = lightning::calls::qtAudioBackendOverride(
-            sandboxenv::isFlatpak(),
-            qEnvironmentVariableIsSet("QT_AUDIO_BACKEND"));
-        !backend.isEmpty()) {
-        qputenv("QT_AUDIO_BACKEND", backend);
-        g_qtAudioBackendSetHere = true;
+    // must see the backend a real launch uses). A user override wins; outside
+    // the Flatpak only when this Qt has the PulseAudio backend and a server
+    // answers (QtAudioBackendChoice.h). sandboxenv needs no QCoreApplication.
+    {
+        using namespace lightning::calls;
+        QtAudioBackendInputs in;
+#if defined(Q_OS_LINUX)
+        in.platform = AudioPlatform::Linux;
+#elif defined(Q_OS_WIN)
+        in.platform = AudioPlatform::Windows;
+#elif defined(Q_OS_MACOS)
+        in.platform = AudioPlatform::MacOS;
+#endif
+        in.flatpak = sandboxenv::isFlatpak();
+        in.userSetBackend = qEnvironmentVariableIsSet("QT_AUDIO_BACKEND");
+        const QVersionNumber running =
+            QVersionNumber::fromString(QLatin1String(qVersion()));
+        in.qtMajor = running.majorVersion();
+        in.qtMinor = running.minorVersion();
+        // Asked only where the answer matters: the probe connects to the
+        // server's socket (which may socket-activate pipewire-pulse).
+        if (in.platform == AudioPlatform::Linux && !in.flatpak
+            && !in.userSetBackend && running >= QVersionNumber(6, 10)) {
+            in.qtHasPulseBackend = qtMultimediaHasPulseBackend();
+            in.pulseServerReachable =
+                in.qtHasPulseBackend && pulseServerReachable();
+        }
+        const QtAudioBackendDecision decision = decideQtAudioBackend(in);
+        if (!decision.value.isEmpty()) {
+            qputenv("QT_AUDIO_BACKEND", decision.value);
+            g_qtAudioBackendSetHere = true;
+        }
+        g_qtAudioBackendReason = decision.reason;
+        // Logged once the app starts (a preflight that exits stays quiet).
+        g_qtAudioBackendLine =
+            QStringLiteral("qt audio backend choice: %1 set-by-lightning=%2 (%3, Qt %4)")
+                .arg(in.userSetBackend
+                         ? QStringLiteral("QT_AUDIO_BACKEND=")
+                             + QString::fromLocal8Bit(qgetenv("QT_AUDIO_BACKEND"))
+                         : decision.value.isEmpty()
+                         ? QStringLiteral("Qt's default")
+                         : QString::fromLatin1(decision.value),
+                     g_qtAudioBackendSetHere ? QStringLiteral("yes")
+                                             : QStringLiteral("no"),
+                     QString::fromLatin1(decision.reason),
+                     QString::fromLatin1(qVersion()));
     }
 
     // Bound any message repeated without end, on stderr and in --log-file
@@ -1988,7 +2036,8 @@ int main(int argc, char *argv[])
                     ? QString::fromLocal8Bit(qgetenv("QT_AUDIO_BACKEND"))
                     : QStringLiteral("(unset: Qt's default)"))
             << " set-by-lightning="
-            << (g_qtAudioBackendSetHere ? "yes" : "no") << "\n"
+            << (g_qtAudioBackendSetHere ? "yes" : "no") << " reason: "
+            << g_qtAudioBackendReason << "\n"
             << "call sounds voiced by: " << CallSoundPlayer::cueBackend()
             << "\n";
         // The backend Qt actually chose, in its own words ("PipeWire",
@@ -2283,6 +2332,7 @@ int main(int argc, char *argv[])
     // watcher, QSystemTrayIcon on X11 falls back to the XEmbed tray, which is
     // a QWidget.
     QApplication app(argc, argv);
+    qCInfo(lcQtAudioBackend).noquote() << g_qtAudioBackendLine;
     // "Rasterize on send" keeps its scratch files where every other media
     // scratch lives (inside a portable folder, swept after a crash).
     lightning::svgraster::hooks().scratchRoot = [] {
@@ -2593,6 +2643,16 @@ int main(int argc, char *argv[])
                      &LocalizationManager::retranslateRequested,
                      &engine, [&engine] { engine.retranslate(); });
     engine.rootContext()->setContextProperty("app", &controller);
+    // Whether a new audio stream is safe now (QtAudioGate.h): QML players
+    // start through `qtAudio.play(player)`. Installed before anything plays.
+    engine.rootContext()->setContextProperty(
+        "qtAudio", &lightning::media::QtAudioGate::install());
+    // Qt's audio is up by now (the call sounds and the gate both asked it),
+    // and Qt read QT_AUDIO_BACKEND once, when it created its audio devices.
+    // A value Lightning set is taken out again, so an application the user
+    // opens from here (a Qt media player, through QDesktopServices) chooses
+    // its own backend. A value the user set stays.
+    lightning::calls::releaseQtAudioBackendVariable(g_qtAudioBackendSetHere);
     // Separate from the controller: FontManager holds no session state.
     // Main.qml guards it with `typeof` for test harnesses.
     engine.rootContext()->setContextProperty("fonts", &fontManager);

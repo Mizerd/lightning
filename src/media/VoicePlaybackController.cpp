@@ -3,6 +3,7 @@
 #include "app/SettingsManager.h"
 #include "media/MediaBridge.h"
 #include "media/MediaPlaybackController.h"
+#include "media/QtAudioGate.h"
 
 #include <QAudioOutput>
 #include <QLoggingCategory>
@@ -262,6 +263,7 @@ void VoicePlaybackController::togglePlayPause()
 
 void VoicePlaybackController::pause()
 {
+    dropWaitingStart();
     if (m_player && playing()) {
         m_player->pause();
         return;
@@ -287,7 +289,7 @@ void VoicePlaybackController::resume()
     }
     if (m_audibility)
         m_audibility->acquire(ownerKey());
-    m_player->play();
+    playGated();
 }
 
 void VoicePlaybackController::seek(qint64 positionMs)
@@ -305,6 +307,7 @@ void VoicePlaybackController::stop()
 {
     if (!active() && !m_player)
         return;
+    dropWaitingStart();
     const bool wasActive = active();
     const QString owner = ownerKey();
     if (m_player) {
@@ -393,7 +396,45 @@ void VoicePlaybackController::startSource(const QString &url)
     setLoaded(true);
     if (m_audibility)
         m_audibility->acquire(ownerKey());
-    m_player->play();
+    playGated();
+}
+
+void VoicePlaybackController::setAudioGateForTest(
+    lightning::media::QtAudioGate *gate)
+{
+    m_audioGate = gate;
+}
+
+void VoicePlaybackController::playGated()
+{
+    // QMediaPlayer::play() opens the audio stream, which aborts the process
+    // while Qt's PulseAudio backend has no connection (QtAudioGate.h). Held
+    // until it has one; the newest request wins, and a pause or stop in the
+    // meantime cancels it.
+    using lightning::media::QtAudioGate;
+    QtAudioGate *gate = m_audioGate ? m_audioGate.data() : QtAudioGate::current();
+    const quint64 tag = ++m_playTag;
+    if (!gate) {
+        ++m_playerStarts;
+        m_player->play();
+        return;
+    }
+    gate->cancel(this);
+    gate->whenReady(
+        this,
+        [this, tag] {
+            if (tag != m_playTag || !m_player || !m_loaded)
+                return;
+            ++m_playerStarts;
+            m_player->play();
+        },
+        [this, tag] {
+            if (tag != m_playTag || !active())
+                return;
+            qCWarning(lcVoicePlayback)
+                << "the sound server did not come back; playback not started";
+            setFetchState(kFailed);
+        });
 }
 
 void VoicePlaybackController::setFetchState(const QString &state)
@@ -440,8 +481,22 @@ void VoicePlaybackController::onAudibleOwnerChanged()
     if (!m_audibility)
         return;
     const QString owner = m_audibility->audibleOwner();
-    if (!owner.isEmpty() && owner != ownerKey() && playing())
+    if (owner.isEmpty() || owner == ownerKey())
+        return;
+    // A start still waiting at the audio gate lost the speaker too: it must
+    // not begin later over the card that took it.
+    dropWaitingStart();
+    if (playing())
         m_player->pause();
+}
+
+void VoicePlaybackController::dropWaitingStart()
+{
+    ++m_playTag;
+    using lightning::media::QtAudioGate;
+    if (QtAudioGate *gate =
+            m_audioGate ? m_audioGate.data() : QtAudioGate::current())
+        gate->cancel(this);
 }
 
 void VoicePlaybackController::onToggleRequested(const QString &ownerKey)

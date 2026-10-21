@@ -860,6 +860,20 @@ void countBuffersAt(GstElement *sink, std::atomic<int> *counter)
     gst_object_unref(pad);
 }
 
+/// The error pulsesink posts when the sound server drops the client, posted
+/// now (a sink that is taking no buffers fails this way too).
+void postSoundServerError(GstElement *sink)
+{
+    if (!sink)
+        return;
+    GError *error = g_error_new_literal(
+        GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
+        "pa_stream_writable_size() failed: Connection terminated");
+    gst_element_post_message(
+        sink, gst_message_new_error(GST_OBJECT(sink), error, "test"));
+    g_error_free(error);
+}
+
 /// Makes `sink` fail the way pulsesink does when the sound server drops the
 /// client: it posts an error and returns GST_FLOW_ERROR for every buffer.
 void failLikeADisconnectedSoundServer(GstElement *sink)
@@ -9466,6 +9480,134 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(firstAgain.load() > 20, 10000);
         QCOMPARE(receiver.receiveBinsForTest(), 2);
         QCOMPARE(lost.count(), 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // Measured live 2026-10-20 (private PipeWire graph, Qt's PipeWire audio
+    // backend as in the nix build): every sound-server restart during a call
+    // failed the receive sink once and ONE rebuild brought it back, yet the
+    // fifth restart gave the far end up for the rest of the call, because a
+    // rebuild that worked still counted against the budget for failed ones
+    // unless a whole minute passed. Each recovered failure starts afresh.
+    void aReceiveChainThatRecoversEachTimeIsNeverGivenUp()
+    {
+        // More restarts than the budget, each one recovered and played.
+        constexpr int kRestarts = 7;
+        // Before the engines: a counted sink keeps playing until the next
+        // restart fails it, and the engines stop only when they go.
+        std::atomic<int> played[kRestarts + 1]{};
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        receiver.setFreshRebuildRunAfterForTest(300);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first")),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+
+        for (int i = 1; i <= kRestarts; ++i) {
+            GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+            GstElement *sink = firstSinkOf(bin);
+            QVERIFY2(sink, qPrintable(QStringLiteral("no sink before restart %1")
+                                          .arg(i)));
+            failLikeADisconnectedSoundServer(sink);
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                receiver.receiveBinForTest(QStringLiteral("first")) != nullptr
+                    && receiver.receiveBinForTest(QStringLiteral("first"))
+                        != bin,
+                qPrintable(QStringLiteral("restart %1 was not rebuilt; "
+                                          "notices=%2")
+                               .arg(i)
+                               .arg(lost.count())),
+                10000);
+            GstElement *rebuilt =
+                firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+            QVERIFY(rebuilt);
+            countBuffersAt(rebuilt, &played[i]);
+            QTRY_VERIFY_WITH_TIMEOUT(played[i].load() > 20, 10000);
+            // Played past the fresh-run window before the next restart.
+            QTest::qWait(400);
+        }
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), kRestarts);
+        QCOMPARE(lost.count(), 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // The other half of the bound: only a rebuild that RENDERS ends a run of
+    // failures. One whose output opens but takes nothing (an output that
+    // accepts the stream and then plays nothing) must not reset the budget
+    // however long it sits there, or a dead output would be rebuilt for ever.
+    void aRebuiltChainThatNeverRendersStillUsesTheBudget()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        receiver.setFreshRebuildRunAfterForTest(100);
+        receiver.rebuiltReceiveChainsNeverRenderForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first")),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+
+        // Each failure is followed by a rebuild that opens; each rebuilt
+        // chain then sits silent well past the fresh-run window and fails.
+        for (int i = 1; i <= 5; ++i) {
+            GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+            GstElement *sink = firstSinkOf(bin);
+            QVERIFY2(sink, qPrintable(QStringLiteral("no sink before failure %1")
+                                          .arg(i)));
+            postSoundServerError(sink);
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                receiver.receiveBinForTest(QStringLiteral("first")) != nullptr
+                    && receiver.receiveBinForTest(QStringLiteral("first"))
+                        != bin,
+                qPrintable(QStringLiteral("failure %1 was not rebuilt").arg(i)),
+                10000);
+            QTest::qWait(300);
+        }
+        QCOMPARE(lost.count(), 0);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), 5);
+        // The sixth failure finds the budget spent: it gives up and says so.
+        postSoundServerError(
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first"))));
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 1, 10000);
+        QCOMPARE(lost.at(0).at(0).toBool(), true);
+        QTest::qWait(500);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), 5);
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
 
         sender.stop();

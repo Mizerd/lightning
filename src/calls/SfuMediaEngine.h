@@ -701,6 +701,14 @@ public:
     void setReceiveRebuildDelayForTest(int ms) { m_rebuildBaseDelayMs = ms; }
     /// Test-only: every receive-bin rebuild fails, as with no sound server.
     void failReceiveRebuildsForTest(bool fail) { m_failReceiveRebuilds = fail; }
+    /// Test-only: how long a rebuilt receive chain must have played before a
+    /// new failure of it starts a fresh budget (10 s by default).
+    void setFreshRebuildRunAfterForTest(int ms) { m_freshRebuildRunAfterMs = ms; }
+    /// Test-only: rebuilt receive chains open, but nothing reaches their sink.
+    void rebuiltReceiveChainsNeverRenderForTest(bool never)
+    {
+        m_rebuiltChainsNeverRenderForTest = never;
+    }
 
     /// GUI thread: the system's list of audio outputs changed (a headset
     /// plugged in or out, a Bluetooth sink back, an RDP audio endpoint
@@ -1496,6 +1504,11 @@ private:
         /// across rebuild attempts; -1 when unknown.
         double level = -1.0;
         qint64 lastRebuildMs = 0;
+        /// When the chain last rebuilt RENDERED (its sink took a buffer); 0
+        /// while a rebuild is out, or since one that has not rendered. A
+        /// failure well after it is a new event (a sound-server restart,
+        /// another device), not the next attempt of the old run.
+        qint64 recoveredMs = 0;
         /// Every rebuild of the run failed and the engine stopped trying.
         /// Only a changed output list starts it again; see
         /// notifyAudioOutputsChanged().
@@ -1549,6 +1562,8 @@ private:
     void finishReceiveRebuild(GstPad *pad, quint64 generation,
                               GstElement *bin, bool ok, const QString &why,
                               double level, const QString &outputName);
+    /// GUI thread, marshalled from a rebuilt chain's sink: it rendered.
+    void noteReceiveChainRendering(GstPad *pad, quint64 generation);
     /// The client name of the fresh Pulse connection after a drop, or empty.
     /// Guarded by m_receiveBinMutex.
     QString m_freshPulseClient;
@@ -1690,6 +1705,9 @@ private:
     int m_cameraFirstFrameTimeoutMs = kCameraFirstFrameTimeoutMs;
     int m_portalCameraFirstFrameTimeoutMs = kPortalCameraFirstFrameTimeoutMs;
     int m_rebuildBaseDelayMs = 500;
+    /// See ReceiveBin::recoveredMs.
+    int m_freshRebuildRunAfterMs = 10000;
+    bool m_rebuiltChainsNeverRenderForTest = false;
     bool m_failReceiveRebuilds = false;
     /// remotePlaybackFailed(true) was emitted and not yet withdrawn.
     bool m_playbackFailureAnnounced = false;

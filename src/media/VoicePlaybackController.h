@@ -9,6 +9,9 @@
 #include <memory>
 
 class MediaBridge;
+namespace lightning::media {
+class QtAudioGate;
+}
 class MediaPlaybackController;
 class QAudioOutput;
 class QMediaPlayer;
@@ -84,6 +87,12 @@ public:
     // Tests: answer playable sources without a homeserver. Production asks
     // MediaBridge::playableSource().
     void setSourceResolverForTest(SourceResolver resolver);
+    // Tests: the audio gate to ask before play() (QtAudioGate.h). Production
+    // uses the process's installed gate.
+    // Out of line: QPointer needs the complete type to assign.
+    void setAudioGateForTest(lightning::media::QtAudioGate *gate);
+    // Tests: a play() reached the player (not one still held by the gate).
+    int playerStartsForTest() const { return m_playerStarts; }
 
     QString eventId() const { return m_eventId; }
     QString roomId() const { return m_roomId; }
@@ -151,6 +160,10 @@ private:
     void ensurePlayer();
     void startOrFetch();
     void startSource(const QString &url);
+    void playGated();
+    // Drops a play() still waiting at the audio gate (pause, stop, another
+    // card taking the speaker).
+    void dropWaitingStart();
     void setFetchState(const QString &state);
     void setLoaded(bool loaded);
     void cancelFetch();
@@ -190,4 +203,9 @@ private:
     // eviction while the player holds its file open.
     QString m_fetchingKey;
     QString m_pinnedKey;
+    QPointer<lightning::media::QtAudioGate> m_audioGate;
+    // Bumped by every play request, pause and stop: a start the gate released
+    // late runs only if it is still the newest request.
+    quint64 m_playTag = 0;
+    int m_playerStarts = 0;
 };

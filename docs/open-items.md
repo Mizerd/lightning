@@ -242,6 +242,49 @@ event-focused timeline work (`docs/roadmap.md`, after 0.10.2).
 appends 10/10 held, and a glide to the latest with a mid-glide message lands at
 the bottom, following. Windows NOT TESTED.
 
+## 2026-10-20 — Qt's PulseAudio backend on every Linux Qt 6.10+ build, and the abort it carries
+
+**Decided 2026-10-20 (lead), implemented in the pwcrash package, NOT live-tested.**
+Every Linux process whose running Qt is 6.10 or newer now asks for Qt
+Multimedia's PulseAudio backend (pipewire-pulse), as the Flatpak already did:
+the nix build, and rpm/deb builds against a system Qt 6.10+. Outside the
+Flatpak only when libQt6Multimedia itself needs libpulse and a PulseAudio
+server answers; a user's `QT_AUDIO_BACKEND` always wins (`=pipewire` gets the
+old behaviour). Logged once as `qt audio backend choice: ...` with the reason;
+`--call-sounds-status` prints the reason too. Once Qt's audio is up the
+variable is taken out of the environment again when Lightning set it, so an
+application Lightning opens chooses its own backend. **Still inherited, and
+older than this change:** `QT_FFMPEG_DECODING_HW_DEVICE_TYPES=none` (main.cpp
+sets it unless the user did; not unset the same way, because whether Qt's
+FFmpeg backend reads it only once was not checked), so a Qt media player
+opened from Lightning decodes in software.
+Bypassing QDesktopServices to strip it was tried and refused in review: an
+own `xdg-open` drops Qt's Wayland xdg-activation token, so the opened window
+would not be raised.
+
+**The cost it widens, and how it is gated.** A new stream on that backend
+while it has no server connection aborts the process in libpulse
+(`pa_context_get_state(NULL)` / `pa_stream_new(NULL)`; measured for the call
+sounds, commit 1efee79c). The window is ~3 s after every server drop, and for
+good if Qt's single retry finds no socket. Gated now: the call sounds
+(PulseGate), the voice player and recorder (`media/QtAudioGate.h`: the start
+waits, at most 8 s, then a clear error), and QML players through `qtAudio`
+(`qtAudio.play(player)` / `qtAudio.cancelPlay(player)`; the QML changes are
+with the media-audio/media-video packages). **Still exposed**: any start nothing
+gates (a QML card not yet converted), and a stream Qt re-opens by itself
+mid-playback (FFmpeg's renderer on a device change). Live checks owed: a
+voice message and a recording started within 3 s of `systemctl --user restart
+pipewire-pulse` (must wait, then play or fail cleanly, never abort), and the
+`qt audio backend choice` line on a nix build.
+
+**Measured on the way (2026-10-20, private graph, nix build, Qt's PipeWire
+backend):** after a PipeWire restart Qt's QMediaDevices reported no output
+change again, so a call's given-up receive chain could not be re-armed; the
+receive-rebuild budget also counted successful rebuilds, so the 5th restart
+in a call left the far end silent (fixed: only a rebuild that RENDERS ends a
+run). Whether the PulseAudio backend's notices survive a restart is a
+HYPOTHESIS (one "audio outputs changed" was seen on it on 2026-10-16).
+
 ## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
 
 **What it is.** Qt 6.11's native PipeWire sink keeps each stream alive through
@@ -283,6 +326,12 @@ call device preferences are stored as Qt device ids), the QSoundEffect voice
 race on that backend (not exercised by the cue mixer, which no longer uses
 QSoundEffect on Linux), and whether a PulseAudio-backend QAudioSink open can
 block the GUI thread on a stalled server.
+**Updated 2026-10-20 (pwcrash):** brought forward into 0.10.2 and widened:
+every Linux build whose running Qt is 6.10 or newer now uses Qt's PulseAudio
+backend when a PulseAudio server (pipewire-pulse) answers, not only the
+Flatpak; `QT_AUDIO_BACKEND=pipewire` restores the native backend. The three
+checks above are still owed live; see the 2026-10-20 entry above for the
+gating that the PulseAudio backend's no-server abort needs.
 
 **Upstream bug draft (not filed).**
 

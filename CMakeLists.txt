@@ -858,6 +858,8 @@ set(APP_SOURCES
     src/media/VoiceRecorder.cpp
     src/media/VoicePlaybackController.h
     src/media/VoicePlaybackController.cpp
+    src/media/QtAudioGate.h
+    src/media/QtAudioGate.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
@@ -5161,6 +5163,9 @@ if(BUILD_TESTING)
         tests/VoiceRecorderTest.cpp
         src/media/VoiceRecorder.h
         src/media/VoiceRecorder.cpp
+        # The audio gate a start asks first (QtAudioGate.h).
+        src/media/QtAudioGate.h
+        src/media/QtAudioGate.cpp
         # mediaScratchRoot(): the portable folder when portable, else the OS
         # temp directory.
         src/storage/PortableMode.cpp
@@ -5194,6 +5199,19 @@ if(BUILD_TESTING)
     target_link_libraries(voice-playback-test PRIVATE Qt6::Multimedia Qt6::Test)
     add_test(NAME voice-playback COMMAND voice-playback-test)
     set_tests_properties(voice-playback PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Qt's PulseAudio backend aborts on a new stream while it has no server
+    # connection: the audio gate's rules, and the voice player and recorder
+    # holding their starts while it is closed (QtAudioGate.h).
+    qt_add_executable(qt-audio-gate-test
+        tests/QtAudioGateTest.cpp
+    )
+    target_include_directories(qt-audio-gate-test PRIVATE src)
+    target_link_libraries(qt-audio-gate-test
+        PRIVATE lightning-app-testlib Qt6::Multimedia Qt6::Test)
+    add_test(NAME qt-audio-gate COMMAND qt-audio-gate-test)
+    set_tests_properties(qt-audio-gate PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Bare-localpart user lookup: candidates from the account's server, profile
