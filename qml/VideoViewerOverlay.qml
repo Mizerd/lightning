@@ -112,6 +112,12 @@ Popup {
 
     contentItem: FocusScope {
         focus: true
+        // A named dialog: a screen reader announced nothing on opening.
+        // (On the content item: Popup is not an Item and takes no
+        // Accessible attached property.)
+        Accessible.role: Accessible.Dialog
+        Accessible.name: root.title.length > 0
+                         ? qsTr("Video: %1").arg(root.title) : qsTr("Video")
 
         // The control bar's key map (the inline card uses the same one):
         // Space toggles, arrows seek ±5 s, M mutes, Up/Down adjust and
@@ -312,7 +318,7 @@ Popup {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: AppTheme.spacing8
-                IconButton {
+                VideoControlBar.ScrimIconButton {
                     objectName: "videoViewerDownloadButton"
                     visible: root.canSave
                     iconName: "download"
@@ -325,13 +331,16 @@ Popup {
                     ToolTip.delay: 600
                     onClicked: root.saveRequested()
                 }
-                IconButton {
+                VideoControlBar.ScrimIconButton {
                     objectName: "videoViewerCloseButton"
                     iconName: "close"
                     iconSize: 20
                     implicitWidth: 36; implicitHeight: 36
                     iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Close video")
+                    ToolTip.text: Accessible.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                     onClicked: root.close()
                 }
             }

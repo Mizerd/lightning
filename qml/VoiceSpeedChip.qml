@@ -28,10 +28,17 @@ AbstractButton {
     Accessible.role: Accessible.Button
     Accessible.name: qsTr("Playback speed %1. Change speed")
         .arg(logic.rateText(root.rate))
-    ToolTip.text: qsTr("Playback speed")
+    // Says what a click does: the speed now and the one it steps to.
+    ToolTip.text: qsTr("Playback speed %1, click for %2")
+        .arg(logic.rateText(root.rate))
+        .arg(logic.rateText(logic.nextRate(root.rate)))
     ToolTip.visible: root.hovered
     ToolTip.delay: 600
     onClicked: logic.cycleRate()
+    // Space is the AbstractButton's own; Return and Enter act too, as on
+    // every other button (C21-F01).
+    Keys.onReturnPressed: (event) => { event.accepted = true; if (root.enabled) root.clicked() }
+    Keys.onEnterPressed: (event) => { event.accepted = true; if (root.enabled) root.clicked() }
 
     background: Rectangle {
         radius: height / 2

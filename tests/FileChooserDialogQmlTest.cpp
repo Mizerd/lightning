@@ -33,6 +33,7 @@
 #include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -773,6 +774,78 @@ private Q_SLOTS:
                                 .arg(list->height()).arg(panel->height())));
         QVERIFY(list->height() > 100);
         QVERIFY(header->mapToItem(panel, QPointF(0, 0)).y() < 5);
+    }
+
+    // C22-F07: folder mode lists folders only, so a folder holding files and
+    // no sub-folders said "No files here match the filter." with no filter
+    // active. Fails on the old code: filteredOut > 0 was tested before
+    // pickingFolder.
+    void folderModeWithOnlyFilesSaysNoFolders()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        touch(dir.path() + QStringLiteral("/file.txt"));
+        request({{QStringLiteral("mode"), QStringLiteral("folder")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_COMPARE(m_model->rowCount(), 0);
+        QObject *empty = child("fileChooserEmpty");
+        QVERIFY(empty);
+        QTRY_COMPARE(empty->property("text").toString(),
+                     QStringLiteral("No folders here."));
+    }
+
+    // C22-F03: the crumbs, places and sort headers are Tab stops and drew
+    // nothing when focused; the list with no current row drew nothing either.
+    // Each fails on the old code: no such ring item exists (crumb, place,
+    // sort), and the frame stays stormBorder.
+    void everyTabStopOfTheChooserShowsARing()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        touch(dir.path() + QStringLiteral("/a.txt"));
+        request({{QStringLiteral("mode"), QStringLiteral("open")},
+                 {QStringLiteral("folder"), QUrl::fromLocalFile(dir.path())}});
+        QTRY_VERIFY(m_model->rowCount() > 0);
+
+        std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+            [&find](QQuickItem *from, const QString &name) -> QQuickItem * {
+            for (QQuickItem *item : from->childItems()) {
+                if (item->objectName() == name)
+                    return item;
+                if (QQuickItem *hit = find(item, name))
+                    return hit;
+            }
+            return nullptr;
+        };
+        QQuickItem *content = m_window->contentItem();
+        for (const QString &name : {QStringLiteral("crumbFocusRing"),
+                                    QStringLiteral("placeFocusRing"),
+                                    QStringLiteral("sortFocusRing")}) {
+            QQuickItem *ring = find(content, name);
+            QVERIFY2(ring, qPrintable(name + QStringLiteral(" missing")));
+            QQuickItem *button = ring->parentItem();
+            QVERIFY(button);
+            QCOMPARE(QQmlProperty(ring, "border.width").read().toInt(), 0);
+            button->forceActiveFocus(Qt::TabFocusReason);
+            QVERIFY(button->hasActiveFocus());
+            QCOMPARE(QQmlProperty(ring, "border.width").read().toInt(), 2);
+        }
+
+        QQuickItem *list = qobject_cast<QQuickItem *>(child("fileChooserList"));
+        QVERIFY(list);
+        list->setProperty("currentIndex", -1);
+        list->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(list->hasActiveFocus());
+        QQuickItem *frame = list->parentItem()->parentItem();
+        QVERIFY(frame);
+        const QColor ringColor = QQmlProperty(frame, "border.color").read()
+                                     .value<QColor>();
+        const QColor plain = QQmlProperty(frame, "color").read().value<QColor>();
+        QVERIFY(ringColor.isValid());
+        QVERIFY(ringColor != plain);
+        list->setProperty("currentIndex", 0);
+        QVERIFY(QQmlProperty(frame, "border.color").read().value<QColor>()
+                != ringColor);
     }
 
     // B134: the new-folder error goes when the row closes.

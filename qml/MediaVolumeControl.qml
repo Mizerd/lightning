@@ -94,6 +94,12 @@ IconButton {
         } else if (event.key === Qt.Key_Tab && volumePopup.visible) {
             // Into the slider: a Tab stop of its own.
             volumeSlider.forceActiveFocus(Qt.TabFocusReason)
+        } else if (event.key === Qt.Key_Escape && volumePopup.visible) {
+            // Closes the popup and nothing else: an unhandled Escape goes on
+            // to the window, which leaves the room (C21-F03).
+            root.dismissPopup()
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            root.toggleMute()
         } else {
             return
         }
@@ -111,10 +117,40 @@ IconButton {
 
     HoverHandler { id: buttonHover }
 
+    // Escape for a popup the pointer opened: nothing holds the keyboard
+    // focus there, so no Keys handler sees the key and it would go on to the
+    // window and leave the room (C21-F03). Enabled only while the popup is
+    // up, so it never competes with another Escape (two enabled Shortcuts
+    // make Qt fire neither, only an ambiguous activation, which also closes).
+    Shortcut {
+        sequence: "Escape"
+        enabled: volumePopup.visible
+        onActivated: root.dismissPopup()
+        onActivatedAmbiguously: root.dismissPopup()
+    }
+
+    // Escape closed the popup; it stays closed until the pointer or the
+    // keyboard comes back to the control. Plain property, never bound.
+    property bool dismissed: false
+    function dismissPopup() {
+        root.dismissed = true
+        closeGrace.stop()
+        if (volumeSlider.activeFocus)
+            root.forceActiveFocus(Qt.OtherFocusReason)
+    }
+    Connections {
+        target: buttonHover
+        function onHoveredChanged() {
+            if (buttonHover.hovered)
+                root.dismissed = false
+        }
+    }
+    onVisualFocusChanged: if (visualFocus) root.dismissed = false
+
     // One predicate for "the user is engaging with the volume control".
-    readonly property bool wantVolumeOpen:
+    readonly property bool wantVolumeOpen: !root.dismissed && (
         buttonHover.hovered || popupHover.hovered
-        || volumeSlider.pressed || volumeSlider.activeFocus || root.visualFocus
+        || volumeSlider.pressed || volumeSlider.activeFocus || root.visualFocus)
     onWantVolumeOpenChanged: {
         if (wantVolumeOpen)
             closeGrace.stop()
@@ -134,7 +170,8 @@ IconButton {
         padding: AppTheme.spacing8
         // Held open by a grace timer, not raw hover: moving between button and
         // popup leaves both for a frame or two.
-        visible: root.audio !== null && (root.wantVolumeOpen || closeGrace.running)
+        visible: root.audio !== null && !root.dismissed
+                 && (root.wantVolumeOpen || closeGrace.running)
         closePolicy: Popup.NoAutoClose
         background: Rectangle {
             radius: AppTheme.radiusMd
@@ -154,6 +191,8 @@ IconButton {
             stepSize: 0.05
             value: root.audio ? root.audio.volume : 0.8
             focusPolicy: Qt.StrongFocus
+            // The wheel over the open popup steps the level (C21-F06).
+            wheelEnabled: true
             Accessible.name: qsTr("Volume %1%").arg(root.levelPercent)
             Accessible.description: qsTr("Playback volume")
             onMoved: {
@@ -182,7 +221,7 @@ IconButton {
                     if (next)
                         next.forceActiveFocus(Qt.TabFocusReason)
                 } else if (event.key === Qt.Key_Escape) {
-                    root.forceActiveFocus(Qt.OtherFocusReason)
+                    root.dismissPopup()
                 } else {
                     return
                 }

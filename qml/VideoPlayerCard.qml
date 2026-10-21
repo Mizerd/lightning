@@ -23,6 +23,33 @@ import MatrixClient
 FocusScope {
     id: root
     objectName: "videoPlayerCard"
+    Accessible.role: Accessible.Pane
+    Accessible.name: filename.length > 0 ? qsTr("Video player: %1").arg(filename)
+                                         : qsTr("Video player")
+
+    // The player exists because the user pressed Play, so it takes keyboard
+    // focus: a mouse click on the cover left focus on the timeline and Space
+    // paged it instead of pausing. The key map runs here when no control
+    // inside has focus. Only the keys that mean something to a player the
+    // card itself holds: Up/Down/Home/F stay with the timeline, so keyboard
+    // scrolling still works after a click on Play.
+    Keys.onPressed: (event) => {
+        switch (event.key) {
+        case Qt.Key_Space:
+        case Qt.Key_K:
+        case Qt.Key_Left:
+        case Qt.Key_Right:
+        case Qt.Key_M:
+            if (controls.handleKey(event))
+                event.accepted = true
+            break
+        }
+    }
+    // Whether the card held focus when the expanded view opened.
+    property bool hadFocusBeforeOverlay: false
+    // Set when the card is created; taps in the first moments belong to the
+    // click that created it (see videoTap).
+    property double createdAt: 0
 
     // Stable identity and metadata from the delegate.
     property string mediaKey: ""
@@ -227,7 +254,11 @@ FocusScope {
         if (player.playbackState === MediaPlayer.PlayingState)
             player.pause()
     }
-    Component.onCompleted: start()
+    Component.onCompleted: {
+        createdAt = Date.now()
+        start()
+        root.forceActiveFocus(Qt.MouseFocusReason)
+    }
     Component.onDestruction: {
         rememberPosition()
         cancelGatedPlay(player)
@@ -400,7 +431,18 @@ FocusScope {
         TapHandler {
             id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
-            onTapped: root.togglePlayPause()
+            onTapped: {
+                // The second click of a double-click on the cover lands on
+                // the card that the first one created, and paused it before
+                // its first frame: a black card at 0:00.
+                // A heuristic guard, not a cause fix: it keys on the
+                // system's double-click interval.
+                if (Date.now() - root.createdAt
+                        < Qt.styleHints.mouseDoubleClickInterval)
+                    return
+                root.forceActiveFocus(Qt.MouseFocusReason)
+                root.togglePlayPause()
+            }
             onDoubleTapped: videoOverlay.openFor(player, output)
         }
 
@@ -500,11 +542,14 @@ FocusScope {
         // A compact bar (narrow, e.g. a portrait video) gives its close
         // button up so the seek track keeps its width; it lives in the
         // card's top-right corner, shown together with the bar.
-        IconButton {
+        VideoControlBar.ScrimIconButton {
             id: cornerClose
             objectName: "videoCardCloseButton"
             anchors.top: parent.top
-            anchors.right: parent.right
+            // The top-LEFT corner: the row's hover action bar is anchored to
+            // the row's top-right and covered a close button there on a
+            // narrow card.
+            anchors.left: parent.left
             anchors.margins: AppTheme.spacing6
             visible: controls.compact && controls.visible
             opacity: controls.opacity
@@ -515,6 +560,9 @@ FocusScope {
             restingColor: AppTheme.overlayScrim
             iconColorOverride: AppTheme.scrimInk
             Accessible.name: qsTr("Close player")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: {
                 root.resetPlayback()
                 root.closeRequested()
@@ -539,7 +587,13 @@ FocusScope {
     // that ended inline does: back to the cover, which offers Replay.
     Connections {
         target: videoOverlay
+        function onAboutToShow() {
+            root.hadFocusBeforeOverlay = root.activeFocus
+        }
         function onClosed() {
+            // Focus back on the card, only if it held it before.
+            if (root.hadFocusBeforeOverlay)
+                root.forceActiveFocus(Qt.TabFocusReason)
             if (!root.ended)
                 return
             root.resetPlayback()

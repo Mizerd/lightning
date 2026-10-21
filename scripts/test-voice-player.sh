@@ -28,6 +28,40 @@ import QtQuick
 QtObject {
     function disc(index, anchor) { return "#6b7280" }
     function ink(index, anchor) { return "#ffffff" }
+    // The C++ rule (IdentityColors.cpp legibleChoice): hue and saturation
+    // held, lightness moved in 0.02 steps until 4.5:1 on every ground.
+    function _lum(c) {
+        function ch(v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
+    }
+    function _ratio(a, b) {
+        var x = _lum(a), y = _lum(b)
+        return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+    }
+    function legibleChoice(chosen, grounds) {
+        var c = Qt.color(chosen)
+        function worst(ink) {
+            var w = 21
+            for (var i = 0; i < grounds.length; ++i)
+                w = Math.min(w, _ratio(ink, Qt.color(grounds[i])))
+            return w
+        }
+        if (grounds.length === 0 || worst(c) >= 4.5)
+            return c
+        var mean = 0
+        for (var j = 0; j < grounds.length; ++j)
+            mean += _lum(Qt.color(grounds[j]))
+        var dark = mean / grounds.length < 0.18
+        var h = Math.max(0, c.hslHue), s = c.hslSaturation, l = c.hslLightness
+        var ink = c
+        for (var k = 0; k < 48; ++k) {
+            ink = Qt.hsla(h, s, l, 1)
+            if (worst(ink) >= 4.5)
+                break
+            l = dark ? Math.min(0.97, l + 0.02) : Math.max(0.03, l - 0.02)
+        }
+        return ink
+    }
 }
 QML
 printf 'singleton IdentityPalette 1.0 IdentityPalette.qml\n' \

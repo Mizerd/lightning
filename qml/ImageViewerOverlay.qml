@@ -207,6 +207,17 @@ Popup {
         loadCurrent()
     }
 
+    // Page Up/Down: one strip's worth, stopping at the ends (unlike the arrow
+    // keys, which wrap), so a page key never lands somewhere unexpected.
+    function pageStep() {
+        return Math.max(1, Math.floor(thumbStrip.width / thumbStrip.cell))
+    }
+    function showClamped(index) {
+        if (entries.length === 0)
+            return
+        showAt(Math.max(0, Math.min(entries.length - 1, index)))
+    }
+
     function fitImage(w, h) {
         if (w <= 0 || h <= 0) return
         naturalWidth = w
@@ -376,6 +387,25 @@ Popup {
                 event.accepted = true
             } else if (event.key === Qt.Key_F) {
                 viewer.fitView()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Home) {
+                viewer.showAt(0)
+                event.accepted = true
+            } else if (event.key === Qt.Key_End) {
+                viewer.showAt(viewer.entries.length - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_PageDown) {
+                viewer.showClamped(viewer.currentIndex + viewer.pageStep())
+                event.accepted = true
+            } else if (event.key === Qt.Key_PageUp) {
+                viewer.showClamped(viewer.currentIndex - viewer.pageStep())
+                event.accepted = true
+            } else if (event.key === Qt.Key_Menu
+                       || (event.key === Qt.Key_F10
+                           && (event.modifiers & Qt.ShiftModifier))) {
+                // The keyboard route to the right-click menu.
+                viewerMenu.popup(Overlay.overlay,
+                                 viewer.width / 2, viewer.height / 2)
                 event.accepted = true
             }
         }
@@ -554,6 +584,16 @@ Popup {
                         var dy = event.pixelDelta.y !== 0
                                  ? event.pixelDelta.y
                                  : event.angleDelta.y / 120 * 60
+                        // Shift+vertical wheel scrolls sideways. X11 does not
+                        // swap the axes for us the way some platforms do.
+                        // Only when there is sideways overflow to scroll;
+                        // otherwise Shift+wheel keeps panning vertically.
+                        if ((event.modifiers & Qt.ShiftModifier)
+                                && dx === 0
+                                && flick.contentWidth > flick.width + 1) {
+                            dx = dy
+                            dy = 0
+                        }
                         flick.contentX = Math.max(
                             0, Math.min(flick.contentWidth - flick.width,
                                         flick.contentX - dx))
@@ -769,9 +809,68 @@ Popup {
             }
             // Keep the current thumbnail visible; `Contain` scrolls only when
             // it falls off an edge.
-            onCurrentIndexChanged: positionViewAtIndex(currentIndex,
-                                                       ListView.Contain)
+            onCurrentIndexChanged: { userScrolled = false; ensureCurrentVisible() }
             currentIndex: viewer.currentIndex
+            // True once the reader scrolled the strip by hand: a resize must
+            // not snap it back to the current thumbnail. Cleared by selecting
+            // another image or reopening.
+            property bool userScrolled: false
+            onMovementStarted: userScrolled = true
+            // The index is set before the strip has a width or delegates, so
+            // the change handler alone leaves it at the start on open.
+            onWidthChanged: if (!userScrolled) ensureCurrentVisible()
+            onCountChanged: if (!userScrolled) ensureCurrentVisible()
+            function ensureCurrentVisible() {
+                if (count > 0 && currentIndex >= 0)
+                    positionViewAtIndex(currentIndex, ListView.Contain)
+            }
+            Connections {
+                target: viewer
+                function onOpened() {
+                    thumbStrip.userScrolled = false
+                    thumbStrip.ensureCurrentVisible()
+                }
+            }
+
+            // The picture's wheel handler is not an ancestor of the strip, but
+            // a ListView only scrolls itself along its own axis for the
+            // matching wheel axis, so a vertical notch fell through to it.
+            // Scroll by whole cells so SnapToItem's alignment survives.
+            WheelHandler {
+                objectName: "viewerThumbnailWheel"
+                target: null
+                // Ctrl+wheel keeps zooming the picture, as it does elsewhere.
+                acceptedModifiers: Qt.NoModifier
+                property real residual: 0
+                onWheel: (event) => {
+                    var px = event.pixelDelta.x !== 0 ? event.pixelDelta.x
+                                                      : event.pixelDelta.y
+                    var d = event.angleDelta.x !== 0 ? event.angleDelta.x
+                                                     : event.angleDelta.y
+                    // Whole cells only: pixel deltas (touchpads) accumulate
+                    // until a cell's worth, so tiles are never left sliced.
+                    var cells
+                    if (px !== 0) {
+                        residual += px
+                        cells = Math.trunc(residual / thumbStrip.cell)
+                        residual -= cells * thumbStrip.cell
+                    } else {
+                        cells = Math.round(d / 120)
+                    }
+                    var maxX = thumbStrip.contentWidth - thumbStrip.width
+                               + thumbStrip.originX
+                    var base = Math.round((thumbStrip.contentX
+                                           - thumbStrip.originX)
+                                          / thumbStrip.cell) * thumbStrip.cell
+                                + thumbStrip.originX
+                    // Wheel up/left moves toward the start.
+                    thumbStrip.contentX = Math.max(
+                        thumbStrip.originX,
+                        Math.min(maxX, base - cells * thumbStrip.cell))
+                    thumbStrip.userScrolled = true
+                    event.accepted = true
+                }
+            }
 
             // Swallows taps in the gaps between thumbnails, which would
             // otherwise reach the scrim and close. WithinBounds takes the

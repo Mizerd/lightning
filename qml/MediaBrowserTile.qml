@@ -30,6 +30,16 @@ Item {
     signal activated()
     signal jumpRequested(string eventId)
 
+    /// Opens the same menu a right click does; the grid calls it for the Menu
+    /// key on the current tile.
+    function openMenu() { tileMenu.popup() }
+    /// True while the owning view has keyboard focus and this is its current
+    /// tile: draws the focus ring. A standalone tile never shows one.
+    readonly property bool keyboardCurrent:
+        !!GridView.view && GridView.isCurrentItem && GridView.view.activeFocus
+    readonly property string displayName:
+        filename.length > 0 ? filename : body
+
     readonly property bool visual: kind === "image" || kind === "video"
                                    || kind === "sticker"
     // An encrypted picture whose sender attached no thumbnail has no small copy
@@ -139,6 +149,17 @@ Item {
         border.color: AppTheme.border
         clip: true
 
+        Rectangle {
+            objectName: "focusRing"
+            anchors.fill: parent
+            radius: AppTheme.radiusSm
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.focusRing
+            visible: tile.keyboardCurrent
+            z: 5
+        }
+
         Image {
             id: preview
             anchors.fill: parent
@@ -182,9 +203,12 @@ Item {
             }
         }
 
-        // Marks videos, so a click does not open the wrong thing.
+        // Marks videos, so a click does not open the wrong thing. Only over a
+        // drawn picture: the label fallback already carries the movie icon, and
+        // a badge centred there sat on top of the filename.
         Rectangle {
-            visible: tile.kind === "video"
+            objectName: "videoBadge"
+            visible: tile.kind === "video" && preview.status === Image.Ready
             anchors.centerIn: parent
             width: 26; height: 26; radius: 13
             color: Qt.rgba(0, 0, 0, 0.45)
@@ -213,11 +237,17 @@ Item {
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: tileMenu.popup()
     }
-    HoverHandler { cursorShape: Qt.PointingHandCursor }
+    HoverHandler {
+        id: tileHover
+        cursorShape: Qt.PointingHandCursor
+    }
+    // The label fallback elides long names; the full name is one hover away.
+    ToolTip.visible: tileHover.hovered && tile.displayName.length > 0
+    ToolTip.delay: 600
+    ToolTip.text: tile.displayName
 
     Accessible.role: Accessible.Button
-    Accessible.name: (tile.filename.length > 0 ? tile.filename : tile.body)
-                     + " — " + tile.sender
+    Accessible.name: tile.displayName + " — " + tile.sender
 
     AppMenu {
         id: tileMenu

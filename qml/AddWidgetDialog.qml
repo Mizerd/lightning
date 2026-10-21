@@ -36,6 +36,10 @@ Dialog {
     ]
 
     property string errorText: ""
+    /// The control that opened the dialog. AppButton takes no focus on a mouse
+    /// click, so Popup has nothing valid to hand focus back to and it lands in
+    /// the composer; the opener names itself and gets it on close.
+    property Item returnFocusItem: null
     readonly property bool urlOk:
         widgets ? widgets.urlIsAcceptable(urlField.text) : false
 
@@ -48,6 +52,32 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(480, parent ? parent.width - AppTheme.spacing24 * 2 : 480)
     padding: AppTheme.spacing16
+
+    onClosed: {
+        // Deferred: Popup runs its own focus restore around onClosed and
+        // must not be the last writer. The item is re-read when the call
+        // runs, so an opener destroyed meanwhile (a delegate whose model
+        // reset) is simply skipped and focus falls back as before.
+        Qt.callLater(function() {
+            if (root.returnFocusItem && root.returnFocusItem.visible)
+                root.returnFocusItem.forceActiveFocus(Qt.PopupFocusReason)
+        })
+    }
+
+    /// Same action as the Add button, so Return in a field cannot bypass the
+    /// button's own enabled conditions.
+    function submit() {
+        if (!(root.urlOk && root.widgets && root.widgets.canManage
+              && !root.widgets.writing))
+            return
+        root.errorText = ""
+        // An empty name would list the widget by its type ("m.custom"), so
+        // use the kind's label, which the placeholder showed.
+        const kind = root.kinds[kindBox.currentIndex]
+        const name = nameField.text.trim().length > 0
+                   ? nameField.text.trim() : kind.label
+        root.widgets.addWidget(kind.type, name, urlField.text)
+    }
 
     function openDialog() {
         kindBox.currentIndex = 0
@@ -121,6 +151,8 @@ Dialog {
             Layout.fillWidth: true
             placeholderText: qsTr("https://…")
             inputMethodHints: Qt.ImhUrlCharactersOnly
+            Keys.onReturnPressed: root.submit()
+            Keys.onEnterPressed: root.submit()
         }
         Label {
             Layout.fillWidth: true
@@ -143,6 +175,8 @@ Dialog {
             Layout.fillWidth: true
             placeholderText: root.kinds[kindBox.currentIndex]
                              ? root.kinds[kindBox.currentIndex].label : ""
+            Keys.onReturnPressed: root.submit()
+            Keys.onEnterPressed: root.submit()
         }
 
         Label {
@@ -183,16 +217,7 @@ Dialog {
                 kind: "primary"
                 enabled: root.urlOk && root.widgets && root.widgets.canManage
                          && !root.widgets.writing
-                onClicked: {
-                    root.errorText = ""
-                    // An empty name would list the widget by its type
-                    // ("m.custom"), so use the kind's label, which the
-                    // placeholder showed.
-                    const kind = root.kinds[kindBox.currentIndex]
-                    const name = nameField.text.trim().length > 0
-                               ? nameField.text.trim() : kind.label
-                    root.widgets.addWidget(kind.type, name, urlField.text)
-                }
+                onClicked: root.submit()
             }
         }
     }

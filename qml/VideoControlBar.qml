@@ -25,6 +25,28 @@ import MatrixClient
 FocusScope {
     id: bar
 
+    // An icon button for a scrim: hover is a pale wash of the scrim itself.
+    // IconButton's themed hover fill is a LIGHT plate on a light theme, and
+    // the white scrim glyph on it was ~1.3:1. The focus ring is white on the
+    // dark scrim: the theme's accent ring measured 1.76:1 against it.
+    component ScrimIconButton: IconButton {
+        id: sib
+        background: Rectangle {
+            radius: sib.radius
+            color: sib.enabled && (sib.down || sib.hovered)
+                   ? AppTheme.scrimSurfaceRaised : sib.restingColor
+        }
+        Rectangle {
+            objectName: "scrimFocusRing"
+            anchors.fill: parent
+            radius: sib.radius
+            color: "transparent"
+            border.color: AppTheme.scrimInk
+            border.width: 2
+            visible: sib.visualFocus
+        }
+    }
+
     required property MediaPlayer player
     // The AudioOutput is not reachable through MediaPlayer from QML; passed
     // explicitly.
@@ -192,6 +214,18 @@ FocusScope {
         case Qt.Key_K:
             bar.togglePlay()
             return true
+        case Qt.Key_Return:
+        case Qt.Key_Enter: {
+            // Basic's buttons take Space only. Return clicks the focused
+            // button, as it does on the cover.
+            var f = bar.Window.activeFocusItem
+            if (f && f !== bar && typeof f.animateClick === "function"
+                    && f.enabled) {
+                f.animateClick()
+                return true
+            }
+            return false
+        }
         case Qt.Key_Left:
             bar.seekBy(-5000)
             return true
@@ -281,7 +315,7 @@ FocusScope {
         anchors.bottomMargin: 2
         spacing: 2
 
-        IconButton {
+        ScrimIconButton {
             id: playButton
             objectName: "videoPlayPauseButton"
             iconName: bar.playing ? "pause" : "play_arrow"
@@ -292,6 +326,9 @@ FocusScope {
                      && bar.player.source.toString().length > 0
             Accessible.name: bar.playing ? qsTr("Pause video")
                                          : qsTr("Play video")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: bar.togglePlay()
         }
 
@@ -306,10 +343,22 @@ FocusScope {
             from: 0
             to: bar.player && bar.player.duration > 0 ? bar.player.duration : 1
             enabled: !!bar.player && bar.player.seekable === true
-            value: pressed ? value : bar.positionMs
+            // Not a binding on `value` itself: Slider clamps `value` into
+            // [from, to] when `to` changes, and a plain binding on
+            // positionMs does not re-run then, so a view opened while PAUSED
+            // (duration arrives after the first evaluation, position never
+            // changes again) drew the handle at 0 under a clock reading
+            // 0:44. The Binding below also depends on `to`.
             Accessible.name: qsTr("Seek position")
             Accessible.description: bar.timeSpoken
             onMoved: if (bar.player) bar.player.position = value
+            Binding {
+                target: seekSlider
+                property: "value"
+                when: !seekSlider.pressed
+                value: Math.min(bar.positionMs, seekSlider.to)
+                restoreMode: Binding.RestoreNone
+            }
             // Five-second steps, as in the expanded view; the stock step is
             // a tenth of the clip.
             Keys.onLeftPressed: (event) => {
@@ -391,13 +440,17 @@ FocusScope {
             focusPolicy: Qt.TabFocus
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("Playback speed %1x").arg(bar.rateLabel)
+            hoverEnabled: true
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered && !speedMenu.visible
+            ToolTip.delay: 600
             onClicked: speedMenu.visible ? speedMenu.close() : speedMenu.open()
             background: Rectangle {
                 radius: AppTheme.radiusSm
                 color: speedButton.hovered || speedMenu.visible
                        ? AppTheme.scrimSurfaceRaised : "transparent"
                 border.width: speedButton.visualFocus ? 2 : 0
-                border.color: AppTheme.focusRing
+                border.color: AppTheme.scrimInk
             }
             contentItem: Item {
                 Label {
@@ -425,7 +478,7 @@ FocusScope {
             }
         }
 
-        IconButton {
+        ScrimIconButton {
             objectName: "videoExpandButton"
             visible: bar.showExpand
             iconName: bar.expandIcon
@@ -439,7 +492,7 @@ FocusScope {
             ToolTip.delay: 600
             onClicked: bar.expandRequested()
         }
-        IconButton {
+        ScrimIconButton {
             objectName: "videoCloseButton"
             visible: bar.closeInBar
             iconName: "close"
@@ -447,6 +500,9 @@ FocusScope {
             implicitWidth: bar.buttonSize; implicitHeight: bar.buttonSize
             iconColorOverride: AppTheme.scrimInk
             Accessible.name: qsTr("Close player")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: bar.closeRequested()
         }
     }

@@ -6427,6 +6427,13 @@ if(BUILD_TESTING)
         set_tests_properties(media-browser-tile-qml PROPERTIES
             SKIP_RETURN_CODE 77
             ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
+        # The media browser: keyboard reach, middle-click autoscroll, a fresh
+        # scan when shown again (scripts/test-media-browser.sh).
+        add_test(NAME media-browser-qml
+            COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-media-browser.sh)
+        set_tests_properties(media-browser-qml PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
         # The inline video card, its control bar and the expanded view: one
         # speed for every bar, the speed menu's direction, the narrow-card
         # layout, the keyboard map, the remembered position and the end of an

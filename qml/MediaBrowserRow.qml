@@ -28,6 +28,31 @@ ItemDelegate {
     signal jumpRequested(string eventId)
 
     onClicked: row.activated()
+    // The list owns keyboard focus and moves currentIndex (MediaBrowser); a
+    // row is never a Tab stop of its own, or Tab would walk every result.
+    focusPolicy: Qt.NoFocus
+    hoverEnabled: true
+    /// Opens the same menu a right click does (Menu key on the current row).
+    function openMenu() { rowMenu.popup() }
+    readonly property bool keyboardCurrent:
+        !!ListView.view && ListView.isCurrentItem && ListView.view.activeFocus
+    background: Rectangle {
+        color: row.hovered ? AppTheme.hover : "transparent"
+        Rectangle {
+            objectName: "focusRing"
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: AppTheme.radiusSm
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.focusRing
+            visible: row.keyboardCurrent
+        }
+    }
+    ToolTip.visible: row.hovered
+    ToolTip.delay: 600
+    ToolTip.text: row.kind === "link" ? row.url
+                  : (filename.length > 0 ? filename : body)
     height: layout.implicitHeight + AppTheme.spacing8 * 2
 
     Accessible.name: (filename.length > 0 ? filename : body) + " — " + sender

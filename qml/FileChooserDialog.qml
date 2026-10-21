@@ -793,10 +793,13 @@ Dialog {
                                 Accessible.name: crumbLabel.text
                                 onClicked: root.navigate(crumb.modelData.url)
                                 background: Rectangle {
+                                    objectName: "crumbFocusRing"
                                     radius: AppTheme.radiusControl
                                     color: crumbButton.hovered
                                            ? AppTheme.stormSelection
                                            : "transparent"
+                                    border.width: crumbButton.visualFocus ? 2 : 0
+                                    border.color: AppTheme.focusRing
                                 }
                                 contentItem: Row {
                                     id: crumbRow
@@ -940,10 +943,13 @@ Dialog {
                         Accessible.name: root.placeLabel(modelData.kind)
                         onClicked: root.navigate(modelData.url)
                         background: Rectangle {
+                            objectName: "placeFocusRing"
                             radius: AppTheme.radiusMd
                             color: place.current ? AppTheme.menuHighlight
                                  : place.hovered ? AppTheme.stormSelection
                                  : "transparent"
+                            border.width: place.visualFocus ? 2 : 0
+                            border.color: AppTheme.focusRing
                         }
                         contentItem: RowLayout {
                             spacing: AppTheme.spacing8
@@ -974,7 +980,11 @@ Dialog {
                     radius: AppTheme.radiusMd
                     color: AppTheme.stormInset
                     border.width: 1
-                    border.color: AppTheme.stormBorder
+                    // The list takes focus with no row current (a fresh
+                    // folder), so a ring on the current row alone left the
+                    // Tab stop invisible; the frame carries it then.
+                    border.color: fileList.activeFocus && fileList.currentIndex < 0
+                                  ? AppTheme.focusRing : AppTheme.stormBorder
                     clip: true
 
                     ColumnLayout {
@@ -1016,7 +1026,13 @@ Dialog {
                                     Accessible.name: qsTr("Sort by %1")
                                                      .arg(modelData.label)
                                     onClicked: root.sortBy(modelData.field)
-                                    background: Item {}
+                                    background: Rectangle {
+                                        objectName: "sortFocusRing"
+                                        radius: AppTheme.radiusControl
+                                        color: "transparent"
+                                        border.width: header.visualFocus ? 2 : 0
+                                        border.color: AppTheme.focusRing
+                                    }
                                     contentItem: RowLayout {
                                         spacing: AppTheme.spacing2
                                         Label {
@@ -1202,10 +1218,10 @@ Dialog {
                               : browser.error === "denied"
                                 ? qsTr("You don't have permission to open "
                                        + "this folder.")
-                                : browser.filteredOut > 0
-                                  ? qsTr("No files here match the filter.")
-                                  : root.pickingFolder
-                                    ? qsTr("No folders here.")
+                                : root.pickingFolder
+                                  ? qsTr("No folders here.")
+                                  : browser.filteredOut > 0
+                                    ? qsTr("No files here match the filter.")
                                     : qsTr("This folder is empty.")
                         color: AppTheme.stormTextMuted
                         font.pixelSize: AppTheme.textBody

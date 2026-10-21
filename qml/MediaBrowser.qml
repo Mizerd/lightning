@@ -88,9 +88,31 @@ Item {
         if (visible)
             model.loadMore()
     }
+    // How long the panel may stay hidden before a re-show rescans the room.
+    // Switching Room info sections away and back is shorter than this and keeps
+    // the reader's place and the pages already loaded.
+    property int staleAfterMs: 30000
+    property double _hiddenAt: 0
+    property string _hiddenRoom: ""
     onVisibleChanged: {
-        if (visible && model && model.loadedCount === 0 && !model.complete)
+        if (!model)
+            return
+        if (!visible) {
+            _hiddenAt = Date.now()
+            _hiddenRoom = roomId
+            return
+        }
+        if (model.loadedCount > 0 || model.complete) {
+            // Shown again after being hidden: what the model holds is the room
+            // as it was at the last scan, and nothing appends later messages to
+            // it. Rescan from the live edge only when it can plausibly be
+            // stale: the room changed, or the panel was away for a while.
+            var away = _hiddenAt > 0 ? Date.now() - _hiddenAt : staleAfterMs
+            if (_hiddenRoom !== roomId || away >= staleAfterMs)
+                model.reload()
+        } else {
             model.loadMore()
+        }
     }
 
     ColumnLayout {
@@ -338,9 +360,23 @@ Item {
             GridView {
                 id: grid
                 anchors.fill: parent
+                // Aligned with the header's margin: the tile draws 2 px inside
+                // its cell.
+                anchors.leftMargin: AppTheme.spacing12 - 2
                 visible: root.gridMode
                 model: root.model
                 clip: true
+                // The view is the one Tab stop; arrows, Home/End and Page keys
+                // move the current tile, Return opens it, Menu opens its menu.
+                activeFocusOnTab: true
+                keyNavigationEnabled: true
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Media")
+                Keys.onReturnPressed: root.activate(currentIndex)
+                Keys.onEnterPressed: root.activate(currentIndex)
+                Keys.onSpacePressed: root.activate(currentIndex)
+                Keys.onMenuPressed: if (currentItem) currentItem.openMenu()
+                Keys.onPressed: (event) => root.navigate(this, event)
                 cellWidth: Math.max(96, Math.floor(width / Math.max(1,
                     Math.floor(width / 116))))
                 cellHeight: cellWidth
@@ -355,7 +391,7 @@ Item {
                 delegate: MediaBrowserTile {
                     width: grid.cellWidth
                     height: grid.cellHeight
-                    onActivated: root.activate(index)
+                    onActivated: { grid.currentIndex = index; root.activate(index) }
                     onJumpRequested: root.jumpToEventRequested(eventId)
                 }
             }
@@ -367,6 +403,15 @@ Item {
                 model: root.model
                 clip: true
                 spacing: 0
+                activeFocusOnTab: true
+                keyNavigationEnabled: true
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Media")
+                Keys.onReturnPressed: root.activate(currentIndex)
+                Keys.onEnterPressed: root.activate(currentIndex)
+                Keys.onSpacePressed: root.activate(currentIndex)
+                Keys.onMenuPressed: if (currentItem) currentItem.openMenu()
+                Keys.onPressed: (event) => root.navigate(this, event)
                 ScrollBar.vertical: AppScrollBar {}
                 SmoothWheelArea {}
                 onContentYChanged: {
@@ -394,9 +439,18 @@ Item {
                 }
                 delegate: MediaBrowserRow {
                     width: ListView.view.width
-                    onActivated: root.activate(index)
+                    onActivated: { list.currentIndex = index; root.activate(index) }
                     onJumpRequested: root.jumpToEventRequested(eventId)
                 }
+            }
+
+            // Middle-click autoscroll, as in the timeline and the room list.
+            // A sibling over the views, which stay the ones drawn and focused.
+            MiddleClickScroller {
+                objectName: "mediaBrowserMiddleClickScroller"
+                anchors.fill: parent
+                z: latched ? 30 : 2
+                view: root.gridMode ? grid : list
             }
 
             // A quiet spinner; the grid stays usable while older history loads.
@@ -438,6 +492,37 @@ Item {
         function onFiltersChanged() { Qt.callLater(root.fillIfShort) }
     }
     onGridModeChanged: Qt.callLater(root.fillIfShort)
+
+    /// Home, End and the Page keys, which neither view's keyNavigation covers
+    /// (arrows it does). A page is what the view shows.
+    function navigate(view, event) {
+        var n = view.count
+        if (n <= 0)
+            return
+        var target = -1
+        if (event.key === Qt.Key_Home) {
+            target = 0
+        } else if (event.key === Qt.Key_End) {
+            target = n - 1
+        } else if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
+            var step
+            if (view.cellWidth !== undefined) {
+                step = Math.max(1, Math.floor(view.height / view.cellHeight))
+                       * Math.max(1, Math.floor(view.width / view.cellWidth))
+            } else {
+                var h = view.currentItem ? Math.max(1, view.currentItem.height) : 48
+                step = Math.max(1, Math.floor(view.height / h))
+            }
+            var dir = event.key === Qt.Key_PageUp ? -1 : 1
+            target = Math.max(0, Math.min(n - 1, view.currentIndex + dir * step))
+        }
+        if (target < 0)
+            return
+        view.currentIndex = target
+        view.positionViewAtIndex(target, view.cellWidth !== undefined
+                                 ? GridView.Contain : ListView.Contain)
+        event.accepted = true
+    }
 
     function requestMore() {
         if (model && !model.loading && !model.complete)

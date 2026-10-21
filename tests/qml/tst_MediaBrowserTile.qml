@@ -277,4 +277,45 @@ TestCase {
         wait(test.settle)
         verifyOnlyOnScreen(grid)
     }
+
+    function findNamed(item, name) {
+        if (item.objectName === name)
+            return item
+        for (var i = 0; i < item.children.length; ++i) {
+            var f = findNamed(item.children[i], name)
+            if (f)
+                return f
+        }
+        return null
+    }
+
+    // A video whose thumbnail never arrives shows its filename; the play badge
+    // used to be drawn centred on top of that text.
+    function test_aVideoWithoutAPictureHasNoBadgeOverItsName() {
+        var t = tile({ kind: "video", mimetype: "video/mp4",
+                       filename: "silent-clip.mp4", mediaKey: "", encrypted: false })
+        var badge = findNamed(t, "videoBadge")
+        verify(badge, "no badge item")
+        verify(!badge.visible, "play badge over the label fallback")
+    }
+
+    function test_aVideoWithAPictureKeepsItsBadge() {
+        bridge.answers = { "list_thumb:$v": test.squarePng }
+        var t = tile({ kind: "video", mimetype: "video/mp4", mediaKey: "$v",
+                       encrypted: false, thumbnailMxc: "mxc://x/t" })
+        tryCompare(preview(t), "status", Image.Ready)
+        verify(findNamed(t, "videoBadge").visible)
+    }
+
+    function test_theFullNameIsAvailableOnHover() {
+        var t = tile({ filename: "a-very-long-name-that-elides.png" })
+        compare(t.displayName, "a-very-long-name-that-elides.png")
+    }
+
+    // Menu key opens the tile's menu through the same path as a right click.
+    function test_openMenuIsExposedForTheMenuKey() {
+        var t = tile({})
+        verify(typeof t.openMenu === "function")
+        verify(!t.keyboardCurrent, "a standalone tile never draws a focus ring")
+    }
 }

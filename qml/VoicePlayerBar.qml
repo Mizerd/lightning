@@ -50,6 +50,8 @@ Rectangle {
 
     // Narrow chat columns drop the least needed parts first.
     readonly property bool roomForClock: root.width >= 420
+    // Between 300 and 420 px the position alone stays (C21-D13).
+    readonly property bool roomForPosition: root.width >= 300
     readonly property bool roomForSpeed: root.width >= 360
 
     Accessible.role: Accessible.Grouping
@@ -163,8 +165,9 @@ Rectangle {
 
         Label {
             objectName: "voicePlayerBarClock"
-            visible: root.roomForClock
-            text: logic.clock
+            visible: root.roomForClock || root.roomForPosition
+            text: root.roomForClock ? logic.clock
+                                    : logic.formatPosition(root.voice.position)
             color: logic.readable(AppTheme.textSecondary, root.color)
             font.pixelSize: AppTheme.scaled(AppTheme.textMicro + 1)
             // The scrubber's value carries the position for assistive
@@ -176,6 +179,15 @@ Rectangle {
             surface: root.color
             visible: root.roomForSpeed
         }
+        // The level and mute, on the player that stays (C21-D06).
+        MediaVolumeControl {
+            objectName: "voicePlayerBarVolume"
+            audio: root.voice.active ? root.voice.audioOutput : null
+            sliderObjectName: "voicePlayerBarVolumeSlider"
+            iconSize: 15
+            implicitWidth: 24; implicitHeight: 24
+            visible: root.roomForSpeed
+        }
         IconButton {
             id: playPauseButton
             objectName: "voicePlayerBarPlayPause"
@@ -183,6 +195,9 @@ Rectangle {
             implicitWidth: 30; implicitHeight: 30
             iconSize: 17
             focusPolicy: Qt.StrongFocus
+            // Return and Enter act as Space does (C21-F01).
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: root.voice.fetchState === "fetching"
                       ? "schedule"
                       : (root.voice.playing ? "pause" : "play_arrow")
@@ -200,6 +215,9 @@ Rectangle {
             visible: root.voice.hasNext
             size: "md"
             focusPolicy: Qt.StrongFocus
+            // Return and Enter act as Space does (C21-F01).
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "chevron_right"
             readonly property string actionLabel: qsTr("Next voice message")
             Accessible.name: actionLabel
@@ -212,6 +230,9 @@ Rectangle {
             objectName: "voicePlayerBarPopOut"
             size: "md"
             focusPolicy: Qt.StrongFocus
+            // Return and Enter act as Space does (C21-F01).
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "open_in_full"
             readonly property string actionLabel:
                 qsTr("Pop out the player")
@@ -225,6 +246,9 @@ Rectangle {
             objectName: "voicePlayerBarStop"
             size: "md"
             focusPolicy: Qt.StrongFocus
+            // Return and Enter act as Space does (C21-F01).
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
             iconName: "close"
             readonly property string actionLabel: qsTr("Stop playback")
             Accessible.name: actionLabel

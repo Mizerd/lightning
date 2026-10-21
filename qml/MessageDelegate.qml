@@ -1223,6 +1223,9 @@ Item {
     function refreshPreview() {
         if (isVirtualRow || isStateActivity || isCallEvent || isThreadKeyWait
             || model.redacted || model.isImage || model.isFile
+            // A poll's card never shows its fallback body, so a link in it
+            // must not raise a preview prompt (or a fetch) under the card.
+            || model.isPoll === true
             || actionKey === "" || !app.linkPreviews.supported) {
             preview = ({ state: "none" })
             return
@@ -4012,11 +4015,33 @@ Item {
                         kind: "secondary"
                         text: qsTr("Cancel")
                         onClicked: destructiveConfirm.close()
+                        // AbstractButton activates on Space only; Return
+                        // must do what the focused button says.
+                        // Not on auto-repeat: the Return that opened the
+                        // dialog may still be held when it takes focus.
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) clicked()
+                            event.accepted = true
+                        }
                     }
                     AppButton {
                         objectName: "messageDestructiveConfirmAccept"
                         kind: "dangerPrimary"
                         text: destructiveConfirm.acceptText
+                        // Not on auto-repeat: the Return that opened the
+                        // dialog may still be held when it takes focus.
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) clicked()
+                            event.accepted = true
+                        }
                         onClicked: {
                             destructiveConfirm.close()
                             if (destructiveConfirm.action)
@@ -7125,7 +7150,8 @@ Item {
                                 + model.locationLon.toFixed(5)
                         return model.locationUncertaintyM > 0
                             ? qsTr("%1 · within %2 m").arg(pos)
-                                  .arg(Math.round(model.locationUncertaintyM))
+                                  .arg(Math.round(model.locationUncertaintyM)
+                                       .toLocaleString(Qt.locale(AppLocale.name), "f", 0))
                             : pos
                     }
                     color: AppTheme.textMuted
@@ -7184,11 +7210,43 @@ Item {
                     sum += (pollAnswers[i].count || 0)
                 return sum
             }
-            function ownSelection() {
+            // What this client last sent, until the model echoes it. Rapid
+            // clicks otherwise each toggle from the stale echoed state and
+            // the votes overwrite one another.
+            property var pendingSelection: null
+            property bool capHintShown: false
+            function echoedSelection() {
                 var ids = []
                 for (var i = 0; i < pollAnswers.length; ++i)
                     if (pollAnswers[i].byMe) ids.push(pollAnswers[i].id)
                 return ids
+            }
+            function ownSelection() {
+                return pendingSelection !== null
+                       ? pendingSelection.slice() : echoedSelection()
+            }
+            function sameSet(a, b) {
+                if (a.length !== b.length) return false
+                for (var i = 0; i < a.length; ++i)
+                    if (b.indexOf(a[i]) < 0) return false
+                return true
+            }
+            onPollAnswersChanged: {
+                if (pendingSelection !== null
+                        && sameSet(echoedSelection(), pendingSelection))
+                    pendingSelection = null
+            }
+            // A vote the server never echoed (failed send) must not pin the
+            // card to a selection nobody holds.
+            Timer {
+                id: pendingExpiry
+                interval: 8000
+                onTriggered: pollCard.pendingSelection = null
+            }
+            Timer {
+                id: capHintTimer
+                interval: 3500
+                onTriggered: pollCard.capHintShown = false
             }
             function toggleAnswer(answerId) {
                 if (!canVote) return
@@ -7201,13 +7259,20 @@ Item {
                     if (at >= 0) selection.splice(at, 1)
                     else if (selection.length < maxSelections)
                         selection.push(answerId)
-                    else return // selection cap reached
+                    else {
+                        // Selection cap reached: say why nothing happened.
+                        capHintShown = true
+                        capHintTimer.restart()
+                        return
+                    }
                 } else {
                     // Re-clicking your own choice retracts the vote (an empty
                     // response list).
                     selection = ownSelection().indexOf(answerId) >= 0
                                 ? [] : [answerId]
                 }
+                pendingSelection = selection
+                pendingExpiry.restart()
                 app.composer.votePoll(eventId, selection, pollThreadRoot)
             }
 
@@ -7372,6 +7437,17 @@ Item {
                             }
                         }
                     }
+                }
+
+                Label {
+                    objectName: "pollCapHint"
+                    visible: pollCard.capHintShown
+                    text: qsTr("You can pick up to %n answer(s)",
+                               "poll selection cap", pollCard.maxSelections)
+                    color: AppTheme.warning
+                    font.pixelSize: AppTheme.scaled(11)
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                 }
 
                 Label {

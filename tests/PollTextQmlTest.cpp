@@ -30,6 +30,8 @@
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
+#include "matrix/MockMatrixClient.h"
+#include "models/MessageComposer.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
@@ -364,6 +366,228 @@ private Q_SLOTS:
                      "a long unbroken question is %1px wide in a %2px "
                      "preview: it runs off the card instead of wrapping")
                      .arg(contentWidth).arg(preview->width())));
+    }
+
+    // C23-F01/F04: a second click must toggle from what the FIRST click sent,
+    // not from the model's not-yet-echoed answers; a pick beyond the cap says
+    // why nothing happened.
+    void rapidClicksToggleFromThePendingSelectionAndTheCapSpeaks()
+    {
+        AppController app(AppController::MockBackend);
+        // Voting needs a client that supports polls; the roomless composer
+        // drops the send itself, so nothing leaves the process.
+        MockMatrixClient pollClient;
+        pollClient.setScreenshotDemoMode(true);
+        app.composer()->setClient(&pollClient);
+        // A failed QVERIFY returns early; never leave the composer holding
+        // a pointer to the stack client.
+        struct ClientGuard {
+            AppController &a;
+            ~ClientGuard() { a.composer()->setClient(nullptr); }
+        } clientGuard{app};
+        QQmlApplicationEngine engine;
+        QVariantMap fixture = pollFixture();
+        fixture.insert(QStringLiteral("pollMaxSelections"), 2);
+        QVariantMap c;
+        c.insert(QStringLiteral("id"), QStringLiteral("a3"));
+        c.insert(QStringLiteral("text"), QStringLiteral("three"));
+        c.insert(QStringLiteral("count"), 0);
+        c.insert(QStringLiteral("byMe"), false);
+        QVariantList answers = fixture.value(QStringLiteral("pollAnswers")).toList();
+        answers.append(c);
+        fixture.insert(QStringLiteral("pollAnswers"), answers);
+        engine.rootContext()->setContextProperty("app", &app);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        QVERIFY(!created.isEmpty() || created.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            created.at(0).at(0).value<QObject *>());
+        QVERIFY2(root, "MessageDelegate did not load");
+        QQuickWindow window;
+        window.resize(720, 600);
+        root->setParentItem(window.contentItem());
+        root->setWidth(640);
+        window.show();
+        settle();
+
+        QQuickItem *card = findVisual(root, QStringLiteral("pollCard"));
+        QVERIFY2(card, "no pollCard");
+        QVERIFY2(card->property("canVote").toBool(),
+                 "the mock composer must allow voting for this test to mean "
+                 "anything");
+        auto toggle = [&](const char *id) {
+            QVERIFY(QMetaObject::invokeMethod(
+                card, "toggleAnswer", Q_ARG(QVariant, QString::fromLatin1(id))));
+        };
+        auto own = [&]() {
+            QVariant out;
+            QMetaObject::invokeMethod(card, "ownSelection",
+                                      Q_RETURN_ARG(QVariant, out));
+            return out.toStringList();
+        };
+        QQuickItem *hint = findVisual(root, QStringLiteral("pollCapHint"));
+        QVERIFY(hint);
+        QVERIFY(!hint->isVisible());
+
+        toggle("a1");
+        QCOMPARE(own(), QStringList{QStringLiteral("a1")});
+        toggle("a2");
+        QCOMPARE(own().size(), 2);
+        QVERIFY(!hint->isVisible());
+        toggle("a3"); // beyond the cap of two
+        QCOMPARE(own().size(), 2);
+        QVERIFY2(hint->isVisible(), "a refused pick gave no explanation");
+        toggle("a1"); // retract a1 from the pending, not from the model
+        QCOMPARE(own(), QStringList{QStringLiteral("a2")});
+    }
+
+    // C23-F07: a link in a poll's fallback body must not raise a link
+    // preview under the card. The control row (same body, not a poll) proves
+    // the harness does reach the preview path.
+    void aPollRowNeverRaisesALinkPreview()
+    {
+        struct PreviewClient : MockMatrixClient {
+            bool supportsUrlPreview() const override { return true; }
+        };
+        AppController app(AppController::MockBackend);
+        PreviewClient client;
+        app.linkPreviews()->setClient(&client);
+        struct Guard {
+            AppController &a;
+            ~Guard() { a.linkPreviews()->setClient(nullptr); }
+        } guard{app};
+        QVERIFY(app.linkPreviews()->supported());
+        // The row keys its preview on the open room.
+        app.setCurrentRoomId(QStringLiteral("!preview:mock.local"));
+
+        auto previewState = [&](bool poll) {
+            QQmlApplicationEngine engine;
+            QVariantMap fixture = pollFixture();
+            fixture.insert(QStringLiteral("body"),
+                           QStringLiteral("see https://example.org/page"));
+            fixture.insert(QStringLiteral("isPoll"), poll);
+            engine.rootContext()->setContextProperty("app", &app);
+            engine.rootContext()->setContextProperty("model", fixture);
+            QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+            engine.loadFromModule(QStringLiteral("MatrixClient"),
+                                  QStringLiteral("MessageDelegate"));
+            if (created.isEmpty())
+                created.wait(kSignalTimeoutMs);
+            auto *root = created.isEmpty() ? nullptr
+                : qobject_cast<QQuickItem *>(created.at(0).at(0).value<QObject *>());
+            if (!root)
+                return QString(QStringLiteral("<not loaded>"));
+            QQuickWindow window;
+            window.resize(720, 600);
+            root->setParentItem(window.contentItem());
+            root->setWidth(640);
+            window.show();
+            settle();
+            QMetaObject::invokeMethod(root, "refreshPreview");
+            return root->property("preview").toMap()
+                .value(QStringLiteral("state")).toString();
+        };
+        const QString control = previewState(false);
+        QVERIFY2(control != QLatin1String("none")
+                     && control != QLatin1String("<not loaded>"),
+                 qPrintable("control row got preview state " + control));
+        QCOMPARE(previewState(true), QStringLiteral("none"));
+    }
+
+    static QQuickItem *loadDelegate(QQmlApplicationEngine &engine,
+                                    QQuickWindow &window)
+    {
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (created.isEmpty() && !created.wait(kSignalTimeoutMs))
+            return nullptr;
+        auto *root = qobject_cast<QQuickItem *>(
+            created.at(0).at(0).value<QObject *>());
+        if (!root)
+            return nullptr;
+        window.resize(720, 600);
+        root->setParentItem(window.contentItem());
+        root->setWidth(640);
+        window.show();
+        settle();
+        return root;
+    }
+
+    static void collectLabelTexts(QQuickItem *parent, QStringList &out)
+    {
+        for (QQuickItem *child : parent->childItems()) {
+            const QVariant t = child->property("text");
+            if (t.isValid() && t.typeId() == QMetaType::QString)
+                out.append(t.toString());
+            collectLabelTexts(child, out);
+        }
+    }
+
+    // C23-F06: a huge uncertainty printed as "1e+08" (Number.toString of a
+    // large double through %2).
+    void aHugeLocationUncertaintyIsPrintedAsADigitString()
+    {
+        AppController app(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QVariantMap f = pollFixture();
+        f.insert(QStringLiteral("isPoll"), false);
+        f.insert(QStringLiteral("isLocation"), true);
+        f.insert(QStringLiteral("locationHasPoint"), true);
+        f.insert(QStringLiteral("locationLat"), 0.0);
+        f.insert(QStringLiteral("locationLon"), 0.0);
+        f.insert(QStringLiteral("locationUncertaintyM"), 99999999.0);
+        engine.rootContext()->setContextProperty("app", &app);
+        engine.rootContext()->setContextProperty("model", f);
+        QQuickWindow window;
+        QQuickItem *root = loadDelegate(engine, window);
+        QVERIFY2(root, "MessageDelegate did not load");
+        QVERIFY2(findVisual(root, QStringLiteral("locationCard")),
+                 "no locationCard");
+        QStringList texts;
+        collectLabelTexts(root, texts);
+        bool found = false;
+        for (const QString &t : std::as_const(texts)) {
+            if (!t.contains(QStringLiteral("within")))
+                continue;
+            found = true;
+            QVERIFY2(!t.contains(QStringLiteral("e+")),
+                     qPrintable(QStringLiteral("exponent form: ") + t));
+            QVERIFY2(t.contains(QStringLiteral("99")),
+                     qPrintable(QStringLiteral("no digits: ") + t));
+        }
+        QVERIFY2(found, "no accuracy label was drawn");
+    }
+
+    // C23-F03: Return must activate the focused button of the destructive
+    // confirm dialog (AbstractButton activates on Space only).
+    void returnConfirmsTheFocusedDestructiveButton()
+    {
+        AppController app(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &app);
+        engine.rootContext()->setContextProperty("model", pollFixture());
+        QQuickWindow window;
+        QQuickItem *root = loadDelegate(engine, window);
+        QVERIFY2(root, "MessageDelegate did not load");
+        engine.globalObject().setProperty(QStringLiteral("hits"), 0);
+        const QJSValue fn = engine.evaluate(
+            QStringLiteral("(function(){ hits = hits + 1 })"));
+        QVERIFY(QMetaObject::invokeMethod(
+            root, "confirmDestructive", Q_ARG(QVariant, QStringLiteral("t")),
+            Q_ARG(QVariant, QStringLiteral("b")),
+            Q_ARG(QVariant, QStringLiteral("Go")),
+            Q_ARG(QVariant, QVariant::fromValue(fn))));
+        settle();
+        QQuickItem *accept = findVisual(window.contentItem(),
+                                        QStringLiteral("messageDestructiveConfirmAccept"));
+        QVERIFY2(accept, "the confirm dialog did not open");
+        accept->forceActiveFocus();
+        QTest::keyClick(&window, Qt::Key_Return);
+        settle();
+        QCOMPARE(engine.globalObject().property(QStringLiteral("hits")).toInt(), 1);
     }
 
 private:

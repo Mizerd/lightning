@@ -102,6 +102,14 @@ Rectangle {
         if (!ms || ms < 0) ms = 0
         return root.clockText(Math.round(ms / 1000))
     }
+    // `ink` at 4.5:1 on the card's own surface (the muted clock was 3.9:1 and
+    // the accent speed 1.9:1 on a dark theme: C21-D05), through the shared
+    // helper, which keeps the hue and moves only lightness. In a bubble the
+    // surface is the bubble's, which this card does not know: the ink is
+    // left alone there.
+    function readableInk(ink) {
+        return root.inBubble ? ink : AppTheme.legibleInkOn(ink, root.color)
+    }
     function clockText(totalSeconds) {
         var m = Math.floor(totalSeconds / 60)
         var s = totalSeconds % 60
@@ -311,14 +319,25 @@ Rectangle {
                     tipSuppressed = true
                     root.togglePlay()
                 }
+                // Return and Enter act as Space does (C21-D09).
+                Keys.onReturnPressed: (event) => {
+                    event.accepted = true
+                    if (enabled) clicked()
+                }
+                Keys.onEnterPressed: (event) => {
+                    event.accepted = true
+                    if (enabled) clicked()
+                }
                 ToolTip {
                     objectName: "audioPlayPauseTip"
                     parent: playButton
                     visible: playButton.hovered && !playButton.tipSuppressed
                     delay: 600
                     text: playButton.actionLabel
-                    x: -implicitWidth - 6
-                    y: (playButton.height - implicitHeight) / 2
+                    // Centred above the button like its siblings: to the LEFT it
+                    // left the timeline pane over the room list (C21-F09).
+                    x: (playButton.width - implicitWidth) / 2
+                    y: -implicitHeight - 6
                 }
             }
         }
@@ -393,7 +412,7 @@ Rectangle {
                 Accessible.ignored: root.isCurrent
                 elide: Label.ElideRight
                 textFormat: Text.PlainText
-                color: AppTheme.textMuted
+                color: root.readableInk(AppTheme.textMuted)
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
         }
@@ -416,6 +435,15 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: 600
             onClicked: speedMenu.popup()
+            // Return and Enter open it as Space does (C21-D09).
+            Keys.onReturnPressed: (event) => {
+                event.accepted = true
+                if (enabled) clicked()
+            }
+            Keys.onEnterPressed: (event) => {
+                event.accepted = true
+                if (enabled) clicked()
+            }
             AppMenu {
                 id: speedMenu
                 objectName: "audioSpeedMenu"
@@ -441,8 +469,9 @@ Rectangle {
             }
             contentItem: Label {
                 text: audioSpeedButton.rate + "×"
-                color: Math.abs(audioSpeedButton.rate - 1.0) < 0.001
-                       ? AppTheme.textMuted : AppTheme.accent
+                color: root.readableInk(
+                    Math.abs(audioSpeedButton.rate - 1.0) < 0.001
+                    ? AppTheme.textMuted : AppTheme.accent)
                 opacity: audioSpeedButton.enabled ? 1 : 0.5
                 font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                 font.weight: AppTheme.weightBold

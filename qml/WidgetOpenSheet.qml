@@ -26,6 +26,19 @@ Dialog {
     /// so QML never names an address.
     property var widget: ({})
     property int widgetRow: -1
+    /// The control that opened the sheet; it gets keyboard focus back on close
+    /// (AppButton takes none on a click, so Popup alone sends it to the composer).
+    property Item returnFocusItem: null
+    onClosed: {
+        // Deferred: Popup runs its own focus restore around onClosed and
+        // must not be the last writer. The item is re-read when the call
+        // runs, so an opener destroyed meanwhile (a delegate whose model
+        // reset) is simply skipped and focus falls back as before.
+        Qt.callLater(function() {
+            if (root.returnFocusItem && root.returnFocusItem.visible)
+                root.returnFocusItem.forceActiveFocus(Qt.PopupFocusReason)
+        })
+    }
     readonly property string widgetName: widget && widget.name ? widget.name : ""
     readonly property string widgetUrl: widget && widget.url ? widget.url : ""
     readonly property string widgetCreator:

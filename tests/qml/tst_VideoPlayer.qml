@@ -777,6 +777,132 @@ TestCase {
                "on close the card said nothing inside it had focus")
     }
 
+    // ---- swarm C20 round 1 ----
+    Component {
+        id: lateBarComponent
+        Item {
+            width: 600
+            height: 120
+            property alias player: lmp
+            property alias bar: lbar
+            property var target: null
+            MediaPlayer {
+                id: lmp
+                audioOutput: AudioOutput { id: lao; muted: true
+                                           property bool userUnmuted: false }
+            }
+            VideoControlBar {
+                id: lbar
+                width: 600
+                // The expanded view's order: the bar exists first, the
+                // player arrives when the view opens.
+                player: parent.target
+                audio: lao
+            }
+        }
+    }
+
+    // C20-F02: a view opened while PAUSED drew the handle at 0.
+    function test_aBarGivenALoadedPausedPlayerDrawsTheHandleAtTheClock() {
+        var host = createTemporaryObject(lateBarComponent, test)
+        var mp = host.player
+        mp.source = test.fixture
+        tryVerify(function() { return mp.seekable && mp.duration > 0 }, 10000)
+        mp.position = Math.floor(mp.duration / 2)
+        tryVerify(function() { return mp.position > 0 })
+        verify(mp.playbackState !== MediaPlayer.PlayingState)
+        host.target = mp
+        var slider = findChild(host.bar, "videoSeekSlider")
+        tryVerify(function() { return slider.value > 0 }, 2000,
+                  "the handle sits at 0 under a clock reading "
+                  + host.bar.timeText)
+        verify(slider.visualPosition > 0.2)
+    }
+
+    // C20-F05/D16: Return and Enter click the focused bar button.
+    function test_returnActivatesTheFocusedBarButton() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        var player = playerOf(card)
+        card.focusControls()
+        var play = findChild(barOf(card), "videoPlayPauseButton")
+        verify(play.activeFocus)
+        tryCompare(player, "playbackState", MediaPlayer.PlayingState)
+        keyClick(Qt.Key_Return)
+        tryCompare(player, "playbackState", MediaPlayer.PausedState)
+        keyClick(Qt.Key_Enter)
+        tryCompare(player, "playbackState", MediaPlayer.PlayingState)
+    }
+
+    // C20-F09/D08: every bar button explains itself on hover.
+    function test_everyBarButtonHasATooltip() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        var bar = barOf(card)
+        var names = ["videoPlayPauseButton", "videoSpeedButton",
+                     "videoExpandButton", "videoCloseButton"]
+        for (var i = 0; i < names.length; ++i) {
+            var b = findChild(bar, names[i])
+            verify(b, names[i])
+            verify(b.ToolTip.text.length > 0, names[i] + " has no tooltip")
+        }
+    }
+
+    // C20-D05: the corner close is clear of the row's top-right toolbar.
+    function test_theCornerCloseIsNotInTheRowToolbarsCorner() {
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 260, height: 440 })
+        var close = findChild(card, "videoCardCloseButton")
+        tryVerify(function() { return close.visible })
+        verify(close.x < card.width / 2,
+               "the close button is at x=" + close.x + " of " + card.width)
+    }
+
+    // C20-F04: the second click of a double-click on the cover must not
+    // pause the card the first one created.
+    function test_aClickRightAfterTheCardAppearsDoesNotPauseIt() {
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        var player = playerOf(card)
+        tryCompare(player, "playbackState", MediaPlayer.PlayingState, 10000)
+        verify(card.ready, "the card was not ready, the click would be vacuous")
+        mouseClick(card, 240, 40)
+        wait(150)
+        verify(player.playbackState !== MediaPlayer.PausedState,
+               "the early click paused the player")
+    }
+
+    // C20-D03: a mouse-started card holds keyboard focus.
+    function test_aNewCardHoldsKeyboardFocusForSpace() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        verify(card.activeFocus, "the card does not hold focus")
+        var player = playerOf(card)
+        tryCompare(player, "playbackState", MediaPlayer.PlayingState)
+        keyClick(Qt.Key_Space)
+        tryCompare(player, "playbackState", MediaPlayer.PausedState)
+    }
+
+    // Review r1: the card forwards only player keys, so Up/Down/Home keep
+    // scrolling the timeline and do not change the volume.
+    function test_theCardLeavesUpDownAndHomeToTheTimeline() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        verify(card.activeFocus)
+        var player = playerOf(card)
+        player.position = 3000
+        tryCompare(player, "position", 3000, 5000)
+        keyClick(Qt.Key_Home)
+        keyClick(Qt.Key_Up)
+        wait(100)
+        verify(player.position >= 3000, "Home was taken by the card")
+    }
+
+    // Review r1: the corner close has a tooltip and the scrim button type.
+    function test_theCornerCloseHasATooltip() {
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 260, height: 440 })
+        var close = findChild(card, "videoCardCloseButton")
+        verify(close.ToolTip.text.length > 0)
+        verify(findChild(close, "scrimFocusRing"), "not a ScrimIconButton")
+    }
+
     Component {
         id: spyComponent
         SignalSpy {}

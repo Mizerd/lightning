@@ -455,6 +455,18 @@ Item {
                 root.nudge(dx, dy, 0, 0)
             event.accepted = true
         }
+        // Alt+Left and Alt+Right are also the window's history shortcuts, and
+        // a shortcut is offered the key before any Keys handler. While the
+        // card has the focus the four Alt+arrows are the card's: it says so
+        // in its accessible description (C21-F05, C21-D14).
+        Keys.onShortcutOverride: (event) => {
+            if ((event.modifiers & Qt.AltModifier)
+                    && (event.key === Qt.Key_Left
+                        || event.key === Qt.Key_Right
+                        || event.key === Qt.Key_Up
+                        || event.key === Qt.Key_Down))
+                event.accepted = true
+        }
 
         // Moving: a drag anywhere on the card that a control does not take.
         // A MouseArea under the content, not a DragHandler: it takes the
@@ -470,6 +482,7 @@ Item {
             hoverEnabled: true
             cursorShape: moving ? Qt.ClosedHandCursor : Qt.OpenHandCursor
             property bool moving: false
+            property bool pressedOnInfo: false
             readonly property bool active: moving
             property point pressAt: Qt.point(0, 0)
             property point startAt: Qt.point(0, 0)
@@ -478,6 +491,7 @@ Item {
             // for keyboard and shortcut focus only).
             onPressed: (mouse) => {
                 moving = false
+                pressedOnInfo = info.contains(mapToItem(info, mouse.x, mouse.y))
                 pressAt = mapToItem(root, mouse.x, mouse.y)
                 startAt = Qt.point(card.x, card.y)
             }
@@ -500,11 +514,18 @@ Item {
                                         root.area.y + root.area.height
                                         - card.height)
             }
-            onReleased: {
+            onReleased: (mouse) => {
                 if (moving) {
                     moving = false
                     root.commit(root.liveX, root.liveY, root.liveWidth,
                                 root.liveHeight, true)
+                } else if (pressedOnInfo
+                           && info.contains(mapToItem(info, mouse.x, mouse.y))) {
+                    // A click on the title and room is the way back to the
+                    // message. It is handled HERE, not by a TapHandler on the
+                    // text, whose press kept a drag that began on the title
+                    // from ever moving the card (C21-F02).
+                    logic.openSource()
                 }
             }
             onCanceled: {
@@ -538,6 +559,9 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     implicitWidth: edge
                     implicitHeight: edge
+                    // The compact card at its narrowest gives the picture up
+                    // for the title (C21-F07).
+                    visible: !(card.tier === "compact" && card.width < 260)
                     Avatar {
                         objectName: "voiceMiniPlayerAvatar"
                         anchors.fill: parent
@@ -607,12 +631,6 @@ Item {
                         id: infoHover
                         cursorShape: Qt.PointingHandCursor
                     }
-                    TapHandler {
-                        // DragThreshold: a drag that starts here moves the
-                        // card instead (and is not a click).
-                        gesturePolicy: TapHandler.DragThreshold
-                        onTapped: logic.openSource()
-                    }
                 }
                 Item {
                     // Keeps the controls right-aligned when the title hides.
@@ -626,6 +644,9 @@ Item {
                     implicitWidth: 30; implicitHeight: 30
                     iconSize: 17
                     focusPolicy: Qt.StrongFocus
+                    // Return and Enter act as Space does (C21-F01).
+                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: root.voice.fetchState === "fetching"
                               ? "schedule"
                               : (root.voice.playing ? "pause" : "play_arrow")
@@ -643,6 +664,9 @@ Item {
                     visible: card.tier === "regular" && root.voice.hasNext
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
+                    // Return and Enter act as Space does (C21-F01).
+                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "chevron_right"
                     readonly property string actionLabel:
                         qsTr("Next voice message")
@@ -656,6 +680,9 @@ Item {
                     objectName: "voiceMiniPlayerDock"
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
+                    // Return and Enter act as Space does (C21-F01).
+                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "close_fullscreen"
                     readonly property string actionLabel:
                         qsTr("Dock the player under the header")
@@ -669,6 +696,9 @@ Item {
                     objectName: "voiceMiniPlayerStop"
                     size: "sm"
                     focusPolicy: Qt.StrongFocus
+                    // Return and Enter act as Space does (C21-F01).
+                    Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                    Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                     iconName: "close"
                     readonly property string actionLabel: qsTr("Stop playback")
                     Accessible.name: actionLabel
@@ -725,6 +755,9 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             size: "md"
                             focusPolicy: Qt.StrongFocus
+                            // Return and Enter act as Space does (C21-F01).
+                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             iconName: "refresh"
                             readonly property string actionLabel:
                                 qsTr("Play from the start")
@@ -740,6 +773,9 @@ Item {
                             fill: true
                             size: "xl"
                             focusPolicy: Qt.StrongFocus
+                            // Return and Enter act as Space does (C21-F01).
+                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             iconName: root.voice.fetchState === "fetching"
                                       ? "schedule"
                                       : (root.voice.playing ? "pause"
@@ -759,6 +795,9 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             size: "md"
                             focusPolicy: Qt.StrongFocus
+                            // Return and Enter act as Space does (C21-F01).
+                            Keys.onReturnPressed: (event) => { event.accepted = true; if (enabled) clicked() }
+                            Keys.onEnterPressed: (event) => { event.accepted = true; if (enabled) clicked() }
                             enabled: root.voice.hasNext
                             opacity: enabled ? 1 : 0.4
                             iconName: "chevron_right"
@@ -775,6 +814,15 @@ Item {
                 VoiceSpeedChip {
                     objectName: "voiceMiniPlayerSpeed"
                     surface: logic.cardSurface
+                    visible: card.tier === "large" || card.width >= 280
+                }
+                // The level and mute, on the player that stays (C21-D06).
+                MediaVolumeControl {
+                    objectName: "voiceMiniPlayerVolume"
+                    audio: root.voice.active ? root.voice.audioOutput : null
+                    sliderObjectName: "voiceMiniPlayerVolumeSlider"
+                    iconSize: 15
+                    implicitWidth: 24; implicitHeight: 24
                     visible: card.tier === "large" || card.width >= 280
                 }
                 Label {

@@ -9,6 +9,8 @@
 
 #include <QtTest/QtTest>
 
+#include <cmath>
+
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -92,6 +94,28 @@ ApplicationWindow {
         return viewer.current ? (viewer.current.mediaKey || "") : ""
     }
     function close() { viewer.close() }
+    function resizeTo(w, h) { win.width = w; win.height = h }
+    function currentIndex() { return viewer.currentIndex }
+    // The right-click menu is a child of the overlay, found by objectName.
+    // A Popup's default property is contentData, not data.
+    function menuObject() {
+        for (var i = 0; i < viewer.contentData.length; ++i) {
+            var d = viewer.contentData[i]
+            if (d && d.objectName === "imageViewerContextMenu")
+                return d
+        }
+        return null
+    }
+    function menuOpened() {
+        var m = menuObject()
+        return m ? m.opened : false
+    }
+    function menuFound() { return menuObject() !== null }
+    function closeMenu() {
+        var m = menuObject()
+        if (m)
+            m.close()
+    }
 }
 )QML";
 
@@ -112,6 +136,14 @@ QVariantMap historyEntry(const QString &key)
         { QStringLiteral("thumbAvailable"), false },
         { QStringLiteral("size"), qint64(10) },
     };
+}
+
+QVariantList manyEntries(int n)
+{
+    QVariantList list;
+    for (int i = 0; i < n; ++i)
+        list << historyEntry(QStringLiteral("$e%1").arg(i));
+    return list;
 }
 
 } // namespace
@@ -186,6 +218,38 @@ private Q_SLOTS:
     }
 
     void cleanup() { QMetaObject::invokeMethod(m_root, "close"); }
+
+    // Opening on the last of an overflowing set must show that thumbnail.
+    // MUST stay the first case that opens the viewer: the popup keeps its size
+    // after the first open, and it is the FIRST open, where the strip is still
+    // zero-width when the index is set, that used to leave it at the start.
+    void theStripStartsWhereTheCurrentThumbnailIs()
+    {
+        // The reported geometry: a 700x700 window, resized BEFORE the popup
+        // is first opened, so the strip is width-limited and must overflow.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "resizeTo", Q_ARG(QVariant, QVariant(700)),
+            Q_ARG(QVariant, QVariant(700))));
+        QTRY_COMPARE(m_window->width(), 700);
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(39))));
+        QVERIFY(call("isOpen").toBool());
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        const qreal cx = strip->property("contentX").toReal();
+        const qreal cell = strip->property("cell").toReal();
+        QVERIFY2(strip->property("contentWidth").toReal()
+                     > strip->width() + 1,
+                 "the fixture set does not overflow the strip");
+        // Index 39's cell must lie inside the visible span.
+        QVERIFY2(cx + strip->width() >= 39 * cell + 48 - 1,
+                 qPrintable(QStringLiteral(
+                     "strip left at the start (contentX=%1) with the "
+                     "current thumbnail off to the right").arg(cx)));
+    }
 
     // The Media tab's call: the viewer opens the given index in the given list
     // and pages inside that list, never the loaded timeline.
@@ -312,6 +376,211 @@ private Q_SLOTS:
                  "click-to-close off the picture rests on it");
     }
 
+    // Home and End jump to the first and last picture; Page Up/Down move a
+    // strip's worth and stop at the ends. They used to do nothing at all.
+    void homeEndAndPageKeysNavigate()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(26))),
+            Q_ARG(QVariant, QVariant(10))));
+        QVERIFY(call("isOpen").toBool());
+        QTest::keyClick(m_window, Qt::Key_End);
+        QCOMPARE(call("currentIndex").toInt(), 25);
+        QTest::keyClick(m_window, Qt::Key_Home);
+        QCOMPARE(call("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_PageDown);
+        const int afterPage = call("currentIndex").toInt();
+        QVERIFY2(afterPage > 1, "Page Down did not move");
+        QTest::keyClick(m_window, Qt::Key_PageUp);
+        QCOMPARE(call("currentIndex").toInt(), 0);
+        // Stops at the first picture instead of wrapping to the last.
+        QTest::keyClick(m_window, Qt::Key_PageUp);
+        QCOMPARE(call("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTest::keyClick(m_window, Qt::Key_PageDown);
+        QCOMPARE(call("currentIndex").toInt(), 25);
+    }
+
+    // Menu and Shift+F10 open the same menu a right-click does.
+    void theContextMenuOpensFromTheKeyboard()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(3))),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+        QVERIFY2(call("menuFound").toBool(),
+                 "the harness cannot find the context menu");
+        QVERIFY(!call("menuOpened").toBool());
+        QTest::keyClick(m_window, Qt::Key_Menu);
+        QTRY_VERIFY2(call("menuOpened").toBool(), "Menu key opened nothing");
+        QMetaObject::invokeMethod(m_root, "closeMenu");
+        QTRY_VERIFY(!call("menuOpened").toBool());
+        QTest::keyClick(m_window, Qt::Key_F10, Qt::ShiftModifier);
+        QTRY_VERIFY2(call("menuOpened").toBool(),
+                     "Shift+F10 opened nothing");
+        QMetaObject::invokeMethod(m_root, "closeMenu");
+        QTRY_VERIFY(!call("menuOpened").toBool());
+    }
+
+    // The wheel over the strip scrolls the strip, and does not zoom or pan
+    // the picture behind it.
+    void theWheelOverTheStripScrollsTheStrip()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        const qreal cell = strip->property("cell").toReal();
+        const qreal x0 = strip->property("contentX").toReal();
+        const qreal zoom0 = call("zoomNow").toReal();
+        const QPointF at = strip->mapToScene(
+            QPointF(strip->width() / 2, strip->height() / 2));
+        // One notch down (vertical, as a plain mouse wheel sends).
+        QTest::wheelEvent(m_window, at, QPoint(0, -120));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(strip->property("contentX").toReal(), x0 + cell);
+        QCOMPARE(call("zoomNow").toReal(), zoom0);
+        QTest::wheelEvent(m_window, at, QPoint(0, 120));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(strip->property("contentX").toReal(), x0);
+    }
+
+    // A touchpad's pixel deltas accumulate to whole cells: a 20 px swipe is
+    // less than a cell and must not leave a tile sliced by the clip.
+    void touchpadPixelDeltasMoveTheStripByWholeCells()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(0))));
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        const qreal cell = strip->property("cell").toReal();
+        const QPointF at = strip->mapToScene(
+            QPointF(strip->width() / 2, strip->height() / 2));
+        for (int i = 0; i < 7; ++i) {
+            QTest::wheelEvent(m_window, at, QPoint(0, 0), QPoint(0, -20));
+            QCoreApplication::processEvents();
+            const qreal x = strip->property("contentX").toReal();
+            QVERIFY2(qFuzzyIsNull(std::fmod(x, cell)),
+                     qPrintable(QStringLiteral("contentX=%1 is not a whole "
+                                               "number of cells").arg(x)));
+        }
+        // 7 * 20 = 140 px -> two whole cells (104), 36 px carried.
+        QCOMPARE(strip->property("contentX").toReal(), 2 * cell);
+    }
+
+    // Ctrl+wheel over the strip still zooms the picture.
+    void ctrlWheelOverTheStripStillZooms()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(0))));
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        const qreal x0 = strip->property("contentX").toReal();
+        const qreal zoom0 = call("zoomNow").toReal();
+        const QPointF at = strip->mapToScene(
+            QPointF(strip->width() / 2, strip->height() / 2));
+        QTest::wheelEvent(m_window, at, QPoint(0, 120), QPoint(0, 0),
+                          Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("zoomNow").toReal() != zoom0);
+        QCOMPARE(strip->property("contentX").toReal(), x0);
+    }
+
+    // A resize must not throw away where the reader scrolled the strip to.
+    void aResizeKeepsAScrolledStripPosition()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "resizeTo", Q_ARG(QVariant, QVariant(900)),
+            Q_ARG(QVariant, QVariant(700))));
+        QTRY_COMPARE(m_window->width(), 900);
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(40))),
+            Q_ARG(QVariant, QVariant(0))));
+        QQuickItem *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        const qreal cell = strip->property("cell").toReal();
+        const QPointF at = strip->mapToScene(
+            QPointF(strip->width() / 2, strip->height() / 2));
+        for (int i = 0; i < 5; ++i)
+            QTest::wheelEvent(m_window, at, QPoint(0, -120));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(strip->property("contentX").toReal(), 5 * cell);
+        // Wheel handler writes contentX directly: no flick is running, but
+        // the strip is still "moving" only while an animation runs.
+        QTRY_VERIFY(!strip->property("moving").toBool());
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "resizeTo", Q_ARG(QVariant, QVariant(700)),
+            Q_ARG(QVariant, QVariant(700))));
+        QTRY_COMPARE(m_window->width(), 700);
+        QCoreApplication::processEvents();
+        QVERIFY2(strip->property("width").toReal() < 800,
+                 "the resize did not change the strip's width");
+        QCOMPARE(strip->property("contentX").toReal(), 5 * cell);
+    }
+
+    // With no sideways overflow, Shift+wheel still pans vertically.
+    void shiftWheelFallsBackToVerticalWhenThereIsNoSidewaysOverflow()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(2))),
+            Q_ARG(QVariant, QVariant(0))));
+        // Tall and narrow: overflows vertically only.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(200)),
+            Q_ARG(QVariant, QVariant(8000))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        QTRY_VERIFY(call("settled").toBool());
+        QTRY_VERIFY(call("contentH").toReal() > m_window->height());
+        QVERIFY2(call("contentW").toReal() <= m_window->width() + 1,
+                 "the fixture overflows sideways too");
+        QMetaObject::invokeMethod(m_root, "centreContent");
+        QCoreApplication::processEvents();
+        const qreal y0 = call("contentY").toReal();
+        QTest::wheelEvent(m_window, QPointF(m_window->width() / 2.0,
+                                            m_window->height() / 3.0),
+                          QPoint(0, -120), QPoint(0, 0), Qt::ShiftModifier);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("contentY").toReal() != y0);
+    }
+
+    // Shift + the vertical wheel pans sideways where there is room to.
+    void shiftWheelPansHorizontally()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(2))),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
+            Q_ARG(QVariant, QVariant(4000))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        QTRY_VERIFY(call("settled").toBool());
+        QVERIFY(call("centreContent").toBool());
+        QCoreApplication::processEvents();
+        const QPointF centre(m_window->width() / 2.0,
+                             m_window->height() / 2.0);
+        const qreal x0 = call("contentX").toReal();
+        const qreal y0 = call("contentY").toReal();
+        QTest::wheelEvent(m_window, centre, QPoint(0, -120), QPoint(0, 0),
+                          Qt::ShiftModifier);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("contentX").toReal(), x0 + 60.0);
+        QCOMPARE(call("contentY").toReal(), y0);
+    }
+
     // A thumbnail click selects rather than closing the viewer: a TapHandler
     // on the default DragThreshold policy takes no exclusive grab, so the
     // scrim's close handler would fire on the same press. The strip's handlers
@@ -337,16 +606,20 @@ private Q_SLOTS:
         QTRY_VERIFY(strip->opacity() > 0.99);
         auto *content = strip->property("contentItem").value<QQuickItem *>();
         QVERIFY(content);
-        QQuickItem *third = nullptr;
-        const auto thumbs = content->childItems();
-        for (QQuickItem *thumb : thumbs) {
-            const QVariant idx = thumb->property("index");
-            if (idx.isValid() && idx.toInt() == 2) {
-                third = thumb;
-                break;
+        // The strip's delegates are built on its next polish, after the
+        // fade-in; wait for the third rather than reading the first frame.
+        const auto findThird = [content]() -> QQuickItem * {
+            const auto thumbs = content->childItems();
+            for (QQuickItem *thumb : thumbs) {
+                const QVariant idx = thumb->property("index");
+                if (idx.isValid() && idx.toInt() == 2 && thumb->width() > 0)
+                    return thumb;
             }
-        }
-        QVERIFY2(third, "no delegate for the third thumbnail");
+            return nullptr;
+        };
+        QQuickItem *third = nullptr;
+        QTRY_VERIFY2((third = findThird()) != nullptr,
+                     "no delegate for the third thumbnail");
         // Its real geometry, mapped to the window.
         const QPointF centre = third->mapToScene(
             QPointF(third->width() / 2, third->height() / 2));

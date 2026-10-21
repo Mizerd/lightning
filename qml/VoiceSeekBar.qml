@@ -111,7 +111,17 @@ Slider {
 
     ToolTip.visible: root.hovered && !root.pressed && root.enabled
     ToolTip.delay: 600
-    ToolTip.text: qsTr("Seek")
+    // Where a click would land, under the pointer (C21-D08); plain "Seek"
+    // while the clip's length is not known.
+    HoverHandler { id: hoverPoint }
+    readonly property real hoverMs: root.availableWidth > 0
+        ? Math.max(0, Math.min(1, (hoverPoint.point.position.x
+                                   - root.leftPadding) / root.availableWidth))
+          * root.shownDuration
+        : 0
+    ToolTip.text: root.shownDuration > 0
+        ? qsTr("Seek to %1").arg(root.clock(root.hoverMs, false))
+        : qsTr("Seek")
 
     background: Item {
         x: root.leftPadding

@@ -127,6 +127,14 @@ TestCase {
     }
     property var app: appStub
 
+    // The window's history shortcuts (ShortcutRegistry history.back and
+    // history.forward), for the card's Alt+arrow keys to beat (C21-F05).
+    property int historyHits: 0
+    Shortcut {
+        sequences: ["Alt+Left", "Alt+Right"]
+        onActivated: test.historyHits++
+    }
+
     Component {
         id: hostComponent
         Item {
@@ -247,6 +255,12 @@ TestCase {
             var found = find(kids[i], name)
             if (found)
                 return found
+        }
+        // Popups (menus, tooltips) are in `data`, not `children`.
+        var dat = item.data
+        for (var d = 0; dat && d < dat.length; ++d) {
+            if (dat[d] && dat[d].objectName === name)
+                return dat[d]
         }
         if (item.contentItem && item.contentItem !== item
                 && item.contentItem.parent !== item) {
@@ -704,6 +718,21 @@ TestCase {
         compare(button.tipSuppressed, true)
     }
 
+    // C21-F09: the tooltip is centred above its button, never left of it.
+    function test_thePlayTooltipIsCentredAboveTheButton() {
+        var row = createTemporaryObject(rowComponent, test, { x: 200, y: 200 })
+        var button = find(row, "audioPlayPauseButton")
+        var tip = null
+        for (var i = 0; i < button.data.length; ++i)
+            if (button.data[i].objectName === "audioPlayPauseTip")
+                tip = button.data[i]
+        verify(tip !== null)
+        mouseMove(button, button.width / 2, button.height / 2)
+        tryVerify(function() { return tip.visible }, 2000, "tooltip never opened")
+        verify(tip.y < 0, "above the button, y=" + tip.y)
+        fuzzyCompare(tip.x + tip.width / 2, button.width / 2, 1.5)
+    }
+
     function test_inABubbleTheRowDrawsNoBox() {
         var row = createTemporaryObject(rowComponent, test, { inBubble: true })
         compare(row.border.width, 0)
@@ -881,5 +910,288 @@ TestCase {
         var after = [bar.Accessible.name, bar.Accessible.description,
                      seek.Accessible.name, seek.Accessible.description]
         compare(after, before)
+    }
+
+    // ── C21 round 1 ──
+
+    // C21-F01, C21-D09: Return and Enter act on a focused button as Space
+    // does. Old code: AbstractButton maps Space only, so each Return below
+    // changed nothing and the count of recorded calls stayed 0.
+    function test_returnAndEnterActivateTheButtons() {
+        var bar = createTemporaryObject(barComponent, test)
+        voice.load({})
+        voice.calls = []
+        var play = find(bar, "voicePlayerBarPlayPause")
+        play.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        compare(voice.made("toggle").length, 1, "Return on the strip's play")
+        keyClick(Qt.Key_Enter)
+        compare(voice.made("toggle").length, 2, "Enter on the strip's play")
+        var chip = find(bar, "voicePlayerBarSpeed")
+        chip.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        compare(voice.made("rate:").length, 1, "Return on the speed chip")
+        keyClick(Qt.Key_Enter)
+        compare(voice.made("rate:").length, 2, "Enter on the speed chip")
+
+        var host = makeHost()
+        popOut()
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        voice.calls = []
+        var next = find(card, "voiceMiniPlayerPlayPause")
+        next.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        compare(voice.made("toggle").length, 1, "Return on the card's play")
+        var stop = find(card, "voiceMiniPlayerStop")
+        stop.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        compare(voice.made("stop").length, 1, "Return on the card's stop")
+
+        var row = createTemporaryObject(rowComponent, test)
+        voice.calls = []
+        var rowPlay = find(row, "audioPlayPauseButton")
+        rowPlay.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        compare(voice.made("toggle:").length, 1, "Return on the row's play")
+        var speed = find(row, "audioSpeedButton")
+        speed.forceActiveFocus(Qt.TabFocusReason)
+        keyClick(Qt.Key_Return)
+        var menu = find(speed, "audioSpeedMenu")
+        verify(menu, "no speed menu")
+        tryVerify(function() { return menu.visible }, 2000,
+                  "Return on the row's speed chip opened no menu")
+    }
+
+    // C21-F02: a drag that starts on the title moves the card, and a click
+    // on it still goes to the message.
+    function test_aDragFromTheTitleMovesTheCard() {
+        var host = makeHost()
+        popOut()
+        settings.voiceMiniPlayerGeometry = Qt.rect(0.5, 0.3, 300, 92)
+        voice.load({})
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        var title = find(card, "voiceMiniPlayerSender")
+        var from = title.mapToItem(test, 8, title.height / 2)
+        var x0 = card.x
+        var y0 = card.y
+        mousePress(test, from.x, from.y)
+        for (var i = 1; i <= 8; ++i) {
+            mouseMove(test, from.x - 5 * i, from.y + 20 * i)
+            wait(5)
+        }
+        mouseRelease(test, from.x - 40, from.y + 160)
+        verify(Math.abs(card.y - (y0 + 160)) < 2,
+               "a drag from the title moved the card " + (card.y - y0)
+               + " of 160 px")
+        verify(card.x < x0 - 30, "and " + (x0 - card.x) + " of 40 px sideways")
+        compare(appStub.opened.length, 0, "the drag opened the message")
+        // A plain click on the title is the way back to the message.
+        var at = title.mapToItem(card, 8, title.height / 2)
+        mouseClick(card, at.x, at.y)
+        tryVerify(function() { return appStub.opened.length > 0 }, 2000,
+                  "a click on the title did not go to the message")
+    }
+
+    // A press that begins off the title and is released over it is not a
+    // click on the title (release-position-only check in the old code).
+    function test_aPressOffTheTitleReleasedOverItDoesNotOpenTheMessage() {
+        var host = makeHost()
+        popOut()
+        settings.voiceMiniPlayerGeometry = Qt.rect(0.5, 0.3, 300, 92)
+        voice.load({})
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        var title = find(card, "voiceMiniPlayerSender")
+        var t = title.mapToItem(card, 0, 0)
+        // Start 3 px left of the title's box, release at its left edge.
+        var startX = t.x - 3
+        var y = t.y + title.height / 2
+        verify(startX > 0)
+        mousePress(card, startX, y)
+        mouseRelease(card, t.x + 1, y)
+        wait(50)
+        compare(appStub.opened.length, 0,
+                "a press that began off the title opened the message")
+    }
+
+    // C21-F05, C21-D14: Alt+Left/Right are also the window's history
+    // shortcuts; with the card focused they move the card. Old code: the
+    // shortcut took the key, the card stayed and the history shortcut ran.
+    function test_altArrowsMoveTheCardAndNotTheHistory() {
+        var host = makeHost()
+        popOut()
+        settings.voiceMiniPlayerGeometry = Qt.rect(0.5, 0.5, 300, 92)
+        voice.load({})
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        card.forceActiveFocus()
+        test.historyHits = 0
+        var x0 = card.x
+        keyClick(Qt.Key_Left, Qt.AltModifier)
+        tryVerify(function() { return Math.abs(card.x - (x0 - 24)) < 0.5 })
+        keyClick(Qt.Key_Right, Qt.AltModifier)
+        tryVerify(function() { return Math.abs(card.x - x0) < 0.5 })
+        compare(test.historyHits, 0, "the history shortcut ran")
+        // Without the card focused, the shortcut is the window's again.
+        card.focus = false
+        test.forceActiveFocus()
+        keyClick(Qt.Key_Left, Qt.AltModifier)
+        compare(test.historyHits, 1, "the shortcut stopped working elsewhere")
+    }
+
+    // C21-F03: Escape closes the open volume popup and is not passed on.
+    // Old code: no Escape branch on the button (the popup was held open by
+    // its visual focus) and the key went on to the window.
+    function test_escapeClosesTheVolumePopup() {
+        var row = createTemporaryObject(volumeComponent, test)
+        var control = row.control
+        control.forceActiveFocus(Qt.TabFocusReason)
+        var slider = find(Overlay.overlay, "volumeUnderTestSlider")
+        verify(slider, "no popup")
+        tryVerify(function() { return slider.visible }, 2000)
+        keyClick(Qt.Key_Escape)
+        tryVerify(function() { return !slider.visible }, 2000,
+                  "Escape left the popup open")
+        // It comes back when the keyboard returns to the control.
+        control.focus = false
+        control.forceActiveFocus(Qt.TabFocusReason)
+        tryVerify(function() { return slider.visible }, 2000)
+        // And from inside the slider.
+        keyClick(Qt.Key_Tab)
+        tryVerify(function() { return slider.activeFocus }, 2000)
+        keyClick(Qt.Key_Escape)
+        tryVerify(function() { return !slider.visible }, 2000,
+                  "Escape in the slider left the popup open")
+    }
+
+    // C21-F03 (hover case): the pointer opened the popup, the focus is
+    // elsewhere, Escape closes it. Old code: only focused handlers saw Escape.
+    function test_escapeClosesAHoverOpenedVolumePopup() {
+        var row = createTemporaryObject(volumeComponent, test)
+        var control = row.control
+        row.after.forceActiveFocus(Qt.TabFocusReason)
+        verify(row.after.activeFocus)
+        mouseMove(control, control.width / 2, control.height / 2)
+        var slider = find(Overlay.overlay, "volumeUnderTestSlider")
+        verify(slider, "no popup")
+        tryVerify(function() { return slider.visible }, 2000,
+                  "hover did not open the popup")
+        verify(!control.activeFocus && !slider.activeFocus)
+        keyClick(Qt.Key_Escape)
+        tryVerify(function() { return !slider.visible }, 2000,
+                  "Escape left the hover-opened popup open")
+    }
+
+    // C21-F06: the wheel over the popup's slider steps the level. Old code:
+    // wheelEnabled was false, so the wheel did nothing.
+    function test_theWheelStepsTheVolume() {
+        var row = createTemporaryObject(volumeComponent, test)
+        var control = row.control
+        control.forceActiveFocus(Qt.TabFocusReason)
+        var slider = find(Overlay.overlay, "volumeUnderTestSlider")
+        verify(slider)
+        tryVerify(function() { return slider.visible }, 2000)
+        var before = row.output.volume
+        mouseWheel(slider, slider.width / 2, slider.height / 2, 0, 120)
+        verify(row.output.volume > before + 0.01,
+               "the wheel did not raise the level: " + row.output.volume)
+        mouseWheel(slider, slider.width / 2, slider.height / 2, 0, -240)
+        verify(row.output.volume < before - 0.01,
+               "the wheel did not lower the level: " + row.output.volume)
+    }
+
+    // C21-D06: the strip and the card carry the volume too.
+    function test_theStripAndTheCardCarryTheVolume() {
+        var bar = createTemporaryObject(barComponent, test)
+        voice.load({})
+        verify(find(bar, "voicePlayerBarVolume"), "no volume on the strip")
+        var host = makeHost()
+        popOut()
+        settings.voiceMiniPlayerGeometry = Qt.rect(0.5, 0.5, 300, 92)
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        var v = find(card, "voiceMiniPlayerVolume")
+        verify(v && v.visible, "no volume on the card")
+        // Idle (no output yet) it is present and disabled, not missing.
+        compare(v.enabled, false)
+    }
+
+    // C21-D07: the chip's tooltip names the speed and the next one.
+    function test_theSpeedChipSaysWhatAClickDoes() {
+        var bar = createTemporaryObject(barComponent, test)
+        voice.load({ rate: 1.0 })
+        var chip = find(bar, "voicePlayerBarSpeed")
+        verify(chip.ToolTip.text.indexOf("1.5") >= 0, chip.ToolTip.text)
+        voice.rate = 2.0
+        verify(chip.ToolTip.text.indexOf("2") >= 0
+               && chip.ToolTip.text.indexOf("1×") >= 0, chip.ToolTip.text)
+    }
+
+    // C21-D08: the scrubber's tooltip names the time under the pointer.
+    function test_theScrubberTooltipNamesTheTime() {
+        var bar = createTemporaryObject(barComponent, test)
+        voice.load({ duration: 60000, position: 1000 })
+        var seek = find(bar, "voicePlayerBarSeek")
+        mouseMove(seek, seek.width / 2, seek.height / 2)
+        tryVerify(function() {
+            return seek.ToolTip.text.indexOf("0:30") >= 0
+        }, 2000, "tooltip: " + seek.ToolTip.text)
+    }
+
+    // C21-D13: a narrow strip keeps the position.
+    function test_aNarrowStripKeepsThePosition() {
+        var bar = createTemporaryObject(barComponent, test, { width: 340 })
+        voice.load({ position: 4000, duration: 60000 })
+        var clock = find(bar, "voicePlayerBarClock")
+        verify(clock.visible, "no clock at 340 px")
+        compare(clock.text, "0:04")
+        bar.width = 600
+        compare(clock.text, "0:04 / 1:00")
+    }
+
+    // C21-D05: the row's clock and speed read at 4.5:1 on its surface in
+    // every theme. Old code drew them in textMuted and accent unguarded.
+    function test_theRowInksReadInEveryTheme() {
+        var row = createTemporaryObject(rowComponent, test)
+        voice.load({ eventId: "$row", rate: 1.0 })
+        settings.voicePlaybackRate = 2.0
+        var clock = find(row, "audioClock")
+        var speed = find(row, "audioSpeedButton")
+        function ratio(a, b) {
+            var x = AppTheme.relativeLuminance(a)
+            var y = AppTheme.relativeLuminance(b)
+            return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+        }
+        var palettes = {}
+        var checked = 0
+        for (var mode = 1; mode <= 11; ++mode) {
+            AppTheme.mode = mode
+            palettes[AppTheme.accent.toString()] = true
+            verify(ratio(clock.color, row.color) >= 4.5,
+                   "theme " + mode + " row clock "
+                   + ratio(clock.color, row.color).toFixed(2))
+            verify(ratio(speed.contentItem.color, row.color) >= 4.5,
+                   "theme " + mode + " row speed "
+                   + ratio(speed.contentItem.color, row.color).toFixed(2))
+            ++checked
+        }
+        compare(checked, 11)
+        verify(Object.keys(palettes).length >= 8,
+               "only " + Object.keys(palettes).length + " distinct palettes")
+    }
+
+    // C21-F07: the narrowest compact card gives the picture up for the title.
+    function test_theNarrowCompactCardKeepsMoreOfTheTitle() {
+        var host = makeHost()
+        popOut()
+        settings.voiceMiniPlayerGeometry = Qt.rect(0.5, 0.5, 200, 52)
+        voice.load({})
+        var card = cardOf(host)
+        tryCompare(card, "opacity", 1)
+        compare(card.tier, "compact")
+        var title = find(card, "voiceMiniPlayerSender")
+        verify(title.width >= 60, "the title has " + title.width + " px")
     }
 }

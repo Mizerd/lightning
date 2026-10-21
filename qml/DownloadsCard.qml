@@ -7,7 +7,11 @@ import MatrixClient
 // (cancellable), then "Saved to <folder>" with Open and Show in folder, the
 // way Element's "Download completed" toast offers them. A finished row clears
 // itself after ten seconds unless the pointer rests on the card; a failed one
-// stays until dismissed or retried. A file whose type can run programs is
+// stays until dismissed or retried. EXCEPT a download that was shown beside
+// its file card (keepUntilDismissed): that one stays until opened or
+// dismissed, on purpose (AttachmentDownloadNotice), so a "Saved" notice that
+// outlives ten seconds after a click on a file row is the design, not a stuck
+// timer (C22-F01, closed as by design). A file whose type can run programs is
 // never opened from here: it offers Show in folder only and says why.
 //
 // A Snap or Flatpak gets a portal-granted file back from the save dialog in
