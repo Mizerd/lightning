@@ -1068,6 +1068,7 @@ list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
 
 set(APP_QML_FILES
     qml/Main.qml
+    qml/SharedToolTipGuard.qml
     qml/Icon.qml
     qml/IconButton.qml
     qml/AppButton.qml
@@ -1282,6 +1283,7 @@ set(APP_QML_FILES
     qml/IndexAllPrompt.qml
     qml/BackgroundSyncPrompt.qml
     qml/EncryptionBrokenPrompt.qml
+    qml/PlainToolTip.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/AccountActivityBadge.qml

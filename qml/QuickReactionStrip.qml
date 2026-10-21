@@ -165,7 +165,8 @@ Item {
                 Keys.onSpacePressed: cell.activate()
                 // Key events a cell does not accept bubble to the root's
                 // handlers above (Left/Right/Tab/Backtab/Home/End).
-                ToolTip {
+                // The reaction's key can be any text a pack defines: plain.
+                PlainToolTip {
                     id: tip
                     visible: hover.hovered || cell.activeFocus
                     delay: hover.hovered ? 500 : 0
