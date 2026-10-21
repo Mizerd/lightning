@@ -1607,8 +1607,12 @@ check("audio-record" in _snap_plugs,
       "the snap declares the microphone interface calling needs")
 # MPRIS: the app's slot owns the player name. No fixed `name:`, so a
 # parallel install (lightning_x) gets its own instead of colliding.
-check("mpris" in _snap_plugs and "interface: mpris" in snap_yaml
-      and "name: lightning" not in snap_yaml,
+# The snap's own top-level `name: lightning` is not the slot's: look inside
+# the top-level slots block only.
+_mpris_slot = re.search(r"^slots:\n((?:[ \t]+.*\n?)*)", snap_yaml, re.M)
+_mpris_slot = _mpris_slot.group(1) if _mpris_slot else ""
+check("mpris" in _snap_plugs and "interface: mpris" in _mpris_slot
+      and not re.search(r"^\s+name:", _mpris_slot, re.M),
       "the snap declares the MPRIS slot for the voice/audio player, unnamed")
 
 # The snap is asked through its own launcher, which is all snapd ever runs,
