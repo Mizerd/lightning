@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -490,7 +491,8 @@ QString statusTextFor(const QString &gameName)
         if (c.category() != QChar::Other_Control)
             clean.append(c);
     const QString n = clean.simplified().left(120);
-    return n.isEmpty() ? QString() : QStringLiteral("Playing ") + n;
+    return n.isEmpty() ? QString()
+                       : QCoreApplication::translate("GameActivity", "Playing %1").arg(n);
 }
 
 bool isHidden(const QString &gameName, const QStringList &hideList)

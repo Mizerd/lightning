@@ -7,7 +7,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTranslator>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -60,7 +62,8 @@ void fakeProc(const QString &root, int pid, const QStringList &argv)
     writeFile(root + QStringLiteral("/%1/cmdline").arg(pid), raw);
 }
 
-// A syncing presence client with a user status, Labs on, and the poller on a
+// A syncing presence client with NO user status (one would outrank the game,
+// as on Discord), Labs on, and the poller on a
 // fast clock watching `proc`. Construction ends with the Portal 2 game
 // published (one confirming scan) when `proc` has it running.
 struct Fixture {
@@ -77,7 +80,7 @@ struct Fixture {
         presence.setSettings(&settings);
         presence.setClient(&client);
         presence.setMinPublishGapForTest(0);
-        presence.setOwnStatus(QStringLiteral("☕"), QStringLiteral("Busy"), 0);
+        presence.clearOwnStatus();
         Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
         activity.setProcRootForTest(proc);
         activity.setSteamRootsForTest({ steam });
@@ -121,14 +124,16 @@ private Q_SLOTS:
 
     void labsIsOffByDefault();
     void labsOffMeansNoTimerNoScanNoPublish();
-    void gameIsPublishedAfterTwoScansAndStatusComesBack();
+    void gameIsPublishedAfterTwoScansAndTheLineComesBack();
+    void aStatusTheUserTypedOutranksTheGame();
+    void theGameLineIsInTheSendersLanguage();
     void hidingTheCurrentGameClearsItAtOnce();
     void sharingOffTakesTheGameBackAndStopsScanning();
     void gameNeverRidesAnOfflinePublish();
     void aGameChangeIsNotDroppedByTheDuplicateStateWindow();
     void quitTakesTheGameBackAndStopsPolling();
     void logoutStopsThePollerAndForgetsTheGame();
-    void anOwnStatusChangeWhilePlayingKeepsTheGameOnTheWire();
+    void anOwnStatusSetWhilePlayingTakesTheLine();
     void theKeepAliveCarriesTheGame();
     void aRateLimitedRetryResendsTheGame();
     void theRealThreadPoolPathPublishes();
@@ -324,6 +329,7 @@ void GameActivityTest::labsOffMeansNoTimerNoScanNoPublish()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     client.published.clear();
 
@@ -345,7 +351,7 @@ void GameActivityTest::labsOffMeansNoTimerNoScanNoPublish()
     QCOMPARE(presence.gameActivity(), QString());
 }
 
-void GameActivityTest::gameIsPublishedAfterTwoScansAndStatusComesBack()
+void GameActivityTest::gameIsPublishedAfterTwoScansAndTheLineComesBack()
 {
     World w;
     QVERIFY(w.dir.isValid());
@@ -358,10 +364,10 @@ void GameActivityTest::gameIsPublishedAfterTwoScansAndStatusComesBack()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     presence.setMinPublishGapForTest(0);
-    presence.setOwnStatus(QStringLiteral("☕"), QStringLiteral("Busy"), 0);
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
-    QCOMPARE(client.published.last().second, QStringLiteral("☕ Busy"));
+    QCOMPARE(client.published.last().second, QString());
 
     GameActivity activity;
     activity.setProcRootForTest(w.proc());
@@ -378,21 +384,83 @@ void GameActivityTest::gameIsPublishedAfterTwoScansAndStatusComesBack()
     // First scan only nominates the game (debounce): nothing published yet.
     QCOMPARE(activity.scansStarted(), 1);
     QCOMPARE(activity.currentGame(), QString());
-    QCOMPARE(client.published.last().second, QStringLiteral("☕ Busy"));
+    QCOMPARE(client.published.last().second, QString());
     QTRY_COMPARE(activity.currentGame(), QStringLiteral("Hades II"));
     QCOMPARE(client.published.last().second, QStringLiteral("Playing Hades II"));
     QVERIFY(client.published.last().first == 0 || client.published.last().first == 1);
     // The local read shows the same thing every other client will.
     QCOMPARE(presence.statusMessageFor(QStringLiteral("@me:example.org")),
              QStringLiteral("Playing Hades II"));
-    // The user's own status was never overwritten.
-    QCOMPARE(presence.ownStatusText(), QStringLiteral("☕ Busy"));
+    // The game is not the user's status: nothing was stored as one.
+    QCOMPARE(presence.ownStatusText(), QString());
 
-    // The game exits: after two scans the previous status is republished.
+    // The game exits: after two scans the line is published empty again.
     QDir(w.proc() + QStringLiteral("/200")).removeRecursively();
     QTRY_COMPARE(activity.currentGame(), QString());
-    QCOMPARE(client.published.last().second, QStringLiteral("☕ Busy"));
+    QCOMPARE(client.published.last().second, QString());
     QCOMPARE(changed.size(), 2);
+}
+
+void GameActivityTest::aStatusTheUserTypedOutranksTheGame()
+{
+    // Discord: "Custom statuses override other activity statuses". A game
+    // detected while the user has a status of their own changes nothing on
+    // the wire and costs no PUT; clearing the status hands the line to the
+    // game, and setting one takes it back.
+    RecordingClient client;
+    SettingsManager settings;
+    settings.setSharePresence(true);
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    presence.setMinPublishGapForTest(0);
+    presence.setOwnStatus(QStringLiteral("☕"), QStringLiteral("Busy"), 0);
+    const auto cleanup = qScopeGuard([&presence] { presence.clearOwnStatus(); });
+    Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
+    QCOMPARE(client.published.last().second, QStringLiteral("☕ Busy"));
+    const int sent = client.published.size();
+
+    presence.setGameActivity(QStringLiteral("Hades II"));
+    QCOMPARE(presence.effectiveStatusText(), QStringLiteral("☕ Busy"));
+    QCOMPARE(presence.statusMessageFor(QStringLiteral("@me:example.org")),
+             QStringLiteral("☕ Busy"));
+    QCOMPARE(client.published.size(), sent);   // no PUT for a hidden change
+
+    presence.clearOwnStatus();
+    QCOMPARE(client.published.last().second, QStringLiteral("Playing Hades II"));
+    presence.setOwnStatus(QStringLiteral("🍕"), QStringLiteral("Lunch"), 0);
+    QCOMPARE(client.published.last().second, QStringLiteral("🍕 Lunch"));
+    const int beforeExit = client.published.size();
+    presence.setGameActivity(QString());   // the game exits behind the status
+    QCOMPARE(client.published.size(), beforeExit);
+    QCOMPARE(presence.effectiveStatusText(), QStringLiteral("🍕 Lunch"));
+}
+
+namespace {
+// Stands in for a loaded catalogue: answers only the game's line.
+class GameLineTranslator : public QTranslator
+{
+public:
+    QString translate(const char *context, const char *sourceText, const char *,
+                      int) const override
+    {
+        if (qstrcmp(context, "GameActivity") == 0 && qstrcmp(sourceText, "Playing %1") == 0)
+            return QStringLiteral("Žaidžia %1");
+        return {};
+    }
+    bool isEmpty() const override { return false; }
+};
+}   // namespace
+
+void GameActivityTest::theGameLineIsInTheSendersLanguage()
+{
+    // A status line is the user's own words: it is written in the app's
+    // language (Matrix cannot localise it per reader), through the
+    // translator like every other string.
+    GameLineTranslator lt;
+    QVERIFY(QCoreApplication::installTranslator(&lt));
+    const auto cleanup = qScopeGuard([&lt] { QCoreApplication::removeTranslator(&lt); });
+    QCOMPARE(statusTextFor(QStringLiteral("Hades II")), QStringLiteral("Žaidžia Hades II"));
 }
 
 void GameActivityTest::hidingTheCurrentGameClearsItAtOnce()
@@ -410,6 +478,7 @@ void GameActivityTest::hidingTheCurrentGameClearsItAtOnce()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     presence.setMinPublishGapForTest(0);
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     GameActivity activity;
@@ -449,6 +518,7 @@ void GameActivityTest::sharingOffTakesTheGameBackAndStopsScanning()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     presence.setMinPublishGapForTest(0);
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     GameActivity activity;
@@ -483,6 +553,7 @@ void GameActivityTest::gameNeverRidesAnOfflinePublish()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     presence.setMinPublishGapForTest(0);
     // Not syncing yet: a game is remembered, nothing is sent.
     presence.setGameActivity(QStringLiteral("Portal 2"));
@@ -512,6 +583,7 @@ void GameActivityTest::aGameChangeIsNotDroppedByTheDuplicateStateWindow()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);   // the real 10 s window stays in force
+    presence.clearOwnStatus();
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     const int before = client.published.size();
     QVERIFY(before >= 1);
@@ -739,6 +811,7 @@ void GameActivityTest::labsIsOffByDefault()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
+    presence.clearOwnStatus();   // shared store; an own status would outrank the game
     Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     GameActivity activity;
     activity.setProcRootForTest(w.proc());
@@ -768,8 +841,9 @@ void GameActivityTest::quitTakesTheGameBackAndStopsPolling()
     f.activity.shutdown();   // AppController::prepareForShutdown
     QCOMPARE(f.activity.currentGame(), QString());
     QVERIFY(!f.activity.polling());
-    // The user's own status is what the server hears last, not the game.
-    QCOMPARE(f.client.published.last().second, QStringLiteral("☕ Busy"));
+    // The game is withdrawn while the client can still send: the server's
+    // last word is the empty line, not the game.
+    QCOMPARE(f.client.published.last().second, QString());
     const int scans = f.activity.scansStarted();
     const int sent = f.client.published.size();
     QTest::qWait(120);
@@ -807,7 +881,7 @@ void GameActivityTest::logoutStopsThePollerAndForgetsTheGame()
     QTRY_COMPARE(f.activity.currentGame(), QStringLiteral("Portal 2"));
 }
 
-void GameActivityTest::anOwnStatusChangeWhilePlayingKeepsTheGameOnTheWire()
+void GameActivityTest::anOwnStatusSetWhilePlayingTakesTheLine()
 {
     World w;
     QVERIFY(w.dir.isValid());
@@ -817,16 +891,21 @@ void GameActivityTest::anOwnStatusChangeWhilePlayingKeepsTheGameOnTheWire()
     Fixture f(w.proc(), w.steam());
     QTRY_COMPARE(f.activity.currentGame(), QStringLiteral("Portal 2"));
 
+    // Setting a status of one's own takes the line at once (Discord's order);
+    // clearing it hands the line back to the game still running.
     f.presence.setOwnStatus(QStringLiteral("🍕"), QStringLiteral("Lunch"), 0);
-    QCOMPARE(f.client.published.last().second, QStringLiteral("Playing Portal 2"));
+    QCOMPARE(f.client.published.last().second, QStringLiteral("🍕 Lunch"));
     QCOMPARE(f.presence.ownStatusText(), QStringLiteral("🍕 Lunch"));
     f.presence.clearOwnStatus();
     QCOMPARE(f.client.published.last().second, QStringLiteral("Playing Portal 2"));
     f.presence.setOwnStatus(QStringLiteral("🍕"), QStringLiteral("Lunch"), 0);
+    const auto cleanup = qScopeGuard([&f] { f.presence.clearOwnStatus(); });
 
-    // The game exits: the NEW status, not the one from before, comes back.
+    // The game exits behind the status: the status stays, no PUT needed.
+    const int sent = f.client.published.size();
     QDir(w.proc() + QStringLiteral("/200")).removeRecursively();
     QTRY_COMPARE(f.activity.currentGame(), QString());
+    QCOMPARE(f.client.published.size(), sent);
     QCOMPARE(f.client.published.last().second, QStringLiteral("🍕 Lunch"));
 }
 
@@ -877,7 +956,7 @@ void GameActivityTest::theRealThreadPoolPathPublishes()
     QCOMPARE(f.activity.currentGame(), QString());
     QTest::qWait(150);
     QCOMPARE(f.activity.currentGame(), QString());
-    QCOMPARE(f.client.published.last().second, QStringLiteral("☕ Busy"));
+    QCOMPARE(f.client.published.last().second, QString());
 }
 
 QTEST_MAIN(GameActivityTest)

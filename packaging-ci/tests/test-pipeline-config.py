@@ -802,6 +802,14 @@ check(not any(arg.startswith("--filesystem=host") for arg in _flatpak_args),
       "the Flatpak does not fall back to --filesystem=host")
 check("--filesystem=xdg-run/pipewire-0" in _flatpak_args,
       "the PipeWire socket is an actual finish-arg, not just a comment")
+# Labs "Listening to" reads Spotify's MPRIS name and nothing broader: a
+# wildcard would expose every player's metadata to the sandbox.
+check("--talk-name=org.mpris.MediaPlayer2.spotify" in _flatpak_args,
+      "the Flatpak can talk to Spotify's MPRIS name")
+check(not any(arg.startswith("--talk-name=org.mpris.MediaPlayer2.")
+              and arg != "--talk-name=org.mpris.MediaPlayer2.spotify"
+              for arg in _flatpak_args),
+      "the Flatpak talks to no MPRIS player but Spotify")
 
 # Windows bundles like the AppImage, and the builder image must also carry
 # GStreamer, or CMake silently configures the engine out.

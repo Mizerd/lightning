@@ -12656,6 +12656,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
+    if (type == QLatin1String("presence_published")) {
+        Q_EMIT presencePublished();
+        return true;
+    }
+
     if (type == QLatin1String("presence_publish_failed")) {
         Q_EMIT presencePublishFailed(
             event.value(QStringLiteral("category")).toString(),

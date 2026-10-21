@@ -20,6 +20,9 @@ finish-args:
   # libsecret token storage (Secret Service) and desktop notifications.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
+  # Labs "Listening to": read what the Spotify desktop app plays, over its
+  # MPRIS interface. Exactly that one name; no other player is visible.
+  - --talk-name=org.mpris.MediaPlayer2.spotify
   # Portal-negotiated screen-share streams are read over the PipeWire socket.
   # Only this narrow path, never --filesystem=host: the portal decides what
   # may be captured.

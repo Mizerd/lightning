@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QEventLoop>
 #include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QRandomGenerator>
@@ -97,6 +98,8 @@ void PresenceManager::setClient(MatrixClient *client)
             this, &PresenceManager::applyBatch);
     connect(m_client, &MatrixClient::presencePublishFailed, this,
             &PresenceManager::onPublishRejected);
+    connect(m_client, &MatrixClient::presencePublished, this,
+            &PresenceManager::onPublishAccepted);
     connect(m_client, &MatrixClient::loggedOut,
             this, &PresenceManager::clearSession);
     connect(m_client, &MatrixClient::connectionStateChanged,
@@ -134,7 +137,7 @@ void PresenceManager::setSettings(SettingsManager *settings)
                 if (m_lastPublished != 2) {
                     // One final offline so the account does not linger
                     // online after the user asked not to share presence.
-                    m_client->publishPresence(2);
+                    sendOffline();
                     m_lastPublished = 2;
                 }
             });
@@ -612,7 +615,7 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
     }
     ++m_publishAttempts;
     m_statusDirty = false;
-    m_client->publishPresence(desired, effectiveStatusText());
+    sendPresence(desired, effectiveStatusText());
     // Log the offered rate. ~2.4 attempts/min is one healthy client; near 6
     // means the Syncing-edge path is firing at its 10 s gap.
     if (m_traceEnabled) {
@@ -648,6 +651,28 @@ void PresenceManager::onPublishRejected(const QString &category,
                                         qint64 retryAfterMs)
 {
     ++m_publishRejections;
+    m_publishesInFlight = qMax(0, m_publishesInFlight - 1);
+    if (m_farewellPending) {
+        if (category != QLatin1String("rate_limited")) {
+            settleFarewellIfQuiet();   // nothing to retry
+            return;
+        }
+        // Answers are not tagged: any 429 since the withdrawal may be the
+        // farewell's. One retry on the server's own schedule if it fits the
+        // remaining budget, else give up now.
+        m_farewell429Unresolved = true;
+        if (m_publishRetryTimer.isActive())
+            return;   // the armed retry covers this one too
+        const qint64 wait = retryAfterMs > 0 ? qMax<qint64>(retryAfterMs, 200) : 1000;
+        const qint64 left = m_farewellBudgetMs - m_farewellClock.elapsed();
+        if (!m_farewellRetried && wait < left) {
+            m_farewellRetried = true;
+            m_publishRetryTimer.start(static_cast<int>(wait));
+        } else {
+            finishFarewell();
+        }
+        return;
+    }
     // Only rate limiting is retried here; anything else is left to the
     // ordinary tick. Note the forbidden latch is on the read path only, so a
     // server that rejects every PUT still receives one per period.
@@ -694,7 +719,7 @@ void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
         // gate would otherwise skip it.
         if (m_pendingFinalOffline && m_client
             && m_client->supportsPresence() && !publishEnabled()) {
-            m_client->publishPresence(2);
+            sendOffline();
             m_lastPublished = 2;
         }
         m_pendingFinalOffline = false;
@@ -737,6 +762,15 @@ void PresenceManager::clearSession()
     m_syncing = false;
     // A game name belongs to the session it was published into.
     m_gameName.clear();
+    m_musicText.clear();
+    m_overlaysWithdrawn = false;
+    m_withdrawnGame.clear();
+    m_withdrawnMusic.clear();
+    // A waiter still runs at its own budget; nothing of this session's is
+    // retried under the next one, and its answers are dropped.
+    m_farewellPending = false;
+    m_farewell429Unresolved = false;
+    m_publishesInFlight = 0;
     const bool hadSession = m_hasSession;
     m_hasSession = false;
     // The watched set names the previous account's contacts; polling it
@@ -796,27 +830,238 @@ QString PresenceManager::statusMessageFor(const QString &userId) const
 
 QString PresenceManager::effectiveStatusText() const
 {
-    return m_gameName.isEmpty() ? ownStatusText()
-                                : gamedetect::statusTextFor(m_gameName);
+    // Discord: a custom status overrides every activity, and a game takes
+    // precedence over Spotify.
+    const QString own = ownStatusText();
+    if (!own.isEmpty())
+        return own;
+    if (!m_gameName.isEmpty())
+        return gamedetect::statusTextFor(m_gameName);
+    return m_musicText;
+}
+
+void PresenceManager::setMusicActivity(const QString &statusText, bool publishNow)
+{
+    const QString text = displaySafeStatus(statusText.simplified().left(200));
+    if (m_overlaysWithdrawn) {
+        m_withdrawnMusic = text;   // remembered, not shown
+        return;
+    }
+    if (text == m_musicText)
+        return;
+    // The comparison below must see the user's stored status.
+    loadOwnStatusIfNeeded();
+    const QString before = effectiveStatusText();
+    m_musicText = text;
+    if (effectiveStatusText() == before)
+        return;   // the user's own status or a game holds the line
+    ++m_revision;
+    Q_EMIT revisionChanged();
+    Q_EMIT ownStatusChanged();
+    // Same gate as the game overlay; without publishNow the keep-alive
+    // carries the new line within one period.
+    if (publishNow && m_client && m_client->supportsPresence() && m_syncing
+        && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2) {
+        m_statusDirty = true;
+        publishTick(true);
+    }
 }
 
 void PresenceManager::setGameActivity(const QString &gameName)
 {
     const QString name = displaySafeStatus(gameName.simplified().left(120));
+    if (m_overlaysWithdrawn) {
+        m_withdrawnGame = name;   // remembered, not shown
+        return;
+    }
     if (name == m_gameName)
         return;
+    loadOwnStatusIfNeeded();
+    const QString before = effectiveStatusText();
     m_gameName = name;
     ++m_revision;
     Q_EMIT revisionChanged();
     Q_EMIT ownStatusChanged();
     // Publish only into a live, enabled, non-offline session. Offline (the
     // final offline for sharing-off) carries no status, and with sharing off
-    // nothing is sent at all.
+    // nothing is sent at all. A game behind the user's own status changes
+    // nothing on the wire and costs no PUT.
+    if (effectiveStatusText() != before && m_client && m_client->supportsPresence()
+        && m_syncing && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2) {
+        m_statusDirty = true;
+        publishTick(true);
+    }
+}
+
+bool PresenceManager::withdrawActivityLine(bool *withdrewNow)
+{
+    if (withdrewNow)
+        *withdrewNow = !m_overlaysWithdrawn;
+    loadOwnStatusIfNeeded();
+    const QString before = effectiveStatusText();
+    if (!m_overlaysWithdrawn) {
+        m_withdrawnGame = m_gameName;
+        m_withdrawnMusic = m_musicText;
+        m_overlaysWithdrawn = true;
+    }
+    m_gameName.clear();
+    m_musicText.clear();
+    if (effectiveStatusText() == before)
+        return false;   // no overlay held the line: nothing to send
+    ++m_revision;
+    Q_EMIT revisionChanged();
+    Q_EMIT ownStatusChanged();
+    if (!m_client || !m_client->supportsPresence() || !m_syncing || !publishEnabled()
+        || m_lastPublished < 0 || m_lastPublished == 2)
+        return false;
+    const qint64 attempts = m_publishAttempts;
+    m_farewellPending = true;
+    m_farewellRetried = false;
+    m_farewell429Unresolved = false;
+    m_farewellResendNeeded = m_publishesInFlight > 0;
+    m_farewellBudgetMs = kFarewellBudgetMs;
+    m_farewellClock.start();
+    m_statusDirty = true;
+    publishTick(true);
+    if (m_publishAttempts == attempts)
+        m_farewellPending = false;
+    return m_farewellPending;
+}
+
+void PresenceManager::restoreActivityLine()
+{
+    if (!m_overlaysWithdrawn)
+        return;
+    m_overlaysWithdrawn = false;
+    // No farewell any more: a later refusal is an ordinary one.
+    if (m_farewellPending)
+        m_publishRetryTimer.stop();
+    m_farewellPending = false;
+    m_farewellRetried = false;
+    m_farewell429Unresolved = false;
+    m_farewellResendNeeded = false;
+    loadOwnStatusIfNeeded();
+    const QString before = effectiveStatusText();
+    m_gameName = m_withdrawnGame;
+    m_musicText = m_withdrawnMusic;
+    m_withdrawnGame.clear();
+    m_withdrawnMusic.clear();
+    if (effectiveStatusText() == before)
+        return;
+    ++m_revision;
+    Q_EMIT revisionChanged();
+    Q_EMIT ownStatusChanged();
     if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
         && m_lastPublished >= 0 && m_lastPublished != 2) {
         m_statusDirty = true;
         publishTick(true);
     }
+}
+
+void PresenceManager::sendPresence(int state, const QString &statusMsg)
+{
+    // Any PUT sent after a refusal carries the line as it is now, so it
+    // answers that refusal once it is accepted; one sent while nothing else
+    // is in flight is also the last word on the line.
+    if (m_farewellPending) {
+        m_farewell429Unresolved = false;
+        if (m_publishesInFlight == 0)
+            m_farewellResendNeeded = false;
+    }
+    ++m_publishesInFlight;
+    m_client->publishPresence(state, statusMsg);
+}
+
+void PresenceManager::sendOffline()
+{
+    ++m_publishesInFlight;
+    m_client->publishPresence(2);
+}
+
+void PresenceManager::onPublishAccepted()
+{
+    m_publishesInFlight = qMax(0, m_publishesInFlight - 1);
+    if (m_farewellPending)
+        settleFarewellIfQuiet();
+}
+
+void PresenceManager::settleFarewellIfQuiet()
+{
+    if (m_publishesInFlight != 0 || m_farewell429Unresolved
+        || m_publishRetryTimer.isActive())
+        return;
+    if (m_farewellResendNeeded && m_farewellClock.elapsed() < m_farewellBudgetMs) {
+        // An earlier PUT (the song) may have been applied after the farewell:
+        // say it once more, now that every earlier one has been answered.
+        m_farewellResendNeeded = false;
+        const qint64 attempts = m_publishAttempts;
+        m_statusDirty = true;
+        publishTick(true, true);
+        if (m_publishAttempts != attempts)
+            return;   // wait for this one's answer
+    }
+    finishFarewell();
+}
+
+void PresenceManager::finishFarewell()
+{
+    if (!m_farewellPending)
+        return;
+    m_farewellPending = false;
+    m_publishRetryTimer.stop();
+    Q_EMIT farewellSettled();
+}
+
+void PresenceManager::whenFarewellSettled(int budgetMs, QObject *context,
+                                          std::function<void()> then)
+{
+    QObject *owner = context ? context : this;
+    if (!m_farewellPending) {
+        QMetaObject::invokeMethod(owner, then, Qt::QueuedConnection);
+        return;
+    }
+    m_farewellBudgetMs = budgetMs;
+    auto *waiter = new QObject(owner);
+    auto done = std::make_shared<bool>(false);
+    auto fire = [waiter, done, then, owner]() {
+        if (*done)
+            return;
+        *done = true;
+        waiter->deleteLater();
+        QMetaObject::invokeMethod(owner, then, Qt::QueuedConnection);
+    };
+    connect(this, &PresenceManager::farewellSettled, waiter, fire);
+    const qint64 left = qMax<qint64>(0, budgetMs - m_farewellClock.elapsed());
+    QTimer::singleShot(static_cast<int>(left), waiter, [this, fire] {
+        finishFarewell();
+        fire();
+    });
+}
+
+bool PresenceManager::settleFarewell(int budgetMs)
+{
+    if (!m_farewellPending)
+        return true;
+    m_farewellBudgetMs = budgetMs;
+    QEventLoop loop;
+    bool settled = false;
+    const auto conn = connect(this, &PresenceManager::farewellSettled, &loop, [&] {
+        settled = true;
+        loop.quit();
+    });
+    QTimer bound;
+    bound.setSingleShot(true);
+    connect(&bound, &QTimer::timeout, &loop, &QEventLoop::quit);
+    bound.start(static_cast<int>(qMax<qint64>(0, budgetMs - m_farewellClock.elapsed())));
+    if (m_farewellPending)
+        loop.exec(QEventLoop::ExcludeUserInputEvents);
+    disconnect(conn);
+    if (!settled) {
+        // Out of budget: stop waiting and stop retrying.
+        m_farewellPending = false;
+        m_publishRetryTimer.stop();
+    }
+    return settled;
 }
 
 void PresenceManager::loadOwnStatusIfNeeded()
@@ -901,7 +1146,7 @@ void PresenceManager::setOwnStatus(const QString &emoji, const QString &text,
     // Publish now: the status is part of the presence event.
     if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
         && m_lastPublished >= 0 && m_lastPublished != 2)
-        m_client->publishPresence(m_lastPublished, effectiveStatusText());
+        sendPresence(m_lastPublished, effectiveStatusText());
     ++m_revision;
     Q_EMIT revisionChanged();
 }
@@ -918,7 +1163,7 @@ void PresenceManager::clearOwnStatus()
     Q_EMIT ownStatusChanged();
     if (had && m_client && m_client->supportsPresence() && m_syncing
         && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2)
-        m_client->publishPresence(m_lastPublished, effectiveStatusText());
+        sendPresence(m_lastPublished, effectiveStatusText());
     ++m_revision;
     Q_EMIT revisionChanged();
 }

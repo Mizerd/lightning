@@ -931,6 +931,16 @@ set(APP_SOURCES
     src/presence/GameDetection.cpp
     src/presence/GameActivity.h
     src/presence/GameActivity.cpp
+    src/presence/MusicDetection.h
+    src/presence/MusicDetection.cpp
+    src/presence/MusicSource.h
+    src/presence/MusicSource.cpp
+    src/presence/MprisMusicSource.h
+    src/presence/MprisMusicSource.cpp
+    src/presence/SpotifyWindowTitles_win.h
+    src/presence/SpotifyWindowTitles_win.cpp
+    src/presence/MusicActivity.h
+    src/presence/MusicActivity.cpp
 
     # Application updates. Free of Matrix dependencies: the updater is a
     # separate trust boundary with no access to accounts, tokens or stores.
@@ -1246,6 +1256,7 @@ set(APP_QML_FILES
     qml/AudioLevelBar.qml
     qml/NoiseSuppressionSelector.qml
     qml/GameActivitySettings.qml
+    qml/MusicActivitySettings.qml
     qml/CallPipWindow.qml
     qml/CallHeaderBar.qml
     qml/CallTileBadge.qml
@@ -5589,6 +5600,50 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME game-activity COMMAND game-activity-test)
     set_tests_properties(game-activity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+    # "Listening to" (Labs): the Spotify rules (MPRIS metadata, Windows window
+    # captions, ads, wording), the debounce/grace/priority policy through the
+    # real PresenceManager against a fake source, and, with QtDBus, the real
+    # MPRIS source against a fake Spotify on a PRIVATE dbus-daemon (never the
+    # user's session bus; the MPRIS cases skip without dbus-daemon).
+    qt_add_executable(music-activity-test
+        tests/MusicActivityTest.cpp
+        src/presence/MusicActivity.h
+        src/presence/MusicActivity.cpp
+        src/presence/MusicDetection.h
+        src/presence/MusicDetection.cpp
+        src/presence/MusicSource.h
+        src/presence/MusicSource.cpp
+        src/presence/MprisMusicSource.h
+        src/presence/MprisMusicSource.cpp
+        src/presence/SpotifyWindowTitles_win.h
+        src/presence/SpotifyWindowTitles_win.cpp
+        src/presence/GameDetection.h
+        src/presence/GameDetection.cpp
+        src/presence/PresenceManager.h
+        src/presence/PresenceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(music-activity-test PRIVATE src)
+    target_link_libraries(music-activity-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+        target_link_libraries(music-activity-test PRIVATE Qt6::DBus)
+        target_compile_definitions(music-activity-test PRIVATE HAVE_QT_DBUS=1)
+    endif()
+    add_test(NAME music-activity COMMAND music-activity-test)
+    set_tests_properties(music-activity PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 

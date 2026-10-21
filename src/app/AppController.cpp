@@ -417,6 +417,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gameActivity = std::make_unique<GameActivity>(this);
     m_gameActivity->setPresence(m_presence.get());
     m_gameActivity->setSettings(m_settings.get());
+    m_musicActivity = std::make_unique<MusicActivity>(this);
+    m_musicActivity->setPresence(m_presence.get());
+    m_musicActivity->setSettings(m_settings.get());
     m_scheduledSends->setSettings(m_settings.get());
     // A muted room's rows are hidden from the bell and its badge (unmuting
     // brings them back), the same rule as the room list.
@@ -1766,17 +1769,34 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                           "changed. Nothing was reset."));
         }
     });
-    m_auth->setBeforeLogout([this](std::function<void()> proceed) {
+    // Named so it can run itself again once the activity-line withdrawal
+    // below has settled (the second run finds nothing left to withdraw).
+    auto beforeLogout = std::make_shared<std::function<void(std::function<void()>)>>();
+    *beforeLogout = [this, again = std::weak_ptr(beforeLogout)](
+                        std::function<void()> proceed) {
         // The reader's place in the open room (m.fully_read) moves when they
         // leave it; signing out is leaving it, and once loggedOut arrives the
         // session can no longer write. Every sign-out path (menu, removal,
-        // local reset) passes through here.
+        // local reset) passes through here. Idempotent, as is the call leave
+        // below, so the second run after the presence wait repeats nothing.
         if (m_readReceipts)
             m_readReceipts->flushFullyReadMarker();
         SfuCallController *call = m_groupCall.get();
         if (call && call->active()) {
             qCInfo(lcApp) << "sign-out: leaving the call first";
             call->leave();
+        }
+        // A game or song in the status outlives the session on the server:
+        // withdraw both in ONE publish while the session can still write, and
+        // wait (bounded, long enough for one rate-limit retry) for the
+        // server's answer before the logout revokes the session.
+        if (m_presence && m_presence->withdrawActivityLine()) {
+            m_presence->whenFarewellSettled(
+                PresenceManager::kSignOutFarewellBudgetMs, this, [again, proceed] {
+                    if (const auto self = again.lock())
+                        (*self)(proceed);
+                });
+            return;
         }
         if (!call || !call->membershipWritesPending()) {
             proceed();
@@ -1808,6 +1828,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 [finish] { finish(true); });
         QTimer::singleShot(kSignOutCallLeaveBoundMs, waiter,
                            [finish] { finish(false); });
+    };
+    m_auth->setBeforeLogout([beforeLogout](std::function<void()> proceed) {
+        (*beforeLogout)(std::move(proceed));
     });
     connect(m_calls.get(), &CallController::incomingCallEnded, this,
             [this](const QString &roomId, const QString &callId,
@@ -3757,12 +3780,22 @@ void AppController::prepareForShutdown()
         m_groupCall->leave();
     }
 
-    // Take the "Playing X" status back while the client can still send: the
-    // user's own status is republished by PresenceManager, and the poller never
-    // runs again. Best effort: the publish is handed to the backend and
-    // stopSync() below does not wait for the server's answer.
+    // Take the "Playing X" / "Listening to" line back while the client can
+    // still send: a status_msg outlives the session on the server. Both
+    // overlays go in ONE publish (two would race on separate backend tasks,
+    // and rc_presence refuses the second), then the pollers stop without
+    // publishing again. Best effort with a bounded wait for the answer (one
+    // retry on the server's retry_after if it fits); after a crash or a forced
+    // close the line stays until the next start publishes.
+    const bool farewell = m_presence && m_presence->withdrawActivityLine();
     if (m_gameActivity)
         m_gameActivity->shutdown();
+    if (m_musicActivity)
+        m_musicActivity->shutdown();
+    if (farewell) {
+        stalltrace::Scope stallScope("quit-presence-farewell");
+        m_presence->settleFarewell(PresenceManager::kFarewellBudgetMs);
+    }
 
     // Stop the sync loop so no further backend callback is scheduled during
     // teardown. Blocking: the Rust side joins its sync (and, on the first
@@ -4238,6 +4271,7 @@ SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 GameActivity *AppController::gameActivity() const { return m_gameActivity.get(); }
+MusicActivity *AppController::musicActivity() const { return m_musicActivity.get(); }
 CallController *AppController::calls() const { return m_calls.get(); }
 
 QString AppController::preferredCallLane(const QString &roomId) const
@@ -7890,11 +7924,22 @@ void AppController::switchToAccount(const QString &userId)
     m_roomInfo->setRoomId(QString{});
     trace::stepEnd(trace::Step::S2);
 
+    // The game/music line belongs to this account's status: withdraw it in
+    // one publish before the client is released. Best effort and no wait:
+    // the switch is synchronous, and the PUT still goes out on the backend.
+    // Restored below only if THIS call withdrew it: a sign-out already
+    // waiting on its own withdrawal must not see the song come back.
+    bool withdrewForSwitch = false;
+    if (m_presence)
+        m_presence->withdrawActivityLine(&withdrewForSwitch);
+
     trace::stepBegin(trace::Step::S3);
     const bool detachRefused =
         m_client->isLoggedIn() && !m_client->detachSession();
     trace::stepEnd(trace::Step::S3);
     if (detachRefused) {
+        if (m_presence && withdrewForSwitch)
+            m_presence->restoreActivityLine();
         trace::finish(trace::Outcome::Refused);
         m_switchFallbackUserId.clear();
         setAccountSwitching(false);

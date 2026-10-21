@@ -3219,6 +3219,21 @@ void SettingsManager::setGameActivityCustom(const QStringList &entries)
     Q_EMIT gameActivityChanged();
 }
 
+bool SettingsManager::musicActivityEnabled() const
+{
+    // Experimental and off, like the game: what someone listens to is theirs
+    // to choose to tell.
+    return m_store->value(QStringLiteral("labs/musicActivity"), false).toBool();
+}
+
+void SettingsManager::setMusicActivityEnabled(bool v)
+{
+    if (musicActivityEnabled() == v)
+        return;
+    m_store->setValue(QStringLiteral("labs/musicActivity"), v);
+    Q_EMIT musicActivityChanged();
+}
+
 bool SettingsManager::spacesRailVisible() const
 {
     return m_store->value(kSpacesRailVisible, true).toBool();

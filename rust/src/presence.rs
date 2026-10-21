@@ -176,10 +176,11 @@ pub(crate) fn clean_status_msg(raw: &str) -> String {
         .to_owned()
 }
 
-/// Publish the local user's presence. Success reports nothing; a failure
-/// emits `presence_publish_failed` with the category and, for
-/// `M_LIMIT_EXCEEDED`, `retry_after_ms`, so C++ can retry on the server's
-/// schedule.
+/// Publish the local user's presence. Success emits `presence_published`
+/// (no payload; C++ uses it to stop waiting on a sign-out or quit
+/// withdrawal); a failure emits `presence_publish_failed` with the category
+/// and, for `M_LIMIT_EXCEEDED`, `retry_after_ms`, so C++ can retry on the
+/// server's schedule.
 ///
 /// `status_msg` is the spec's presence status text; `None` clears it. The
 /// offered emoji is just the first character(s) of that text.
@@ -210,6 +211,12 @@ pub(crate) fn publish_presence(
             .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
+        }
+        if result.is_ok() {
+            enqueue(&events, json!({
+                "type": "presence_published",
+                "lifecycle": lifecycle,
+            }));
         }
         if let Err(err) = result {
             enqueue(&events, json!({

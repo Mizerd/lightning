@@ -104,8 +104,8 @@ QString knownGameForExePath(const QString &exePath, SteamCatalog &steam,
 // not a game and nothing is derived from its file name.
 QStringList preferForeground(QStringList names, const QString &foregroundGame);
 
-// The text published as status_msg. Deliberately not translated: the readers
-// are other people on other clients.
+// The text published as status_msg, in the SENDER's app language: a status
+// line is the user's own words, and Matrix cannot localise it per reader.
 QString statusTextFor(const QString &gameName);
 
 // True for a game the user hid (case-insensitive, whitespace-trimmed).

@@ -685,6 +685,9 @@ const CLASSES: &[(&str, EventClass)] = {
         ("policy_subscriptions", UiOnly),
         ("presence_batch", UiOnly),
         ("presence_publish_failed", UiOnly),
+        // musicact: the server's answer to our own presence PUT (the
+        // farewell's settle); a background host publishes no presence.
+        ("presence_published", UiOnly),
         // msg48 repair: reload the open room and thread after the one-time
         // classic cache repair; a background host has no views to reload.
         ("event_cache_repaired", UiOnly),

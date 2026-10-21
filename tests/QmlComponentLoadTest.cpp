@@ -61,6 +61,8 @@ constexpr const char *kComponents[] = {
     "NoiseSuppressionSelector",
     // Settings → Labs: "Playing X" (GameActivitySettings).
     "GameActivitySettings",
+    // Settings → Labs: "Listening to" (MusicActivitySettings).
+    "MusicActivitySettings",
     // Screen share sound: the live application list (IconImage from
     // QtQuick.Controls.impl), the call bar's dialog around it, and both
     // share surfaces that host the choice.

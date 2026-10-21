@@ -9,6 +9,8 @@
 #include <QTimer>
 #include <QVariantMap>
 
+#include <functional>
+
 #include "matrix/MatrixClient.h"
 
 class SettingsManager;
@@ -94,19 +96,62 @@ public:
     Q_INVOKABLE void setOwnStatus(const QString &emoji, const QString &text,
                                   qint64 expiresAtMs);
     Q_INVOKABLE void clearOwnStatus();
-    // "Playing X" overlay (Labs). Not the user's status and never persisted:
-    // while a game name is set it is what gets published as status_msg, and
-    // clearing it republishes the user's own status, so the previous status
-    // comes back by construction. Only the name crosses; "" = no game. Rides
+    // "Playing X" overlay (Labs). Not the user's status and never persisted.
+    // Discord's order on the one line: a status the user typed wins, so a
+    // game is published only while there is none, and clearing it republishes
+    // whatever holds the line next. Only the name crosses; "" = no game. Rides
     // the one publisher, so the rate-limit and retry policy still apply.
     void setGameActivity(const QString &gameName);
     QString gameActivity() const { return m_gameName; }
+    // "Listening to …" overlay (Labs), the finished line. LOWEST priority on
+    // the one status line, as on Discord: the user's own status and a game
+    // both win. Never persisted.
+    // A change rides the next keep-alive (no extra PUT); `publishNow` is for
+    // a withdrawal the user asked for, and publishes only if the effective
+    // line actually changed.
+    void setMusicActivity(const QString &statusText, bool publishNow = false);
+    QString musicActivity() const { return m_musicText; }
+    // Sign-out, account switch and quit: take the game AND music lines back
+    // together and publish what remains ONCE. Withdrawing them one at a time
+    // is two PUTs on separate backend tasks with no ordering, and
+    // rc_presence's burst of 1 refuses the second. Until clearSession() or
+    // restoreActivityLine(), later overlay changes are remembered, not shown.
+    // Returns true when a PUT was sent; it is then the pending "farewell".
+    // `withdrewNow` (optional) is true only when THIS call did the
+    // withdrawing; a caller that restores must restore only then.
+    bool withdrawActivityLine(bool *withdrewNow = nullptr);
+    bool activityLineWithdrawn() const { return m_overlaysWithdrawn; }
+    // A refused account switch: put the remembered overlays back (one PUT if
+    // the line changes) and drop the farewell state, so later refusals go
+    // through the ordinary retry path. Only for the caller whose withdrawal
+    // it was.
+    void restoreActivityLine();
+    // Bounded wait for the farewell. `then` runs once (queued, never inside
+    // the backend's event drain): when every PUT in flight has been answered
+    // and no rate-limit refusal since the withdrawal is left unretried (the
+    // answers are not tagged, so any 429 since then may be the farewell's),
+    // when a refusal cannot be retried inside the budget, or when budgetMs
+    // (counted from the withdrawal) runs out. A rate-limit refusal whose retry_after
+    // fits the remaining budget is retried once. With no farewell pending it
+    // runs at once.
+    void whenFarewellSettled(int budgetMs, QObject *context, std::function<void()> then);
+    // Quit: the same wait in a nested event loop that excludes user input,
+    // entered only when a farewell is pending. True if it settled in time.
+    bool settleFarewell(int budgetMs);
+    bool farewellPending() const { return m_farewellPending; }
+    // Quit: short, the window is closing. Sign-out: long enough for one retry
+    // after a rate-limit refusal (rc_presence answers within ~10 s).
+    static constexpr int kFarewellBudgetMs = 3000;
+    static constexpr int kSignOutFarewellBudgetMs = 11000;
+    // Own-presence PUTs sent and not yet answered (Rust reports both
+    // outcomes; reset with the session, whose answers are dropped).
+    int publishesInFlight() const { return m_publishesInFlight; }
     // True from the first Syncing edge of a session until it is torn down
     // (logout, account switch). Blips of connectivity do not clear it. The
     // game poller runs only while it holds.
     bool sessionLive() const { return m_hasSession; }
-    // What is published and shown for the local user: the game when one is
-    // set, else ownStatusText().
+    // What is published and shown for the local user, in Discord's order:
+    // ownStatusText(), else the game, else the music line.
     QString effectiveStatusText() const;
 
     // Test/embedding seam; the ctor also tracks QGuiApplication state.
@@ -143,6 +188,7 @@ Q_SIGNALS:
     void revisionChanged();
     void sessionEpochChanged();
     void sessionLiveChanged();
+    void farewellSettled();
 
 private:
     struct Entry {
@@ -239,6 +285,29 @@ private:
     QString m_ownStatusEmoji;
     QString m_ownStatusPlainText;
     QString m_gameName;
+    QString m_musicText;
+    void finishFarewell();
+    // Every own-presence PUT goes through here, so the in-flight count is
+    // exact for the answers the backend reports.
+    void sendPresence(int state, const QString &statusMsg);
+    void sendOffline();
+    void onPublishAccepted();
+    void settleFarewellIfQuiet();
+    int m_publishesInFlight = 0;
+    bool m_farewell429Unresolved = false;
+    // A PUT was in flight at the withdrawal: the server may apply it AFTER the
+    // farewell, so the farewell is sent once more after the last earlier
+    // answer (inside the same budget). Cleared by any farewell PUT sent while
+    // nothing else is in flight.
+    bool m_farewellResendNeeded = false;
+    // withdrawActivityLine() state; reset by clearSession().
+    bool m_overlaysWithdrawn = false;
+    QString m_withdrawnGame;
+    QString m_withdrawnMusic;
+    bool m_farewellPending = false;
+    bool m_farewellRetried = false;
+    int m_farewellBudgetMs = kFarewellBudgetMs;
+    QElapsedTimer m_farewellClock;
     bool m_hasSession = false;
     // A status-only change must not be dropped by the duplicate-state window
     // in publishTick; the server's rejection path still bounds the rate.

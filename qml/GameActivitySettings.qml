@@ -5,7 +5,8 @@ import MatrixClient
 
 // Settings → Labs: "Playing X" game activity. Experimental and OFF by
 // default. While a game runs, only its NAME is published, as the presence
-// status ("Playing Hades II"); the previous status returns when it exits.
+// status ("Playing Hades II"), unless the user has set a status of their own,
+// which always comes first (Discord's order).
 // Nothing is sent while presence sharing is off. The process list never
 // leaves this machine. Everything here is local policy over app.settings;
 // detection and publishing live in GameActivity / PresenceManager.
@@ -104,8 +105,8 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
         text: qsTr("An experiment. While a game is running, your status "
                    + "reads “Playing <game>” for the people who can "
-                   + "see your online status, and your previous status "
-                   + "returns when the game closes. Only the game's name is "
+                   + "see your online status. A status you set yourself is "
+                   + "always shown instead while you have one. Only the game's name is "
                    + "sent, never your list of programs. Lightning looks at "
                    + "the programs running on this computer every 15 seconds "
                    + "while this is on, and does nothing when it is off.")

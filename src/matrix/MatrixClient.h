@@ -2184,6 +2184,9 @@ Q_SIGNALS:
     /// `retryAfterMs` is the server's M_LIMIT_EXCEEDED hint, or 0. The receiver
     /// bounds it before acting.
     void presencePublishFailed(const QString &category, qint64 retryAfterMs);
+    // The server accepted an own-presence PUT. Only the Rust backend reports
+    // it; PresenceManager uses it to end a bounded sign-out/quit wait early.
+    void presencePublished();
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);

@@ -220,6 +220,10 @@ class SettingsManager : public QObject
                    WRITE setGameActivityHidden NOTIFY gameActivityChanged)
     Q_PROPERTY(QStringList gameActivityCustom READ gameActivityCustom
                    WRITE setGameActivityCustom NOTIFY gameActivityChanged)
+    // Labs: "Listening to <song> by <artist>" while Spotify plays on this
+    // computer (Discord's "Display Spotify as your status"). Off by default.
+    Q_PROPERTY(bool musicActivityEnabled READ musicActivityEnabled
+                   WRITE setMusicActivityEnabled NOTIFY musicActivityChanged)
     // Shell layout. Device-level: it describes this window on this screen, and
     // an account switch must not resize it.
     Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
@@ -796,6 +800,8 @@ public:
     void setGameActivityHidden(const QStringList &names);
     QStringList gameActivityCustom() const;
     void setGameActivityCustom(const QStringList &entries);
+    bool musicActivityEnabled() const;
+    void setMusicActivityEnabled(bool v);
     bool spacesRailVisible() const;
     bool spaceBannersVisible() const;
     bool keepRoomListOrderStill() const;
@@ -1295,6 +1301,7 @@ Q_SIGNALS:
     void showLinkMediaInlineChanged();
     void sharePresenceChanged();
     void gameActivityChanged();
+    void musicActivityChanged();
     void spacesRailVisibleChanged();
     void spaceBannersVisibleChanged();
     void keepRoomListOrderStillChanged();

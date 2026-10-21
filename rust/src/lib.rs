@@ -8267,8 +8267,9 @@ pub unsafe extern "C" fn mx_rust_get_presence(
 }
 
 /// Publish the local user's presence (0 online, 1 unavailable, 2 offline).
-/// A failure emits `presence_publish_failed` with the coarse category and,
-/// for `M_LIMIT_EXCEEDED`, the server's `retry_after_ms`.
+/// Success emits `presence_published`; a failure emits
+/// `presence_publish_failed` with the coarse category and, for
+/// `M_LIMIT_EXCEEDED`, the server's `retry_after_ms`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_presence(
     ptr: *mut c_void,

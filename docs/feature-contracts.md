@@ -2707,3 +2707,50 @@ backgrounds others set for this room" remove the two shared levels only.
   (`CustomThemeStore::auditWithGradients`).
 - **NOT TESTED live** (2026-10-06): two Lightning accounts seeing one shared
   background, Element ignoring the state event, Windows/macOS rendering.
+
+### Activity status: game and music (Labs)
+
+Discord's activity status, reduced to the one line Matrix presence carries
+(`status_msg`); no rich-presence MSC is merged (MSC4320/MSC4544 are open), so
+there is no album art, progress, or "Listen Along". Both are Labs features,
+OFF by default, active only while "Share my online status" is on, a session is
+live, and the server answers presence. Research and design: vault note
+`Tasks/2026-10-20-musicact.md`; the game: `Tasks/2026-10-17-gameact.md`.
+
+- **One line, Discord's order:** a status the user set > a detected game >
+  music (`PresenceManager::effectiveStatusText`). An overlay behind the user's
+  status changes nothing on the wire and costs no PUT. The user's own status is
+  never overwritten or persisted by an overlay.
+- **Wording:** "Playing <game>" and "Listening to <song> by <artist>"
+  ("Listening to <song>" without one), in the SENDER's app language (Matrix
+  cannot localise a status per reader); the music line is recomposed on a
+  language change.
+- **Music detection is local and Spotify-only:** Linux through the desktop
+  client's MPRIS name `org.mpris.MediaPlayer2.spotify` (no other player; no
+  D-Bus activation; Flatpak needs the matching `--talk-name`), Windows through
+  the Spotify window's "Artist - Title" caption (GSMTC needs a WinRT header the
+  MinGW toolchain lacks). macOS and the Snap: none. Playback on another device
+  is never seen. A Spotify Private Session is NOT detected and is said so in
+  Settings.
+- **Privacy:** only the title and the artist(s) (at most 10) leave the
+  machine; the album is a local preview only; no album art is fetched. Bidi
+  controls and invisible format characters are dropped (ZWJ, ZWNJ and flag
+  tags kept).
+- **Rate (rc_presence is per user, burst 1):** a new song is adopted after
+  3 s unchanged (skipping through publishes none), a pause or stop clears
+  after a 10 s grace, and either rides the next jittered 25 s keep-alive, so
+  music adds no PUT of its own. Turning the feature off publishes once.
+- **Withdrawal:** sign-out, account switch and quit take the game and music
+  lines back TOGETHER in one PUT (`withdrawActivityLine`). The wait ends only
+  when every own-presence PUT in flight has been answered and no rate-limit
+  refusal since the withdrawal is left unretried (answers are not tagged, so
+  any 429 since then counts as possibly the farewell's); one retry on the
+  server's `retry_after` if it fits the budget. Budgets: sign-out 11 s (one
+  retry after rc_presence's ~10 s fits), quit 3 s (the window is closing, so a
+  retry usually does NOT fit: quitting just after a status change can leave the
+  last line). The account switch does not wait at all, and restores the line
+  only if its own call withdrew it (never a sign-out's). After a crash or a
+  forced close the last line stays until that account next publishes from
+  Lightning. A revoked session cannot send and is left alone.
+- **Tests:** `game-activity`, `music-activity` (MPRIS against a fake Spotify
+  on a private dbus-daemon), `presence-manager`. Live behaviour is NOT TESTED.

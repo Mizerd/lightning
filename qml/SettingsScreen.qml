@@ -579,6 +579,10 @@ Item {
           keywords: qsTr("playing game status steam presence activity"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "gameActivityCard" },
+        { title: qsTr("Music activity"),
+          keywords: qsTr("listening music spotify song status presence activity"),
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "musicActivityCard" },
         { title: qsTr("Backend"), keywords: qsTr("backend rust http mock"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "labsBackendLine" },
@@ -9597,6 +9601,16 @@ Item {
                         SettingsCard {
                             objectName: "gameActivityCard"
                             GameActivitySettings {
+                                width: parent.width
+                            }
+                        }
+                        SettingsGroupLabel {
+                            objectName: "musicActivityHeading"
+                            text: qsTr("Music activity")
+                        }
+                        SettingsCard {
+                            objectName: "musicActivityCard"
+                            MusicActivitySettings {
                                 width: parent.width
                             }
                         }

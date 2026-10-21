@@ -204,12 +204,29 @@ the list.
 
 - **"Playing X" game activity (Discord-style), opt-in.** Idea from Rokas,
   2026-10-17. BUILT in `d46520b3` as a Labs feature, off by default: while a
-  game runs its name replaces the presence `status_msg`, and the user's own
-  status returns when it stops. Detection reads the process table and knows
+  game runs and the user has no status of their own, its name becomes the
+  presence `status_msg` (Discord's order since 2026-10-20: a status the user
+  set always comes first), worded in the app's language. Detection reads the process table and knows
   Steam libraries, a built-in list and user-added entries, and on Windows
   prefers the foreground full-screen game; a per-game hide list; only the
   name is ever sent. Flatpak and Snap cannot see host processes, and macOS
   has no detection in this build. NOT live-tested.
+
+## Planned (2026-10-20) — BUILT, not committed yet
+
+- **"Listening to Spotify" music activity (Discord-style), opt-in.** BUILT as
+  a Labs feature next to the game activity, off by default: while Spotify
+  plays on this computer and the user has neither a status of their own nor
+  a detected game (Discord's order), the line reads "Listening to <song> by
+  <artist>" in the app's language. Only the title and the artist are sent.
+  Linux reads Spotify's MPRIS name (the Flatpak gains
+  `--talk-name=org.mpris.MediaPlayer2.spotify`); Windows reads the Spotify
+  window's caption; macOS and the Snap have no detection. A track change rides
+  the 25 s keep-alive (no extra PUT); sign-out, account switch and quit
+  withdraw the game and music lines in one PUT (sign-out waits up to 11 s for
+  the answer, quit 3 s, a switch not at all). Contract in
+  `docs/feature-contracts.md`, "Activity status: game and music (Labs)".
+  NOT live-tested.
 
 ## Next: identified gaps (2026-09-03) — ALL FOUR BUILT the same day
 
