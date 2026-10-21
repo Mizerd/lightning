@@ -103,9 +103,11 @@ Popup {
 
     function dismissTransient() {
         // The topmost layer first: a popover, then the preset question.
-        if (root.reportOpen)
+        if (root.reportOpen) {
             root.reportOpen = false
-        else if (root.shareOpen)
+            // Back on the chip that opened it.
+            readabilityBadge.forceActiveFocus()
+        } else if (root.shareOpen)
             root.shareOpen = false
         else if (root.menuOpen)
             root.menuOpen = false
@@ -175,7 +177,11 @@ Popup {
     // breakpoint (1380) is where three columns still give the preview a usable
     // scale; below it they fold, and the preview visibly grows as the column
     // folds away.
-    readonly property int headerHeight: 68
+    // Below this width the header's actions do not fit beside the theme
+    // name and the level switch (the window is the dialog): they move to a
+    // second line instead of running off the right edge.
+    readonly property bool narrowHeader: root.width < 1100
+    readonly property int headerHeight: root.narrowHeader ? 112 : 68
     readonly property bool compact: root.width < 1380
     readonly property int workColumnWidth:
         Math.max(268, Math.min(330, Math.round(root.width * 0.235)))
@@ -854,6 +860,78 @@ Popup {
                       root.undoEdit)
     }
 
+    // The colours a palette key is DRAWN in: every stop of the gradient the
+    // preview paints for it (graded the way auditWithGradients does), else
+    // its flat colour.
+    function drawnColoursOf(paletteKey) {
+        var g = root.previewGradients
+        if (g) {
+            for (var k in g) {
+                if (root.store.paletteKeyForRole(k) === paletteKey
+                        && g[k] && g[k].stops && g[k].stops.length > 0) {
+                    var out = []
+                    for (var i = 0; i < g[k].stops.length; ++i)
+                        out.push(String(g[k].stops[i]))
+                    return out
+                }
+            }
+        }
+        return [String(root.auditPalette[paletteKey])]
+    }
+
+    // Every (other colour, bar) pair `key` is held to: its own checks AND
+    // those of the roles that follow it, so a colour that fixes one state is
+    // not allowed to break its siblings (a button label fixed on the accent
+    // took the hover and pressed labels with it), and graded at every stop of
+    // a gradient behind it, so a fix for text on a gradient backdrop is not
+    // judged against the flat colour the gradient paints over.
+    function readableConstraints(key) {
+        var scope = [key].concat(root.dependentsOf(key))
+        var mine = {}
+        for (var i = 0; i < scope.length; ++i)
+            mine[root.store.paletteKeyForRole(scope[i])] = true
+        var out = []
+        for (var j = 0; j < scope.length; ++j) {
+            var rows = root.store.auditForRole(root.auditPalette, scope[j])
+            for (var n = 0; n < rows.length; ++n) {
+                var r = rows[n]
+                if (r.value === undefined || (mine[r.fg] === true) === (mine[r.bg] === true))
+                    continue
+                var others = root.drawnColoursOf(mine[r.fg] === true ? r.bg : r.fg)
+                for (var c = 0; c < others.length; ++c)
+                    out.push({ against: others[c], minimum: r.minimum,
+                               edge: r.kind === "edge" })
+            }
+        }
+        return out
+    }
+    // How many bars `hex` is under, by the contrast itself. Asking
+    // readableColor() instead counts a bar NO lightness can reach as met (it
+    // answers "" there), which let a fix trade one failure for two.
+    function constraintFailures(hex, constraints) {
+        var n = 0
+        for (var i = 0; i < constraints.length; ++i) {
+            var q = constraints[i]
+            if (root.store.contrastRatio(hex, q.against) + 0.0005 < q.minimum)
+                ++n
+        }
+        return n
+    }
+
+    // True when `next` leaves fewer bars failing than `current` AND puts no
+    // bar under that `current` met: a fix may not buy one row with two.
+    function betterWithoutNewFailures(current, next, constraints) {
+        var fewer = root.constraintFailures(next, constraints)
+                    < root.constraintFailures(current, constraints)
+        for (var i = 0; i < constraints.length && fewer; ++i) {
+            var one = [constraints[i]]
+            if (root.constraintFailures(current, one) === 0
+                    && root.constraintFailures(next, one) > 0)
+                return false
+        }
+        return fewer
+    }
+
     // "Make readable": moves the open colour, and nothing else, to the nearest
     // lightness that clears every bar it fails against its neighbours. A
     // nudge, not a guarantee: the readability list still says what is left.
@@ -865,32 +943,35 @@ Popup {
         var open = key === root.editingRole
         if (key.length === 0 || (open && root.editingStop >= 0))
             return
-        var pk = root.store.paletteKeyForRole(key)
-        var rows = root.store.auditForRole(root.auditPalette, key)
+        var constraints = root.readableConstraints(key)
         var current = root.toHex(Qt.color(String(root.effectiveColor(key))))
-        var next = current
-        var failing = 0
-        var fixed = 0
-        for (var i = 0; i < rows.length; ++i) {
-            var r = rows[i]
-            if (r.passes)
-                continue
-            ++failing
-            var other = r.fg === pk ? r.bg : (r.bg === pk ? r.fg : "")
-            if (other.length === 0)
-                continue
-            var candidate = root.store.readableColor(
-                                next, String(root.auditPalette[other]),
-                                r.minimum, r.kind === "edge")
-            if (candidate.length === 0)
-                continue
-            next = candidate
-            ++fixed
-        }
-        if (failing === 0)
+        var before = root.constraintFailures(current, constraints)
+        if (before === 0) {
+            root.announce(qsTr("%1 already clears every bar it is checked against. If it is listed, the colour behind it is the one to change.")
+                          .arg(root.labelForRole(key)), null)
             return
-        if (fixed === 0 || next === current) {
-            root.announce(qsTr("No lightness of %1 clears the bar. Try changing the colour beside it.")
+        }
+        var next = current
+        for (var pass = 0; pass < 3; ++pass) {
+            var moved = false
+            for (var i = 0; i < constraints.length; ++i) {
+                var q = constraints[i]
+                var candidate = root.store.readableColor(next, q.against,
+                                                         q.minimum, q.edge)
+                if (candidate.length > 0
+                        && candidate.toUpperCase() !== String(next).toUpperCase()) {
+                    next = candidate
+                    moved = true
+                }
+            }
+            if (!moved)
+                break
+        }
+        // Accept only a colour that leaves fewer bars failing, siblings and
+        // every gradient stop counted.
+        if (next === current
+                || !root.betterWithoutNewFailures(current, next, constraints)) {
+            root.announce(qsTr("No lightness of %1 clears the bar without breaking another. Try changing the colour beside it.")
                           .arg(root.labelForRole(key)), null)
             return
         }
@@ -1190,9 +1271,15 @@ Popup {
                 radius: AppTheme.radiusSm
                 color: "transparent"
                 border.width: 2
-                border.color: AppTheme.editorAccent
+                // A filled primary button IS the accent: a ring in the accent
+                // colour on it is invisible, so it takes the ink colour.
+                border.color: btn.primary ? AppTheme.editorAccentInk
+                                          : AppTheme.editorAccent
             }
         }
+        // Return and Enter press a focused button like Space does.
+        Keys.onReturnPressed: (e) => { btn.click(); e.accepted = true }
+        Keys.onEnterPressed: (e) => { btn.click(); e.accepted = true }
         contentItem: Label {
             id: btnLabel
             text: btn.text
@@ -1306,9 +1393,15 @@ Popup {
         onActivated: root.undoEdit()
     }
     Shortcut {
-        sequences: [StandardKey.Redo]
+        // Ctrl+Y as well: StandardKey.Redo is Ctrl+Shift+Z alone on some
+        // platform themes, and Ctrl+Y is what most Linux users press.
+        // Where StandardKey.Redo already includes Ctrl+Y (Windows) the two
+        // entries are the same sequence and Qt may report the press as
+        // ambiguous instead of activated; both mean "redo", once.
+        sequences: [StandardKey.Redo, "Ctrl+Y"]
         enabled: root.opened && root.store.canRedo
         onActivated: root.redoEdit()
+        onActivatedAmbiguously: root.redoEdit()
     }
     Shortcut {
         sequence: "Escape"
@@ -1333,8 +1426,11 @@ Popup {
     }
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.opened && !root.pickerPanelCovers
+        enabled: root.opened
         onActivated: {
+            // Narrow: the open colour's panel hides the field; put it away.
+            if (root.pickerPanelCovers)
+                root.editingRole = ""
             filterField.forceActiveFocus()
             filterField.selectAll()
         }
@@ -1350,11 +1446,15 @@ Popup {
             implicitHeight: root.headerHeight
             color: AppTheme.editorPanel
 
-            RowLayout {
+            GridLayout {
+                id: headerGrid
+                objectName: "themeEditorHeader"
                 anchors.fill: parent
                 anchors.leftMargin: AppTheme.spacing24
                 anchors.rightMargin: AppTheme.spacing24
-                spacing: AppTheme.spacing16
+                columnSpacing: AppTheme.spacing16
+                rowSpacing: AppTheme.spacing4
+                columns: root.narrowHeader ? 3 : 4
 
                 // The theme being edited, as the button that opens the theme
                 // menu: switch, rename, new, duplicate, share, import, delete.
@@ -1471,6 +1571,13 @@ Popup {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
+                            Accessible.name: text
+                            // Elided exactly where the warning matters: the
+                            // whole sentence on hover.
+                            HoverHandler { id: subtitleHover }
+                            ToolTip.visible: subtitleHover.hovered && truncated
+                            ToolTip.delay: 400
+                            ToolTip.text: text
                         }
 
                         // The verdict, always on screen. The full report shares
@@ -1560,95 +1667,139 @@ Popup {
 
                 // A Row rather than RowLayout children: a layout hands slack to
                 // its items and spread the buttons apart.
-                Row {
-                    // Pinned to the top-right explicitly.
+                // At a narrow window the cluster (Undo ... Done) is wider than
+                // the header, and a clipped Done / Use this theme is
+                // unreachable. It scrolls sideways instead of overflowing; at
+                // a normal width it fits and the Flickable is inert.
+                Flickable {
+                    id: headerActions
+                    objectName: "themeHeaderActions"
                     Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                    spacing: AppTheme.spacing8
+                    // On its own line when the window is narrow (C85), and
+                    // scrolling sideways if even that is too narrow (C77).
+                    Layout.columnSpan: root.narrowHeader ? 3 : 1
+                    Layout.minimumWidth: Math.min(headerActionRow.implicitWidth, 200)
+                    Layout.preferredWidth: headerActionRow.implicitWidth
+                    implicitHeight: headerActionRow.implicitHeight
+                    contentWidth: headerActionRow.implicitWidth
+                    contentHeight: headerActionRow.implicitHeight
+                    flickableDirection: Flickable.HorizontalFlick
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
 
-                    // Undo/redo of colour edits (also Ctrl+Z and
-                    // Ctrl+Shift+Z). Hidden while the reset question is up,
-                    // which they would answer behind its back.
-                    EditorButton {
-                        objectName: "themeUndoButton"
-                        visible: !root.confirmingReset
-                        enabled: root.store.canUndo
-                        text: qsTr("Undo")
-                        Accessible.description: root.undoTip
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: root.undoTip
-                        onClicked: root.undoEdit()
-                    }
-                    EditorButton {
-                        objectName: "themeRedoButton"
-                        visible: !root.confirmingReset
-                        enabled: root.store.canRedo
-                        text: qsTr("Redo")
-                        Accessible.description: root.redoTip
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: root.redoTip
-                        onClicked: root.redoEdit()
-                    }
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: !root.confirmingReset
-                        width: 1
-                        height: 20
-                        color: AppTheme.editorBorder
-                    }
-
-                    // Reset with an inline confirmation; a second dialog would
-                    // use the shared dialog shell, which this surface cannot
-                    // depend on.
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: root.confirmingReset
-                        text: qsTr("Reset every colour?")
-                        color: AppTheme.editorText
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                        rightPadding: AppTheme.spacing4
-                    }
-                    EditorButton {
-                        objectName: "themeResetConfirmButton"
-                        visible: root.confirmingReset
-                        danger: true
-                        text: qsTr("Reset to default")
-                        onClicked: {
-                            root.store.resetAll()
-                            root.confirmingReset = false
-                            if (root.editingRole.length > 0)
-                                picker.load(root.effectiveColor(root.editingRole))
+                    // A Tab to a clipped button scrolls it into view.
+                    Connections {
+                        target: headerActions.Window.window
+                        function onActiveFocusItemChanged() {
+                            let it = headerActions.Window.window
+                                     ? headerActions.Window.window.activeFocusItem
+                                     : null
+                            let p = it
+                            while (p && p !== headerActionRow)
+                                p = p.parent
+                            if (!p)
+                                return
+                            const x = it.mapToItem(headerActionRow, 0, 0).x
+                            if (x < headerActions.contentX)
+                                headerActions.contentX = Math.max(0, x)
+                            else if (x + it.width > headerActions.contentX
+                                                    + headerActions.width)
+                                headerActions.contentX = Math.min(
+                                    Math.max(0, headerActions.contentWidth
+                                                - headerActions.width),
+                                    x + it.width - headerActions.width)
                         }
                     }
-                    EditorButton {
-                        visible: root.confirmingReset
-                        text: qsTr("Keep")
-                        onClicked: root.confirmingReset = false
-                    }
-                    EditorButton {
-                        objectName: "themeResetAllButton"
-                        visible: !root.confirmingReset
-                        enabled: root.store.overrideCount > 0
-                        text: qsTr("Reset to default")
-                        onClicked: root.confirmingReset = true
-                    }
 
-                    // Applying is separate from authoring: the preview shows
-                    // the custom palette whether or not the app uses it.
-                    EditorButton {
-                        objectName: "themeApplyButton"
-                        visible: app.settings.theme !== 12
-                        primary: true
-                        text: qsTr("Use this theme")
-                        onClicked: app.settings.theme = 12
-                    }
-                    EditorButton {
-                        objectName: "themeEditorDoneButton"
-                        primary: app.settings.theme === 12
-                        text: qsTr("Done")
-                        onClicked: root.close()
+                    Row {
+                        id: headerActionRow
+                        spacing: AppTheme.spacing8
+
+                        // Undo/redo of colour edits (also Ctrl+Z and
+                        // Ctrl+Shift+Z). Hidden while the reset question is up,
+                        // which they would answer behind its back.
+                        EditorButton {
+                            objectName: "themeUndoButton"
+                            visible: !root.confirmingReset
+                            enabled: root.store.canUndo
+                            text: qsTr("Undo")
+                            Accessible.description: root.undoTip
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: root.undoTip
+                            onClicked: root.undoEdit()
+                        }
+                        EditorButton {
+                            objectName: "themeRedoButton"
+                            visible: !root.confirmingReset
+                            enabled: root.store.canRedo
+                            text: qsTr("Redo")
+                            Accessible.description: root.redoTip
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: root.redoTip
+                            onClicked: root.redoEdit()
+                        }
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: !root.confirmingReset
+                            width: 1
+                            height: 20
+                            color: AppTheme.editorBorder
+                        }
+
+                        // Reset with an inline confirmation; a second dialog would
+                        // use the shared dialog shell, which this surface cannot
+                        // depend on.
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.confirmingReset
+                            text: qsTr("Reset every colour?")
+                            color: AppTheme.editorText
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            rightPadding: AppTheme.spacing4
+                        }
+                        EditorButton {
+                            objectName: "themeResetConfirmButton"
+                            visible: root.confirmingReset
+                            danger: true
+                            text: qsTr("Reset to default")
+                            onClicked: {
+                                root.store.resetAll()
+                                root.confirmingReset = false
+                                if (root.editingRole.length > 0)
+                                    picker.load(root.effectiveColor(root.editingRole))
+                            }
+                        }
+                        EditorButton {
+                            visible: root.confirmingReset
+                            text: qsTr("Keep")
+                            onClicked: root.confirmingReset = false
+                        }
+                        EditorButton {
+                            objectName: "themeResetAllButton"
+                            visible: !root.confirmingReset
+                            enabled: root.store.overrideCount > 0
+                            text: qsTr("Reset to default")
+                            onClicked: root.confirmingReset = true
+                        }
+
+                        // Applying is separate from authoring: the preview shows
+                        // the custom palette whether or not the app uses it.
+                        EditorButton {
+                            objectName: "themeApplyButton"
+                            visible: app.settings.theme !== 12
+                            primary: true
+                            text: qsTr("Use this theme")
+                            onClicked: app.settings.theme = 12
+                        }
+                        EditorButton {
+                            objectName: "themeEditorDoneButton"
+                            primary: app.settings.theme === 12
+                            text: qsTr("Done")
+                            onClicked: root.close()
+                        }
                     }
                 }
             }
@@ -2259,6 +2410,10 @@ Popup {
                                                                          ? AppTheme.uiFont
                                                                          : AppTheme.monoFont
                                                             font.pixelSize: AppTheme.menuSectionSize
+                                                            // Elides: a run past the column drew into the scrollbar.
+                                                            elide: Label.ElideRight
+                                                            Layout.maximumWidth: implicitWidth
+                                                            Layout.minimumWidth: 0
                                                         }
                                                         // Editing the parent
                                                         // recolours this one.
@@ -2292,6 +2447,8 @@ Popup {
                                                             color: AppTheme.editorTextMuted
                                                             font.family: AppTheme.uiFont
                                                             font.pixelSize: AppTheme.menuSectionSize
+                                                            elide: Label.ElideRight
+                                                            Layout.minimumWidth: 0
                                                         }
                                                         Item {
                                                             visible: roleRow.followsKey.length === 0
@@ -2564,6 +2721,7 @@ Popup {
         onDismissRequested: root.reportOpen = false
 
         ThemeReadabilityPanel {
+            id: readabilityPanel
             Layout.fillWidth: true
             Layout.fillHeight: true
             report: root.readabilityReport
@@ -2575,7 +2733,10 @@ Popup {
             onFindingRequested: (role) =>
                 root.beginEdit(role, root.labelForRole(role))
             onFixRequested: (role) => root.makeReadable(role)
-            onCloseRequested: root.reportOpen = false
+            onCloseRequested: {
+                root.reportOpen = false
+                readabilityBadge.forceActiveFocus()
+            }
         }
     }
 
@@ -2759,7 +2920,14 @@ Popup {
                                        : AppTheme.editorCanvas
                             gradedPalette: root.auditPalette
                             selectedStop: root.editingStop
+                            // Held on "background" while a flat role is open (so
+                            // the editor stays loaded); that role's gradient must
+                            // not hand the picker a stop of its own, or an edit of
+                            // this flat role lands on the backdrop's glow.
+                            autoSelect: root.editingTakesGradient
                             onStopSelected: (index) => {
+                                if (index >= 0 && !root.editingTakesGradient)
+                                    return
                                 root.editingStop = index
                                 picker.load(index >= 0
                                             ? gradientEditor.stopAt(index)
@@ -2784,6 +2952,10 @@ Popup {
                                 // show(), not load(): the "before" half keeps
                                 // the colour the role had when it was opened.
                                 picker.show(root.effectiveColor(root.editingRole))
+                                // Instant, so say it can be taken back.
+                                root.announce(qsTr("%1 was reset.")
+                                              .arg(root.labelForRole(root.editingRole)),
+                                              root.undoEdit)
                             }
                         }
                         onClosed: root.editingRole = ""

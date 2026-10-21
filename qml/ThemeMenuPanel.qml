@@ -106,11 +106,45 @@ ColumnLayout {
     }
 
     // One row per saved theme; the list scrolls past seven.
+    // The current theme's row, scrolled into view: with more than seven
+    // themes it was off-screen on open and the check mark could not be seen.
+    // Reveal only on open and on an active-id change, plus once more while the
+    // list is still being filled; a later themes change (Duplicate, an edit)
+    // must not yank a list the user has scrolled elsewhere.
+    property bool revealPending: true
+    function revealCurrent() {
+        if (!root.revealPending)
+            return
+        let at = -1
+        for (let i = 0; i < root.themes.length; ++i) {
+            if (root.themes[i].id === root.activeId) { at = i; break }
+        }
+        const item = at >= 0 ? themeRows.itemAt(at) : null
+        // A delegate that was just (re)built sits at y 0 until the layout
+        // pass runs; a row that is not the first one cannot really be there,
+        // so wait for the layout (listColumn.onHeightChanged) instead.
+        if (!item || (at > 0 && item.y <= 0))
+            return
+        root.revealPending = false
+        const maxY = Math.max(0, listScroll.contentHeight - listScroll.height)
+        if (item.y < listScroll.contentY)
+            listScroll.contentY = Math.min(item.y, maxY)
+        else if (item.y + item.height > listScroll.contentY + listScroll.height)
+            listScroll.contentY = Math.min(item.y + item.height - listScroll.height,
+                                           maxY)
+    }
+    onActiveIdChanged: { root.revealPending = true; Qt.callLater(root.revealCurrent) }
+    onThemesChanged: Qt.callLater(root.revealCurrent)
+    onVisibleChanged: if (root.visible) { root.revealPending = true; Qt.callLater(root.revealCurrent) }
+    Component.onCompleted: Qt.callLater(root.revealCurrent)
+
+    Item {
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.min(listColumn.implicitHeight, 7 * 36)
     Flickable {
         id: listScroll
         objectName: "themeMenuList"
-        Layout.fillWidth: true
-        Layout.preferredHeight: Math.min(listColumn.implicitHeight, 7 * 36)
+        anchors.fill: parent
         clip: true
         contentWidth: width
         contentHeight: listColumn.implicitHeight
@@ -129,12 +163,14 @@ ColumnLayout {
 
         ColumnLayout {
             id: listColumn
+            onHeightChanged: Qt.callLater(root.revealCurrent)
             width: listScroll.width
                    - (listScroll.contentHeight > listScroll.height + 1
                       ? AppTheme.spacing12 : 0)
             spacing: 2
 
             Repeater {
+                id: themeRows
                 model: root.themes
                 delegate: Rectangle {
                     id: row
@@ -228,6 +264,13 @@ ColumnLayout {
             }
         }
     }
+    // Middle-click autoscroll, as in the timeline and the room list.
+    MiddleClickScroller {
+        anchors.fill: parent
+        objectName: "themeMenuMiddleClickScroller"
+        view: listScroll
+    }
+    }
 
     Rectangle {
         Layout.fillWidth: true
@@ -271,6 +314,8 @@ ColumnLayout {
             Accessible.role: Accessible.EditableText
             Accessible.name: qsTr("Theme name")
             text: root.themeName
+            // Tab or the menu opening lands on a name ready to be replaced.
+            onActiveFocusChanged: if (nameField.activeFocus) nameField.selectAll()
             // Committed as typed: editingFinished is not reliably reached (a
             // click outside takes no focus, and closing the menu destroys
             // nothing but hides it). onTextEdited fires for user edits only,

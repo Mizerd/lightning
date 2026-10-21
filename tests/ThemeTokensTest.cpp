@@ -905,6 +905,68 @@ private Q_SLOTS:
                                            "measured").arg(checked)));
     }
 
+    // Message bodies are TextEdits with selectByMouse; without a bound
+    // selectionColor Qt paints its fixed #000080 on every theme (1.04-1.28:1
+    // on the dark ones). Every selectByMouse item in MessageDelegate must
+    // bind the theme's selection tokens; asserts the count of items scanned.
+    void messageTextEditsUseTheThemedSelection()
+    {
+        QFile f(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(f.readAll());
+        // Plain `true`, or the spoiler-aware binding (C17) that is true
+        // whenever the body holds no hidden spoiler.
+        const QRegularExpression re(QStringLiteral("selectByMouse:\\s*(true|!/spoiler:toggle[^\\n]*\\n[^\\n]*\\))"));
+        int count = 0;
+        auto it = re.globalMatch(src);
+        while (it.hasNext()) {
+            const auto m = it.next();
+            ++count;
+            const QString after = src.mid(m.capturedEnd(), 200);
+            QVERIFY2(after.contains(QStringLiteral("selectionColor: AppTheme.textSelection")),
+                     "a selectByMouse item has no themed selectionColor");
+            QVERIFY2(after.contains(QStringLiteral("selectedTextColor: AppTheme.text")),
+                     "a selectByMouse item has no themed selectedTextColor");
+        }
+        QVERIFY2(count >= 2, qPrintable(QStringLiteral("scanned %1").arg(count)));
+    }
+
+    // Selected message text is drawn in the palette's text ink over its
+    // textSelection fill (no palette defines textSelection, so it is
+    // selectedHover). Binding the tokens would only relabel the bug if one
+    // pair were unreadable, so grade the pair on all eleven palettes. The
+    // floor is 4.0:1 (the worst, Nord, measures 4.31); asserts the count.
+    void selectedMessageTextIsReadableOnEveryTheme()
+    {
+        const QList<QPair<QString, QString>> pairs = {
+            {"_textPrimaryLight", "_selectedHoverLight"},
+            {"_textPrimaryDark", "_selectedHoverDark"},
+            {"_stoText", "_stoSelectedHover"},
+            {"_dkTextPrimary", "_dkSelectedHover"},
+            {"_graTextPrimary", "_graSelectedHover"},
+            {"_norTextPrimary", "_norSelectedHover"},
+            {"_purTextPrimary", "_purSelectedHover"},
+            {"_warTextPrimary", "_warSelectedHover"},
+            {"_mosTextPrimary", "_mosSelectedHover"},
+            {"_indTextPrimary", "_indSelectedHover"},
+            {"_teaTextPrimary", "_teaSelectedHover"},
+        };
+        int checked = 0;
+        for (const auto &pr : pairs) {
+            const QString ink = m_colors.value(pr.first);
+            const QString fill = m_colors.value(pr.second);
+            QVERIFY2(!ink.isEmpty() && !fill.isEmpty(),
+                     qPrintable(QStringLiteral("%1 / %2 not found")
+                                    .arg(pr.first, pr.second)));
+            ++checked;
+            const double c = contrast(ink, fill);
+            QVERIFY2(c >= 4.0,
+                     qPrintable(QStringLiteral("%1 on %2 is only %3:1")
+                                    .arg(ink, fill).arg(c, 0, 'f', 2)));
+        }
+        QCOMPARE(checked, 11);
+    }
+
     // The voice preview waveform on its accentSoft pill uses the pill's label
     // inks (text for the played part, textMuted for the rest). Three floors:
     // each ink against the fill, and the two inks against each other so

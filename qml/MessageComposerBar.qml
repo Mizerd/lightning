@@ -2748,7 +2748,7 @@ Item {
                             // arriving after "Empty Room") reaches the
                             // placeholder.
                             var _rev = root.roomListRevision
-                            return qsTr("Message %1").arg(root.roomDisplayName())
+                            return qsTr("Message %1").arg(root.isolatedRoomName())
                         }
                         placeholderTextColor: AppTheme.placeholderInk
                         color: AppTheme.composerText
@@ -3549,6 +3549,13 @@ Item {
     }
     // Room name for the "Message #room" placeholder; people keep their plain
     // name.
+    // The name wrapped in Unicode isolates (LRI ... PDI) in an RTL UI, so the
+    // "#" and an English name stay ONE left-to-right run instead of the "#"
+    // landing on the far side of it ("Quotes lists tables spoilers# ...").
+    function isolatedRoomName() {
+        var n = root.roomDisplayName()
+        return app.localization.rightToLeft ? "\u2066" + n + "\u2069" : n
+    }
     function roomDisplayName() {
         var room = app.roomList.findRoom(app.currentRoomId)
         var name = room && room.name ? room.name : qsTr("this room")

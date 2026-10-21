@@ -16,8 +16,15 @@ Rectangle {
     // What the action does, named ("Undo: Unlink Room list"); read aloud and
     // shown as a tooltip.
     property string actionHint: ""
-    // How long it stays, in milliseconds.
+    // How long it stays, in milliseconds. A toast with an action stays at
+    // least `actionDuration`: time to reach the action by keyboard.
     property int duration: 6000
+    property int actionDuration: 10000
+    // True while the pointer is on the action or it has keyboard focus: the
+    // timer does not run then (WCAG 2.2.1), and restarts when it ends.
+    readonly property bool paused: actionHover.containsMouse
+                                   || actionButton.activeFocus
+    readonly property bool dismissTimerRunning: hideTimer.running
     property bool shown: false
     signal actionTriggered()
 
@@ -26,7 +33,14 @@ Rectangle {
         root.message = text
         root.actionText = action === undefined ? "" : action
         root.shown = true
-        hideTimer.restart()
+        if (!root.paused)
+            hideTimer.restart()
+    }
+    onPausedChanged: {
+        if (root.paused)
+            hideTimer.stop()
+        else if (root.shown)
+            hideTimer.restart()
     }
     function dismiss() {
         root.shown = false
@@ -46,7 +60,9 @@ Rectangle {
 
     Timer {
         id: hideTimer
-        interval: root.duration
+        interval: root.actionText.length > 0
+                  ? Math.max(root.duration, root.actionDuration)
+                  : root.duration
         onTriggered: root.shown = false
     }
 

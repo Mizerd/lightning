@@ -40,6 +40,48 @@ Flickable {
     contentHeight: column.implicitHeight
     boundsBehavior: Flickable.StopAtBounds
 
+    // Keyboard focus below the fold used to be invisible: Tab moved on to a
+    // control the panel had not scrolled to. Follow the focused control.
+    function ensureVisible(item) {
+        if (!item || item === root)
+            return
+        let inside = false
+        for (let i = item; i && !inside; i = i.parent)
+            inside = (i === root.contentItem)
+        if (!inside)
+            return
+        const top = item.mapToItem(root.contentItem, 0, 0).y - AppTheme.spacing6
+        const bottom = top + item.height + AppTheme.spacing6 * 2
+        const maxY = Math.max(0, root.contentHeight - root.height)
+        if (top < root.contentY)
+            root.contentY = Math.max(0, top)
+        else if (bottom > root.contentY + root.height)
+            root.contentY = Math.min(maxY, bottom - root.height)
+    }
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            root.ensureVisible(root.Window.window.activeFocusItem)
+        }
+    }
+    // A click on the panel's own text gives it the keys below.
+    TapHandler { onTapped: root.forceActiveFocus(Qt.MouseFocusReason) }
+    // Keys no focused control handles scroll the panel.
+    Keys.onPressed: (e) => {
+        const maxY = Math.max(0, root.contentHeight - root.height)
+        const page = Math.max(40, root.height - 40)
+        let y = root.contentY
+        if (e.key === Qt.Key_PageDown) y += page
+        else if (e.key === Qt.Key_PageUp) y -= page
+        else if (e.key === Qt.Key_Down) y += 40
+        else if (e.key === Qt.Key_Up) y -= 40
+        else if (e.key === Qt.Key_Home) y = 0
+        else if (e.key === Qt.Key_End) y = maxY
+        else return
+        root.contentY = Math.max(0, Math.min(maxY, y))
+        e.accepted = true
+    }
+
     ScrollBar.vertical: ScrollBar {
         policy: root.contentHeight > root.height + 1 ? ScrollBar.AlwaysOn
                                                      : ScrollBar.AlwaysOff
@@ -133,6 +175,7 @@ Flickable {
                             }
                         }
                         Label {
+                            id: cardLabel
                             Layout.fillWidth: true
                             text: card.modelData.name
                             textFormat: Text.PlainText
@@ -148,6 +191,10 @@ Flickable {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.baseRequested(card.modelData.id)
+                        // A narrow panel elides names ("Lightning ..." twice).
+                        ToolTip.visible: containsMouse && cardLabel.truncated
+                        ToolTip.delay: 400
+                        ToolTip.text: card.modelData.name
                     }
                 }
             }

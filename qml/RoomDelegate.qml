@@ -241,6 +241,11 @@ Item {
                     font.weight: (selected || (root.isUnread && !root.muted))
                                  ? AppTheme.weightBold : AppTheme.weightMedium
                     elide: Label.ElideRight
+                    // Explicit, not the implicit default: an implicit left follows
+                    // the TEXT's direction, so an English name floated mid-row
+                    // in an RTL UI while Arabic hugged the avatar. An explicit
+                    // left is mirrored with the layout.
+                    horizontalAlignment: Text.AlignLeft
                     Layout.fillWidth: true
                     // A name cut to fit the row stays readable (C06 F05).
                     ToolTip.visible: nameHover.hovered && nameLabel.truncated
@@ -332,6 +337,7 @@ Item {
                               AppTheme.uiFont,
                               AppTheme.scaled(AppTheme.textMeta))
                     elide: Label.ElideRight
+                    horizontalAlignment: Text.AlignLeft // mirrored under RTL, see the name
                     // One line, always: explicit newlines would break lines
                     // even with elide. Plain text: a body must never
                     // rich-format the room list.

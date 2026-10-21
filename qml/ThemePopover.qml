@@ -44,8 +44,28 @@ Item {
         panel.x = Math.max(8, Math.min(x, root.width - panel.width - 8))
         panel.y = p.y
     }
+    // True when keyboard focus is on something inside this panel.
+    function focusInside() {
+        const w = root.Window.window
+        for (let i = w ? w.activeFocusItem : null; i; i = i.parent) {
+            if (i === root)
+                return true
+        }
+        return false
+    }
     onOpenedChanged: {
-        if (root.opened) {
+        if (!root.opened) {
+            // Hiding an item does not release its active focus: the closed
+            // panel's Name field kept every keystroke and typing renamed the
+            // theme. Hand focus back to the control the panel hung from.
+            if (root.focusInside()) {
+                const w = root.Window.window
+                if (root.anchorItem && root.anchorItem.visible)
+                    root.anchorItem.forceActiveFocus(Qt.OtherFocusReason)
+                else if (w && w.activeFocusItem)
+                    w.activeFocusItem.focus = false
+            }
+        } else {
             root.reposition()
             Qt.callLater(function () {
                 if (root.opened && root.initialFocus)

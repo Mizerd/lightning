@@ -2275,7 +2275,16 @@ Item {
                         // size; the clip keeps a bounded one inside the row.
                         // "<table" occurs only where the sanitizer emitted one.
                         clip: (model.formattedBody || "").indexOf("<table") >= 0
-                        selectByMouse: true
+                        // A covered spoiler is one run whose ink equals its slab; the
+                        // selection highlight repaints it in clear and Ctrl+C copies
+                        // it, so selection is off while one is covered. Tested on
+                        // the sanitizer's own string: TextEdit.text of a rich-text
+                        // item is re-serialised by QTextDocument::toHtml (spacing
+                        // differs) and would never match.
+                        selectByMouse: !/spoiler:toggle[^>]*><span[^>]*;color:/.test(
+                                           model.formattedBody || "")
+                        selectionColor: AppTheme.textSelection
+                        selectedTextColor: AppTheme.text
                         Accessible.name: model.body || ""
 
                         // Each paragraph in its own direction (dir="auto").
@@ -2428,7 +2437,15 @@ Item {
                                             // column: same clip as the body.
                                             clip: (segmentRow.modelData.text
                                                    || "").indexOf("<table") >= 0
-                                            selectByMouse: true
+                                            // A covered spoiler is one run whose ink equals its slab;
+                                            // the selection highlight repaints it in clear and Ctrl+C
+                                            // copies it, so selection is off while one is covered.
+                                            // Tested on the sanitizer's string, never TextEdit.text
+                                            // (QTextDocument re-serialises that).
+                                            selectByMouse: !/spoiler:toggle[^>]*><span[^>]*;color:/.test(
+                                                               segmentRow.modelData.text || "")
+                                            selectionColor: AppTheme.textSelection
+                                            selectedTextColor: AppTheme.text
                                             onLinkActivated: function(link) {
                                                 root.openMessageLink(link)
                                             }

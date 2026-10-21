@@ -75,8 +75,11 @@ Item {
                 implicitHeight: 26
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
-                leftPadding: AppTheme.spacing12 + AppTheme.spacing8
-                rightPadding: AppTheme.spacing8
+                // Paddings and the bar are physical, so under RTL they swap:
+                // the active bar belongs at the START edge of the row.
+                readonly property real startInset: AppTheme.spacing12 + AppTheme.spacing8
+                leftPadding: entryRow.mirrored ? AppTheme.spacing8 : entryRow.startInset
+                rightPadding: entryRow.mirrored ? entryRow.startInset : AppTheme.spacing8
                 Accessible.role: Accessible.Button
                 Accessible.name: modelData.label
                 Accessible.selected: entryRow.current
@@ -85,7 +88,9 @@ Item {
 
                 background: Item {
                     Rectangle {
-                        x: AppTheme.spacing12 - 1
+                        x: entryRow.mirrored
+                           ? parent.width - width - (AppTheme.spacing12 - 1)
+                           : AppTheme.spacing12 - 1
                         width: 3
                         height: parent.height - 6
                         y: 3
@@ -94,8 +99,8 @@ Item {
                         color: AppTheme.bolt
                     }
                     Rectangle {
-                        x: AppTheme.spacing12 + AppTheme.spacing4
-                        width: parent.width - x
+                        x: entryRow.mirrored ? 0 : AppTheme.spacing12 + AppTheme.spacing4
+                        width: parent.width - (AppTheme.spacing12 + AppTheme.spacing4)
                         height: parent.height
                         radius: AppTheme.radiusSm
                         color: entryRow.hovered

@@ -56,6 +56,10 @@ ColumnLayout {
                                 root.width)
         Accessible.role: Accessible.Button
         Accessible.name: text
+        // AbstractButton answers Space only; the sibling controls in the
+        // editor all answer Return and Enter too.
+        Keys.onReturnPressed: (e) => { btn.clicked(); e.accepted = true }
+        Keys.onEnterPressed: (e) => { btn.clicked(); e.accepted = true }
         background: Rectangle {
             radius: AppTheme.radiusMd
             color: btn.primary

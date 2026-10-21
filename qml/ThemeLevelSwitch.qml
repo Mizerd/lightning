@@ -30,14 +30,36 @@ Rectangle {
     color: AppTheme.editorInset
     border.width: 1
     border.color: AppTheme.editorBorderStrong
+    // The group holds the focus (one tab stop), so it is what a screen reader
+    // lands on: focusable, and it announces the checked segment itself because
+    // the segments cannot be focused individually.
     Accessible.role: Accessible.Grouping
+    Accessible.focusable: true
     Accessible.name: qsTr("Detail level")
+    Accessible.description: root.names[root.level] + ". " + root.hints[root.level]
+
+    // A radio group is ONE tab stop: the switch itself holds focus and the
+    // arrows move the selection, with the ring drawn on the current segment.
+    // (Per-segment tab stops left the ring on the old segment after an arrow.)
+    activeFocusOnTab: true
+    Keys.onPressed: (e) => {
+        let target = -1
+        if (e.key === Qt.Key_Left) target = root.level - 1
+        else if (e.key === Qt.Key_Right) target = root.level + 1
+        else if (e.key === Qt.Key_Home) target = 0
+        else if (e.key === Qt.Key_End) target = 2
+        else return
+        if (target >= 0 && target <= 2 && target !== root.level)
+            root.levelRequested(target)
+        e.accepted = true
+    }
 
     Row {
         id: row
         anchors.centerIn: parent
         spacing: 2
         Repeater {
+            id: segments
             model: 3
             delegate: Rectangle {
                 id: seg
@@ -50,28 +72,14 @@ Rectangle {
                 color: seg.current ? AppTheme.editorAccent
                      : segHover.containsMouse ? AppTheme.editorSelection
                                               : "transparent"
-                activeFocusOnTab: true
                 Accessible.role: Accessible.RadioButton
                 Accessible.name: root.names[seg.index]
                 Accessible.description: root.hints[seg.index]
                 Accessible.checked: seg.current
-                Keys.onPressed: (e) => {
-                    if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
-                            || e.key === Qt.Key_Space) {
-                        root.levelRequested(seg.index)
-                        e.accepted = true
-                    } else if (e.key === Qt.Key_Left && seg.index > 0) {
-                        root.levelRequested(seg.index - 1)
-                        e.accepted = true
-                    } else if (e.key === Qt.Key_Right && seg.index < 2) {
-                        root.levelRequested(seg.index + 1)
-                        e.accepted = true
-                    }
-                }
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 2
-                    visible: seg.activeFocus
+                    visible: root.activeFocus && seg.current
                     radius: AppTheme.radiusSm
                     color: "transparent"
                     border.width: 2
@@ -93,7 +101,12 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.levelRequested(seg.index)
+                    onClicked: {
+                        // Mouse and keyboard are one control: a click leaves the
+                        // switch focused so the arrows work straight away.
+                        root.forceActiveFocus(Qt.MouseFocusReason)
+                        root.levelRequested(seg.index)
+                    }
                 }
             }
         }

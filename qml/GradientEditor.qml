@@ -708,10 +708,14 @@ ColumnLayout {
                         visible: editor.stopCount > editor.minStops
                         onClicked: {
                             // Read before the write: the row is rebuilt by it.
+                            // The write destroys this delegate and its context
+                            // with it, so `editor` can no longer be looked up
+                            // afterwards: hold the object in a local first.
                             var removed = stopRow.index
-                            if (editor.removeStopAt(removed))
-                                editor.stopSelected(Math.max(0, Math.min(
-                                    removed, editor.stopCount - 1)))
+                            var ed = editor
+                            if (ed.removeStopAt(removed))
+                                ed.stopSelected(Math.max(0, Math.min(
+                                    removed, ed.stopCount - 1)))
                         }
                     }
                 }

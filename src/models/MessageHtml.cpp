@@ -256,6 +256,13 @@ void flattenEmittedTables(QString &out, qsizetype from)
             ++e;
         const QString name = out.mid(k, e - k);
         if (tableTags().contains(name)) {
+            // A table opening inside a cell that already holds text: the text
+            // before it and the first cell after it would otherwise run
+            // together ("inner" + "too deep" -> "innertoo deep").
+            if (!closing && name == QLatin1String("table") && !flat.isEmpty()
+                && !flat.endsWith(QLatin1Char(' '))
+                && !flat.endsWith(QLatin1String("<br>")))
+                flat += QLatin1Char(' ');
             if (closing && (name == QLatin1String("td")
                             || name == QLatin1String("th")))
                 flat += QLatin1Char(' ');
@@ -1191,8 +1198,15 @@ QString MessageHtml::sanitize(
                     const bool withinBound =
                         openTableStarts.size() < kMaxTableDepth;
                     tableEmitted.append(withinBound);
-                    if (!withinBound)
+                    if (!withinBound) {
+                        // Flattened into the cell holding it: keep its first
+                        // cell apart from any text already there ("inner" +
+                        // "too deep" ran together).
+                        if (!out.isEmpty() && !out.endsWith(QLatin1Char(' '))
+                            && !out.endsWith(QLatin1String("<br>")))
+                            out += QLatin1Char(' ');
                         continue;
+                    }
                     openTableStarts.append(out.size());
                     // No sender attribute survives (border, width, bgcolor,
                     // style). The grid is ours: a one-pixel collapsed rule and

@@ -32,6 +32,38 @@ Rectangle {
     Accessible.role: Accessible.Dialog
     Accessible.name: qsTr("Start from %1?").arg(root.presetName)
 
+    // The prompt is an in-tree overlay, not a Popup, so nothing moves focus
+    // into it: without this Tab walked the editor behind it and only Escape
+    // worked from the keyboard. On show, focus lands on Keep my changes and
+    // Tab cycles inside the three buttons; on hide it returns to what had it.
+    property Item _returnFocusTo: null
+    function focusFirstButton() {
+        keepButton.forceActiveFocus(Qt.TabFocusReason)
+    }
+    onVisibleChanged: {
+        if (root.visible) {
+            const w = root.Window.window
+            const prev = w ? w.activeFocusItem : null
+            root._returnFocusTo = (prev && prev !== root) ? prev : null
+            Qt.callLater(function () {
+                if (root.visible)
+                    root.focusFirstButton()
+            })
+        } else {
+            const back = root._returnFocusTo
+            root._returnFocusTo = null
+            const w = root.Window.window
+            const held = w ? w.activeFocusItem : null
+            // Only when focus is still in here (or nowhere): never steal it
+            // from a control the user moved to on purpose.
+            let inside = held === null
+            for (let i = held; i && !inside; i = i.parent)
+                inside = (i === root)
+            if (back && inside)
+                back.forceActiveFocus(Qt.TabFocusReason)
+        }
+    }
+
     // Self-contained button, so this file depends on no other file's parts.
     component PromptButton: Rectangle {
         id: btn
@@ -136,19 +168,28 @@ Rectangle {
             Layout.topMargin: AppTheme.spacing4
             spacing: AppTheme.spacing8
             PromptButton {
+                id: keepButton
                 objectName: "themePresetKeepButton"
+                KeyNavigation.tab: replaceButton
+                KeyNavigation.backtab: cancelButton
                 primary: true
                 text: qsTr("Keep my changes")
                 onClicked: root.keepRequested()
             }
             PromptButton {
+                id: replaceButton
                 objectName: "themePresetReplaceButton"
+                KeyNavigation.tab: cancelButton
+                KeyNavigation.backtab: keepButton
                 danger: true
                 text: qsTr("Replace")
                 onClicked: root.replaceRequested()
             }
             PromptButton {
+                id: cancelButton
                 objectName: "themePresetCancelButton"
+                KeyNavigation.tab: keepButton
+                KeyNavigation.backtab: replaceButton
                 text: qsTr("Cancel")
                 onClicked: root.cancelRequested()
             }

@@ -1260,6 +1260,32 @@ private Q_SLOTS:
                  "map again");
     }
 
+    // Narrow window (C77-D03, 640 px): the header's Undo ... Done cluster is
+    // wider than the header and Use this theme / Done were clipped off with no
+    // way to reach them. The cluster must live in a horizontal Flickable (a
+    // plain Row cannot scroll), and Done must be inside it.
+    void theHeaderButtonClusterScrollsInsteadOfClipping()
+    {
+        const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
+        QFile dialog(appThemePath.left(appThemePath.lastIndexOf(QLatin1Char('/')) + 1)
+                     + QStringLiteral("ThemeEditorDialog.qml"));
+        QVERIFY(dialog.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString src = QString::fromUtf8(dialog.readAll());
+        const int fl = src.indexOf(QStringLiteral("objectName: \"themeHeaderActions\""));
+        QVERIFY2(fl > 0, "the header action cluster is not in a Flickable");
+        const int row = src.indexOf(QStringLiteral("id: headerActionRow"), fl);
+        const int done = src.indexOf(QStringLiteral("objectName: \"themeEditorDoneButton\""), fl);
+        const int apply = src.indexOf(QStringLiteral("objectName: \"themeApplyButton\""), fl);
+        QVERIFY(row > fl);
+        QVERIFY2(apply > row && done > apply,
+                 "Use this theme / Done are not inside the scrolling cluster");
+        QVERIFY(src.mid(fl - 120, 120).contains(QStringLiteral("Flickable {")));
+        QVERIFY(src.mid(fl, 900).contains(QStringLiteral("HorizontalFlick")));
+        // Keyboard: Tab to a clipped button scrolls the cluster to it.
+        QVERIFY2(src.mid(fl, 2500).contains(QStringLiteral("onActiveFocusItemChanged")),
+                 "a focused clipped header button is not scrolled into view");
+    }
+
     // Escape on a clean editor closes it (live Flatpak FAIL 2026-10-07: three
     // tries, nothing). The close policy needs the popup to hold active focus,
     // which it loses once a transient field is destroyed; one always-live

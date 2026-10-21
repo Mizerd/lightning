@@ -1498,12 +1498,42 @@ private Q_SLOTS:
             "color: AppTheme.accent\n")));
     }
 
+    // C78-F01/F03: the body TextEdits left selectionColor to Qt's palette
+    // (navy on every theme). Reasoned mutation: removing either binding makes
+    // the count below 2.
+    void messageBodySelectionFollowsTheTheme()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QCOMPARE(delegate.count(QStringLiteral(
+                     "selectionColor: AppTheme.textSelection")), 2);
+    }
+
+    // C78-F05: Tab with no completion popup open must hand focus on, not
+    // fall through to TextEdit's tab insertion (event.accepted = false).
+    void composerTabLeavesInsteadOfTyping()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        int from = 0, handlers = 0;
+        while ((from = bar.indexOf(QStringLiteral("Keys.onTabPressed"), from)) >= 0) {
+            const int end = bar.indexOf(QStringLiteral("Keys.onEscapePressed"), from);
+            QVERIFY(end > from);
+            const QString body = bar.mid(from, end - from);
+            QVERIFY2(!body.contains(QStringLiteral("event.accepted = false")),
+                     "Tab must not fall through to tab insertion");
+            QVERIFY(body.contains(QStringLiteral("nextItemInFocusChain")));
+            ++handlers;
+            from = end;
+        }
+        QCOMPARE(handlers, 2);
+    }
+
     void messageContentAndActionsRemainInteractive()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(delegate.contains(QStringLiteral("TextEdit {\n                        id: bodyLabel")));
         QVERIFY(delegate.contains(QStringLiteral("readOnly: true")));
-        QVERIFY(delegate.contains(QStringLiteral("selectByMouse: true")));
+        // Selectable unless a spoiler is still hidden (C17).
+        QVERIFY(delegate.contains(QStringLiteral("selectByMouse: !/spoiler:toggle")));
         // Links open through the controlled web-open path; mention links
         // route to the member profile.
         QVERIFY(delegate.contains(QStringLiteral("app.media.openWebUrl(link)")));

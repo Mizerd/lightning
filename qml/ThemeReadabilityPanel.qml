@@ -36,6 +36,66 @@ ColumnLayout {
     objectName: "themeReadabilityPanel"
     spacing: AppTheme.spacing8
 
+    // The popover sits outside the dialog's focus chain, so the panel keeps
+    // the keyboard inside itself. The first stop is the first Fix (else the
+    // close button), the last is the last Fix, and Tab / Shift+Tab wrap
+    // between them. Looked up when used, never bound: a Repeater's items are
+    // not observable, and a stale answer here strands the keyboard.
+    function firstStop() {
+        var n = problemRepeater.count
+        var row = n > 0 ? problemRepeater.itemAt(0) : null
+        return row && row.fixItem ? row.fixItem : closeButton
+    }
+    function lastStop() {
+        var n = problemRepeater.count
+        var row = n > 0 ? problemRepeater.itemAt(n - 1) : null
+        return row && row.fixItem ? row.fixItem : closeButton
+    }
+    function takeFocus() {
+        root.firstStop().forceActiveFocus()
+    }
+    // Set by a Fix; the model rebuilds every row and the keyboard would be
+    // dropped with the one that had it.
+    property bool refocusAfterRebuild: false
+    // A declined Fix produces no report change, so the flag must not wait for
+    // one for ever: an unrelated change later would pull focus into the panel.
+    Timer {
+        id: refocusExpiry
+        interval: 600
+        onTriggered: root.refocusAfterRebuild = false
+    }
+    onRefocusAfterRebuildChanged: {
+        if (root.refocusAfterRebuild)
+            refocusExpiry.restart()
+        else
+            refocusExpiry.stop()
+    }
+    onReportChanged: {
+        if (root.refocusAfterRebuild)
+            Qt.callLater(function () {
+                root.refocusAfterRebuild = false
+                var held = root.Window.activeFocusItem
+                var inside = false
+                for (var it = held; it; it = it.parent)
+                    if (it === root) { inside = true; break }
+                if (!inside && root.visible)
+                    root.takeFocus()
+            })
+    }
+    onVisibleChanged: if (visible) Qt.callLater(root.takeFocus)
+    Keys.onTabPressed: (e) => {
+        if (root.Window.activeFocusItem === root.lastStop()) {
+            closeButton.forceActiveFocus()
+            e.accepted = true
+        }
+    }
+    Keys.onBacktabPressed: (e) => {
+        if (root.Window.activeFocusItem === closeButton) {
+            root.lastStop().forceActiveFocus()
+            e.accepted = true
+        }
+    }
+
     RowLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
@@ -54,6 +114,7 @@ ColumnLayout {
             elide: Label.ElideRight
         }
         Rectangle {
+            id: closeButton
             objectName: "themeReportCloseButton"
             implicitWidth: 26
             implicitHeight: 26
@@ -184,10 +245,13 @@ ColumnLayout {
                 44 + Math.ceil(reportMetrics.lineSpacing)
 
             Repeater {
+                id: problemRepeater
                 model: root.report
                 delegate: Rectangle {
                     id: problemRow
                     required property var modelData
+                    // The row's Fix button, for the panel's first focus stop.
+                    readonly property Item fixItem: fixButton
                     objectName: "themeReadabilityRow"
                     Layout.fillWidth: true
                     implicitHeight: problemColumn.rowHeight
@@ -328,6 +392,7 @@ ColumnLayout {
                                 if (e.key === Qt.Key_Return
                                         || e.key === Qt.Key_Enter
                                         || e.key === Qt.Key_Space) {
+                                    root.refocusAfterRebuild = true
                                     root.fixRequested(problemRow.modelData.role)
                                     e.accepted = true
                                 }
@@ -355,7 +420,10 @@ ColumnLayout {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.fixRequested(problemRow.modelData.role)
+                                onClicked: {
+                                    root.refocusAfterRebuild = true
+                                    root.fixRequested(problemRow.modelData.role)
+                                }
                             }
                         }
                     }

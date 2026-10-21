@@ -2716,6 +2716,14 @@ if(BUILD_TESTING)
     target_link_libraries(qml-binding-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME qml-binding-contract COMMAND qml-binding-contract-test)
 
+    # C80: composer Tab focus, RTL outline bar, room-list alignment, isolated
+    # room name in the placeholder.
+    qt_add_executable(rtl-composer-contract-test tests/RtlComposerContractTest.cpp)
+    target_compile_definitions(rtl-composer-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(rtl-composer-contract-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME rtl-composer-contract COMMAND rtl-composer-contract-test)
+
     # A text scan cannot catch a QML type that was never registered. This boots
     # a real AppController on the mock backend and loads the real
     # TimelinePane.qml through the "MatrixClient" module.
@@ -6039,6 +6047,20 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
     set_tests_properties(settings-shell-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Theme editor fixes (C85): source scans plus engine cases that load the
+    # real editor and gradient editor against the mock backend.
+    qt_add_executable(theme-editor-fixes-qml-test
+        tests/ThemeEditorRound1ContractTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(theme-editor-fixes-qml-test)
+    target_link_libraries(theme-editor-fixes-qml-test PRIVATE Qt6::Test)
+    target_compile_definitions(theme-editor-fixes-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME theme-editor-fixes-qml COMMAND theme-editor-fixes-qml-test)
+    set_tests_properties(theme-editor-fixes-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Login-screen session repair: the failure card offers a repair that needs
