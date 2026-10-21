@@ -40,8 +40,8 @@ ApplicationWindow {
     width: 900
     height: 700
     visible: true
-    property string dialogName: dlg.Accessible.name
-    property int dialogRole: dlg.Accessible.role
+    property string dialogName: dlg.contentItem.Accessible.name
+    property int dialogRole: dlg.contentItem.Accessible.role
     JumpToDateDialog {
         id: dlg
         objectName: "dialogUnderTest"

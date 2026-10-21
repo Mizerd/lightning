@@ -47,6 +47,10 @@ Item {
     signal activated()
     signal removeRequested()
 
+    // Focus is on the row or on its remove button. The list scrolls the row
+    // into view on it, so Tab never lands on a row nobody can see.
+    readonly property bool focusWithin: root.activeFocus || removeButton.activeFocus
+
     // The pointer is "within" the row when over it or over a control on it.
     // MouseArea.containsMouse alone loses hover to a control above it, which
     // would hide the affordance the pointer came for; a HoverHandler doesn't
@@ -325,6 +329,18 @@ Item {
                 radius: AppTheme.radiusSm
                 color: removeButton.hovered ? AppTheme.stormSelection
                                             : "transparent"
+                // The row's own ring disappears once focus moves to this
+                // button, so without this nothing in the popup shows where
+                // focus is (C51-F01).
+                Rectangle {
+                    objectName: "identityCardRemoveFocusRing"
+                    visible: removeButton.visualFocus
+                    anchors.fill: parent
+                    radius: AppTheme.radiusSm
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.bolt
+                }
             }
             onClicked: root.removeRequested()
         }

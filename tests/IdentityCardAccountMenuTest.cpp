@@ -1562,6 +1562,157 @@ Item {
         QTRY_COMPARE(badge->opacity(), qreal(1));
         sceneItem->setParentItem(nullptr);
     }
+
+    // C51: the keyboard and short-window behaviour of the account list, on
+    // the real AccountMenu with eight accounts (the list scrolls past six).
+    // F01 the remove X shows a focus ring; F02 Home/End/PageUp/PageDown move
+    // between rows; F06 a reopen starts at the top; F07 the footer stays
+    // inside a short window; F08 focus scrolls its row into view.
+    void theAccountListIsKeyboardReachableAndFitsAShortWindow()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+        const QStringList extra{QStringLiteral("@carol:three.example"),
+                                QStringLiteral("@dave:four.example"),
+                                QStringLiteral("@erin:five.example"),
+                                QStringLiteral("@frank:six.example"),
+                                QStringLiteral("@grace:seven.example"),
+                                QStringLiteral("@heidi:eight.example")};
+        const QSize originalSize = m_window->size();
+        struct Restore {
+            IdentityCardAccountMenuTest *t;
+            QStringList extra;
+            QSize size;
+            ~Restore()
+            {
+                t->m_window->resize(size);
+                if (auto *m = t->find(QStringLiteral("menu")))
+                    m->setProperty("y", 300);
+                for (const QString &u : extra)
+                    t->m_controller->settings()->clearSessionForAccount(u);
+            }
+        } restore{this, extra, originalSize};
+        for (int i = 0; i < extra.size(); ++i)
+            m_controller->settings()->saveSession(
+                QStringLiteral("https://y%1.example").arg(i), extra.at(i),
+                QStringLiteral("DEV"), QStringLiteral("tok"));
+
+        auto *menu = find(QStringLiteral("menu"));
+        QVERIFY(menu);
+        menu->setProperty("y", 0);
+        openMenu();
+        auto *list = m_root->findChild<QQuickItem *>(
+            QStringLiteral("identityCardList"));
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 8);
+        QTest::qWait(80);
+
+        auto rowAt = [&](int i) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, i));
+            return item;
+        };
+        auto fullyVisible = [&](int i) {
+            QQuickItem *it = rowAt(i);
+            if (!it)
+                return false;
+            const qreal top = it->y() - list->property("contentY").toReal();
+            return top >= -0.5 && top + it->height() <= list->height() + 0.5;
+        };
+        auto focusedRow = [&]() {
+            for (int i = 0; i < 8; ++i)
+                if (QQuickItem *it = rowAt(i))
+                    if (it->property("focusWithin").toBool())
+                        return i;
+            return -1;
+        };
+
+        // F08: a focused row far below the viewport is scrolled into view.
+        QQuickItem *last = rowAt(7);
+        QVERIFY(last);
+        QVERIFY2(!fullyVisible(7), "fixture: row 8 should start below the fold");
+        last->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY2(fullyVisible(7),
+                     "focus moved to row 8 and the list did not scroll to it");
+
+        // F01: focus on a row's remove X draws a ring on the X.
+        QQuickItem *row3 = rowAt(3);
+        QVERIFY(row3);
+        row3->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(fullyVisible(3));
+        auto *x = row3->findChild<QQuickItem *>(
+            QStringLiteral("identityCardRemoveButton"));
+        QVERIFY(x);
+        x->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(x->hasActiveFocus());
+        auto *ring = x->findChild<QQuickItem *>(
+            QStringLiteral("identityCardRemoveFocusRing"));
+        QVERIFY2(ring, "the remove button has no focus ring item");
+        QVERIFY2(ring->isVisible(),
+                 "focus is on the remove X and no ring is drawn");
+        QCOMPARE(focusedRow(), 3);
+
+        // F02: Home / End / PageUp / PageDown.
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTRY_COMPARE(focusedRow(), 7);
+        QTest::keyClick(m_window, Qt::Key_Home);
+        QTRY_COMPARE(focusedRow(), 0);
+        QTRY_VERIFY(fullyVisible(0));
+        QTest::keyClick(m_window, Qt::Key_PageDown);
+        QTRY_COMPARE(focusedRow(), 6);
+        QTest::keyClick(m_window, Qt::Key_PageUp);
+        QTRY_COMPARE(focusedRow(), 0);
+
+        // F06: scroll away, close, reopen: the top again.
+        QMetaObject::invokeMethod(list, "positionViewAtEnd");
+        QVERIFY(list->property("contentY").toReal() > list->property("originY").toReal() + 1);
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+        openMenu();
+        QTRY_COMPARE(list->property("contentY").toReal(),
+                     list->property("originY").toReal());
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+
+        // F04: the trust chip's tooltip opens BELOW the chip, not over the
+        // account rows above it.
+        auto *chip = qobject_cast<QQuickItem *>(
+            find(QStringLiteral("accountTrustChip")));
+        auto *tip = find(QStringLiteral("accountTrustTip"));
+        QVERIFY2(chip && tip, "the trust chip must own its tooltip");
+        // A Popup's `y` reads back its last positioned value (0 while it has
+        // never been open), and the chip is hidden on the mock, so the offset
+        // is asserted where it is declared: below the chip, never above it.
+        QFile menuFile(QStringLiteral(QML_DIR "/AccountMenu.qml"));
+        QVERIFY(menuFile.open(QIODevice::ReadOnly));
+        const QString menuSrc = QString::fromUtf8(menuFile.readAll());
+        const int tipAt = menuSrc.indexOf(
+            QStringLiteral("objectName: \"accountTrustTip\""));
+        QVERIFY(tipAt > 0);
+        const QString tipBlock = menuSrc.mid(tipAt, 200);
+        QVERIFY2(tipBlock.contains(QStringLiteral("y: trustChip.height")),
+                 "the trust tooltip is not placed below the chip");
+
+        // F07: a short window; Add / Settings / Sign out stay inside it.
+        m_window->resize(500, 420);
+        QTRY_COMPARE(m_window->height(), 420);
+        openMenu();
+        QTest::qWait(120);
+        auto *signOut = qobject_cast<QQuickItem *>(
+            find(QStringLiteral("accountFooterSignOut")));
+        QVERIFY(signOut);
+        const qreal bottom =
+            signOut->mapToScene(QPointF(0, signOut->height())).y();
+        QVERIFY2(bottom <= 420.0,
+                 qPrintable(QStringLiteral(
+                     "the Sign out button ends at y %1 in a 420 px window - "
+                     "the popover's content is taller than the window")
+                                .arg(bottom)));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
 };
 
 int main(int argc, char *argv[])

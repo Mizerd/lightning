@@ -108,6 +108,9 @@ Popup {
         root.labsRows = next
     }
     Component.onCompleted: root.refreshLabsRows()
+    // The popover is persistent, so the list keeps its old offset; the active
+    // account is the first row and must be what is shown on open (C51-F06).
+    onAboutToShow: cardList.positionViewAtBeginning()
     onClosed: if (root._labsRowsHeld) root.refreshLabsRows()
     Connections {
         target: app
@@ -140,6 +143,22 @@ Popup {
             return [list[activeIndex]].concat(list.slice(0, activeIndex),
                                               list.slice(activeIndex + 1))
         return list
+    }
+
+    // The row that holds focus (on the row or on its X), or -1.
+    function focusedRow() {
+        for (let i = 0; i < cardList.count; i++) {
+            const it = cardList.itemAtIndex(i)
+            if (it && it.focusWithin)
+                return i
+        }
+        return -1
+    }
+    function focusRow(i) {
+        cardList.positionViewAtIndex(i, ListView.Contain)
+        const it = cardList.itemAtIndex(i)
+        if (it)
+            it.forceActiveFocus(Qt.TabFocusReason)
     }
 
     // Popover shadow. MultiEffect and its source must be siblings, so both
@@ -271,7 +290,34 @@ Popup {
         }
     }
 
+    // The window's height bounds the popover (C51-F07). The popup is clamped
+    // to the window but its content was not, so on a short window the quick
+    // rows and the footer were cut off. Everything that is not the list is
+    // chrome; the list gets what is left, never less than a row and a half.
+    readonly property real windowRoom: {
+        const ov = Overlay.overlay
+        return (ov && ov.height > 0) ? ov.height : 100000
+    }
+    readonly property real chromeHeight: {
+        let h = 0
+        let shown = 0
+        const kids = contentColumn.children
+        for (let i = 0; i < kids.length; i++) {
+            const k = kids[i]
+            if (k === cardList || !k.visible)
+                continue
+            h += k.implicitHeight
+            shown++
+        }
+        // The list is one more visible child, so n items have n - 1 gaps.
+        return h + shown * AppTheme.spacing10
+    }
+    readonly property real listRoom: Math.max(Math.round(root.rowH * 1.5),
+        root.windowRoom - root.topPadding - root.bottomPadding
+        - root.chromeHeight - AppTheme.spacing16)
+
     contentItem: ColumnLayout {
+        id: contentColumn
         spacing: AppTheme.spacing10
 
         // Header: bolt icon and the "Accounts" label.
@@ -303,17 +349,37 @@ Popup {
                 var n = cardList.count
                 if (n <= 0)
                     return 0
-                if (n <= root.maxVisibleRows)
-                    return n * root.rowH
-                // Past the cap, half a row stays visible: the AsNeeded bar is
-                // invisible at rest, so the cut row is the cue that it scrolls.
-                return Math.round((root.maxVisibleRows + 0.5) * root.rowH)
+                var natural = n <= root.maxVisibleRows
+                    ? n * root.rowH
+                    // Past the cap, half a row stays visible: the AsNeeded bar
+                    // is invisible at rest, so the cut row is the cue that it
+                    // scrolls.
+                    : Math.round((root.maxVisibleRows + 0.5) * root.rowH)
+                return Math.min(natural, root.listRoom)
+            }
+            // Home/End/PageUp/PageDown: the delegates hold focus, not the
+            // list, so the list's own key handling never sees them (C51-F02).
+            Keys.onPressed: (event) => {
+                var to = -1
+                var cur = root.focusedRow()
+                if (event.key === Qt.Key_Home) to = 0
+                else if (event.key === Qt.Key_End) to = cardList.count - 1
+                else if (event.key === Qt.Key_PageUp)
+                    to = Math.max(0, (cur < 0 ? 0 : cur) - root.maxVisibleRows)
+                else if (event.key === Qt.Key_PageDown)
+                    to = Math.min(cardList.count - 1,
+                                  (cur < 0 ? 0 : cur) + root.maxVisibleRows)
+                if (to < 0)
+                    return
+                event.accepted = true
+                root.focusRow(to)
             }
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: IdentityCard {
                 id: card
                 required property var modelData
+                required property int index
                 objectName: "identityCard_" + (modelData.userId || "")
                 width: cardList.width
                 rowHeight: root.rowH
@@ -339,6 +405,11 @@ Popup {
                 mentionCount: card.activity.mentionCount
                 mentionsLowerBound: card.activity.mentionsLowerBound
                 activityDot: card.activity.hasUnread
+
+                // Scroll the focused row (or its X) into view; Tab and the
+                // arrows otherwise walk onto clipped rows (C51-F08).
+                onFocusWithinChanged: if (card.focusWithin)
+                    cardList.positionViewAtIndex(card.index, ListView.Contain)
 
                 onActivated: {
                     // Compare against the live active account, not the row
@@ -429,15 +500,22 @@ Popup {
                       .arg(trustChip.word)
                       .arg(root.activeTrustCompleted).arg(root.activeTrustTotal)
                     : qsTr("Encryption ready. Open Security and Recovery.")
-                ToolTip.text: root.activeTrustCompleted < 0 || trustChip.full
-                    ? qsTr("Security and recovery")
-                    : !root.activeDeviceVerified
-                      ? qsTr("This device isn't verified yet. Verify it so "
-                             + "your other sessions trust it.")
-                      : qsTr("Some security steps are not done yet. Open "
-                             + "Security and recovery to finish them.")
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
+                // Below the chip: above it the sentence covered the last
+                // account's id line, the only thing telling same-named
+                // accounts apart (C51-F04).
+                ToolTip {
+                    objectName: "accountTrustTip"
+                    y: trustChip.height + AppTheme.spacing4
+                    visible: trustChip.hovered
+                    delay: 500
+                    text: root.activeTrustCompleted < 0 || trustChip.full
+                        ? qsTr("Security and recovery")
+                        : !root.activeDeviceVerified
+                          ? qsTr("This device isn't verified yet. Verify it so "
+                                 + "your other sessions trust it.")
+                          : qsTr("Some security steps are not done yet. Open "
+                                 + "Security and recovery to finish them.")
+                }
                 onClicked: { root.close(); app.showSettingsSection("security") }
 
                 background: Rectangle {

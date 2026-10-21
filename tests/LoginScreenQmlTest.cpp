@@ -10,6 +10,7 @@
 #include "matrix/MockMatrixClient.h"
 
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -296,11 +297,23 @@ class LoginScreenQmlTest : public QObject
                         m_warnings.append(w.toString());
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"), m_app);
+        if (m_rtl) {
+            // The screen under a mirrored layout, as the app draws it in Arabic.
+            QQmlComponent component(m_engine);
+            component.setData(
+                "import QtQuick\nimport MatrixClient\n"
+                "LoginScreen { LayoutMirroring.enabled: true; "
+                "LayoutMirroring.childrenInherit: true }",
+                QUrl(QStringLiteral("file:///rtl.qml")));
+            m_root = qobject_cast<QQuickItem *>(component.create(m_engine->rootContext()));
+            QVERIFY2(m_root, qPrintable(component.errorString()));
+        } else {
         QSignalSpy created(m_engine, &QQmlApplicationEngine::objectCreated);
         m_engine->loadFromModule(QStringLiteral("MatrixClient"), QStringLiteral("LoginScreen"));
         if (created.isEmpty())
             QVERIFY(created.wait(8000));
         m_root = qobject_cast<QQuickItem *>(created.at(0).at(0).value<QObject *>());
+        }
         QVERIFY2(m_root, "LoginScreen.qml failed to load; the warning above names why");
         m_window = new QQuickWindow;
         m_window->resize(900, 900);
@@ -311,6 +324,8 @@ class LoginScreenQmlTest : public QObject
         m_window->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(m_window));
     }
+
+    bool m_rtl = false;
 
     // Throws the screen away, keeping m_app and the AuthManager, as the
     // Loader does when the session view replaces it. loadScreen() builds it
@@ -451,6 +466,173 @@ private slots:
         QVERIFY(shown(QStringLiteral("loginErrorLabel")));
         QVERIFY(!shown(QStringLiteral("loginErrorLabelNoForm")));
         QVERIFY(text(QStringLiteral("loginErrorLabel")).contains(QStringLiteral("browser")));
+    }
+
+    // C48-F01: the browser would not open and the password form took its
+    // place: its first field has focus, so typing lands somewhere.
+    void aBrowserThatWillNotOpenLeavesTheUsernameFocused()
+    {
+        m_client->answer(kServer, true, true, false, true, QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        QVERIFY(shown(QStringLiteral("browserLoginButton")));
+        click(QStringLiteral("browserLoginButton"));
+        m_client->launchFails();
+        QTRY_VERIFY(!m_auth->browserLoginInProgress());
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+        QQuickItem *user = find(QStringLiteral("userField"));
+        QVERIFY(user);
+        QTRY_VERIFY(user->hasActiveFocus());
+    }
+
+    // C48-F02: a password typed for one server never survives an edit of the
+    // server address.
+    void editingTheServerWipesATypedPassword()
+    {
+        m_client->answer(kServer, true, false, false);
+        QCoreApplication::processEvents();
+        QQuickItem *pass = find(QStringLiteral("passField"));
+        QVERIFY(pass);
+        QMetaObject::invokeMethod(pass, "forceActiveFocus");
+        for (const char c : QByteArray("hunter2"))
+            QTest::keyClick(m_window, c);
+        QCOMPARE(pass->property("text").toString(), QStringLiteral("hunter2"));
+        click(QStringLiteral("serverChangeButton"));
+        QQuickItem *field = find(QStringLiteral("homeserverField"));
+        QTRY_VERIFY(field->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_X);
+        QCOMPARE(pass->property("text").toString(), QString());
+    }
+
+    // C48-F06: Enter on the address that was there leaves a password-chosen
+    // sign-in on its form, as Escape does; it used to ask again and bring the
+    // browser page back.
+    void enterOnAnUnchangedServerKeepsThePasswordForm()
+    {
+        m_client->answer(kServer, true, true, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        click(QStringLiteral("passwordInsteadButton"));
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+        click(QStringLiteral("serverChangeButton"));
+        QQuickItem *field = find(QStringLiteral("homeserverField"));
+        QTRY_VERIFY(field->hasActiveFocus());
+        QMetaObject::invokeMethod(field, "accepted");
+        QCoreApplication::processEvents();
+        QVERIFY(shown(QStringLiteral("passwordForm")));
+        QVERIFY(!shown(QStringLiteral("browserLoginButton")));
+        QCOMPARE(m_auth->discoveryState(), QStringLiteral("done"));
+    }
+
+    // C48-D04: while a new address is typed, the last server's tick and name
+    // are gone.
+    void typingANewServerClearsTheOldAnswer()
+    {
+        m_client->answer(kServer, true, true, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        QCOMPARE(text(QStringLiteral("serverStatusLabel")), QStringLiteral("Found"));
+        QVERIFY(text(QStringLiteral("browserLoginButton")).contains(QStringLiteral("example")));
+        click(QStringLiteral("serverChangeButton"));
+        QQuickItem *field = find(QStringLiteral("homeserverField"));
+        QTRY_VERIFY(field->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_X);
+        QVERIFY2(text(QStringLiteral("serverStatusLabel")) != QStringLiteral("Found"),
+                 qPrintable(text(QStringLiteral("serverStatusLabel"))));
+        QCOMPARE(text(QStringLiteral("browserLoginButton")), QStringLiteral("Continue"));
+    }
+
+    // C48-D03: after a failed sign-in the password field has focus, its text
+    // is NOT selected (a timeout or a cancel also fails the sign-in, and a
+    // stray keystroke must not replace the password), and the line carries an
+    // icon.
+    void aFailedSignInFocusesThePasswordWithoutSelectingItAndHasAnIcon()
+    {
+        m_client->answer(kServer, true, false, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        QQuickItem *user = find(QStringLiteral("userField"));
+        QQuickItem *pass = find(QStringLiteral("passField"));
+        user->setProperty("text", QStringLiteral("alice"));
+        pass->setProperty("text", QStringLiteral("wrong"));
+        click(QStringLiteral("loginSubmitButton"));
+        Q_EMIT m_client->loginFailed(QStringLiteral("Wrong username or password."));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(pass->hasActiveFocus());
+        QVERIFY(pass->property("selectedText").toString().isEmpty());
+        QCOMPARE(pass->property("text").toString(), QStringLiteral("wrong"));
+        QVERIFY(shown(QStringLiteral("loginErrorIcon")));
+    }
+
+    // C48-D02: mirrored, the reveal toggle is on the left and the password
+    // text starts clear of it.
+    void mirroredThePasswordTextClearsTheRevealToggle()
+    {
+        unloadScreen();
+        m_rtl = true;
+        loadScreen();
+        m_rtl = false;
+        if (QTest::currentTestFailed())
+            return;
+        m_client->answer(kServer, true, false, false, true,
+                         QStringLiteral("https://example.org/"));
+        QCoreApplication::processEvents();
+        QQuickItem *pass = find(QStringLiteral("passField"));
+        QQuickItem *eye = find(QStringLiteral("passwordRevealToggle"));
+        QVERIFY(pass && eye);
+        (void)placed(pass);
+        QVERIFY2(eye->x() < pass->width() / 2, "the toggle is not at the left");
+        QVERIFY2(pass->property("leftPadding").toDouble() >= eye->x() + eye->width(),
+                 qPrintable(QStringLiteral("text starts under the toggle: leftPadding %1 mirrored %2 eye x %3 w %4")
+                                .arg(pass->property("leftPadding").toDouble())
+                                .arg(true)
+                                .arg(eye->x()).arg(eye->width())));
+    }
+
+    // C48-F04: the form scrolls with the middle button as the timeline does.
+    void theFormHasMiddleClickAutoscroll()
+    {
+        QQuickItem *scroller = find(QStringLiteral("loginMiddleClickScroller"));
+        QVERIFY(scroller);
+        QCOMPARE(scroller->property("view").value<QObject *>(),
+                 static_cast<QObject *>(find(QStringLiteral("loginFlick"))));
+    }
+
+    // C48-F07: on a window too short for the form, Tab keeps the focused
+    // control on screen.
+    void tabKeepsTheFocusedControlInView()
+    {
+        m_client->answer(kServer, true, false, false);
+        QCoreApplication::processEvents();
+        m_window->resize(640, 360);
+        m_root->setSize(QSizeF(640, 360));
+        QCoreApplication::processEvents();
+        QQuickItem *flick = find(QStringLiteral("loginFlick"));
+        QVERIFY(flick);
+        QVERIFY2(flick->property("contentHeight").toReal() > flick->height() + 40,
+                 "the form must overflow for this to mean anything");
+        QQuickItem *user = find(QStringLiteral("userField"));
+        QMetaObject::invokeMethod(user, "forceActiveFocus");
+        bool scrolled = false;
+        for (int i = 0; i < 6; ++i) {
+            QTest::keyClick(m_window, Qt::Key_Tab);
+            QCoreApplication::processEvents();
+            QQuickItem *item = m_window->activeFocusItem();
+            if (!item)
+                continue;
+            bool inside = false;
+            for (QQuickItem *p = item; p; p = p->parentItem())
+                inside = inside || p == flick;
+            if (!inside)
+                continue;
+            const QPointF at = item->mapToScene(QPointF(0, 0));
+            QVERIFY2(at.y() >= flick->mapToScene(QPointF(0, 0)).y() - 1
+                         && at.y() + item->height()
+                                <= flick->mapToScene(QPointF(0, flick->height())).y() + 1,
+                     qPrintable(QStringLiteral("focus item %1 out of view at y=%2 after tab %3")
+                                    .arg(item->objectName()).arg(at.y()).arg(i)));
+            scrolled = scrolled || flick->property("contentY").toReal() > 0;
+        }
+        QVERIFY(scrolled);
     }
 
     // Single sign-on only (matrix.debian.social): no password form, and the

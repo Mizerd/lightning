@@ -29,6 +29,17 @@ Dialog {
     width: Math.min(460, parent ? parent.width - AppTheme.spacing24 * 2 : 460)
     padding: AppTheme.spacing16
 
+
+    // The controller owns errorText and has no way to clear it on an edit, so
+    // the dialog hides a stale one: any edit of the paste field marks it stale
+    // and the next state change from the controller (which always follows a
+    // new attempt) shows a fresh one.
+    property bool errorStale: false
+    Connections {
+        target: root.qr
+        function onStateChanged() { root.errorStale = false }
+    }
+
     onClosed: if (root.qr) root.qr.cancel()
 
     function openDialog() {
@@ -36,6 +47,7 @@ Dialog {
             root.qr.cancel()
         pasteField.text = ""
         codeField.text = ""
+        root.errorStale = false
         open()
     }
 
@@ -46,6 +58,10 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
+        // Name the dialog for assistive technology: on the content, because
+        // Accessible attaches to an Item and a Dialog is a Popup.
+        Accessible.role: Accessible.Dialog
+        Accessible.name: qsTr("Sign in another device")
         spacing: AppTheme.spacing12
 
         Label {
@@ -98,6 +114,8 @@ Dialog {
                     // neighbour's width.
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("Paste the sign-in code")
+                    Accessible.name: qsTr("Sign-in code from the other device")
+                    onTextChanged: root.errorStale = true
                     onAccepted: root.qr.enterCode(text)
                 }
                 AppButton {
@@ -201,6 +219,7 @@ Dialog {
                     id: codeField
                     Layout.preferredWidth: 90
                     placeholderText: qsTr("00")
+                    Accessible.name: qsTr("Two-digit confirmation code")
                     inputMethodHints: Qt.ImhDigitsOnly
                     validator: IntValidator { bottom: 0; top: 99 }
                     onAccepted: root.qr.submitCheckCode(parseInt(text, 10))
@@ -293,7 +312,7 @@ Dialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            visible: root.qr && root.qr.errorText.length > 0
+            visible: root.qr && root.qr.errorText.length > 0 && !root.errorStale
             text: root.qr ? root.qr.errorText : ""
             color: AppTheme.danger
             font.pixelSize: AppTheme.textMeta

@@ -113,6 +113,9 @@ Item {
     // The discovery state last seen by the Connections below; a plain value,
     // written only there and on completion.
     property string lastDiscoveryState: ""
+    // browserLoginUnavailable as last seen there: only the edge to true moves
+    // focus.
+    property bool lastBrowserUnavailable: false
     readonly property bool serverFieldShown: app.auth.discoveryState !== "done"
                                              || homeserverField.activeFocus
                                              || editingServer
@@ -174,6 +177,34 @@ Item {
             loginFlick.contentY = Math.max(0, Math.min(back, loginFlick.contentY))
     }
 
+    // Keep the focused control on screen: a short window overflows the form
+    // and Tab used to walk below the fold with no focus visible (C48-F07).
+    function followFocus() {
+        const win = root.Window.window
+        const item = win ? win.activeFocusItem : null
+        if (!item || loginFlick.dragging || loginFlick.flicking)
+            return
+        let p = item
+        while (p && p !== loginFlick.contentItem)
+            p = p.parent
+        if (!p)
+            return
+        const margin = AppTheme.spacingL
+        const top = item.mapToItem(loginFlick.contentItem, 0, 0).y
+        const bottom = top + item.height
+        const maxY = Math.max(0, loginFlick.contentHeight - loginFlick.height)
+        let y = loginFlick.contentY
+        if (top - margin < y)
+            y = top - margin
+        else if (bottom + margin > y + loginFlick.height)
+            y = bottom + margin - loginFlick.height
+        loginFlick.contentY = Math.max(0, Math.min(maxY, y))
+    }
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() { root.followFocus() }
+    }
+
     // The first control of the way in, for focus after the server answers.
     function focusWayIn() {
         if (signInMode === "password")
@@ -195,6 +226,12 @@ Item {
             if (root.lastDiscoveryState === "probing" && state !== "probing")
                 root.serverAnsweredSinceEdit = true
             root.lastDiscoveryState = state
+            // The server's own page would not open and the form below took
+            // its place: focus it, or typing goes nowhere (C48-F01).
+            const unavailable = app.auth.browserLoginUnavailable
+            if (unavailable && !root.lastBrowserUnavailable)
+                Qt.callLater(root.focusWayIn)
+            root.lastBrowserUnavailable = unavailable
             if (!root.advanceWhenServerAnswers)
                 return
             if (app.auth.discoveryState === "done") {
@@ -205,6 +242,22 @@ Item {
                 Qt.callLater(root.focusWayIn)
             } else if (app.auth.discoveryState === "failed") {
                 root.advanceWhenServerAnswers = false
+            }
+        }
+    }
+
+    // A refused password: the password is selected, so the retry is one
+    // keystroke (C48-D03).
+    Connections {
+        target: app.auth
+        function onLoginFailed(reason) {
+            if (root.signInMode === "password" && passField.text.length > 0
+                    && userField.text.length > 0) {
+                // Focus only. The signal carries a localized message, not a
+                // class, so a timeout, an unreachable server or the user's own
+                // cancel arrive here too: selecting the text would let the next
+                // keystroke replace a password that was never refused.
+                passField.forceActiveFocus()
             }
         }
     }
@@ -652,6 +705,10 @@ Item {
                             Accessible.name: qsTr("Server")
                             onTextEdited: {
                                 app.auth.clearLastError()
+                                // A password typed for the server that was
+                                // here must never ride along to another one
+                                // (C48-F02).
+                                passField.text = ""
                                 root.serverAnsweredSinceEdit = false
                                 discoverDebounce.restart()
                             }
@@ -676,6 +733,20 @@ Item {
                             // above, so the choices do not blink.
                             onAccepted: {
                                 discoverDebounce.stop()
+                                // Change, then Enter on the address that was
+                                // there, with the password form chosen: the
+                                // same as Escape. Asking again would take the
+                                // way in away and bring the browser page back
+                                // (C48-F06).
+                                if (root.passwordChosen && root.editingServer
+                                        && app.auth.discoveryState === "done"
+                                        && text.trim()
+                                           === root.serverTextBeforeEdit.trim()) {
+                                    text = root.serverTextBeforeEdit
+                                    root.editingServer = false
+                                    root.focusWayIn()
+                                    return
+                                }
                                 app.auth.discoverAuthMethods(
                                     text, !root.serverAnsweredSinceEdit)
                                 if (app.auth.discoveryState === "done") {
@@ -768,7 +839,11 @@ Item {
                         // wraps (nothing below it is shown then).
                         implicitHeight: Math.max(18, serverStatus.implicitHeight)
 
-                        readonly property string discovery: app.auth.discoveryState
+                        // While the address is being edited the last answer is
+                        // about another server: show the neutral line (C48-D04).
+                        readonly property string discovery:
+                            discoverDebounce.running ? "idle"
+                                                     : app.auth.discoveryState
                         readonly property string problem: app.auth.discoveryProblem
 
                         RowLayout {
@@ -851,6 +926,7 @@ Item {
                     // Named after the homeserver. Falls back to a bare
                     // "Continue" when there is no host.
                     text: root.browserAuthorityName.length > 0
+                          && !discoverDebounce.running
                           ? qsTr("Continue with %1").arg(root.browserAuthorityName)
                           : qsTr("Continue")
                     // Off while an edit of the field is waiting to be asked
@@ -938,7 +1014,14 @@ Item {
                         echoMode: passReveal.checked ? TextInput.Normal
                                                      : TextInput.Password
                         // Room for the toggle; the text never runs under it.
-                        rightPadding: passReveal.width + AppTheme.spacingXS * 2
+                        // The toggle sits at the END edge, which is the left
+                        // one when mirrored (C48-D02).
+                        leftPadding: passField.LayoutMirroring.enabled
+                                     ? passReveal.width + AppTheme.spacingXS * 2
+                                     : AppTheme.buttonPaddingH
+                        rightPadding: passField.LayoutMirroring.enabled
+                                      ? AppTheme.buttonPaddingH
+                                      : passReveal.width + AppTheme.spacingXS * 2
                         // Enter submits from the password field.
                         onAccepted: root.submit()
                         onTextEdited: app.auth.clearLastError()
@@ -961,26 +1044,41 @@ Item {
                         }
                     }
 
-                    Label {
-                        objectName: "loginErrorLabel"
+                    // The error line carries an icon as the server row's does,
+                    // so it is not told by colour alone (C48-D03).
+                    RowLayout {
+                        objectName: "loginErrorRow"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingXS
                         // A classified reason without a dedicated card (info ===
                         // null) still needs this fallback; only a rendered card
                         // suppresses it, and only the error that card explains.
                         visible: app.auth.lastError !== ""
                                  && (!repair.active || repair.info === null
                                      || !app.signInErrorExplainedByCard)
-                        text: app.auth.lastError
-                        // Can carry a server's own error text; never markup.
-                        textFormat: Text.PlainText
-                        color: AppTheme.error
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        lineHeight: AppTheme.lineHeightBody
-                        lineHeightMode: Text.ProportionalHeight
-                        Accessible.role: Accessible.AlertMessage
-                        Accessible.name: text
+                        Icon {
+                            objectName: "loginErrorIcon"
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 2
+                            name: "error"
+                            size: 14
+                            color: AppTheme.error
+                        }
+                        Label {
+                            objectName: "loginErrorLabel"
+                            text: app.auth.lastError
+                            // Can carry a server's own error text; never markup.
+                            textFormat: Text.PlainText
+                            color: AppTheme.error
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            Accessible.role: Accessible.AlertMessage
+                            Accessible.name: text
+                        }
                     }
 
                     AppButton {
@@ -1898,4 +1996,13 @@ Item {
             }
         }
     } // Flickable
+
+    // Middle-click autoscroll, as the timeline and room list have it. Idle,
+    // it takes the middle button only (C48-F04).
+    MiddleClickScroller {
+        objectName: "loginMiddleClickScroller"
+        anchors.fill: parent
+        z: 1
+        view: loginFlick
+    }
 }

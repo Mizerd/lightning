@@ -25,8 +25,6 @@ Dialog {
     width: Math.min(460, parent ? parent.width - AppTheme.spacing24 * 2 : 460)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
-    Accessible.role: Accessible.Dialog
-    Accessible.name: qsTr("Jump to date")
 
     /// "" | "asking" | the sanitized failure category.
     property string status: ""
@@ -142,6 +140,10 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
+        // On the content: Accessible attaches to an Item, and a Dialog is a
+        // Popup (on the Dialog it warned at load and named nothing).
+        Accessible.role: Accessible.Dialog
+        Accessible.name: qsTr("Jump to date")
         spacing: AppTheme.spacing12
 
         Label {

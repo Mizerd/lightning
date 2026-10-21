@@ -45,16 +45,89 @@ ColumnLayout {
     property string refusalUserId: ""
     property string refusalText: ""
 
+    // The rows the Repeater shows: updated IN PLACE (a delegate keeps its
+    // identity, so keyboard focus and a pointer stay on the same account's
+    // switch) and in a STABLE order, the order the card first saw them in -
+    // never "pinned first", which moved an account to the bottom on its own
+    // click (C54-D04, D05). New accounts append.
+    ListModel { id: rowModel }
+    property var order: []
+    // How many accounts were pinned when the refusal was shown. The refusal is
+    // about that count, so it is dropped when the count moves (C54-F01).
+    property int refusalPinned: -1
+
+    function syncRowModel(snapshot) {
+        const list = snapshot || []
+        const byId = {}
+        const ids = []
+        let pinned = 0
+        for (let i = 0; i < list.length; ++i) {
+            const id = list[i].userId || ""
+            byId[id] = list[i]
+            ids.push(id)
+            if (list[i].keepRunning === true)
+                ++pinned
+        }
+        const next = []
+        for (let i = 0; i < root.order.length; ++i) {
+            if (byId[root.order[i]] !== undefined)
+                next.push(root.order[i])
+        }
+        for (let i = 0; i < ids.length; ++i) {
+            if (next.indexOf(ids[i]) < 0)
+                next.push(ids[i])
+        }
+        root.order = next
+        for (let i = rowModel.count - 1; i >= 0; --i) {
+            if (byId[rowModel.get(i).userId] === undefined)
+                rowModel.remove(i)
+        }
+        for (let i = 0; i < next.length; ++i) {
+            const r = byId[next[i]]
+            const values = {
+                "userId": next[i],
+                "displayName": r.displayName || "",
+                "keepRunning": r.keepRunning === true,
+                "liveState": r.liveState !== undefined ? r.liveState : 0
+            }
+            if (i < rowModel.count && rowModel.get(i).userId === next[i]) {
+                rowModel.set(i, values)
+                continue
+            }
+            let from = -1
+            for (let j = i + 1; j < rowModel.count; ++j) {
+                if (rowModel.get(j).userId === next[i]) { from = j; break }
+            }
+            if (from >= 0) {
+                rowModel.move(from, i, 1)
+                rowModel.set(i, values)
+            } else {
+                rowModel.insert(i, values)
+            }
+        }
+        if (root.refusalUserId.length > 0 && root.refusalPinned !== pinned) {
+            root.refusalUserId = ""
+            root.refusalText = ""
+        }
+        root.pinnedNow = pinned
+    }
+    property int pinnedNow: 0
+
     function refreshRows() {
         root.rows = (typeof app !== "undefined" && app && app.accountList)
             ? app.accountList.rowsSnapshot() : null
+        root.syncRowModel(root.rows)
     }
     Component.onCompleted: root.refreshRows()
     Connections {
         target: typeof app !== "undefined" ? app : null
         // The signal only exists in builds that carry Labs.
         ignoreUnknownSignals: true
-        function onLiveAccountsActiveChanged() { root.refreshRows() }
+        function onLiveAccountsActiveChanged() {
+            root.refusalUserId = ""
+            root.refusalText = ""
+            root.refreshRows()
+        }
     }
     Connections {
         target: (typeof app !== "undefined" && app && app.accountList)
@@ -63,9 +136,16 @@ ColumnLayout {
     }
 
     function setKeepRunning(userId, on) {
+        // The refusal is about the count the pin was asked at. Recorded
+        // BEFORE the call, because setAccountKeepRunning may emit rowsChanged
+        // synchronously and syncRowModel then compares against this value.
+        const pinnedAtAsk = root.pinnedNow
+        root.refusalPinned = pinnedAtAsk
         const refusal = app.setAccountKeepRunning(userId, on) || ""
         root.refusalUserId = refusal.length > 0 ? userId : ""
         root.refusalText = refusal
+        // A refusal changes nothing, so the count is still the one asked at.
+        root.refusalPinned = pinnedAtAsk
     }
 
     // SettingsScreen's SettingsCard and SettingsGroupLabel are inline
@@ -192,77 +272,133 @@ ColumnLayout {
             }
             Repeater {
                 objectName: "labsConcurrentAccountsRows"
-                model: root.active ? (root.rows || []) : []
+                model: root.active ? rowModel : null
                 delegate: ColumnLayout {
                     id: accountRow
-                    required property var modelData
-                    objectName: "labsAccountRow_" + (modelData.userId || "")
+                    required property int index
+                    required property string userId
+                    required property string displayName
+                    required property bool keepRunning
+                    required property int liveState
+                    objectName: "labsAccountRow_" + userId
                     Layout.fillWidth: true
                     spacing: 2
+
+                    // Words that say an account is not healthy: said in the
+                    // danger ink, never in the muted grey of "Running".
+                    readonly property bool unhealthy:
+                        liveState === AccountActivityModel.NeedsSignIn
+                        || liveState === AccountActivityModel.KeyringLocked
+                        || liveState === AccountActivityModel.Stopped
+                        || liveState === AccountActivityModel.StoreBusy
+                        || liveState === AccountActivityModel.EncryptionDataMissing
+                        || liveState === AccountActivityModel.OpenToFinishSetup
+                    // A fresh sign-in helps only where the sign-in is the
+                    // problem. A locked keyring is not one (CLAUDE.md s.6).
+                    readonly property bool canSignInAgain:
+                        liveState === AccountActivityModel.NeedsSignIn
+                        || liveState === AccountActivityModel.OpenToFinishSetup
 
                     // Only for the live state's words.
                     AccountActivityBadge {
                         id: stateWords
                         visible: false
-                        liveState: accountRow.modelData.liveState !== undefined
-                                   ? accountRow.modelData.liveState : 0
+                        liveState: accountRow.liveState
+                    }
+
+                    Rectangle {
+                        objectName: "labsAccountSeparator"
+                        // Present on every row (the first draws none), so
+                        // all rows are one height.
+                        opacity: accountRow.index > 0 ? 1 : 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: AppTheme.stormBorder
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
+                        // The row never grows when "Sign in again" appears.
+                        Layout.minimumHeight: AppTheme.buttonHeightSm
                         spacing: AppTheme.spacing12
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 0
                             Label {
+                                id: nameLabel
                                 objectName: "labsAccountName"
                                 Layout.fillWidth: true
                                 // Remote or externally chosen text: never markup.
                                 textFormat: Text.PlainText
-                                text: (accountRow.modelData.displayName || "").length > 0
-                                      ? accountRow.modelData.displayName
-                                      : (accountRow.modelData.userId || "")
+                                text: accountRow.displayName.length > 0
+                                      ? accountRow.displayName
+                                      : accountRow.userId
                                 color: AppTheme.stormText
                                 font.weight: AppTheme.weightStrong
                                 elide: Label.ElideRight
+                                HoverHandler { id: nameHover }
+                                ToolTip.visible: nameHover.hovered && nameLabel.truncated
+                                ToolTip.delay: 500
+                                ToolTip.text: nameLabel.text
                             }
                             Label {
                                 objectName: "labsAccountUserId"
                                 Layout.fillWidth: true
                                 // Remote or externally chosen text: never markup.
                                 textFormat: Text.PlainText
-                                text: accountRow.modelData.userId || ""
+                                text: accountRow.userId
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.monoFont
                                 font.pixelSize: AppTheme.fontMonoXS
                                 elide: Label.ElideMiddle
                             }
+                            // One line is reserved on EVERY row, so a state
+                            // appearing never moves the switches below it
+                            // (C54-F04, D05).
                             NoteLabel {
                                 objectName: "labsAccountState"
-                                visible: text.length > 0
+                                visible: true
+                                Layout.minimumHeight: stateMetrics.height
+                                // One line, always: a long sentence in a
+                                // narrow window elides (the full text is the
+                                // accessible description) instead of growing
+                                // the row.
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
+                                elide: Text.ElideRight
                                 text: stateWords.stateLabel
+                                color: accountRow.unhealthy ? AppTheme.stormDanger
+                                                            : AppTheme.stormTextMuted
+                                Accessible.ignored: text.length === 0
+                                FontMetrics {
+                                    id: stateMetrics
+                                    font.pixelSize: AppTheme.textMeta
+                                }
                             }
                         }
-                        Label {
-                            text: qsTr("Always signed in")
-                            color: AppTheme.stormTextSecondary
-                            font.pixelSize: AppTheme.textMeta
-                            Accessible.ignored: true
+                        AppButton {
+                            objectName: "labsSignInAgain_" + accountRow.userId
+                            visible: accountRow.canSignInAgain
+                            storm: true
+                            size: "sm"
+                            text: qsTr("Sign in again")
+                            onClicked: app.switchToAccount(accountRow.userId)
                         }
                         AppSwitch {
-                            objectName: "labsKeepRunning_" + (accountRow.modelData.userId || "")
-                            checked: accountRow.modelData.keepRunning === true
+                            id: pinSwitch
+                            objectName: "labsKeepRunning_" + accountRow.userId
+                            checked: accountRow.keepRunning
                             Accessible.name: qsTr("Keep %1 always signed in")
-                                             .arg(accountRow.modelData.userId || "")
-                            onToggled: root.setKeepRunning(
-                                accountRow.modelData.userId || "",
-                                !(accountRow.modelData.keepRunning === true))
+                                             .arg(accountRow.userId)
+                            Accessible.description: stateWords.stateLabel
+                            onToggled: root.setKeepRunning(accountRow.userId,
+                                                           !accountRow.keepRunning)
                         }
                     }
                     Label {
                         objectName: "labsKeepRunningRefusal"
                         visible: root.refusalUserId.length > 0
-                                 && root.refusalUserId === (accountRow.modelData.userId || "")
+                                 && root.refusalUserId === accountRow.userId
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         // Our own sentence, but plain: it is never markup.

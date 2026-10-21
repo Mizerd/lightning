@@ -113,6 +113,7 @@ private Q_SLOTS:
     void releaseRetiresHandsBackThenFreesTheStore();
     void aStartingHostIsRetiredOnlyAfterItsLoginResult();
     void anUnconfirmedCloseKeepsTheStoreBusy();
+    void anUnconfirmedCloseThatLooksIdleIsNotHandedToTheForeground();
     void aStoreTheForegroundStillHoldsIsWaitedForWithoutKeyringReads();
     void removalSignsOutWritesNothingBackAndAwaitsThatStore();
     void aRevokedHostRecordsTheProofAndIsNeverRestarted();
@@ -753,6 +754,37 @@ void SessionPoolTest::aStartingHostIsRetiredOnlyAfterItsLoginResult()
     QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
     QCOMPARE(result, SessionPool::ReleaseResult::Free);
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("rotated-at-restore"));
+    pool->shutdownAsync([] {});
+}
+
+// C53-F01: a runtime shutdown that timed out under load reports an
+// unconfirmed close, yet no store handle is left, so the latch frees at once.
+// The release used to answer Free, the foreground's open was then refused
+// (refused_retiring) and the switch fell to the login chooser. It must answer
+// StoreBusy, so the user stays where they were with an honest message.
+void SessionPoolTest::anUnconfirmedCloseThatLooksIdleIsNotHandedToTheForeground()
+{
+    const QString a = uidOf(1);
+    saveAccount(a);
+    m_settings->setKeepRunningFor(a, true);
+    auto pool = makePool();
+    startPool(*pool);
+    pool->noteForegroundInitialSyncDone();
+    pool->admitNowForTest();
+    bringToRunning(*pool, a);
+    m_fake->setDestroyReport(QStringLiteral(
+        "store_closed=false waited_ms=0 builds=1 client_alive=false still_open=none "
+        "runtime_shutdown=timed_out"));
+    m_fake->setAnyHeld(storePathOf(a), 0);
+    bool done = false;
+    SessionPool::ReleaseResult result = SessionPool::ReleaseResult::Free;
+    pool->releaseForForeground(a, [&](SessionPool::ReleaseResult r) {
+        result = r;
+        done = true;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QCOMPARE(result, SessionPool::ReleaseResult::StoreBusy);
+    QCOMPARE(pool->liveState(a), AccountActivityModel::StoreBusy);
     pool->shutdownAsync([] {});
 }
 

@@ -30,11 +30,15 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include <QPointer>
+
+#include <algorithm>
 #include <iterator>
 
 #include "accounts/RustBridgeApi.h"
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "models/AccountActivityModel.h"
 #include "models/AccountListModel.h"
 #include "support/LabsQmlFixture.h"
 
@@ -380,6 +384,239 @@ private slots:
         QTRY_VERIFY(!refusalOf(fifth) || !refusalOf(fifth)->isVisible());
         QTRY_VERIFY(pinOf(kAccounts.at(1))
                     && !pinOf(kAccounts.at(1))->property("checked").toBool());
+    }
+
+    // C54-F01: a refusal is about the pin COUNT it was made at. When the count
+    // moves by any route other than this card's own switch (a sign-out, a
+    // removal, the account menu), the refusal goes. Old code kept it until the
+    // card's own switch next succeeded: `refusalText` stayed set and the row
+    // still said "Turn one off first" with three pinned.
+    void aRefusalGoesWhenThePinCountMovesElsewhere()
+    {
+        load(true, 5);
+        if (QTest::currentTestFailed())
+            return;
+        turnLabsOn();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_COMPARE(rowCount(), 5);
+        const int cap = m_controller->maxPinnedAccounts();
+        for (int i = 0; i < cap; ++i) {
+            QVERIFY(m_controller->setAccountKeepRunning(kAccounts.at(i), true).isEmpty());
+            settleRows();
+            if (QTest::currentTestFailed())
+                return;
+        }
+        const QString fifth = kAccounts.at(cap);
+        click(item(QStringLiteral("labsKeepRunning_") + fifth));
+        settleRows();
+        if (QTest::currentTestFailed())
+            return;
+        auto refusal = [this, fifth] {
+            return findItem(item(QStringLiteral("labsAccountRow_") + fifth),
+                            QStringLiteral("labsKeepRunningRefusal"));
+        };
+        QTRY_VERIFY(refusal() && refusal()->isVisible());
+
+        // Not through the card.
+        QVERIFY(m_controller->setAccountKeepRunning(kAccounts.at(0), false).isEmpty());
+        settleRows();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_VERIFY(refusal() && !refusal()->isVisible());
+    }
+
+    // C54-D04/D05/F04: a delegate keeps its identity across a refresh (so
+    // keyboard focus stays on the same account's switch), the order is the
+    // order the card first showed (the model's running-first sort does not
+    // move a row under the pointer), and every row reserves its state line so
+    // a state appearing moves nothing. Old code: the whole array was replaced
+    // on every rowsChanged (every delegate re-created), the order followed the
+    // model, and the state label was `visible: text.length > 0`.
+    void rowsKeepTheirIdentityOrderAndHeight()
+    {
+        load(true, 5);
+        if (QTest::currentTestFailed())
+            return;
+        turnLabsOn();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_COMPARE(rowCount(), 5);
+
+        auto rowOf = [this](const QString &uid) {
+            return item(QStringLiteral("labsAccountRow_") + uid);
+        };
+        // The rows' uids top to bottom, checking on the way that every row
+        // has the same height and reserves its state line.
+        auto checkGeometry = [&](QStringList *order) {
+            // Layout settles on the next polish.
+            QTest::qWait(150);
+            QList<QPair<qreal, QString>> byY;
+            qreal height = -1;
+            for (const QString &uid : kAccounts) {
+                QQuickItem *row = rowOf(uid);
+                QVERIFY(row);
+                byY.append({ row->mapToItem(card(), QPointF(0, 0)).y(), uid });
+                auto *state = findItem(row, QStringLiteral("labsAccountState"));
+                QVERIFY(state);
+                QVERIFY2(state->isVisible() && state->height() > 0,
+                         "the state line is reserved on every row");
+                if (height < 0)
+                    height = row->height();
+                QCOMPARE(row->height(), height);
+            }
+            std::sort(byY.begin(), byY.end());
+            order->clear();
+            for (const auto &entry : byY)
+                order->append(entry.second);
+        };
+        QStringList before;
+        checkGeometry(&before);
+        if (QTest::currentTestFailed())
+            return;
+        QCOMPARE(before.size(), kAccounts.size());
+
+        const QString last = before.last();
+        const QString second = before.at(1);
+        const QPointer<QQuickItem> secondRow = rowOf(second);
+        const QPointer<QQuickItem> secondPin =
+            item(QStringLiteral("labsKeepRunning_") + second);
+        QVERIFY(secondRow && secondPin);
+        // Pin the LAST row: the model may sort it up; the card must not.
+        QVERIFY(m_controller->setAccountKeepRunning(last, true).isEmpty());
+        settleRows();
+        if (QTest::currentTestFailed())
+            return;
+        QVERIFY(secondRow);
+        QVERIFY(secondPin);
+        QCOMPARE(rowOf(second), secondRow.data());
+        QStringList after;
+        checkGeometry(&after);
+        if (QTest::currentTestFailed())
+            return;
+        QCOMPARE(after, before);
+
+        // The model's running-first sort cannot be provoked here (nothing
+        // reaches Running over the inert bridge), so hand the card a snapshot
+        // in the REVERSED order: it must keep the order it first showed.
+        QVariantList reversed;
+        for (int i = kAccounts.size() - 1; i >= 0; --i) {
+            QVariantMap row;
+            row.insert(QStringLiteral("userId"), kAccounts.at(i));
+            row.insert(QStringLiteral("displayName"), QString());
+            row.insert(QStringLiteral("keepRunning"), i == kAccounts.size() - 1);
+            row.insert(QStringLiteral("liveState"), 0);
+            reversed.append(row);
+        }
+        QVERIFY(QMetaObject::invokeMethod(card(), "syncRowModel",
+                                          Q_ARG(QVariant, QVariant(reversed))));
+        QStringList afterReorder;
+        checkGeometry(&afterReorder);
+        if (QTest::currentTestFailed())
+            return;
+        QCOMPARE(afterReorder, before);
+        QCOMPARE(rowOf(second), secondRow.data());
+    }
+
+    // Feeds the card a snapshot the model cannot produce offscreen (a revoked
+    // or locked account), through the card's own syncRowModel().
+    void feed(const QList<int> &states)
+    {
+        QVariantList snapshot;
+        for (int i = 0; i < states.size(); ++i) {
+            QVariantMap row;
+            row.insert(QStringLiteral("userId"), kAccounts.at(i));
+            row.insert(QStringLiteral("displayName"), QStringLiteral("Account %1").arg(i));
+            row.insert(QStringLiteral("keepRunning"), true);
+            row.insert(QStringLiteral("liveState"), states.at(i));
+            snapshot.append(row);
+        }
+        QVERIFY(QMetaObject::invokeMethod(card(), "syncRowModel",
+                                          Q_ARG(QVariant, QVariant(snapshot))));
+        QTest::qWait(150);
+    }
+
+    QColor themeColor(const char *token)
+    {
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray("import QtQuick\nimport MatrixClient\n"
+                             "QtObject { property color c: AppTheme.")
+                      + token + " }",
+                  QUrl(QStringLiteral("tok.qml")));
+        QScopedPointer<QObject> o(c.create());
+        return o ? o->property("c").value<QColor>() : QColor();
+    }
+
+    // C54-D02/D07: an unhealthy state is said in the danger ink and a sign-in
+    // that is gone offers the way back in place; a locked keyring is not a
+    // missing sign-in (CLAUDE.md s.6) and offers none; a healthy row has
+    // neither; and a state never changes a row's height. Real delegates fed a
+    // snapshot per state. Old code: muted ink for every state, no button.
+    void anUnhealthyStateIsDangerInkWithASignInOnlyWhereItHelps()
+    {
+        load(true, 5);
+        if (QTest::currentTestFailed())
+            return;
+        turnLabsOn();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_COMPARE(rowCount(), 5);
+        using S = AccountActivityModel;
+        feed({ S::Running, S::NeedsSignIn, S::KeyringLocked, S::OpenToFinishSetup,
+               S::StoreBusy });
+        if (QTest::currentTestFailed())
+            return;
+        const QColor danger = themeColor("stormDanger");
+        const QColor muted = themeColor("stormTextMuted");
+        QVERIFY(danger.isValid() && muted.isValid() && danger != muted);
+        struct Expect { int index; bool danger; bool signIn; };
+        const Expect expected[] = { { 0, false, false }, { 1, true, true },
+                                    { 2, true, false }, { 3, true, true },
+                                    { 4, true, false } };
+        qreal height = -1;
+        for (const Expect &e : expected) {
+            const QString uid = kAccounts.at(e.index);
+            QQuickItem *row = item(QStringLiteral("labsAccountRow_") + uid);
+            QVERIFY(row);
+            auto *state = findItem(row, QStringLiteral("labsAccountState"));
+            QVERIFY(state);
+            QVERIFY2(!state->property("text").toString().isEmpty(), qPrintable(uid));
+            QCOMPARE(state->property("color").value<QColor>(),
+                     e.danger ? danger : muted);
+            auto *button = findItem(row, QStringLiteral("labsSignInAgain_") + uid);
+            QVERIFY(button);
+            QCOMPARE(button->isVisible(), e.signIn);
+            if (height < 0)
+                height = row->height();
+            QCOMPARE(row->height(), height);
+        }
+    }
+
+    // C54-D04: after a keyboard toggle the same account's switch still has
+    // focus (the delegate is not re-created), so Space can toggle it back.
+    void keyboardFocusStaysOnTheSwitchAfterAToggle()
+    {
+        load(true, 3);
+        if (QTest::currentTestFailed())
+            return;
+        turnLabsOn();
+        if (QTest::currentTestFailed())
+            return;
+        QTRY_COMPARE(rowCount(), 3);
+        const QString uid = kAccounts.at(1);
+        QQuickItem *pin = item(QStringLiteral("labsKeepRunning_") + uid);
+        QVERIFY(pin);
+        pin->forceActiveFocus();
+        QVERIFY(pin->hasActiveFocus());
+        const QPointer<QQuickItem> before = pin;
+        click(pin);
+        settleRows();
+        if (QTest::currentTestFailed())
+            return;
+        QQuickItem *after = item(QStringLiteral("labsKeepRunning_") + uid);
+        QVERIFY(after);
+        QCOMPARE(after, before.data());
+        QVERIFY(after->hasActiveFocus());
     }
 
     // The two Q_INVOKABLE reads happen only in handler functions

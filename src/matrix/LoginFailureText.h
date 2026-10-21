@@ -50,8 +50,14 @@ inline QString passwordText(const QString &reason, const QString &message)
     if (reason.contains(QLatin1String("M_USER_DEACTIVATED")))
         return QCoreApplication::translate("RustSdkMatrixClient",
                                            "This account has been deactivated.");
-    if (reason == QLatin1String("timeout") || reason == QLatin1String("connect")
-        || reason == QLatin1String("network"))
+    // A server that did not answer in time is not one that cannot be reached
+    // (C48-F08).
+    if (reason == QLatin1String("timeout"))
+        return QCoreApplication::translate(
+            "RustSdkMatrixClient",
+            "The server is taking too long to answer. Try again in a moment, or "
+            "check the server address.");
+    if (reason == QLatin1String("connect") || reason == QLatin1String("network"))
         return QCoreApplication::translate(
             "RustSdkMatrixClient",
             "Can't reach the server. Check your connection and try again.");

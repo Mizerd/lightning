@@ -1335,13 +1335,26 @@ void SessionPool::settleRelease(quint64 ticket, bool free, qint64 deadlineMs)
     }
     const Release r = it.value();
     m_releases.erase(it);
+    // The latch frees on "nothing in this process holds a store handle", which
+    // an unconfirmed close can satisfy while the ownership record stays
+    // Retiring for the rest of the process: answering Free then sends the
+    // foreground to open a store the registry refuses (refused_retiring), and
+    // the switch falls to the login chooser (C53-F01). StoreBusy is the
+    // honest answer and leaves the user where they were.
+    const bool unconfirmed = m_storeBusy.contains(r.uid);
+    if (free && unconfirmed) {
+        qCWarning(lcSessionPool) << "a background account's store went idle but its close was "
+                                    "never confirmed; not handed to the foreground"
+                                 << "acct=" << slugOf(r.uid);
+    }
     if (free && writeLanding) {
         qCWarning(lcSessionPool) << "a background account's store is free but a keyring "
                                     "write of it has not returned; not opened yet"
                                  << "acct=" << slugOf(r.uid);
     }
     if (r.done)
-        r.done(free && !writeLanding ? ReleaseResult::Free : ReleaseResult::StoreBusy);
+        r.done(free && !writeLanding && !unconfirmed ? ReleaseResult::Free
+                                                           : ReleaseResult::StoreBusy);
 }
 
 void SessionPool::cancelRelease(quint64 ticket)

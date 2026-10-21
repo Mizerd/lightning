@@ -292,6 +292,11 @@ void RustSessionLifecycleTest::aPasswordSignInFailureNeverShowsTheBackendsMessag
     QCOMPARE(passwordText(QStringLiteral("connect"), backend),
              QStringLiteral("Can't reach the server. Check your connection and try again."));
 
+    // A server that answers too slowly is not an unreachable one (C48-F08).
+    const QString slow = passwordText(QStringLiteral("timeout"), backend);
+    QVERIFY2(slow.contains(QLatin1String("taking too long")), qPrintable(slow));
+    QVERIFY(!slow.contains(QLatin1String("Can't reach")));
+
     // Anything else: generic words plus the token as a support code.
     const QString other = passwordText(QStringLiteral("http_500_M_UNKNOWN"), backend);
     QVERIFY2(!leaks(other), qPrintable(other));
