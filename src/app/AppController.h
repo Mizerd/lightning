@@ -1112,11 +1112,12 @@ public:
 
     // Rebuilds the room's timeline (new subscription, re-pagination, media,
     // a jump-to-event context and the thread cleared). For the explicit user
-    // Refresh. ONE automatic caller is approved: an ignore-list change, after
-    // which matrix-sdk has already emptied every room's event cache, so the
-    // timeline it drops held nothing worth keeping (the ignoredUsersChanged
-    // handler, which reopens the thread itself). Never add another automatic
-    // caller: it throws away the reader's place. No-op on non-Rust.
+    // Refresh. TWO automatic callers are approved, both after the SDK event
+    // cache was emptied, so the timeline they drop held nothing worth
+    // keeping: an ignore-list change (the ignoredUsersChanged handler, which
+    // reopens the thread itself) and the one-time classic-sync cache repair
+    // (the eventCacheRepaired handler). Never add another automatic caller:
+    // it throws away the reader's place. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
     // The status strip's dismiss control: withdraws its message now.
     Q_INVOKABLE void dismissStatusError();

@@ -2436,6 +2436,11 @@ Q_SIGNALS:
                             bool ok, const QString &category);
     void ignoredUsersReceived(quint64 opId, bool ok, const QStringList &users);
     void ignoredUsersChanged(const QStringList &users);
+    // GitHub #48: the classic-sync event-cache repair (rust/src/lib.rs
+    // repair_classic_event_cache_once) emptied room caches while a timeline
+    // view was open; the open room and thread must be reopened, as after
+    // About -> Reset local cache.
+    void eventCacheRepaired();
     // Push-rule settings. `snapshot` is normalised (see PushRulesSnapshot):
     // a level is -1 (the server has no such rule), 0 Off, 1 Notify, 2 Loud.
     void pushRulesReceived(quint64 opId, bool ok, const QVariantMap &snapshot,

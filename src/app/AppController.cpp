@@ -1980,6 +1980,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                                                       reopenThread);
         });
     });
+    // GitHub #48: the classic-sync repair emptied room caches while a view
+    // opened; reopen what is open, as About -> Reset local cache does
+    // (TimelinePane.qml onEventCacheWasCleared). Rust sends this only after
+    // its clear finished, so no delay is needed here.
+    connect(m_client.get(), &MatrixClient::eventCacheRepaired, this, [this] {
+        if (m_backend != RustBackend)
+            return;
+        if (!m_currentRoomId.isEmpty())
+            reloadCurrentRoomTimeline();
+        // After the room: opening a room timeline drops the thread's.
+        if (m_thread && m_thread->active())
+            m_thread->reopen();
+    });
     if (m_moderation) {
         connect(m_moderation.get(), &ModerationController::ignoreActionFinished,
                 this, [this](const QString &userId, bool ignored, bool ok,

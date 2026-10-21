@@ -703,6 +703,19 @@ impl TimelineRegistry {
         guard.as_ref().map(|active| active.room_id.clone())
     }
 
+    /// Whether ANY timeline view is open (room, thread, thread list, context).
+    /// A poisoned slot counts as open, so a caller that must not disturb an
+    /// open view errs on the side of waiting.
+    pub(crate) fn any_view_open(&self) -> bool {
+        fn held<T>(slot: &Mutex<Option<T>>) -> bool {
+            slot.lock().map_or(true, |guard| guard.is_some())
+        }
+        held(&self.active)
+            || held(&self.active_thread)
+            || held(&self.active_thread_list)
+            || held(&self.active_context)
+    }
+
     fn is_current(&self, room_gen: u64, lifecycle: u64) -> bool {
         self.room_gen.load(Ordering::SeqCst) == room_gen
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle

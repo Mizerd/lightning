@@ -81,6 +81,43 @@ private Q_SLOTS:
                                             QStringLiteral("$e:x"), 1));
         QCOMPARE(resets.count(), 0);
     }
+
+    // GitHub #48: the classic-sync repair's "a view opened during the clear"
+    // reaches the client as a signal (AppController reopens the views on it).
+    // Lives here because this suite already drives RustSdkMatrixClient's
+    // event handler directly.
+    void aRepairUnderAnOpenViewAsksForAReload()
+    {
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy repaired(&client, &MatrixClient::eventCacheRepaired);
+        client.handleRustEventForTest(QJsonObject{
+            { QStringLiteral("type"), QStringLiteral("event_cache_repaired") },
+        });
+        QCOMPARE(repaired.count(), 1);
+    }
+
+    // ...and only from the running session: a signing-out handle's events
+    // still pass the poll gate (shutdown completions), but this one reopens
+    // views and must not reach the next session (§9).
+    void aRepairReloadFromASigningOutSessionIsIgnored()
+    {
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        const quint64 old = client.m_lifecycle.beginSession();
+        client.m_lifecycle.beginSignOut(old);
+        QVERIFY(client.m_lifecycle.acceptsShutdownCompletion(old));
+        QSignalSpy repaired(&client, &MatrixClient::eventCacheRepaired);
+        const QJsonObject event{
+            { QStringLiteral("type"), QStringLiteral("event_cache_repaired") },
+            { QStringLiteral("lifecycle"), 1 },
+        };
+        client.handleRustEvent(event, old);
+        QCOMPARE(repaired.count(), 0);
+        // The running session's own request still works.
+        client.handleRustEvent(event, client.m_lifecycle.beginSession());
+        QCOMPARE(repaired.count(), 1);
+    }
 };
 
 QTEST_MAIN(ContextHandlersTest)

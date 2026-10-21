@@ -12808,6 +12808,19 @@ async fn run_authoritative_sync(
         set_sync_mode(
             &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
         );
+        // Only here, not after a modern-sync fallback: that session subscribed
+        // the cache from its start, and its rooms may already be watched for
+        // previews, which a clear would blank.
+        let views = Arc::clone(&timelines);
+        let generation = Arc::clone(&timelines);
+        repair_classic_event_cache_once(
+            &client,
+            &events,
+            move || !views.any_view_open(),
+            move || generation.lifecycle(),
+            push_verdict::now_ms(),
+        )
+        .await;
         run_classic_sync(client, events, verification_live, sync_notify, cancel).await;
     }
 }
@@ -13588,6 +13601,242 @@ fn subscribe_event_cache_before_classic_sync(
             "line": format!("classic sync: event cache subscribe failed ({kind})"),
         }));
     }
+}
+
+/// The account's own state store remembers that the classic-sync repair is
+/// finished, and how far an unfinished one got. In the state store so both are
+/// deleted with the account, and never in the crypto store, which the repair
+/// does not touch.
+const CLASSIC_CACHE_REPAIR_KEY: &[u8] = b"lightning.event_cache.classic_gap_repair.v1";
+const CLASSIC_CACHE_REPAIR_PROGRESS_KEY: &[u8] =
+    b"lightning.event_cache.classic_gap_repair.progress.v1";
+/// A repair waiting on unread mentions finishes unconditionally on this start,
+/// or once this long has passed since its first, whichever comes first, so it
+/// always converges.
+const CLASSIC_CACHE_REPAIR_MAX_STARTS: u32 = 5;
+const CLASSIC_CACHE_REPAIR_MAX_AGE_MS: u64 = 14 * 24 * 60 * 60 * 1000;
+
+/// How far an unfinished repair got: the starts it has seen (deferred ones
+/// included), when the first was, and the rooms already cleared.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ClassicRepairProgress {
+    starts: u32,
+    first_ms: u64,
+    done: BTreeSet<String>,
+}
+
+/// What `repair_classic_event_cache_once` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassicCacheRepair {
+    /// Every room is cleared and that is recorded. `forced` when the start or
+    /// age cap cleared rooms that were still waiting.
+    Done { cleared: usize, forced: bool },
+    /// Some rooms cleared, `waiting` left for a later start because clearing
+    /// them now would lose an unread badge.
+    Partial { cleared: usize, waiting: usize },
+    /// Finished on an earlier start: nothing done.
+    AlreadyDone,
+    /// A timeline view was open; the start is counted, nothing cleared.
+    Deferred,
+    /// The store could not be read or written, or a clear failed; what was
+    /// recorded so far stands and the next start goes on from it.
+    Failed,
+}
+
+/// Whether the cap says this start must finish whatever is waiting.
+fn classic_repair_must_finish(progress: &ClassicRepairProgress, now_ms: u64) -> bool {
+    progress.starts >= CLASSIC_CACHE_REPAIR_MAX_STARTS
+        || now_ms.saturating_sub(progress.first_ms) >= CLASSIC_CACHE_REPAIR_MAX_AGE_MS
+}
+
+/// Whether clearing a room's cache now could lose an unread badge. A mention
+/// or highlight always counts (the client's mention count is computed from the
+/// cached events, and an unencrypted room's server highlight count is shown
+/// beside it). So does the unread DOT: `num_unread_messages` is computed from
+/// the cache alone and the room list's dot reads it by itself
+/// (`hasUnreadMessages`, RoomUnreadRule.h `rawUnread`), whatever the
+/// notification count says. In an ENCRYPTED room the unread count itself is
+/// computed from the cache alone (`unread_and_highlight_counts`), so any unread
+/// counts there too.
+fn room_unread_would_be_lost(
+    encrypted: bool,
+    client_messages: u64,
+    client_notifications: u64,
+    client_mentions: u64,
+    server_highlights: u64,
+) -> bool {
+    client_messages > 0
+        || client_mentions > 0
+        || server_highlights > 0
+        || (encrypted && client_notifications > 0)
+}
+
+/// GitHub #30/#48, the repair half: once per account on classic sync, empty
+/// the event cache (the rebuildable cache of room history) before the first
+/// `/sync`, room by room.
+///
+/// Builds before `subscribe_event_cache_before_classic_sync` left permanent
+/// gaps in it (see there), and a gap cannot be found locally: the cache does
+/// not know it is missing anything. Emptying a room's cache is what Settings ->
+/// About -> "Reset local cache" does for every room; the room then refills from
+/// the server, gap included, as it is opened. Done before the first request so
+/// no timeline is built on the old contents.
+///
+/// Rooms whose unread badge the cache carries (`room_unread_would_be_lost`)
+/// are LEFT for a later start, when they have been read; the rooms already
+/// cleared are recorded, so each start only looks at what is left, and the
+/// finished flag is written only when no room is left. After
+/// `CLASSIC_CACHE_REPAIR_MAX_STARTS` starts or `CLASSIC_CACHE_REPAIR_MAX_AGE_MS`
+/// it finishes regardless, and says so. Each start is counted BEFORE anything is
+/// cleared, so a start that dies mid-way still counts toward the caps. An open
+/// view defers a start (a cleared open room would sit empty until reopened); if
+/// one opens DURING the clear, `event_cache_repaired` asks C++ to reopen it, as
+/// About's reset does, stamped with the session `lifecycle` it ran under and
+/// not sent at all once that session has ended.
+///
+/// What it does NOT touch: the crypto store, the state store beyond its own
+/// two values (rooms, sync token, send queue stay), the media caches, and the
+/// local search index, whose rows are only ever removed by a redaction, a
+/// forgotten room, the user's "Clear index" or the row cap
+/// (`localsearch::SearchIndex::prune`); a sweep only adds, so search keeps
+/// everything already indexed. Room-list previews are not recomputed: the
+/// latest-event values are stored in each room's info and only an event-cache
+/// update for a WATCHED room recomputes one, and nothing is watched before the
+/// first response. The event cache FILE is not compacted: a VACUUM would hold
+/// the store's only write connection through the startup catch-up, SQLite
+/// reuses the freed pages anyway, and About -> "Reset local cache" still
+/// compacts on demand.
+async fn repair_classic_event_cache_once(
+    client: &Client,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    views_idle: impl Fn() -> bool,
+    lifecycle: impl Fn() -> u64,
+    now_ms: u64,
+) -> ClassicCacheRepair {
+    let started_lifecycle = lifecycle();
+    let line = |text: String| {
+        enqueue(events, json!({ "type": "rust_trace", "line": text }));
+    };
+    let store = client.state_store();
+    match store.get_custom_value(CLASSIC_CACHE_REPAIR_KEY).await {
+        Ok(Some(_)) => return ClassicCacheRepair::AlreadyDone,
+        Ok(None) => {}
+        // Unknown is not "not done": never clear on a guess.
+        Err(_) => {
+            line("classic sync: event cache repair skipped (state store unreadable)".into());
+            return ClassicCacheRepair::Failed;
+        }
+    }
+    let mut progress: ClassicRepairProgress =
+        match store.get_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY).await {
+            // An unreadable record only costs re-clearing rooms already done.
+            Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
+            Ok(None) => ClassicRepairProgress::default(),
+            Err(_) => {
+                line("classic sync: event cache repair skipped (state store unreadable)".into());
+                return ClassicCacheRepair::Failed;
+            }
+        };
+    if progress.starts == 0 {
+        progress.first_ms = now_ms;
+    }
+    progress.starts = progress.starts.saturating_add(1);
+    let save = |progress: ClassicRepairProgress| async move {
+        let bytes = serde_json::to_vec(&progress).unwrap_or_default();
+        store.set_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY, bytes).await.is_ok()
+    };
+    // Counted before anything else happens: a start that dies mid-way (a
+    // crash, a quit, a failed clear) still moves the caps on.
+    if !save(progress.clone()).await {
+        line("classic sync: event cache repair skipped (progress could not be recorded)".into());
+        return ClassicCacheRepair::Failed;
+    }
+    let force = classic_repair_must_finish(&progress, now_ms);
+    if !views_idle() && !force {
+        let starts = progress.starts;
+        line(format!(
+            "classic sync: event cache repair deferred, a timeline is open \
+             (start {starts}/{CLASSIC_CACHE_REPAIR_MAX_STARTS})"
+        ));
+        return ClassicCacheRepair::Deferred;
+    }
+
+    // Subscribed first so each room's in-memory cache is emptied with its
+    // stored copy.
+    let _ = client.event_cache().subscribe();
+    let mut cleared = 0usize;
+    let mut waiting = 0usize;
+    let mut failed = false;
+    for room in client.rooms() {
+        let id = room.room_id().to_string();
+        if progress.done.contains(&id) {
+            continue;
+        }
+        let server = room.unread_notification_counts();
+        if !force
+            && room_unread_would_be_lost(
+                room.encryption_state().is_encrypted(),
+                room.num_unread_messages(),
+                room.num_unread_notifications(),
+                room.num_unread_mentions(),
+                server.highlight_count,
+            )
+        {
+            waiting += 1;
+            continue;
+        }
+        let ok = match room.event_cache().await {
+            Ok((cache, _handles)) => cache.clear().await.is_ok(),
+            Err(_) => false,
+        };
+        if !ok {
+            failed = true;
+            break;
+        }
+        progress.done.insert(id);
+        cleared += 1;
+    }
+    // A view opened while the rooms were cleared: reopen it, as About's reset
+    // does, or it shows an emptied room until the user leaves and comes back.
+    // Never into a later session: a sign-out meanwhile ends it here, and C++
+    // rejects one that arrives from a session it is no longer running (§9).
+    if cleared > 0 && !views_idle() && lifecycle() == started_lifecycle {
+        enqueue(events, json!({
+            "type": "event_cache_repaired", "lifecycle": started_lifecycle,
+        }));
+    }
+    let starts = progress.starts;
+    if failed {
+        save(progress).await;
+        line(format!("classic sync: event cache repair failed (clear) after {cleared} rooms"));
+        return ClassicCacheRepair::Failed;
+    }
+    if waiting > 0 {
+        if !save(progress).await {
+            line("classic sync: event cache repair progress could not be recorded".into());
+            return ClassicCacheRepair::Failed;
+        }
+        line(format!(
+            "classic sync: event cache repair cleared {cleared} rooms; {waiting} wait until \
+             they are read (start {starts}/{CLASSIC_CACHE_REPAIR_MAX_STARTS})"
+        ));
+        return ClassicCacheRepair::Partial { cleared, waiting };
+    }
+    if store.set_custom_value(CLASSIC_CACHE_REPAIR_KEY, b"1".to_vec()).await.is_err() {
+        // Cleared but not recorded: the next start clears once more, which
+        // costs a refetch and nothing else.
+        save(progress).await;
+        line("classic sync: event cache repair ran but could not be recorded".into());
+        return ClassicCacheRepair::Failed;
+    }
+    let _ = store.remove_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY).await;
+    line(format!(
+        "classic sync: cleared the event cache to repair gaps from older builds \
+         (GitHub #48): {cleared} rooms this start, finished{}; rooms refill from \
+         the server as they are opened",
+        if force { " unconditionally (start or age cap reached)" } else { "" }
+    ));
+    ClassicCacheRepair::Done { cleared, forced: force }
 }
 
 async fn run_classic_sync(
@@ -19402,8 +19651,10 @@ mod classic_sync_silence_tests {
 #[cfg(test)]
 mod classic_sync_wedge_tests {
     use super::{
-        run_classic_sync_with, ClassicSilenceBudget, VerificationLive,
-        CLASSIC_SYNC_WEDGED_MESSAGE,
+        classic_repair_must_finish, repair_classic_event_cache_once, room_unread_would_be_lost,
+        run_classic_sync_with, ClassicCacheRepair, ClassicRepairProgress, ClassicSilenceBudget,
+        VerificationLive, CLASSIC_CACHE_REPAIR_KEY, CLASSIC_CACHE_REPAIR_MAX_STARTS,
+        CLASSIC_CACHE_REPAIR_PROGRESS_KEY, CLASSIC_SYNC_WEDGED_MESSAGE,
     };
     use std::sync::atomic::AtomicBool;
     use std::collections::VecDeque;
@@ -19690,6 +19941,374 @@ mod classic_sync_wedge_tests {
         assert_eq!(found, vec![EVENT.to_owned(), NEXT.to_owned()],
                    "the next non-limited response must continue the history the first \
                     one left, with nothing between them");
+    }
+
+    /// `restored_client` on an on-disk store, so a second "start" sees what the
+    /// first one wrote.
+    async fn restored_client_at(addr: &str, store: &std::path::Path) -> matrix_sdk::Client {
+        let client = matrix_sdk::Client::builder()
+            .homeserver_url(format!("http://{addr}"))
+            .sqlite_store(store, None)
+            .build()
+            .await
+            .expect("client");
+        let session = MatrixSession {
+            meta: SessionMeta {
+                user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                device_id: OwnedDeviceId::from("TESTDEVICE"),
+            },
+            tokens: SessionTokens {
+                access_token: "test-token".to_owned(),
+                refresh_token: None,
+            },
+        };
+        client
+            .matrix_auth()
+            .restore_session(session, RoomLoadSettings::default())
+            .await
+            .expect("restore");
+        client
+    }
+
+    /// The room's linked chunk, once it holds `wanted` (or after a bound).
+    async fn cached_ids(client: &matrix_sdk::Client, room: &str, wanted: Option<&str>) -> Vec<String> {
+        client.event_cache().subscribe().expect("subscribe");
+        let room_id = matrix_sdk::ruma::RoomId::parse(room).expect("room id");
+        let room = client.get_room(&room_id).expect("room known to the state store");
+        let (cache, _handles) = room.event_cache().await.expect("room event cache");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let ids: Vec<String> = cache
+                .events()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|e| e.event_id().map(|id| id.to_string()))
+                .collect();
+            let done = match wanted {
+                Some(id) => ids.iter().any(|have| have == id),
+                None => true,
+            };
+            if done || tokio::time::Instant::now() > deadline {
+                return ids;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// A homeserver answering `/sync` with `bodies` in order, then nothing.
+    fn serve_scripted_syncs(bodies: Vec<serde_json::Value>) -> String {
+        let bodies = Arc::new(bodies);
+        let served = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let bodies = Arc::clone(&bodies);
+                let served = Arc::clone(&served);
+                thread::spawn(move || {
+                    let line = read_request(&mut stream);
+                    let target = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    let path = target.split_once('?').map_or(target.as_str(), |(p, _)| p);
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
+                    } else if path == "/_matrix/client/v3/sync" {
+                        let n = served.fetch_add(1, Ordering::SeqCst);
+                        let body = bodies
+                            .get(n)
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({ "next_batch": format!("s{n}") }));
+                        respond(&mut stream, "200 OK", &body.to_string());
+                    } else {
+                        respond(&mut stream, "404 Not Found",
+                                r#"{"errcode":"M_UNRECOGNIZED","error":"test"}"#);
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    fn message(event_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "m.room.message",
+            "event_id": event_id,
+            "sender": "@flo:example.org",
+            "origin_server_ts": 1_760_000_000_000u64,
+            "content": { "msgtype": "m.text", "body": "x" },
+        })
+    }
+
+    /// Our own public read receipt on `event_id`.
+    fn read_receipt(event_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "m.receipt",
+            "content": { event_id: { "m.read": { "@me:example.org": { "ts": 1u64 } } } },
+        })
+    }
+
+    fn temp_store(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "lightning-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("store dir");
+        dir
+    }
+
+    fn trace_lines(events: &Arc<Mutex<VecDeque<String>>>) -> Vec<String> {
+        drain(events)
+            .iter()
+            .filter(|v| v["type"] == "rust_trace")
+            .filter_map(|v| v["line"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    /// GitHub #48, the repair: on classic sync each room's event cache is
+    /// emptied once per account (gaps older builds left cannot be found, only
+    /// refetched); a room whose unread MENTION the cache carries keeps its
+    /// cache, and its badge, until a later start finds it read; completion is
+    /// recorded in the account's own state store and never repeated; the
+    /// crypto store and the rest of the state store are untouched; an open view
+    /// defers a start, and a view opened during the clear is asked to reload.
+    #[test]
+    fn the_classic_cache_repair_spares_unread_mentions_and_finishes_once() {
+        const MENTIONED: &str = "!mentioned:example.org";
+        const QUIET: &str = "!quiet:example.org";
+        const IN_MENTIONED: &str = "$in-mentioned:example.org";
+        const IN_QUIET: &str = "$in-quiet:example.org";
+        const LATER: &str = "$later:example.org";
+        let addr = serve_scripted_syncs(vec![
+            // The older build's session: history in both rooms, an unread
+            // mention in one (the server's highlight count, as a bot's
+            // "@you" leaves it).
+            serde_json::json!({ "next_batch": "s1", "rooms": { "join": {
+                MENTIONED: {
+                    "timeline": { "limited": false, "prev_batch": "p0",
+                                  "events": [message(IN_MENTIONED)] },
+                    "unread_notifications": { "highlight_count": 1, "notification_count": 1 },
+                },
+                QUIET: {
+                    "timeline": { "limited": false, "prev_batch": "q0",
+                                  "events": [message(IN_QUIET)] },
+                    // Read here: no dot, nothing to lose.
+                    "ephemeral": { "events": [read_receipt(IN_QUIET)] },
+                },
+            }}}),
+            // Read on another device: the counts drop to zero and our receipt
+            // moves onto the message.
+            serde_json::json!({ "next_batch": "s2", "rooms": { "join": {
+                MENTIONED: {
+                    "unread_notifications": { "highlight_count": 0, "notification_count": 0 },
+                    "ephemeral": { "events": [read_receipt(IN_MENTIONED)] },
+                },
+            }}}),
+            // New history after the repair finished.
+            serde_json::json!({ "next_batch": "s3", "rooms": { "join": {
+                QUIET: {
+                    "timeline": { "limited": false, "prev_batch": "q1",
+                                  "events": [message(LATER)] },
+                },
+            }}}),
+        ]);
+        let store = temp_store("classic-repair");
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let room = |id: &str| matrix_sdk::ruma::RoomId::parse(id).expect("room id");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            use matrix_sdk::config::SyncSettings;
+            let quick = || SyncSettings::default().timeout(Duration::ZERO);
+            let t0 = 1_760_000_000_000u64;
+
+            // Start 0, an older build.
+            let identity = {
+                let client = restored_client_at(&addr, &store).await;
+                client.event_cache().subscribe().expect("subscribe");
+                let _ = client.sync_once(quick()).await;
+                assert_eq!(cached_ids(&client, MENTIONED, Some(IN_MENTIONED)).await,
+                           vec![IN_MENTIONED.to_owned()]);
+                assert_eq!(cached_ids(&client, QUIET, Some(IN_QUIET)).await,
+                           vec![IN_QUIET.to_owned()]);
+                client
+                    .state_store()
+                    .set_custom_value(b"msg48.sentinel", b"keep".to_vec())
+                    .await
+                    .expect("sentinel");
+                client.encryption().ed25519_key().await.expect("device key")
+            };
+
+            // Start 1: a view is open, so it defers, clears nothing, finishes
+            // nothing.
+            {
+                let client = restored_client_at(&addr, &store).await;
+                assert_eq!(repair_classic_event_cache_once(&client, &events, || false, || 1, t0).await,
+                           ClassicCacheRepair::Deferred);
+                assert_eq!(cached_ids(&client, QUIET, None).await, vec![IN_QUIET.to_owned()]);
+                // The start is counted at its beginning, so one that ends
+                // early (deferred here; a crash or a failed clear alike) still
+                // moves the caps on.
+                let recorded: ClassicRepairProgress = serde_json::from_slice(
+                    &client.state_store()
+                        .get_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY)
+                        .await.expect("read").expect("progress recorded"),
+                ).expect("progress parses");
+                assert_eq!((recorded.starts, recorded.first_ms), (1, t0));
+            }
+
+            // Start 2: the quiet room is cleared; the mentioned room keeps its
+            // cache AND its badge; nothing is recorded as finished.
+            {
+                let client = restored_client_at(&addr, &store).await;
+                assert_eq!(repair_classic_event_cache_once(&client, &events, || true, || 1, t0 + 1).await,
+                           ClassicCacheRepair::Partial { cleared: 1, waiting: 1 });
+                assert!(cached_ids(&client, QUIET, None).await.is_empty());
+                assert_eq!(cached_ids(&client, MENTIONED, None).await,
+                           vec![IN_MENTIONED.to_owned()]);
+                let mentioned = client.get_room(&room(MENTIONED)).expect("room");
+                assert_eq!(mentioned.unread_notification_counts().highlight_count, 1,
+                           "the unread mention badge was lost");
+                let quiet = client.get_room(&room(QUIET)).expect("room");
+                assert_eq!(quiet.num_unread_messages(), 0,
+                           "the fixture's quiet room must be READ, or it proves nothing");
+                assert!(client.state_store().get_custom_value(CLASSIC_CACHE_REPAIR_KEY)
+                    .await.expect("read").is_none());
+                // The room is read meanwhile (on another device).
+                let _ = client.sync_once(quick()).await;
+                assert_eq!(mentioned.unread_notification_counts().highlight_count, 0);
+            }
+
+            // Start 3: now read, so it is cleared and the repair finishes. A
+            // view that opened during the clear is asked to reload.
+            {
+                let client = restored_client_at(&addr, &store).await;
+                let asked = Arc::new(AtomicUsize::new(0));
+                let probe = Arc::clone(&asked);
+                // Idle when asked before the clear, busy when asked after.
+                let views_idle = move || probe.fetch_add(1, Ordering::SeqCst) == 0;
+                assert_eq!(repair_classic_event_cache_once(&client, &events, views_idle, || 1, t0 + 2).await,
+                           ClassicCacheRepair::Done { cleared: 1, forced: false });
+                assert!(cached_ids(&client, MENTIONED, None).await.is_empty());
+                let state = client.state_store();
+                assert!(state.get_custom_value(CLASSIC_CACHE_REPAIR_KEY).await.expect("read").is_some());
+                assert!(state.get_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY)
+                    .await.expect("read").is_none());
+                assert_eq!(state.get_custom_value(b"msg48.sentinel").await.expect("read"),
+                           Some(b"keep".to_vec()), "the state store lost a value it did not own");
+                assert!(client.get_room(&room(QUIET)).is_some(), "the state store lost a room");
+                assert_eq!(client.encryption().ed25519_key().await.as_deref(),
+                           Some(identity.as_str()), "the crypto store changed");
+                assert!(drain(&events).iter().any(|v| v["type"] == "event_cache_repaired"
+                                                   && v["lifecycle"] == 1),
+                        "the view opened during the clear was not asked to reload");
+            }
+
+            // Start 4: finished, so new history stays.
+            {
+                let client = restored_client_at(&addr, &store).await;
+                client.event_cache().subscribe().expect("subscribe");
+                let _ = client.sync_once(quick()).await;
+                assert!(cached_ids(&client, QUIET, Some(LATER)).await.iter().any(|id| id == LATER));
+                assert_eq!(repair_classic_event_cache_once(&client, &events, || true, || 1, t0 + 3).await,
+                           ClassicCacheRepair::AlreadyDone);
+                assert!(cached_ids(&client, QUIET, None).await.iter().any(|id| id == LATER),
+                        "a finished repair cleared the cache again");
+            }
+        });
+        let _ = std::fs::remove_dir_all(&store);
+        let lines = trace_lines(&events);
+        assert_eq!(lines.iter().filter(|l| l.contains("deferred")).count(), 1, "{lines:?}");
+        assert_eq!(lines.iter().filter(|l| l.contains("wait until")).count(), 1, "{lines:?}");
+        assert_eq!(lines.iter().filter(|l| l.contains("finished")).count(), 1, "{lines:?}");
+    }
+
+    /// The cap: a room whose mention is never read cannot hold the repair open
+    /// for ever. Five starts, or fourteen days, finish it.
+    #[test]
+    fn a_repair_waiting_on_unread_mentions_finishes_at_the_cap() {
+        let at = |starts: u32, first_ms: u64| ClassicRepairProgress {
+            starts,
+            first_ms,
+            done: Default::default(),
+        };
+        let day = 24 * 60 * 60 * 1000u64;
+        assert!(!classic_repair_must_finish(&at(4, 0), day));
+        assert!(classic_repair_must_finish(&at(5, 0), day));
+        assert!(!classic_repair_must_finish(&at(1, 0), 13 * day));
+        assert!(classic_repair_must_finish(&at(1, 0), 14 * day));
+        // A clock that went backwards is not "old".
+        assert!(!classic_repair_must_finish(&at(1, 10 * day), day));
+
+        // (encrypted, messages, notifications, mentions, server highlights)
+        assert!(room_unread_would_be_lost(false, 0, 0, 1, 0), "client mention");
+        assert!(room_unread_would_be_lost(false, 0, 0, 0, 1), "server highlight");
+        assert!(room_unread_would_be_lost(true, 0, 3, 0, 0), "notifying unread, encrypted");
+        // Review round 3 MEDIUM-1: the unread DOT alone (a message in a room
+        // whose rules do not notify) is client-computed and lost on a clear.
+        assert!(room_unread_would_be_lost(false, 2, 0, 0, 0), "unread dot, unencrypted");
+        assert!(room_unread_would_be_lost(true, 2, 0, 0, 0), "unread dot, encrypted");
+        assert!(!room_unread_would_be_lost(false, 0, 0, 0, 0));
+        assert!(!room_unread_would_be_lost(true, 0, 0, 0, 0));
+    }
+
+    /// At the cap the waiting room is cleared too, and the log says why.
+    #[test]
+    fn at_the_cap_the_repair_clears_a_still_mentioned_room_and_says_so() {
+        const MENTIONED: &str = "!mentioned:example.org";
+        let addr = serve_scripted_syncs(vec![serde_json::json!({
+            "next_batch": "s1", "rooms": { "join": { MENTIONED: {
+                "timeline": { "limited": false, "prev_batch": "p0",
+                              "events": [message("$m:example.org")] },
+                "unread_notifications": { "highlight_count": 1, "notification_count": 1 },
+            }}},
+        })]);
+        let store = temp_store("classic-repair-cap");
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            use matrix_sdk::config::SyncSettings;
+            let client = restored_client_at(&addr, &store).await;
+            client.event_cache().subscribe().expect("subscribe");
+            let _ = client.sync_once(SyncSettings::default().timeout(Duration::ZERO)).await;
+            let t0 = 1_760_000_000_000u64;
+            for start in 1..CLASSIC_CACHE_REPAIR_MAX_STARTS {
+                assert_eq!(
+                    repair_classic_event_cache_once(&client, &events, || true, || 1, t0 + start as u64).await,
+                    ClassicCacheRepair::Partial { cleared: 0, waiting: 1 },
+                    "start {start}"
+                );
+            }
+            // The forced start runs with a view open (the cap overrides the
+            // deferral), and the session ends while it clears: the reload
+            // request must not reach the next session.
+            let session = Arc::new(AtomicUsize::new(1));
+            let ending = Arc::clone(&session);
+            let lifecycle = move || ending.fetch_add(1, Ordering::SeqCst) as u64;
+            assert_eq!(
+                repair_classic_event_cache_once(&client, &events, || false, lifecycle, t0 + 99).await,
+                ClassicCacheRepair::Done { cleared: 1, forced: true }
+            );
+            assert!(cached_ids(&client, MENTIONED, None).await.is_empty());
+        });
+        let _ = std::fs::remove_dir_all(&store);
+        assert!(!drain(&events).iter().any(|v| v["type"] == "event_cache_repaired"),
+                "a reload request outlived the session it was for");
+        let lines = trace_lines(&events);
+        assert!(lines.iter().any(|l| l.contains("finished unconditionally")), "{lines:?}");
     }
 
     async fn restored_client(addr: &str) -> matrix_sdk::Client {

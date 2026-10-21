@@ -960,7 +960,17 @@ private Q_SLOTS:
         QVERIFY2(handlerCall > handler && handlerCall - handler < 400,
                  "the one approved reload is no longer inside the ignore-list "
                  "handler");
-        const int approvedCalls = 1;
+        // The second (msg48 repair, 2026-10-20): the classic-sync cache repair
+        // cleared the room's event cache while it was open, so the timeline
+        // shown is the one it emptied.
+        const int repaired = code.indexOf(
+            QStringLiteral("&MatrixClient::eventCacheRepaired"));
+        QVERIFY2(repaired > 0, "the cache-repair handler moved");
+        const int repairedCall = code.indexOf(
+            QStringLiteral("reloadCurrentRoomTimeline();"), repaired);
+        QVERIFY2(repairedCall > repaired && repairedCall - repaired < 300,
+                 "the cache repair's reload is no longer inside its handler");
+        const int approvedCalls = 2;
         // Everything else would be a call, and there must be none in C++.
         QVERIFY2(mentions - decls - approvedCalls == defs,
                  qPrintable(QStringLiteral(

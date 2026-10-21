@@ -7486,6 +7486,24 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    // Not an op result: the classic-sync repair cleared caches under a view
+    // that opened meanwhile (see MatrixClient::eventCacheRepaired). It reopens
+    // views, so only the RUNNING session may act on it: the gate above also
+    // lets a signing-out handle's completions through, and a reload request
+    // from that handle must not reopen anything in the next session (§9).
+    // Rust already drops it when its own `lifecycle` moved during the clear.
+    if (type == QLatin1String("event_cache_repaired")) {
+        if (!m_lifecycle.acceptsActive(eventGeneration)) {
+            qCInfo(lcRust) << "event cache repair reload ignored: stale session"
+                           << "generation=" << eventGeneration
+                           << "active_generation=" << m_lifecycle.activeGeneration();
+            return;
+        }
+        qCInfo(lcRust) << "event cache repaired under an open view; reopening it";
+        Q_EMIT eventCacheRepaired();
+        return;
+    }
+
     // Room-management / user-search / media command results.
     if (handleRoomCommandEvent(type, event))
         return;
