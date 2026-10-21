@@ -24,6 +24,12 @@ Item {
     // Focus came from a click and no key has been pressed since.
     property bool _mouseFocus: false
     onActiveFocusChanged: if (!activeFocus) _mouseFocus = false
+    // For a label beside the switch that toggles it on a click: the same
+    // focus the switch's own tap gives, so the keyboard ring stays hidden.
+    function focusFromPointer() {
+        root._mouseFocus = true
+        root.forceActiveFocus(Qt.MouseFocusReason)
+    }
 
     Accessible.role: Accessible.CheckBox
     Accessible.checkable: true

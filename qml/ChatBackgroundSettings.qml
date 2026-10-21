@@ -135,7 +135,15 @@ ColumnLayout {
             color: AppTheme.stormText
             font.pixelSize: AppTheme.textBody
             text: qsTr("Keep my backgrounds on my homeserver")
-            TapHandler { onTapped: section.toggleSync() }
+            TapHandler {
+                // A click on the label must also move keyboard focus to the
+                // switch it acts on, or Space then hits whichever control had
+                // the focus before (the destructive stop-keeping dialog).
+                onTapped: {
+                    syncSwitch.focusFromPointer()
+                    section.toggleSync()
+                }
+            }
         }
     }
     Hint {
@@ -321,7 +329,12 @@ ColumnLayout {
             color: AppTheme.stormText
             font.pixelSize: AppTheme.textBody
             text: qsTr("Show backgrounds set by others")
-            TapHandler { onTapped: app.backdrops.showShared = !showSharedSwitch.checked }
+            TapHandler {
+                onTapped: {
+                    showSharedSwitch.focusFromPointer()
+                    app.backdrops.showShared = !showSharedSwitch.checked
+                }
+            }
         }
     }
     Hint {

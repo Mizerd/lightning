@@ -20,6 +20,8 @@ Item {
     property bool shown: false
 
     signal entryActivated(int index)
+    // A keyboard-focused entry, so the owner can scroll it into view.
+    signal entryFocused(Item entry)
 
     objectName: "settingsNavOutline"
     visible: shown && entries.length > 0
@@ -79,6 +81,7 @@ Item {
                 Accessible.name: modelData.label
                 Accessible.selected: entryRow.current
                 onClicked: outline.entryActivated(entryRow.index)
+                onActiveFocusChanged: if (activeFocus) outline.entryFocused(entryRow)
 
                 background: Item {
                     Rectangle {

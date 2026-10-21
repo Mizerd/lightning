@@ -183,7 +183,8 @@ private Q_SLOTS:
         QVERIFY(!src.isEmpty());
         const QString block = balancedBlock(src, QStringLiteral("Flickable {"));
         QVERIFY(!block.isEmpty());
-        QVERIFY(block.contains(QStringLiteral("SmoothWheelArea {}")));
+        // Named (C08): a key scroll stops its glide first.
+        QVERIFY(block.contains(QStringLiteral("SmoothWheelArea { id: homeWheel }")));
     }
 
     void invitePeopleDialogBodyUsesSmoothWheelArea()
@@ -239,7 +240,9 @@ private Q_SLOTS:
 
         const QString overview = blockContaining(src, QStringLiteral("Flickable {"), QStringLiteral("id: overviewFlick"));
         QVERIFY(!overview.isEmpty());
-        QVERIFY(overview.contains(QStringLiteral("SmoothWheelArea {}")));
+        // Off while a combo's popup is open, so the wheel reaches the list
+        // and not the page beneath it (C33).
+        QVERIFY(overview.contains(QStringLiteral("SmoothWheelArea { enabled: !overviewFlick.comboOpen }")));
 
         const QString pinned = blockContaining(
             src, QStringLiteral("ListView {"),

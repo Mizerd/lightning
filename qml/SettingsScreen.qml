@@ -39,6 +39,8 @@ Item {
             // would be open again on the next visit.
             if (typeof nameColorPicker !== "undefined" && nameColorPicker)
                 nameColorPicker.open = false
+        } else {
+            Qt.callLater(root.ensurePageFocus)
         }
     }
     onSectionChanged: {
@@ -1115,6 +1117,21 @@ Item {
         property string confirmKind: "primary"
         anchors.centerIn: parent
         modal: true
+        // Initial focus is on Cancel, never on the confirm button: these
+        // dialogs guard destructive actions, and a lone Space or Enter must not
+        // be able to confirm one before the reader has seen which button has
+        // focus. Focus goes back to whatever opened the dialog on close.
+        property Item focusBeforeOpen: null
+        onAboutToShow: {
+            var win = confirmDialog.parent ? confirmDialog.parent.Window.window : null
+            focusBeforeOpen = win ? win.activeFocusItem : null
+        }
+        onOpened: confirmCancelButton.forceActiveFocus(Qt.PopupFocusReason)
+        onClosed: {
+            if (focusBeforeOpen && focusBeforeOpen.visible)
+                focusBeforeOpen.forceActiveFocus(Qt.PopupFocusReason)
+            focusBeforeOpen = null
+        }
         // Explicit width: sizing a Dialog from fixed-width content feeds
         // implicitWidth back into itself.
         width: 340
@@ -1147,11 +1164,14 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: AppTheme.spacing8
                 AppButton {
+                    id: confirmCancelButton
+                    objectName: "confirmDialogCancel"
                     storm: true
                     text: qsTr("Cancel")
                     onClicked: confirmDialog.reject()
                 }
                 AppButton {
+                    objectName: "confirmDialogConfirm"
                     storm: true
                     kind: confirmDialog.confirmKind
                     text: confirmDialog.confirmText
@@ -1243,6 +1263,7 @@ Item {
         entries: root.outlineEntries(sectionKey)
         activeIndex: root.section === sectionKey ? root.outlineActive : -1
         onEntryActivated: (index) => root.revealOutlineEntry(sectionKey, index)
+        onEntryFocused: (entry) => navFlick.ensureVisibleItem(entry)
     }
 
     // Nav row: 32px, radiusTile; the active row fills selectedHover, brightens
@@ -1275,6 +1296,10 @@ Item {
                  || root.matchedSearchResults.length === 0
                  || root.matchedSearchSections[sectionKey] === true
         highlighted: root.section === sectionKey
+        // Reachable by Tab; Enter/Space opens the section. TabFocus, like the
+        // outline entries, so a click does not park focus on the nav.
+        focusPolicy: Qt.TabFocus
+        onActiveFocusChanged: if (activeFocus) navFlick.ensureVisibleItem(navRow)
         Accessible.name: navLabel
         Accessible.selected: navRow.highlighted
         onClicked: root.section = sectionKey
@@ -1330,6 +1355,9 @@ Item {
             color: navRow.highlighted ? AppTheme.settingsNavSelected
                  : navRow.hovered ? Qt.alpha(AppTheme.settingsNavSelected, 0.55)
                  : "transparent"
+            // Tab focus ring, same as the outline entries.
+            border.width: navRow.visualFocus ? 2 : 0
+            border.color: AppTheme.bolt
             Icon {
                 objectName: "settingsNavCaret"
                 visible: navRow.highlighted
@@ -1473,12 +1501,121 @@ Item {
         // a non-empty search query, then an open name-colour picker, and only
         // then Settings itself.
         onActivated: {
+            var focused = root.Window.window ? root.Window.window.activeFocusItem
+                                             : null
             if (settingsSearchField && settingsSearchField.text.length > 0)
                 settingsSearchField.text = ""
             else if (nameColorPicker.open)
                 nameColorPicker.open = false
-            else
+            else if (root.isTextEditor(focused)
+                     && focused !== settingsSearchField
+                     && root.isInsideContent(focused)) {
+                // Escape leaves a field before it leaves Settings: the typed,
+                // uncommitted text is dropped (a percent box shows the stored
+                // value again) and the focus returns to the page.
+                if (typeof focused.revertTyped === "function")
+                    focused.revertTyped()
+                contentFlick.forceActiveFocus()
+            } else
                 root.goBack()
+        }
+    }
+    function isTextEditor(it) {
+        return !!it && it.cursorPosition !== undefined
+               && it.inputMethodHints !== undefined
+    }
+    function isInsideContent(it) {
+        for (var p = it; p; p = p.parent) {
+            if (p === contentFlick.contentItem || p === contentFlick)
+                return true
+        }
+        return false
+    }
+    // Keyboard reach for the content pane. Keys a focused control consumes
+    // (a slider's arrows, a text field's Home/End) never get here; the rest
+    // scroll the page, and Menu / Shift+F10 open the same copy-link menu the
+    // right button does, for the setting that has the focus.
+    function pageScrollBy(dy) {
+        var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
+        settingsWheelArea.stopGlide()
+        contentFlick.contentY = Math.max(0, Math.min(maxY, contentFlick.contentY + dy))
+    }
+    function openLinkMenuForFocus() {
+        var f = root.Window.window ? root.Window.window.activeFocusItem : null
+        if (!f || !root.isInsideContent(f))
+            return false
+        var p = f.mapToItem(contentFlick.contentItem, f.width / 2, f.height / 2)
+        var entry = root.indexEntryAtContentY(p.y)
+        if (!entry)
+            return false
+        root.linkMenuTarget = root.settingsLink(entry.section, entry.anchor)
+        settingLinkMenu.popup(contentFlick, Math.max(0, p.x),
+                              Math.max(0, p.y - contentFlick.contentY))
+        return true
+    }
+    // Settings needs a keyboard entry even when it was opened with the mouse:
+    // when nothing inside the screen has the focus, the page takes it.
+    function ensurePageFocus() {
+        if (!root.visible || !root.Window.window)
+            return
+        var f = root.Window.window.activeFocusItem
+        for (var p = f; p; p = p.parent) {
+            if (p === root)
+                return
+        }
+        contentFlick.forceActiveFocus()
+    }
+    function isInsideNav(it) {
+        for (var p = it; p; p = p.parent) {
+            if (p === navFlick.contentItem || p === navFlick)
+                return true
+        }
+        return false
+    }
+    // Page keys go to the pane that has the focus: the content page, or the
+    // navigation column when a nav row is focused. The search field keeps its
+    // own Home/End (it consumes them before they get here) and gets no paging.
+    Keys.onPressed: (event) => {
+        var focused = root.Window.window ? root.Window.window.activeFocusItem : null
+        var inContent = root.isInsideContent(focused)
+        var inNav = root.isInsideNav(focused)
+        var pageTarget = inNav ? navFlick : contentFlick
+        var pagesHere = inContent || inNav || focused === root
+        var page = Math.max(48, pageTarget.height - 48)
+        var scrollTarget = function (dy) {
+            if (inNav) {
+                var maxY = Math.max(0, navFlick.contentHeight - navFlick.height)
+                navFlick.contentY = Math.max(0, Math.min(maxY, navFlick.contentY + dy))
+            } else {
+                root.pageScrollBy(dy)
+            }
+        }
+        switch (event.key) {
+        case Qt.Key_PageDown:
+            if (pagesHere) { scrollTarget(page); event.accepted = true }
+            break
+        case Qt.Key_PageUp:
+            if (pagesHere) { scrollTarget(-page); event.accepted = true }
+            break
+        case Qt.Key_Home:
+            if (pagesHere) { scrollTarget(-1e9); event.accepted = true }
+            break
+        case Qt.Key_End:
+            if (pagesHere) { scrollTarget(1e9); event.accepted = true }
+            break
+        case Qt.Key_Down:
+            if (inContent) { root.pageScrollBy(48); event.accepted = true }
+            break
+        case Qt.Key_Up:
+            if (inContent) { root.pageScrollBy(-48); event.accepted = true }
+            break
+        case Qt.Key_Menu:
+            event.accepted = root.openLinkMenuForFocus()
+            break
+        case Qt.Key_F10:
+            if (event.modifiers & Qt.ShiftModifier)
+                event.accepted = root.openLinkMenuForFocus()
+            break
         }
     }
     // Focuses the settings search field when Settings is already open.
@@ -1670,9 +1807,41 @@ Item {
                 // content pane.
                 clip: true
 
-                ColumnLayout {
+                // The nav scrolls: a long outline (Appearance has twelve
+                // entries) or a short window would otherwise push Updates and
+                // About off the bottom with no way to reach them. The column
+                // is at least as tall as the viewport, so the spacer still
+                // pins the match counter and About to the bottom when
+                // everything fits.
+                Flickable {
+                    id: navFlick
+                    objectName: "settingsNavFlick"
                     anchors.fill: parent
-                    anchors.margins: AppTheme.spacing12
+                    contentWidth: width
+                    contentHeight: navColumn.height + AppTheme.spacing12 * 2
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+                    // The same wheel feel as every other pane.
+                    SmoothWheelArea {}
+                    // Keep a keyboard-focused row inside the viewport.
+                    function ensureVisibleItem(it) {
+                        var top = it.mapToItem(navFlick.contentItem, 0, 0).y
+                        var bottom = top + it.height
+                        if (top < navFlick.contentY)
+                            navFlick.contentY = Math.max(0, top - AppTheme.spacing12)
+                        else if (bottom > navFlick.contentY + navFlick.height)
+                            navFlick.contentY = Math.min(
+                                Math.max(0, navFlick.contentHeight - navFlick.height),
+                                bottom - navFlick.height + AppTheme.spacing12)
+                    }
+                ColumnLayout {
+                    id: navColumn
+                    x: AppTheme.spacing12
+                    y: AppTheme.spacing12
+                    width: navFlick.width - AppTheme.spacing12 * 2
+                    height: Math.max(implicitHeight,
+                                     navFlick.height - AppTheme.spacing12 * 2)
                     spacing: 2
 
                     // Pane title, sitting tight against the search field it
@@ -2175,6 +2344,7 @@ Item {
                         navLabel: qsTr("About")
                     }
                 }
+                }
             }
             Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.settingsDivider }
 
@@ -2201,9 +2371,24 @@ Item {
                     function onSectionChanged() {
                         settingsWheelArea.stopGlide()
                         contentFlick.contentY = 0
+                        root.ensurePageFocus()
                     }
                 }
 
+                // A click on blank page area gives the page the keyboard
+                // focus, so PageUp/PageDown/Home/End work after it. A
+                // passive handler: controls still take their own press, and
+                // a click that already left focus inside the page keeps it.
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.DragThreshold
+                    onTapped: {
+                        var f = root.Window.window
+                                ? root.Window.window.activeFocusItem : null
+                        if (!root.isInsideContent(f))
+                            contentFlick.forceActiveFocus(Qt.MouseFocusReason)
+                    }
+                }
                 // The "On this page" outline follows the scroll position, and
                 // the page growing or shrinking (a card appearing).
                 onContentYChanged: root.scheduleOutlineRefresh()
@@ -5162,7 +5347,32 @@ Item {
 
                                 CheckBox {
                                     objectName: "strictDeviceTrustCheck"
+                                    Layout.fillWidth: true
                                     palette.windowText: AppTheme.stormText
+                                    contentItem: Label {
+                                        objectName: "strictDeviceTrustLabel"
+                                        leftPadding: parent.indicator.width
+                                                     + parent.spacing
+                                        wrapMode: Text.WordWrap
+                                        verticalAlignment: Text.AlignVCenter
+                                        color: parent.enabled
+                                               ? AppTheme.stormText
+                                               : AppTheme.stormTextMuted
+                                        font: parent.font
+                                        text: parent.text
+                                    }
+                                    Rectangle {
+                                        objectName: "checkFocusRing"
+                                        anchors.fill: parent
+                                        radius: 4
+                                        color: "transparent"
+                                        // The text ink, not the accent: the accent
+                                        // is 2.4:1 on a dark card, and this ring is
+                                        // the only focus cue the checkbox has.
+                                        border.color: AppTheme.stormText
+                                        border.width: 2
+                                        visible: parent.visualFocus
+                                    }
                                     text: qsTr("Only exchange messages with "
                                                + "verified devices")
                                     checked: app.settings.strictDeviceTrust
@@ -5264,6 +5474,18 @@ Item {
                                 CheckBox {
                                     objectName: "sendTypingCheck"
                                     palette.windowText: AppTheme.stormText
+                                    Rectangle {
+                                        objectName: "checkFocusRing"
+                                        anchors.fill: parent
+                                        radius: 4
+                                        color: "transparent"
+                                        // The text ink, not the accent: the accent
+                                        // is 2.4:1 on a dark card, and this ring is
+                                        // the only focus cue the checkbox has.
+                                        border.color: AppTheme.stormText
+                                        border.width: 2
+                                        visible: parent.visualFocus
+                                    }
                                     text: qsTr("Let others see when I am typing")
                                     checked: app.settings.sendTypingNotifications
                                     onToggled:
@@ -5306,6 +5528,18 @@ Item {
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "sharePresenceCheck"
+                                    Rectangle {
+                                        objectName: "checkFocusRing"
+                                        anchors.fill: parent
+                                        radius: 4
+                                        color: "transparent"
+                                        // The text ink, not the accent: the accent
+                                        // is 2.4:1 on a dark card, and this ring is
+                                        // the only focus cue the checkbox has.
+                                        border.color: AppTheme.stormText
+                                        border.width: 2
+                                        visible: parent.visualFocus
+                                    }
                                     text: qsTr("Share my online status")
                                     checked: app.settings.sharePresence
                                     onToggled: app.settings.sharePresence = checked
@@ -5350,12 +5584,87 @@ Item {
                             // The user this card asked about, so failures from
                             // the profile popover do not surface here too.
                             property string unignoreUserId: ""
+                            // A row that was just unignored stays in place as
+                            // a non-interactive line until the pane is left
+                            // (hidden, or another section opened).
+                            // Removing it shifted the next user's "Stop
+                            // ignoring" under a stationary pointer, so the
+                            // second click of a double-click unignored that
+                            // user too (C70-F02). busy() is already false by
+                            // then and the model rebuild is synchronous, so no
+                            // state guard on the button can catch it; keeping
+                            // the geometry still removes the cause.
+                            property var removedIds: []
+                            property var shownIds: []
+                            function syncShown() {
+                                var cur = app.moderation.ignoredUsers
+                                var out = []
+                                for (var i = 0; i < shownIds.length; ++i) {
+                                    var id = shownIds[i]
+                                    if (cur.indexOf(id) >= 0
+                                            || removedIds.indexOf(id) >= 0
+                                            || id === unignoreUserId)
+                                        out.push(id)
+                                }
+                                for (var j = 0; j < cur.length; ++j) {
+                                    if (out.indexOf(cur[j]) < 0)
+                                        out.push(cur[j])
+                                }
+                                // Assign only on a real change: a new array
+                                // resets the Repeater and drops focus.
+                                if (out.join("\n") !== shownIds.join("\n"))
+                                    shownIds = out
+                                // Back in the live list (re-ignored here or
+                                // elsewhere): an ordinary row again.
+                                var kept = removedIds.filter(
+                                    function (id) { return cur.indexOf(id) < 0 })
+                                if (kept.length !== removedIds.length)
+                                    removedIds = kept
+                            }
+                            // After a keyboard unignore the focused button is
+                            // replaced; move focus to a neighbour so the next
+                            // Tab stays in this card (C70-F03).
+                            function focusNeighbour(id) {
+                                var idx = shownIds.indexOf(id)
+                                var order = []
+                                for (var a = idx + 1; a < shownIds.length; ++a)
+                                    order.push(a)
+                                for (var b = idx - 1; b >= 0; --b)
+                                    order.push(b)
+                                for (var k = 0; k < order.length; ++k) {
+                                    var row = ignoredRows.itemAt(order[k])
+                                    if (row && !row.gone && row.stopButton.enabled) {
+                                        row.stopButton.forceActiveFocus(
+                                            Qt.TabFocusReason)
+                                        return
+                                    }
+                                }
+                                ignoredUsersCard.forceActiveFocus(
+                                    Qt.TabFocusReason)
+                            }
+                            property bool restoreFocus: false
+                            // The screen is a warm Loader, so this card is
+                            // never destroyed: forget the retained lines when
+                            // the pane stops being shown, or they would pile
+                            // up for the whole session.
+                            readonly property bool paneShown:
+                                root.visible && root.section === "privacy"
+                            onPaneShownChanged: {
+                                if (!paneShown && removedIds.length > 0) {
+                                    removedIds = []
+                                    syncShown()
+                                }
+                            }
+                            Component.onCompleted: syncShown()
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
                                 Connections {
                                     target: app.moderation
+                                    function onStateChanged() {
+                                        ignoredUsersCard.syncShown()
+                                    }
                                     function onIgnoreActionFinished(
                                         userId, ignored, ok, message) {
                                         if (userId !== ignoredUsersCard.unignoreUserId)
@@ -5363,10 +5672,27 @@ Item {
                                         ignoredUsersCard.unignoreUserId = ""
                                         ignoredUsersCard.unignoreError =
                                             ok ? "" : message
+                                        if (ok && !ignored) {
+                                            ignoredUsersCard.removedIds =
+                                                ignoredUsersCard.removedIds
+                                                    .concat([userId])
+                                            ignoredUsersCard.syncShown()
+                                            if (ignoredUsersCard.restoreFocus) {
+                                                ignoredUsersCard.restoreFocus =
+                                                    false
+                                                Qt.callLater(
+                                                    ignoredUsersCard
+                                                        .focusNeighbour,
+                                                    userId)
+                                            }
+                                        } else {
+                                            ignoredUsersCard.restoreFocus = false
+                                        }
                                     }
                                 }
 
                                 Label {
+                                    objectName: "ignoredEmptyState"
                                     visible: app.moderation.ignoredUsers.length === 0
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
@@ -5381,20 +5707,49 @@ Item {
                                                + "device.")
                                 }
                                 Repeater {
-                                    model: app.moderation.ignoredUsers
+                                    id: ignoredRows
+                                    model: ignoredUsersCard.shownIds
                                     delegate: RowLayout {
+                                        id: ignoredRow
                                         required property string modelData
+                                        readonly property bool gone:
+                                            ignoredUsersCard.removedIds
+                                                .indexOf(modelData) >= 0
+                                        property alias stopButton: stopBtn
                                         Layout.fillWidth: true
+                                        // Same height with or without the
+                                        // button, so nothing below moves.
+                                        Layout.minimumHeight: 26
                                         spacing: AppTheme.spacing8
                                         Label {
                                             Layout.fillWidth: true
                                             text: modelData
-                                            color: AppTheme.stormText
+                                            color: ignoredRow.gone
+                                                   ? AppTheme.stormTextMuted
+                                                   : AppTheme.stormText
                                             font.family: AppTheme.monoFont
                                             font.pixelSize: AppTheme.textBody
                                             elide: Label.ElideRight
+                                            // The full id for a long one on
+                                            // hover; the button's accessible
+                                            // name already carries it.
+                                            HoverHandler { id: idHover }
+                                            ToolTip.text: modelData
+                                            ToolTip.delay: 500
+                                            ToolTip.visible:
+                                                idHover.hovered && truncated
+                                        }
+                                        Label {
+                                            objectName: "ignoredRowGone"
+                                            visible: ignoredRow.gone
+                                            text: qsTr("No longer ignored")
+                                            color: AppTheme.stormTextMuted
+                                            font.pixelSize: AppTheme.textMeta
                                         }
                                         AppButton {
+                                            id: stopBtn
+                                            objectName: "stopIgnoringButton"
+                                            visible: !ignoredRow.gone
                                             storm: true
                                             implicitHeight: 26
                                             leftPadding: 10
@@ -5405,6 +5760,11 @@ Item {
                                                 qsTr("Stop ignoring %1")
                                                     .arg(modelData)
                                             onClicked: {
+                                                // Keyboard only: a mouse click
+                                                // must not draw a focus ring on
+                                                // the next row.
+                                                ignoredUsersCard.restoreFocus =
+                                                    stopBtn.visualFocus
                                                 ignoredUsersCard.unignoreError = ""
                                                 ignoredUsersCard.unignoreUserId =
                                                     modelData

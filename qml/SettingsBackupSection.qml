@@ -16,6 +16,12 @@ ColumnLayout {
 
     readonly property var sync: (typeof app !== "undefined" && app)
                                 ? app.settingsSync : null
+    // True when the previewed file would change something (rows, shortcuts or
+    // new themes); the summary label and the Import button both follow it.
+    readonly property bool previewHasExtras: (backup.preview.shortcutChanges || 0) > 0
+                                             || (backup.preview.themesNew || 0) > 0
+    readonly property bool previewHasChanges:
+        (backup.preview.changes ? backup.preview.changes.length : 0) > 0 || previewHasExtras
     readonly property bool syncAvailable: !!sync && sync.supported
     property var preview: ({})
     property string notice: ""
@@ -141,8 +147,11 @@ ColumnLayout {
                     font.pixelSize: AppTheme.textBody
                     text: qsTr("Sync settings across your devices")
                     TapHandler {
-                        onTapped: if (syncSwitch.enabled)
-                                      backup.sync.setSyncEnabled(!backup.sync.enabled)
+                        onTapped: if (syncSwitch.enabled) {
+                            // Like a native label: the switch takes focus.
+                            syncSwitch.focusFromPointer()
+                            backup.sync.setSyncEnabled(!backup.sync.enabled)
+                        }
                     }
                 }
             }
@@ -365,14 +374,15 @@ ColumnLayout {
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.textMeta
                     text: qsTr("%1: %2 → %3").arg(modelData.label)
-                          .arg(backup.valueText(modelData.from))
-                          .arg(backup.valueText(modelData.to))
+                          .arg(modelData.fromText ? modelData.fromText
+                                                  : backup.valueText(modelData.from))
+                          .arg(modelData.toText ? modelData.toText
+                                                : backup.valueText(modelData.to))
                 }
             }
             Label {
                 Layout.fillWidth: true
-                visible: (backup.preview.shortcutChanges || 0) > 0
-                         || (backup.preview.themesNew || 0) > 0
+                visible: backup.previewHasExtras
                 wrapMode: Text.WordWrap
                 textFormat: Text.PlainText
                 color: AppTheme.stormText
@@ -426,6 +436,8 @@ ColumnLayout {
                     storm: true
                     kind: "primary"
                     objectName: "importApplyButton"
+                    // Nothing to apply: the summary says so, so no button.
+                    enabled: backup.previewHasChanges
                     text: qsTr("Import")
                     onClicked: {
                         importPreview.importApplying = true

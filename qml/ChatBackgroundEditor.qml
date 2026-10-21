@@ -254,6 +254,40 @@ ColumnLayout {
         stepSize: 0.05
         snapMode: Slider.SnapAlways
         Layout.fillWidth: true
+        // Qt maps only the arrows of the slider's own orientation. The slider
+        // pattern (ARIA, every desktop toolkit) also takes Up/Down, Home/End
+        // and PageUp/PageDown. increase()/decrease() are C++ setters, so the
+        // `value:` binding each slider carries survives (assigning `value`
+        // here would destroy it); they do not emit moved(), so we do, once.
+        function nudge(steps) {
+            const n = Math.abs(steps)
+            const before = tone.value
+            for (let i = 0; i < n; ++i) {
+                if (steps > 0)
+                    tone.increase()
+                else
+                    tone.decrease()
+            }
+            // At a limit nothing changed: a no-op key must not mark the
+            // editor dirty (Qt's own Left/Right path emits only on change).
+            if (tone.value !== before)
+                tone.moved()
+        }
+        Keys.onPressed: function (event) {
+            const span = Math.round((tone.to - tone.from) / tone.stepSize)
+            let steps = 0
+            switch (event.key) {
+            case Qt.Key_Up:       steps = 1; break
+            case Qt.Key_Down:     steps = -1; break
+            case Qt.Key_PageUp:   steps = 5; break
+            case Qt.Key_PageDown: steps = -5; break
+            case Qt.Key_Home:     steps = -span; break
+            case Qt.Key_End:      steps = span; break
+            default: return
+            }
+            event.accepted = true
+            tone.nudge(steps)
+        }
         background: Rectangle {
             x: tone.leftPadding
             y: tone.topPadding + tone.availableHeight / 2 - 2

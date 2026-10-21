@@ -204,9 +204,18 @@ private Q_SLOTS:
         FontManager fonts(&settings);
         const QStringList installed = QFontDatabase::families();
         QVERIFY(!installed.isEmpty());
-        const QString real = installed.first();
-        if (SettingsManager::acceptableFontFamily(real).isEmpty())
-            QSKIP("this host's first family is not a storable name");
+        // The first family the interface may use: a bitmap face installed
+        // first on this host is installed yet deliberately not offered.
+        QString real;
+        for (const QString &f : installed) {
+            if (FontManager::isUsableUiFace(f)
+                && !SettingsManager::acceptableFontFamily(f).isEmpty()) {
+                real = f;
+                break;
+            }
+        }
+        if (real.isEmpty())
+            QSKIP("this host has no usable storable family");
         settings.setUiFont(real);
         QVERIFY(fonts.uiFamilyAvailable());
         QCOMPARE(fonts.uiFamily(), real);
@@ -322,6 +331,35 @@ private Q_SLOTS:
         QVERIFY(!mono.isEmpty());
         for (const QString &f : mono)
             QVERIFY(!f.startsWith(QLatin1Char('.')));
+    }
+
+    // The interface list offers only outline, upright faces: a bitmap PCF
+    // (cursor.pcf) made the whole UI giant and overlapping when picked.
+    void theUiListOffersNoBitmapOrRotatedFace()
+    {
+        QVERIFY(!FontManager::isUsableUiFace(QStringLiteral("Noto Fangsong KSS Rotated")));
+        QVERIFY(!FontManager::isUsableUiFace(QString()));
+        QVERIFY(!FontManager::isUsableUiFace(QStringLiteral("Noto Color Emoji")));
+        SettingsManager settings;
+        FontManager fonts(&settings);
+        for (const QString &f : fonts.uiFamilies()) {
+            if (f == QLatin1String("Manrope"))
+                continue; // the bundled default is always listed
+            QVERIFY2(QFontDatabase::isSmoothlyScalable(f), qPrintable(f));
+            QVERIFY2(!f.contains(QLatin1String("Rotated"), Qt::CaseInsensitive), qPrintable(f));
+        }
+        // A bitmap face stored by an earlier build falls back to the bundled
+        // face and reports "unusable", never "missing".
+        for (const QString &f : QFontDatabase::families()) {
+            if (QFontDatabase::isSmoothlyScalable(f) || f.startsWith(QLatin1Char('.'))
+                || SettingsManager::acceptableFontFamily(f).isEmpty())
+                continue;
+            settings.setUiFont(f);
+            QVERIFY2(!fonts.uiFamilyAvailable(), qPrintable(f));
+            QCOMPARE(fonts.uiFamilyUnavailableReason(), QStringLiteral("unusable"));
+            QCOMPARE(fonts.uiFamily(), QStringLiteral("Manrope"));
+            break;
+        }
     }
 
     // ---- import ----

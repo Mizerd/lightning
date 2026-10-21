@@ -141,7 +141,11 @@ ColumnLayout {
             id: strengthRow
             objectName: "passwordStrengthRow"
             Layout.fillWidth: true
-            visible: newField.text.length > 0
+            // Always laid out, only faded: appearing on the first keystroke
+            // pushed Confirm and the button down 40px under the pointer
+            // (C84-F10).
+            opacity: newField.text.length > 0 ? 1 : 0
+            Accessible.ignored: newField.text.length === 0
             spacing: AppTheme.spacing8
             readonly property int level: root.strength(newField.text)
             readonly property color ink: level <= 2 ? AppTheme.stormDanger
@@ -211,6 +215,46 @@ ColumnLayout {
             palette.windowText: AppTheme.stormText
             enabled: !root.busy
             text: qsTr("Sign out of all other devices")
+            // The stock indicator draws a hairline at ~1.5-1.8:1 and its
+            // keyboard focus ring is no better (C84-F01). The border is the
+            // muted storm ink (>= 3:1 on the card on every theme, gated by
+            // the QML test) and keyboard focus adds a SEPARATE halo in the primary ink
+            // outside the box, so a focused-and-checked box (accent fill,
+            // accent border) still shows it. A mouse press never sets
+            // visualFocus, so the halo means "keyboard here" and nothing else.
+            indicator: Rectangle {
+                objectName: "signOutOtherDevicesIndicator"
+                x: signOutOthers.leftPadding
+                y: signOutOthers.topPadding
+                   + (signOutOthers.availableHeight - height) / 2
+                implicitWidth: 18
+                implicitHeight: 18
+                radius: 3
+                color: signOutOthers.checked ? AppTheme.bolt : "transparent"
+                border.width: 1.5
+                border.color: signOutOthers.checked ? AppTheme.bolt
+                              : AppTheme.stormTextMuted
+                Rectangle {
+                    objectName: "signOutOtherDevicesFocusRing"
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    radius: 6
+                    color: "transparent"
+                    border.width: 2
+                    // The primary ink, not the accent: the accent is 2.2-2.5:1
+                    // on the card in four dark themes.
+                    border.color: AppTheme.stormText
+                    visible: signOutOthers.visualFocus
+                }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 8
+                    height: 8
+                    radius: 1
+                    visible: signOutOthers.checked
+                    color: AppTheme.stormCanvas
+                }
+            }
         }
         // Element's warning for the same choice.
         Label {

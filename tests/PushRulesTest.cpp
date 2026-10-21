@@ -924,6 +924,22 @@ Item {
         auto *err = find("pushRulesError");
         QVERIFY(err != nullptr);
         QVERIFY(err->property("visible").toBool());
+        // C69-F09/F13: the refusal is also said beside the field (the shared
+        // error line is off screen at the top of the card), and clears on edit.
+        auto *note = find("pushKeywordNote");
+        QVERIFY2(note != nullptr, "no inline keyword note");
+        QVERIFY(note->property("visible").toBool());
+        QVERIFY(!note->property("text").toString().isEmpty());
+        field->setProperty("text", QStringLiteral("x"));
+        QVERIFY(!note->property("visible").toBool());
+        field->setProperty("text", QString());
+        // C69-F08: the default-alert combo is wide enough for its longest option.
+        QVERIFY(find("pushDmDefaultCombo")->property("width").toDouble() >= 220);
+        QVERIFY(find("pushRoomsDefaultCombo")->property("width").toDouble() >= 220);
+        // Only those two need it: mention and event rows keep the narrow
+        // default so their labels are not squeezed (review r1 item 1).
+        QVERIFY(find("pushMentionRoomCombo")->property("width").toDouble() < 220);
+        QVERIFY(find("pushEventInvitesCombo")->property("width").toDouble() < 220);
 
         // Removing a keyword asks first: the button opens a confirmation and
         // writes nothing; Cancel keeps the keyword; Remove sends the rule
@@ -955,6 +971,21 @@ Item {
                                      kWaitMs);
             QCOMPARE(confirm->property("keyword").toString(),
                      QStringLiteral("lightning"));
+            // C69-F11: focus starts on Cancel, never on the destructive button.
+            auto *cancel = find("pushKeywordRemoveCancel");
+            QVERIFY(cancel != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(cancel->property("activeFocus").toBool(),
+                                     kWaitMs);
+            QVERIFY(!find("pushKeywordRemoveConfirmButton")
+                         ->property("activeFocus").toBool());
+            // C69-F10: a keyword with no spaces wraps inside the dialog.
+            confirm->setProperty("keyword", QString(300, QLatin1Char('x')));
+            auto *body = find("pushKeywordRemoveBody");
+            QVERIFY(body != nullptr);
+            QTRY_VERIFY_WITH_TIMEOUT(
+                body->property("contentWidth").toDouble()
+                    <= body->property("width").toDouble() + 1, kWaitMs);
+            confirm->setProperty("keyword", QStringLiteral("lightning"));
             QCOMPARE(static_cast<int>(client.writes.size()), writesBefore);
             QCOMPARE(ctl.keywords().size(), 1);
 

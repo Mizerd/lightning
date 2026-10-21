@@ -64,11 +64,15 @@ QString cleanField(const QString &text, int maxChars)
     }
     clean = clean.simplified();
     if (clean.size() > maxChars) {
-        clean.truncate(maxChars);
+        // The ellipsis is inside the budget, so the bound still holds and a
+        // cut title reads as cut rather than as a dangling "On A by Artist".
+        clean.truncate(maxChars > 1 ? maxChars - 1 : maxChars);
         // Never leave half of a surrogate pair at the cut.
         if (!clean.isEmpty() && clean.back().isHighSurrogate())
             clean.chop(1);
         clean = clean.trimmed();
+        if (maxChars > 1)
+            clean.append(QChar(0x2026));
     }
     return clean;
 }

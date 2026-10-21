@@ -128,6 +128,21 @@ bool FontManager::isNonTextFace(const QString &family)
     return false;
 }
 
+// A family the interface may be set in: outline (a bitmap strike such as
+// cursor.pcf cannot be sized, so the whole UI ballooned and overlapped) and not
+// a rotated/vertical-only cut whose glyphs lie on
+// their side.
+bool FontManager::isUsableUiFace(const QString &family)
+{
+    if (family.isEmpty() || family.startsWith(QLatin1Char('.')) || isNonTextFace(family))
+        return false;
+    if (!QFontDatabase::isSmoothlyScalable(family))
+        return false;
+    if (family.contains(QLatin1String("Rotated"), Qt::CaseInsensitive))
+        return false;
+    return true;
+}
+
 bool FontManager::facesLatinText(const QString &family)
 {
     QFont probe(family);
@@ -175,7 +190,7 @@ void FontManager::refreshFamilyCache()
         // Skip private/aliased faces and non-text faces.
         if (family.startsWith(QLatin1Char('.')))
             continue;
-        if (!isNonTextFace(family) && !seen.contains(family.toLower())) {
+        if (!seen.contains(family.toLower()) && isUsableUiFace(family)) {
             seen.insert(family.toLower());
             m_uiFamilies.append(family);
         }

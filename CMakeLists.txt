@@ -4500,6 +4500,15 @@ if(BUILD_TESTING)
     set_tests_properties(qml-component-load PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # C71: source contract for the About / log-export / Updates fixes.
+    qt_add_executable(about-log-ui-contract-test
+        tests/AboutLogUiContractTest.cpp
+    )
+    target_link_libraries(about-log-ui-contract-test PRIVATE Qt6::Test)
+    target_compile_definitions(about-log-ui-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME about-log-ui-contract COMMAND about-log-ui-contract-test)
+
     # The AppLocale QML singleton through the shipped MatrixClient module.
     qt_add_executable(app-locale-qml-test
         tests/AppLocaleQmlTest.cpp
@@ -5747,6 +5756,31 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
+    # Labs activity polish (C72): the ellipsis on a cut song title.
+    qt_add_executable(activity-settings-polish-test
+        tests/ActivitySettingsPolishTest.cpp
+        src/presence/MusicDetection.h
+        src/presence/MusicDetection.cpp
+    )
+    target_include_directories(activity-settings-polish-test PRIVATE src)
+    target_link_libraries(activity-settings-polish-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME activity-settings-polish COMMAND activity-settings-polish-test)
+    set_tests_properties(activity-settings-polish PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Labs activity settings loaded for real: Escape on a draft, the Remove
+    # double click, focus hand-off, and the checkbox focus ring on every
+    # palette. Run from the source directory (one case reads a QML file).
+    qt_add_executable(activity-settings-qml-test
+        tests/ActivitySettingsQmlTest.cpp
+    )
+    lightning_configure_qml_test(activity-settings-qml-test)
+    target_include_directories(activity-settings-qml-test PRIVATE src)
+    add_test(NAME activity-settings-qml COMMAND activity-settings-qml-test)
+    set_tests_properties(activity-settings-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
     # "Listening to" (Labs): the Spotify rules (MPRIS metadata, Windows window
     # captions, ads, wording), the debounce/grace/priority policy through the
     # real PresenceManager against a fake source, and, with QtDBus, the real
@@ -5978,6 +6012,18 @@ if(BUILD_TESTING)
     set_tests_properties(design-acceptance PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 
+    # Settings shell keyboard reach: scrolling nav, Tab focus, confirm dialog
+    # default button, Escape in a field, page keys, Menu key.
+    qt_add_executable(settings-shell-keyboard-qml-test
+        tests/SettingsShellKeyboardQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(settings-shell-keyboard-qml-test)
+    target_link_libraries(settings-shell-keyboard-qml-test PRIVATE Qt6::Test)
+    add_test(NAME settings-shell-keyboard-qml COMMAND settings-shell-keyboard-qml-test)
+    set_tests_properties(settings-shell-keyboard-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # In-shell Settings: rail and room list stay, the timeline region swaps,
     # theme cards, instant theme switching, layout/text-size controls, close
     # restores chat.
@@ -6035,6 +6081,20 @@ if(BUILD_TESTING)
     target_link_libraries(account-removal-retry-test PRIVATE Qt6::Test)
     add_test(NAME account-removal-retry COMMAND account-removal-retry-test)
     set_tests_properties(account-removal-retry PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Chat background dialog/editor/settings: Tab scrolls the focused control
+    # into view, middle-click autoscroll, full slider key set, a label click
+    # focuses its switch.
+    qt_add_executable(chat-background-keyboard-qml-test
+        tests/ChatBackgroundKeyboardQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(chat-background-keyboard-qml-test)
+    target_link_libraries(chat-background-keyboard-qml-test PRIVATE Qt6::Test)
+    add_test(NAME chat-background-keyboard-qml
+        COMMAND chat-background-keyboard-qml-test)
+    set_tests_properties(chat-background-keyboard-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Main composer: one card, toolbar over input, control order and geometry,

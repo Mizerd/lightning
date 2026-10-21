@@ -16,6 +16,7 @@
 #include <QMetaProperty>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 
 using namespace settingsport;
 
@@ -54,6 +55,60 @@ QString importErrorText(const QString &code)
     if (code == QLatin1String("not_json"))
         return QObject::tr("That file is not a settings file (it is not valid JSON).");
     return QObject::tr("That file is not a Lightning settings file.");
+}
+
+// Human names for the integer-coded choices the import preview lists, so a
+// row reads "Indigo Night -> Moss Light" and not "9 -> 8". Empty means "no
+// name known": the caller shows the raw value.
+QString enumText(const QString &name, const QVariant &v)
+{
+    if (!v.isValid() || v.typeId() == QMetaType::Bool)
+        return {};
+    bool ok = false;
+    const int i = v.toInt(&ok);
+    if (!ok)
+        return {};
+    if (name == QLatin1String("theme")) {
+        switch (i) {
+        case 0: return QObject::tr("Follow the system");
+        case 1: return QObject::tr("Lightning Light");
+        case 2: return QObject::tr("Lightning Dark");
+        case 3: return QObject::tr("Graphite");
+        case 4: return QObject::tr("Midnight");
+        case 5: return QObject::tr("Nordic");
+        case 6: return QObject::tr("Purple Dusk");
+        case 7: return QObject::tr("Warm");
+        case 8: return QObject::tr("Moss Light");
+        case 9: return QObject::tr("Indigo Night");
+        case 10: return QObject::tr("Deep Teal");
+        case 11: return QObject::tr("Storm");
+        case 12: return QObject::tr("Custom theme");
+        }
+    } else if (name == QLatin1String("messageLayout")) {
+        switch (i) {
+        case 0: return QObject::tr("Modern");
+        case 1: return QObject::tr("Bubbles");
+        case 2: return QObject::tr("Compact");
+        }
+    } else if (name == QLatin1String("roomNavigationLayout")) {
+        switch (i) {
+        case 0: return QObject::tr("Classic");
+        case 1: return QObject::tr("Channels");
+        }
+    } else if (name == QLatin1String("clockFormat")) {
+        switch (i) {
+        case 0: return QObject::tr("Follow the system");
+        case 1: return QObject::tr("12-hour");
+        case 2: return QObject::tr("24-hour");
+        }
+    } else if (name == QLatin1String("messageSpacing")) {
+        switch (i) {
+        case 0: return QObject::tr("Compact");
+        case 1: return QObject::tr("Cozy");
+        case 2: return QObject::tr("Roomy");
+        }
+    }
+    return {};
 }
 
 } // namespace
@@ -684,6 +739,8 @@ QVariantMap SettingsSyncController::previewImport(const QUrl &file)
         row.insert(QStringLiteral("group"), c.group);
         row.insert(QStringLiteral("from"), c.from);
         row.insert(QStringLiteral("to"), c.to);
+        row.insert(QStringLiteral("fromText"), enumText(c.name, c.from));
+        row.insert(QStringLiteral("toText"), enumText(c.name, c.to));
         changes.append(row);
     }
     QVariantList rejected;
@@ -695,8 +752,13 @@ QVariantMap SettingsSyncController::previewImport(const QUrl &file)
     }
     int shortcutChanges = 0;
     if (m_shortcuts) {
+        // An action this version does not have cannot change anything, so it
+        // is not counted (applying it is skipped the same way).
+        QSet<QString> known;
+        for (int row = 0; row < m_shortcuts->rowCount(); ++row)
+            known.insert(m_shortcuts->data(m_shortcuts->index(row), ShortcutRegistry::IdRole).toString());
         for (auto it = parsed.doc.shortcuts.constBegin(); it != parsed.doc.shortcuts.constEnd(); ++it) {
-            if (m_shortcuts->sequenceFor(it.key()) != it.value())
+            if (known.contains(it.key()) && m_shortcuts->sequenceFor(it.key()) != it.value())
                 ++shortcutChanges;
         }
     }

@@ -64,6 +64,12 @@ AppTextField {
     text: shownText
     onShownTextChanged: if (!activeFocus || !userEdited) text = shownText
 
+    // Drop what was typed without committing it (Escape).
+    function revertTyped() {
+        userEdited = false
+        text = shownText
+    }
+
     function commitTyped() {
         if (!slider)
             return

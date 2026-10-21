@@ -145,7 +145,9 @@ private Q_SLOTS:
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
         const int at = src.indexOf(QStringLiteral("settingsSearchField.text.length > 0"));
         QVERIFY(at > 0);
-        const QString block = src.mid(at, 400);
+        // Long enough to cover the focused-field layer that sits between
+        // the picker and leaving (C33).
+        const QString block = src.mid(at, 1000);
         QVERIFY(block.contains(QStringLiteral("nameColorPicker.open = false")));
         QVERIFY(block.contains(QStringLiteral("root.goBack()")));
         QVERIFY(block.indexOf(QStringLiteral("nameColorPicker")) < block.indexOf(QStringLiteral("root.goBack()")));

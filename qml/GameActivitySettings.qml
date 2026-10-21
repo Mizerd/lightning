@@ -28,6 +28,14 @@ ColumnLayout {
         property string removeLabel: qsTr("Remove")
         signal changed(var next)
         spacing: AppTheme.spacing4
+        // A removal reflows the list under a stationary pointer, so the
+        // second click of a double click lands on the NEXT row's Remove.
+        // Only a POINTER removal arms the guard, and only for the platform's
+        // own double-click interval: two keyboard removals in a row, or two
+        // deliberate clicks a beat apart, are never swallowed.
+        property double lastPointerRemoveMs: 0
+        // An unsent draft must not outlive the page it was typed on.
+        onVisibleChanged: if (!visible) entryField.text = ""
 
         Repeater {
             model: editor.items
@@ -50,7 +58,24 @@ ColumnLayout {
                     size: "sm"
                     text: editor.removeLabel
                     Accessible.name: qsTr("%1: %2").arg(editor.removeLabel).arg(modelData)
+                    objectName: "listRemoveButton"
                     onClicked: {
+                        // visualFocus is true only for focus that arrived
+                        // from the keyboard; a mouse click gives activeFocus
+                        // alone.
+                        const keyboard = visualFocus
+                        const now = Date.now()
+                        if (!keyboard) {
+                            if (now - editor.lastPointerRemoveMs
+                                    < Qt.styleHints.mouseDoubleClickInterval)
+                                return
+                            editor.lastPointerRemoveMs = now
+                        }
+                        // The focused delegate is destroyed by the change, and
+                        // so is the context this handler runs in: hand focus
+                        // to the field FIRST, so Tab continues from here.
+                        if (keyboard)
+                            entryField.forceActiveFocus()
                         var next = editor.items.slice()
                         next.splice(next.indexOf(modelData), 1)
                         editor.changed(next)
@@ -63,11 +88,29 @@ ColumnLayout {
             spacing: AppTheme.spacing8
             AppTextField {
                 id: entryField
+                objectName: "listEntryField"
                 Layout.fillWidth: true
                 storm: true
                 placeholderText: editor.placeholder
                 Accessible.name: editor.placeholder
                 onAccepted: addButton.clicked()
+                // Escape cancels a draft instead of closing Settings over it.
+                // SettingsScreen owns an unconditional Escape Shortcut, and a
+                // Shortcut is dispatched BEFORE the focused item sees the
+                // key: without claiming the override, the handler below is
+                // never reached and Settings closes over the draft.
+                Keys.onShortcutOverride: (event) => {
+                    if (event.key === Qt.Key_Escape && text.length > 0)
+                        event.accepted = true
+                }
+                Keys.onEscapePressed: (event) => {
+                    if (text.length > 0) {
+                        text = ""
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
+                }
             }
             AppButton {
                 id: addButton
@@ -93,6 +136,17 @@ ColumnLayout {
         text: qsTr("Show the game I'm playing")
         checked: root.featureOn
         onToggled: app.settings.gameActivityEnabled = checked
+        // Keyboard focus ring: the stock CheckBox draws none that is visible.
+        Rectangle {
+            objectName: "activityCheckFocusRing"
+            anchors.fill: parent
+            anchors.margins: -2
+            radius: AppTheme.radiusSm
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.storm ? AppTheme.bolt : AppTheme.focusRing
+            visible: parent.visualFocus
+        }
     }
     Label {
         Layout.fillWidth: true

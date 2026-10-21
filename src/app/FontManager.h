@@ -135,6 +135,8 @@ public:
     // non-Latin locales may carry no Latin at all.
     static bool facesLatinText(const QString &family);
     static bool isNonTextFace(const QString &family);
+    /// Outline and upright (Latin is NOT required, locales differ): what the interface font list may offer.
+    static bool isUsableUiFace(const QString &family);
     // Necessary, never sufficient: looksLikeSfnt() decides.
     static bool hasFontExtension(const QString &fileName);
 

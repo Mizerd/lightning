@@ -57,7 +57,28 @@ ColumnLayout {
         if (root.exporter)
             root.exporter.prepare()
     }
-    onVisibleChanged: if (visible) refresh()
+    onVisibleChanged: {
+        if (visible) {
+            // A status from a previous visit ("Deleted 1 log file.") is not
+            // news now.
+            root.statusText = ""
+            refresh()
+        }
+    }
+    // The page can stay open while the log fills, so the numbers and the
+    // Copy button follow it rather than freezing at the last prepare().
+    // prepare() re-reads, sanitises and compresses the whole log, so poll
+    // slowly and never stack a run on one still in flight.
+    Timer {
+        objectName: "logExportRefreshTimer"
+        interval: 30000
+        repeat: true
+        running: root.visible && root.keepLog && !!root.exporter
+        onTriggered: {
+            if (!(root.exporter.preview && root.exporter.preview.preparing))
+                root.refresh()
+        }
+    }
     Component.onCompleted: if (visible) refresh()
 
     SettingsGroupLabel {
@@ -182,10 +203,7 @@ ColumnLayout {
                 storm: true
                 visible: root.preview.available === true
                 text: qsTr("Delete saved logs")
-                onClicked: {
-                    var n = root.exporter.deleteSavedLogs()
-                    root.statusText = qsTr("Deleted %n log file(s).", "", n)
-                }
+                onClicked: logDeleteConfirm.open()
             }
             Label {
                 objectName: "logExportStatus"
@@ -197,6 +215,76 @@ ColumnLayout {
                 text: root.statusText
                 textFormat: Text.PlainText
             }
+        }
+    }
+
+    // Deleting the only diagnostic log is not undoable, so ask first.
+    Dialog {
+        id: logDeleteConfirm
+        objectName: "logExportDeleteConfirm"
+        title: qsTr("Delete saved logs?")
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: 360
+        padding: AppTheme.spacing20
+        closePolicy: Popup.CloseOnEscape
+        onAccepted: {
+            var n = root.exporter.deleteSavedLogs()
+            root.statusText = qsTr("Deleted %n log file(s).", "", n)
+        }
+        onOpened: logDeleteCancel.forceActiveFocus(Qt.TabFocusReason)
+        background: Rectangle {
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorderStrong
+            border.width: 1
+            radius: AppTheme.radiusLg
+        }
+        header: Label {
+            text: logDeleteConfirm.title
+            color: AppTheme.stormText
+            font.family: AppTheme.menuFont
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
+            elide: Label.ElideRight
+            leftPadding: AppTheme.spacing20
+            rightPadding: AppTheme.spacing20
+            topPadding: AppTheme.spacing16
+            bottomPadding: AppTheme.spacing8
+        }
+        footer: Item {
+            implicitHeight: deleteFooter.implicitHeight + AppTheme.spacing20 * 2
+            RowLayout {
+                id: deleteFooter
+                anchors.right: parent.right
+                anchors.rightMargin: AppTheme.spacing20
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: AppTheme.spacing8
+                AppButton {
+                    id: logDeleteCancel
+                    objectName: "logExportDeleteCancel"
+                    storm: true
+                    text: qsTr("Cancel")
+                    onClicked: logDeleteConfirm.reject()
+                }
+                AppButton {
+                    objectName: "logExportDeleteConfirmButton"
+                    storm: true
+                    kind: "dangerPrimary"
+                    text: qsTr("Delete")
+                    onClicked: logDeleteConfirm.accept()
+                }
+            }
+        }
+        Label {
+            width: 300
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextSecondary
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
+            text: qsTr("This removes every diagnostic log Lightning has kept on "
+                       + "this computer. It cannot be undone.")
         }
     }
 

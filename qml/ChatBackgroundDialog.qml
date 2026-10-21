@@ -48,10 +48,42 @@ AppDialog {
            // The room's name is remote text; AppDialog's title is plain text.
            : qsTr("Chat background for %1").arg(root.roomName)
 
-    contentItem: Flickable {
+    contentItem: Item {
+      id: scrollHost
+      implicitWidth: 0
+      implicitHeight: flick.implicitHeight
+      Flickable {
         id: flick
         objectName: "chatBackgroundDialogScroll"
+        anchors.fill: parent
         clip: true
+        // The Flickable does not follow keyboard focus by itself: Tab onto a
+        // control below the fold left the focus ring out of sight and Space
+        // toggled a switch nobody could see.
+        function ensureVisible(item) {
+            if (!item || !column)
+                return
+            let p = item
+            while (p && p !== column)
+                p = p.parent
+            if (!p)
+                return
+            const top = item.mapToItem(flick.contentItem, 0, 0).y
+            const bottom = top + item.height
+            const margin = AppTheme.spacing8
+            if (top - margin < flick.contentY)
+                flick.contentY = Math.max(0, top - margin)
+            else if (bottom + margin > flick.contentY + flick.height)
+                flick.contentY = Math.min(
+                    Math.max(0, flick.contentHeight - flick.height),
+                    bottom + margin - flick.height)
+        }
+        Connections {
+            target: flick.Window.window
+            function onActiveFocusItemChanged() {
+                flick.ensureVisible(flick.Window.window.activeFocusItem)
+            }
+        }
         contentWidth: width
         contentHeight: column.implicitHeight
         // Scrolls rather than growing past the window.
@@ -130,5 +162,13 @@ AppDialog {
                 }
             }
         }
+      }
+      // Middle-click autoscroll, a sibling of the view like the timeline's.
+      MiddleClickScroller {
+          objectName: "chatBackgroundDialogMiddleClickScroller"
+          anchors.fill: parent
+          z: 1
+          view: flick
+      }
     }
 }

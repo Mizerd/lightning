@@ -84,6 +84,9 @@ ColumnLayout {
         property var options: [qsTr("Off"), qsTr("Notify"), qsTr("Loud")]
         property int level: 0
         property string pickerName
+        // Default 180; rows whose options include 'Mentions and keywords'
+        // raise it, keyword rows lower it to give the room to the keyword text.
+        property int comboWidth: 180
         signal picked(int index)
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
@@ -97,7 +100,7 @@ ColumnLayout {
         AppComboBox {
             storm: true
             objectName: levelRow.pickerName
-            Layout.preferredWidth: 180
+            Layout.preferredWidth: levelRow.comboWidth
             enabled: !root.rules.masterMute
             model: levelRow.options
             Accessible.name: levelRow.title
@@ -193,6 +196,7 @@ ColumnLayout {
             LevelRow {
                 title: qsTr("Direct messages")
                 pickerName: "pushDmDefaultCombo"
+                comboWidth: 230
                 options: [qsTr("All messages"), qsTr("Mentions and keywords")]
                 level: root.rules.dmAll ? 0 : 1
                 onPicked: (i) => root.rules.setDefaultAll(true, i === 0)
@@ -200,6 +204,7 @@ ColumnLayout {
             LevelRow {
                 title: qsTr("Rooms")
                 pickerName: "pushRoomsDefaultCombo"
+                comboWidth: 230
                 options: [qsTr("All messages"), qsTr("Mentions and keywords")]
                 level: root.rules.roomsAll ? 0 : 1
                 onPicked: (i) => root.rules.setDefaultAll(false, i === 0)
@@ -297,6 +302,7 @@ ColumnLayout {
                     maximumLength: 120
                     Accessible.name: qsTr("New keyword")
                     onAccepted: addButton.add()
+                    onTextChanged: keywordNote.text = ""
                 }
                 AppComboBox {
                     id: keywordLevel
@@ -319,9 +325,24 @@ ColumnLayout {
                         if (root.rules.addKeyword(keywordField.text,
                                                   keywordLevel.currentIndex))
                             keywordField.clear()
+                        else
+                            // The shared error line is at the top of the card,
+                            // off screen from here: say it beside the field.
+                            keywordNote.text = root.rules.errorText
                     }
                     onClicked: add()
                 }
+            }
+            Label {
+                id: keywordNote
+                objectName: "pushKeywordNote"
+                visible: text.length > 0
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: text
             }
             Hint {
                 visible: root.rules.keywords.length === 0
@@ -334,6 +355,7 @@ ColumnLayout {
                     required property var modelData
                     title: modelData.keyword
                     pickerName: "pushKeywordRow"
+                    comboWidth: 110
                     level: modelData.level
                     onPicked: (i) =>
                         root.rules.setKeywordLevel(modelData.keyword, i)
@@ -532,6 +554,8 @@ ColumnLayout {
         width: 360
         padding: AppTheme.spacing20
         closePolicy: Popup.CloseOnEscape
+        // Default to the safe choice: a lone Space must not confirm a removal.
+        onOpened: removeCancelButton.forceActiveFocus(Qt.TabFocusReason)
         onAccepted: {
             if (root.rules && removeKeywordConfirm.keyword.length > 0)
                 root.rules.removeKeyword(removeKeywordConfirm.keyword)
@@ -564,6 +588,7 @@ ColumnLayout {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: AppTheme.spacing8
                 AppButton {
+                    id: removeCancelButton
                     objectName: "pushKeywordRemoveCancel"
                     storm: true
                     text: qsTr("Cancel")
@@ -579,8 +604,12 @@ ColumnLayout {
             }
         }
         Label {
+            objectName: "pushKeywordRemoveBody"
             width: 300
-            wrapMode: Text.WordWrap
+            // A keyword is user text and may have no spaces at all.
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            maximumLineCount: 6
+            elide: Text.ElideRight
             color: AppTheme.stormTextSecondary
             font.pixelSize: AppTheme.textBody
             lineHeight: AppTheme.lineHeightBody

@@ -678,6 +678,19 @@ ColumnLayout {
                 }
             }
 
+            // After "Dismiss" the failure block is gone; say so rather than
+            // leave a heading over nothing.
+            Label {
+                objectName: "updateFailureDismissedNote"
+                visible: root.um && root.um.state === UpdateManager.Failed
+                         && root.failureDismissed
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                text: qsTr("The last check failed. Use Check for updates to try again.")
+            }
+
             // Failed: terminal, no bypass of any kind
             ColumnLayout {
                 objectName: "updateFailedBlock"

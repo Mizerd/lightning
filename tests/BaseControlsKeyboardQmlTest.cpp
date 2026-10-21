@@ -266,6 +266,20 @@ private slots:
         QVERIFY(!sw->property("_mouseFocus").toBool());
     }
 
+    // A label that toggles its switch gives the same mouse focus as a tap on
+    // the switch itself, so no keyboard ring appears (MASTER-3 L3).
+    void aLabelClickFocusesTheSwitchWithoutTheRing()
+    {
+        auto *sw = item("sw");
+        QVERIFY(sw);
+        focus(item("btn"));
+        QVERIFY(!sw->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(sw, "focusFromPointer"));
+        QTRY_VERIFY(sw->hasActiveFocus());
+        QVERIFY(sw->property("_mouseFocus").toBool());
+        focus(item("btn"));
+    }
+
     void rightClickOnATextFieldOpensTheThemedEditMenu()
     {
         auto *tf = item("tf");

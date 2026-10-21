@@ -21,6 +21,22 @@ ColumnLayout {
     // the Developer tools for the rest.
     readonly property int featurePreviewCount: 6
     property bool versionCopied: false
+    property Item resetOpener: null
+
+    // The version summary is "Label: value" per line, built in C++. In an RTL
+    // language the value (commit hash, version, platform) is a left-to-right
+    // run embedded in an RTL sentence and the bidi algorithm drags its leading
+    // digit or punctuation to the wrong side of the label. Isolate each value
+    // (U+2066 LRI ... U+2069 PDI) so it stays one unit. Display only: the
+    // clipboard text comes from AboutController::copyVersion, untouched.
+    function isolateValues(summary) {
+        return String(summary || "").split("\n").map(function (line) {
+            const i = line.indexOf(": ")
+            if (i < 0 || i + 2 >= line.length)
+                return line
+            return line.slice(0, i + 2) + "\u2066" + line.slice(i + 2) + "\u2069"
+        }).join("\n")
+    }
 
     // Same plane as every other settings card (see SettingsScreen's
     // SettingsCard).
@@ -72,7 +88,7 @@ ColumnLayout {
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                text: root.about ? root.about.versionSummary : ""
+                text: root.about ? root.isolateValues(root.about.versionSummary) : ""
             }
             RowLayout {
                 spacing: AppTheme.spacing8
@@ -239,12 +255,16 @@ ColumnLayout {
             RowLayout {
                 spacing: AppTheme.spacing12
                 AppButton {
+                    id: resetCacheButton
                     storm: true
                     objectName: "aboutResetCacheButton"
                     text: qsTr("Reset local cache")
                     kind: "danger"
                     enabled: root.about && root.about.resetState !== "running"
-                    onClicked: resetCacheConfirm.open()
+                    onClicked: {
+                        root.resetOpener = resetCacheButton
+                        resetCacheConfirm.open()
+                    }
                 }
                 BusyIndicator {
                     running: root.about && root.about.resetState === "running"
@@ -282,6 +302,15 @@ ColumnLayout {
         padding: AppTheme.spacing20
         closePolicy: Popup.CloseOnEscape
         onAccepted: root.about.resetLocalCache()
+        // A Popup closes with Qt.PopupFocusReason, which QQC2 does not count as
+        // keyboard focus, so the opener got focus back with no ring drawn. Land
+        // on the safe button when it opens, and hand focus back to the opener
+        // with a keyboard reason when it closes.
+        onOpened: resetCancelButton.forceActiveFocus(Qt.TabFocusReason)
+        onClosed: {
+            if (root.resetOpener)
+                root.resetOpener.forceActiveFocus(Qt.TabFocusReason)
+        }
         background: Rectangle {
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorderStrong
@@ -309,6 +338,8 @@ ColumnLayout {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: AppTheme.spacing8
                 AppButton {
+                    id: resetCancelButton
+                    objectName: "aboutResetCacheCancelButton"
                     storm: true
                     text: qsTr("Cancel")
                     onClicked: resetCacheConfirm.reject()

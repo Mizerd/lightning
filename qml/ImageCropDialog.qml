@@ -476,6 +476,10 @@ AppDialog {
                             return
                         // Touchpad pixelDelta is read like a wheel notch, so
                         // scrolling zooms.
+                        // A horizontal-only tilt (y == 0 in both) is not a
+                        // zoom request: it used to read as "down".
+                        if (wheel.angleDelta.y === 0 && wheel.pixelDelta.y === 0)
+                            return
                         var up = wheel.angleDelta.y !== 0
                                  ? wheel.angleDelta.y > 0
                                  : wheel.pixelDelta.y > 0

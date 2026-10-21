@@ -43,12 +43,73 @@ GridLayout {
         row.captureError = ""
         row.capturing = true
         captureSink.forceActiveFocus()
+        // The capture must be visible to the person who armed it.
+        row.revealInFlickable(chip)
     }
     function endCapture() {
         row.capturing = false
         // Escape, Cancel and focus loss all end here: a rejected chord's
         // message belongs to the capture that is over.
         row.captureError = ""
+    }
+
+    // A capture that ends by the user's own act (Escape, a stored chord,
+    // Cancel) hands focus back to the Change button; the zero-size sink must
+    // not keep it, or the next Tab presses land on nothing visible. Focus
+    // loss and leaving the page use endCapture() alone and never steal focus.
+    function finishCapture() {
+        row.endCapture()
+        changeButton.forceActiveFocus()
+    }
+
+    // Scrolls the nearest enclosing Flickable just enough to show `item`.
+    // Tab can reach a control below the fold, and Qt does not follow focus.
+    function revealInFlickable(item) {
+        var f = item.parent
+        while (f && !(f.contentItem !== undefined && f.contentY !== undefined
+                      && f.contentHeight !== undefined))
+            f = f.parent
+        if (!f)
+            return
+        var m = AppTheme.spacing12
+        var top = item.mapToItem(f.contentItem, 0, 0).y
+        var bottom = top + item.height
+        if (top - m < f.contentY)
+            f.contentY = top - m
+        else if (bottom + m > f.contentY + f.height)
+            f.contentY = bottom + m - f.height
+        f.returnToBounds()
+    }
+
+    // A click anywhere outside this row's controls abandons a capture: blank
+    // space and sidebar buttons take no focus, so onActiveFocusChanged alone
+    // never sees them. A TapHandler on the window does NOT work for this: it
+    // never fires when the click lands on an item that accepts the press (an
+    // ItemDelegate, a Flickable's content), which is most of Settings. So,
+    // while capturing, a window-sized MouseArea sits above everything, ends
+    // the capture on the press and then declines it, letting the click reach
+    // whatever was under it. A press inside this row's own controls is left
+    // alone, or Cancel would end the capture and then re-arm it. Leaving the
+    // page hides the row, which ends it too.
+    onVisibleChanged: if (!visible && row.capturing) row.endCapture()
+    MouseArea {
+        id: outsideCatcher
+        objectName: "shortcutOutsideCatcher_" + row.actionId
+        parent: row.Window.window ? row.Window.window.contentItem : row
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
+        z: 1000000
+        visible: row.capturing
+        enabled: row.capturing
+        acceptedButtons: Qt.AllButtons
+        onPressed: (mouse) => {
+            var p = mapToItem(controlGroup, mouse.x, mouse.y)
+            var inside = p.x >= 0 && p.y >= 0 && p.x <= controlGroup.width
+                         && p.y <= controlGroup.height
+            if (!inside)
+                row.endCapture()
+            mouse.accepted = false
+        }
     }
 
     ColumnLayout {
@@ -166,8 +227,12 @@ GridLayout {
                     return
                 }
                 event.accepted = true
+                // A held Enter that started this capture must not become
+                // its chord.
+                if (event.isAutoRepeat)
+                    return
                 if (event.key === Qt.Key_Escape) {
-                    row.endCapture()
+                    row.finishCapture()
                     return
                 }
                 var seq = app.shortcuts.sequenceFromKeyEvent(event.key,
@@ -183,7 +248,7 @@ GridLayout {
                     return
                 }
                 row.captureError = ""
-                row.endCapture()
+                row.finishCapture()
             }
             onActiveFocusChanged: {
                 // Focus elsewhere abandons the capture, so this stops
@@ -194,11 +259,16 @@ GridLayout {
         }
 
         AppButton {
+            id: changeButton
             storm: true
             size: "sm"
             objectName: "shortcutChange_" + row.actionId
             text: row.capturing ? qsTr("Cancel") : qsTr("Change")
-            onClicked: row.capturing ? row.endCapture() : row.beginCapture()
+            onClicked: row.capturing ? row.finishCapture() : row.beginCapture()
+            onActiveFocusChanged: if (activeFocus) row.revealInFlickable(changeButton)
+            // Qt buttons activate on Space only; Enter must too.
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) changeButton.clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) changeButton.clicked() }
             Accessible.description: row.capturing
                 ? qsTr("Cancel capturing a new shortcut for %1").arg(row.description)
                 : qsTr("Capture a new shortcut for %1").arg(row.description)
@@ -206,10 +276,14 @@ GridLayout {
         AppButton {
             storm: true
             size: "sm"
+            id: resetButton
             kind: "ghost"
             objectName: "shortcutReset_" + row.actionId
             // Hidden rather than disabled when already default.
             visible: !row.isDefault
+            onActiveFocusChanged: if (activeFocus) row.revealInFlickable(resetButton)
+            Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) resetButton.clicked() }
+            Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) resetButton.clicked() }
             text: qsTr("Reset")
             onClicked: {
                 row.captureError = ""

@@ -13,6 +13,9 @@
 
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <cmath>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -197,6 +200,135 @@ private Q_SLOTS:
 
         QCOMPARE(client.changeCalls, 1);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+    }
+
+    // C84-F10 and C84-F01. The strength row is laid out before the first
+    // keystroke (faded, not hidden), so typing does not move Confirm and the
+    // button 40px; and the sign-out checkbox draws its own indicator, whose
+    // border is the muted ink and thickens with a keyboard-focus ring.
+    void strengthRowReservesItsSpaceAndCheckboxHasAVisibleRing()
+    {
+        PwClient client;
+        PasswordChangeController ctl;
+        ctl.setClient(&client);
+        StubApp app(&ctl);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), &app);
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ChangePasswordSection"));
+        if (created.isEmpty())
+            QVERIFY(created.wait(8000));
+        QObject *root = engine.rootObjects().value(0);
+        QVERIFY(root);
+
+        QObject *row = root->findChild<QObject *>(QStringLiteral("passwordStrengthRow"));
+        QVERIFY(row);
+        QVERIFY2(row->property("visible").toBool(),
+                 "the strength row must stay laid out while empty");
+        QCOMPARE(row->property("opacity").toDouble(), 0.0);
+        QObject *newField = root->findChild<QObject *>(QStringLiteral("newPasswordField"));
+        QVERIFY(newField);
+        QVERIFY(type(newField, QStringLiteral("x")));
+        QCOMPARE(row->property("opacity").toDouble(), 1.0);
+        QVERIFY(row->property("visible").toBool());
+
+        QObject *ind = root->findChild<QObject *>(
+            QStringLiteral("signOutOtherDevicesIndicator"));
+        QVERIFY2(ind, "the checkbox must draw its own indicator");
+        // At rest the border is at least 1.5px wide (the stock one is a hairline).
+        QVERIFY(ind->property("border").value<QObject *>()
+                    ->property("width").toDouble() >= 1.5);
+
+        // Keyboard focus: a separate halo outside the box, shown for a
+        // Tab-reason focus, still shown once the box is checked (accent fill
+        // + accent border would otherwise hide it), and NOT shown for a
+        // mouse-reason focus.
+        QObject *ring = root->findChild<QObject *>(
+            QStringLiteral("signOutOtherDevicesFocusRing"));
+        QVERIFY2(ring, "keyboard focus needs its own halo");
+        QObject *check = root->findChild<QObject *>(
+            QStringLiteral("signOutOtherDevicesCheck"));
+        QVERIFY(check);
+        QQuickWindow win;
+        win.resize(500, 700);
+        qobject_cast<QQuickItem *>(root)->setParentItem(win.contentItem());
+        win.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&win));
+        win.requestActivate();
+        QVERIFY(QTest::qWaitFor([&] { return win.isActive(); }, 3000));
+        QVERIFY(!ring->property("visible").toBool());
+        qobject_cast<QQuickItem *>(check)->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(!check->property("visualFocus").toBool());
+        QVERIFY2(!ring->property("visible").toBool(),
+                 "a mouse press must not draw the keyboard halo");
+        qobject_cast<QQuickItem *>(check)->setFocus(false);
+        qobject_cast<QQuickItem *>(check)->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(check->property("visualFocus").toBool());
+        QVERIFY(ring->property("visible").toBool());
+        check->setProperty("checked", true);
+        QVERIFY2(ring->property("visible").toBool(),
+                 "the halo must survive the checked state");
+    }
+
+    // C84-F01 (review M3): the box's border (muted ink) and the focus halo
+    // (primary ink) are non-text UI, so WCAG 1.4.11 asks 3:1 against the card
+    // they are drawn on (SettingsCard paints stormPanel), on every theme.
+    void checkboxInksMeetNonTextContrastOnEveryTheme()
+    {
+        PwClient client;
+        PasswordChangeController ctl;
+        ctl.setClient(&client);
+        StubApp app(&ctl);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), &app);
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ChangePasswordSection"));
+        if (created.isEmpty())
+            QVERIFY(created.wait(8000));
+        auto *theme = engine.singletonInstance<QObject *>(QStringLiteral("MatrixClient"),
+                                                          QStringLiteral("AppTheme"));
+        QVERIFY(theme);
+        const int originalMode = theme->property("mode").toInt();
+        auto lin = [](double c) {
+            return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        };
+        auto lum = [&](const QColor &c) {
+            return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF());
+        };
+        auto ratio = [&](const QColor &a, const QColor &b) {
+            const double x = lum(a), y = lum(b);
+            return (std::max(x, y) + 0.05) / (std::min(x, y) + 0.05);
+        };
+        QSet<QString> palettes;
+        QStringList failures;
+        int checked = 0;
+        for (int mode = 1; mode <= 11; ++mode) {
+            theme->setProperty("mode", mode);
+            QCoreApplication::processEvents();
+            if (theme->property("mode").toInt() != mode)
+                continue;
+            const QColor panel = theme->property("stormPanel").value<QColor>();
+            const QColor muted = theme->property("stormTextMuted").value<QColor>();
+            const QColor bolt = theme->property("stormText").value<QColor>();
+            palettes.insert(panel.name() + muted.name() + bolt.name());
+            ++checked;
+            if (ratio(muted, panel) < 3.0)
+                failures << QStringLiteral("theme %1: box border %2 on %3 = %4")
+                                .arg(mode).arg(muted.name(), panel.name())
+                                .arg(ratio(muted, panel), 0, 'f', 2);
+            if (ratio(bolt, panel) < 3.0)
+                failures << QStringLiteral("theme %1: focus halo %2 on %3 = %4")
+                                .arg(mode).arg(bolt.name(), panel.name())
+                                .arg(ratio(bolt, panel), 0, 'f', 2);
+        }
+        theme->setProperty("mode", originalMode);
+        QCOMPARE(checked, 11);
+        QVERIFY2(palettes.size() == 11,
+                 qPrintable(QStringLiteral("only %1 distinct palettes measured")
+                                .arg(palettes.size())));
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
     }
 };
 

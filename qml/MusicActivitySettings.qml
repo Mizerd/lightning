@@ -29,6 +29,17 @@ ColumnLayout {
         text: qsTr("Show what I'm listening to on Spotify")
         checked: root.featureOn
         onToggled: app.settings.musicActivityEnabled = checked
+        // Keyboard focus ring: the stock CheckBox draws none that is visible.
+        Rectangle {
+            objectName: "activityCheckFocusRing"
+            anchors.fill: parent
+            anchors.margins: -2
+            radius: AppTheme.radiusSm
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.storm ? AppTheme.bolt : AppTheme.focusRing
+            visible: parent.visualFocus
+        }
     }
     Label {
         Layout.fillWidth: true

@@ -61,6 +61,37 @@ Item {
     property real val: 0
     property bool loading: false
 
+    // A host that assigns `selectedColor` directly (Settings' name colour
+    // picker does on open) must still get a picker showing that colour: HSV is
+    // the source of truth, so without this the thumb, the hue and the hex field
+    // keep whatever they last held. An assignment this panel makes itself
+    // (commit, show, applyColor) already matches its HSV and is skipped.
+    onSelectedColorChanged: {
+        if (loading)
+            return
+        if (root.toHex(selectedColor)
+                !== root.toHex(Qt.hsva(hue, sat, val, 1)))
+            root.load(selectedColor)
+    }
+
+    // Becoming visible starts a new editing session: the "before" half and
+    // Revert go back to the colour shown NOW, not to whatever the last session
+    // started from. The selectedColor handler above cannot do this when the
+    // host re-assigns the colour the panel already holds (reopen after a drag).
+    onVisibleChanged: {
+        if (visible && !loading)
+            originalColor = selectedColor
+    }
+
+    // Moves a keyboard-operated control's value by one step.
+    function nudge(dSat, dVal, dHue) {
+        hue = Math.max(0, Math.min(0.9999, hue + dHue))
+        sat = Math.max(0, Math.min(1, sat + dSat))
+        val = Math.max(0, Math.min(1, val + dVal))
+        root.commit()
+        root.gestureFinished()
+    }
+
     function load(c) {
         root.show(c)
         originalColor = selectedColor
@@ -156,6 +187,18 @@ Item {
                 implicitWidth: 26
                 implicitHeight: 26
                 radius: AppTheme.radiusSm
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Close the colour picker")
+                Keys.onPressed: (e) => {
+                    if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                            || e.key === Qt.Key_Space) {
+                        root.closed()
+                        e.accepted = true
+                    }
+                }
+                border.width: activeFocus ? 2 : 0
+                border.color: AppTheme.editorAccent
                 color: closeHover.containsMouse ? AppTheme.editorSelection
                                                 : "transparent"
                 Icon {
@@ -213,8 +256,33 @@ Item {
         // Saturation (x) against value (y), over the current hue.
         Item {
             id: field
+            objectName: "colorSvField"
             Layout.fillWidth: true
             Layout.preferredHeight: 176
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Slider
+            Accessible.name: qsTr("Saturation and brightness")
+            Accessible.onIncreaseAction: root.nudge(0.02, 0, 0)
+            Accessible.onDecreaseAction: root.nudge(-0.02, 0, 0)
+            // Arrows move the thumb; Shift takes a larger step.
+            Keys.onPressed: (e) => {
+                var st = (e.modifiers & Qt.ShiftModifier) ? 0.1 : 0.02
+                if (e.key === Qt.Key_Left) root.nudge(-st, 0, 0)
+                else if (e.key === Qt.Key_Right) root.nudge(st, 0, 0)
+                else if (e.key === Qt.Key_Up) root.nudge(0, st, 0)
+                else if (e.key === Qt.Key_Down) root.nudge(0, -st, 0)
+                else return
+                e.accepted = true
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: AppTheme.radiusSm
+                z: 5
+                color: "transparent"
+                visible: field.activeFocus
+                border.width: 2
+                border.color: AppTheme.editorAccent
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -280,8 +348,32 @@ Item {
         // Hue.
         Item {
             id: hueStrip
+            objectName: "colorHueStrip"
             Layout.fillWidth: true
             Layout.preferredHeight: 22
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Slider
+            Accessible.name: qsTr("Hue")
+            Accessible.onIncreaseAction: root.nudge(0, 0, 0.01)
+            Accessible.onDecreaseAction: root.nudge(0, 0, -0.01)
+            Keys.onPressed: (e) => {
+                var st = (e.modifiers & Qt.ShiftModifier) ? 0.05 : 0.01
+                if (e.key === Qt.Key_Left || e.key === Qt.Key_Down)
+                    root.nudge(0, 0, -st)
+                else if (e.key === Qt.Key_Right || e.key === Qt.Key_Up)
+                    root.nudge(0, 0, st)
+                else return
+                e.accepted = true
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: 11
+                z: 5
+                color: "transparent"
+                visible: hueStrip.activeFocus
+                border.width: 2
+                border.color: AppTheme.editorAccent
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -529,8 +621,19 @@ Item {
             radius: AppTheme.radiusMd
             color: resetHover.containsMouse ? AppTheme.editorSelection
                                             : "transparent"
-            border.width: 1
-            border.color: AppTheme.editorBorderStrong
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: root.resetLabel
+            Keys.onPressed: (e) => {
+                if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                        || e.key === Qt.Key_Space) {
+                    root.resetRequested()
+                    e.accepted = true
+                }
+            }
+            border.width: activeFocus ? 2 : 1
+            border.color: activeFocus ? AppTheme.editorAccent
+                                      : AppTheme.editorBorderStrong
             Label {
                 anchors.centerIn: parent
                 width: Math.min(implicitWidth,
@@ -547,8 +650,6 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                Accessible.role: Accessible.Button
-                Accessible.name: root.resetLabel
                 onClicked: root.resetRequested()
             }
         }
