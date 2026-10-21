@@ -73,6 +73,16 @@ Rectangle {
     property bool openedWithUnread: false
     // A bounded hunt for the marker ran out without finding it this visit.
     property bool firstUnreadHuntFailed: false
+    // Tells the reader, for a few seconds, that the hunt gave up (C13-F02):
+    // before this the pill simply vanished after a click that moved nothing.
+    property bool firstUnreadNoteShown: false
+    onFirstUnreadHuntFailedChanged: {
+        firstUnreadNoteShown = firstUnreadHuntFailed
+        if (firstUnreadHuntFailed)
+            firstUnreadNoteTimer.restart()
+        else
+            firstUnreadNoteTimer.stop()
+    }
     function snapshotOpenedUnread() {
         openedWithUnread = app.currentRoomId !== ""
                            && (currentRoom.unreadCount || 0) > 0
@@ -5662,9 +5672,14 @@ Rectangle {
             AbstractButton {
                 id: jumpToFirstUnreadButton
                 objectName: "jumpToFirstUnreadButton"
-                anchors.horizontalCenter: parent.horizontalCenter
+                // Centred, except once the room's true start is loaded: the
+                // "Beginning of conversation" label is centred at the very
+                // top and the pill sat over it (C13-F08).
                 anchors.top: parent.top
                 anchors.topMargin: AppTheme.spacingM
+                x: (app.pagination && app.pagination.reachedStart)
+                   ? parent.width - width - AppTheme.spacingM
+                   : (parent.width - width) / 2
                 visible: app.currentRoomId !== "" && app.timeline
                          && (timeline.firstUnreadLoaded
                              ? !timeline.firstUnreadOnScreen
@@ -5730,6 +5745,49 @@ Rectangle {
                     border.color: AppTheme.focusRing
                     border.width: 2
                     visible: jumpToFirstUnreadButton.visualFocus
+                }
+            }
+
+            Timer {
+                id: firstUnreadNoteTimer
+                interval: 5000
+                onTriggered: root.firstUnreadNoteShown = false
+            }
+            Rectangle {
+                id: firstUnreadFailedNote
+                objectName: "firstUnreadFailedNote"
+                anchors.top: parent.top
+                anchors.topMargin: AppTheme.spacingM
+                // Same placement rule as the pill: the hunt very often fails
+                // BECAUSE the start was reached, and then the centred
+                // "Beginning of conversation" label is where a centred note
+                // would sit (C13-F08).
+                readonly property bool atStart:
+                    app.pagination && app.pagination.reachedStart
+                x: atStart ? parent.width - width - AppTheme.spacingM
+                           : (parent.width - width) / 2
+                visible: root.firstUnreadNoteShown
+                z: 20
+                implicitHeight: 30
+                width: Math.min(atStart ? parent.width * 0.35
+                                        : parent.width - 2 * AppTheme.spacingM,
+                                failedNoteLabel.implicitWidth + 24)
+                height: implicitHeight
+                radius: height / 2
+                color: AppTheme.unreadBadge
+                Accessible.role: Accessible.StaticText
+                Accessible.name: failedNoteLabel.text
+                Label {
+                    id: failedNoteLabel
+                    anchors.centerIn: parent
+                    width: parent.width - 24
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: qsTr("Couldn't find the first unread message")
+                    color: AppTheme.accentText
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    font.weight: AppTheme.weightBold
                 }
             }
 

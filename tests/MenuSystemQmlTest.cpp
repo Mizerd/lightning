@@ -5,6 +5,7 @@
 // flyouts that close innermost-first on Escape. Expected colours are read from
 // token probes in the same scene, never hard-coded.
 
+#include <functional>
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
@@ -221,12 +222,23 @@ ApplicationWindow {
     MenuKeycap { objectName: "keycapText"; keys: "ESC"; header: true; x: 24; y: 420 }
     MenuKeycap { objectName: "keycapIcon"; iconName: "keyboard_return"; x: 96; y: 420 }
     MenuSectionLabel { objectName: "sectionLabel"; text: "Rooms"; x: 160; y: 420 }
+    Item { objectName: "stripBefore"; activeFocusOnTab: true; x: 0; y: 440; width: 8; height: 8 }
     QuickReactionStrip {
         objectName: "keyboardStrip"
         x: 24
         y: 448
         width: 192
     }
+    Item { objectName: "stripAfter"; activeFocusOnTab: true; x: 220; y: 440; width: 8; height: 8 }
+    Item { objectName: "shortBefore"; activeFocusOnTab: true; x: 0; y: 480; width: 8; height: 8 }
+    QuickReactionStrip {
+        objectName: "shortStrip"
+        emojis: ["👍", "🔥"]
+        x: 24
+        y: 488
+        width: 192
+    }
+    Item { objectName: "shortAfter"; activeFocusOnTab: true; x: 220; y: 480; width: 8; height: 8 }
     StatusChip { objectName: "chipVerified"; label: "Verified"; iconName: "verified_user"; tone: "success"; x: 240; y: 416 }
     StatusChip { objectName: "chipActive"; label: "ACTIVE"; tone: "onAccent"; x: 340; y: 416 }
     StatusChip { objectName: "chipLoud"; label: "LOUD"; tone: "danger"; x: 430; y: 416 }
@@ -579,6 +591,102 @@ private slots:
         QTRY_COMPARE(picked.count(), 1);
         // Second cell of the default set after one Right from cell 0.
         QCOMPARE(picked.first().first().toString(), QStringLiteral("🔥"));
+    }
+
+    // C25-F04: Tab used to leave the ring on the same cell (the root, itself
+    // a tab stop, handed focus straight back), and the cells had no tooltip.
+    void quickReactionStripTabWalksCellsAndCellsNameThemselves()
+    {
+        auto *strip = item("keyboardStrip");
+        QVERIFY(strip);
+        strip->setProperty("focusIndex", 0);
+        QMetaObject::invokeMethod(strip, "forceActiveFocus");
+        QTRY_VERIFY(m_window->activeFocusItem() != nullptr);
+        QCOMPARE(strip->property("focusIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 2);
+        QTest::keyClick(m_window, Qt::Key_Backtab);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 5);
+        QTest::keyClick(m_window, Qt::Key_Home);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 0);
+        // The focused cell shows its name.
+        // Repeater delegates are Items of the strip, not QObject children.
+        QList<QQuickItem *> cells;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
+            for (auto *ch : it->childItems()) {
+                if (ch->objectName() == QLatin1String("quickReactionCell"))
+                    cells.append(ch);
+                walk(ch);
+            }
+        };
+        walk(qobject_cast<QQuickItem *>(strip));
+        QVERIFY(!cells.isEmpty());
+        bool anyVisible = false;
+        for (auto *c : cells)
+            if (c->property("tipVisible").toBool()
+                && !c->property("tipText").toString().isEmpty())
+                anyVisible = true;
+        QVERIFY(anyVisible);
+    }
+
+    // C25 review r1: Tab at the last cell and Backtab at the first must LEAVE
+    // the strip (the root, itself a tab stop, used to hand focus back), and a
+    // strip with fewer than five recents must skip its invisible cells.
+    void quickReactionStripTabLeavesAtBothEnds()
+    {
+        auto focusName = [&]() {
+            auto *f = m_window->activeFocusItem();
+            for (auto *i = f; i; i = i->parentItem())
+                if (!i->objectName().isEmpty()
+                    && i->objectName() != QLatin1String("quickReactionCell"))
+                    return i->objectName();
+            return QString();
+        };
+        // Which neighbour Tab lands on depends on the scene's other tab
+        // stops; what matters is that focus is OUTSIDE the strip.
+        auto leftStrip = [&](const char *name) {
+            auto *f = m_window->activeFocusItem();
+            if (!f)
+                return false;
+            return focusName() != QLatin1String(name);
+        };
+        auto *strip = item("keyboardStrip");
+        QVERIFY(strip);
+        QMetaObject::invokeMethod(strip, "forceActiveFocus");
+        QTRY_COMPARE(focusName(), QStringLiteral("keyboardStrip"));
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 5);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_VERIFY(leftStrip("keyboardStrip"));
+        QMetaObject::invokeMethod(strip, "forceActiveFocus");
+        QTRY_COMPARE(focusName(), QStringLiteral("keyboardStrip"));
+        QTest::keyClick(m_window, Qt::Key_Home);
+        QTRY_COMPARE(strip->property("focusIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_Backtab);
+        QTRY_VERIFY(leftStrip("keyboardStrip"));
+
+        // Two recents: cells 0, 1 and the "more" cell (5) are visible.
+        auto *shortStrip = item("shortStrip");
+        QVERIFY(shortStrip);
+        QMetaObject::invokeMethod(shortStrip, "forceActiveFocus");
+        QTRY_COMPARE(focusName(), QStringLiteral("shortStrip"));
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_COMPARE(shortStrip->property("focusIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_COMPARE(shortStrip->property("focusIndex").toInt(), 5);
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QTRY_COMPARE(shortStrip->property("focusIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_End);
+        QTRY_COMPARE(shortStrip->property("focusIndex").toInt(), 5);
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QTRY_VERIFY(leftStrip("shortStrip"));
+        // Leave the shared scene as found for the neighbouring cases.
+        strip->setProperty("focusIndex", 0);
+        shortStrip->setProperty("focusIndex", 0);
     }
 
     // Chip fill and border resolve to the tone token; the label is that token

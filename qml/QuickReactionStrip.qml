@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import MatrixClient
 
 // Quick-react row at the top of the message context menu: 32px cells with the
@@ -21,7 +22,6 @@ Item {
     // forwards to the current cell. Left/Right move; Return/Space/Enter
     // activate.
     property int focusIndex: 0
-    activeFocusOnTab: true
     onActiveFocusChanged: {
         if (activeFocus)
             root.focusCell(root.focusIndex)
@@ -32,13 +32,49 @@ Item {
         if (item && item.forceActiveFocus)
             item.forceActiveFocus()
     }
-    Keys.onLeftPressed: {
-        root.focusIndex = Math.max(0, root.focusIndex - 1)
-        root.focusCell(root.focusIndex)
+    // Tab/Backtab walk the VISIBLE cells and then leave the strip. The cells
+    // are not tab stops of their own and the root stops being one while a cell
+    // holds focus: otherwise Qt's traversal from a cell finds the root as the
+    // neighbouring stop and the root hands focus straight back to the same
+    // cell (at either end of the strip, so Tab/Backtab were a trap).
+    property bool cellFocused: false
+    activeFocusOnTab: !root.cellFocused
+    function cellVisibleAt(i) {
+        var c = cellRow.children[i]
+        return !!c && c.visible
     }
-    Keys.onRightPressed: {
-        root.focusIndex = Math.min(root.columns - 1, root.focusIndex + 1)
-        root.focusCell(root.focusIndex)
+    function stepFocus(delta) {
+        var next = root.focusIndex + delta
+        while (next >= 0 && next <= root.columns - 1
+               && !root.cellVisibleAt(next))
+            next += delta
+        if (next < 0 || next > root.columns - 1)
+            return false
+        root.focusIndex = next
+        root.focusCell(next)
+        return true
+    }
+    function edgeFocus(first) {
+        var i = first ? 0 : root.columns - 1
+        while (i >= 0 && i <= root.columns - 1 && !root.cellVisibleAt(i))
+            i += first ? 1 : -1
+        if (i < 0 || i > root.columns - 1)
+            return
+        root.focusIndex = i
+        root.focusCell(i)
+    }
+    Keys.onLeftPressed: root.stepFocus(-1)
+    Keys.onRightPressed: root.stepFocus(1)
+    Keys.onTabPressed: (event) => { event.accepted = root.stepFocus(1) }
+    Keys.onBacktabPressed: (event) => { event.accepted = root.stepFocus(-1) }
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Home) {
+            root.edgeFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_End) {
+            root.edgeFocus(false)
+            event.accepted = true
+        }
     }
 
     readonly property var _defaults: ["👍", "🔥", "❤️", "😂", "🎉"]
@@ -64,7 +100,10 @@ Item {
 
             delegate: Item {
                 id: cell
+                objectName: "quickReactionCell"
                 required property int index
+                readonly property bool tipVisible: tip.visible
+                readonly property string tipText: tip.text
                 readonly property bool isMore: index === root.columns - 1
                 readonly property string emojiValue:
                     isMore ? "" : (root._effective[index] || "")
@@ -73,7 +112,6 @@ Item {
                 visible: cellVisible
                 width: root._cellSize
                 height: AppTheme.emojiCellSize
-                activeFocusOnTab: cellVisible
 
                 Accessible.role: Accessible.Button
                 Accessible.name: isMore ? qsTr("More reactions")
@@ -113,22 +151,25 @@ Item {
                 }
 
                 onActiveFocusChanged: {
-                    if (activeFocus)
+                    if (activeFocus) {
                         root.focusIndex = index
+                        root.cellFocused = true
+                    } else if (root.focusIndex === index) {
+                        root.cellFocused = false
+                    }
                 }
                 HoverHandler { id: hover }
                 TapHandler { onTapped: cell.activate() }
                 Keys.onReturnPressed: cell.activate()
                 Keys.onEnterPressed: cell.activate()
                 Keys.onSpacePressed: cell.activate()
-                Keys.onLeftPressed: {
-                    root.focusIndex = Math.max(0, cell.index - 1)
-                    root.focusCell(root.focusIndex)
-                }
-                Keys.onRightPressed: {
-                    root.focusIndex = Math.min(root.columns - 1,
-                                               cell.index + 1)
-                    root.focusCell(root.focusIndex)
+                // Key events a cell does not accept bubble to the root's
+                // handlers above (Left/Right/Tab/Backtab/Home/End).
+                ToolTip {
+                    id: tip
+                    visible: hover.hovered || cell.activeFocus
+                    delay: hover.hovered ? 500 : 0
+                    text: cell.Accessible.name
                 }
             }
         }

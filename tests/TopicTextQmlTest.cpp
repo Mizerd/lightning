@@ -112,6 +112,14 @@ Flickable {
     Column {
         id: col
         width: parent.width
+        // Stands for the room-list search box: focus lives in ANOTHER field
+        // when the topic is clicked.
+        TextInput {
+            objectName: "other"
+            width: parent.width
+            height: 20
+            text: "other field"
+        }
         TopicText {
             objectName: "topic"
             width: parent.width
@@ -276,6 +284,75 @@ private Q_SLOTS:
         QGuiApplication::clipboard()->setText(QStringLiteral("sentinel"));
         QTest::keyClick(h.window.get(), Qt::Key_C, Qt::ControlModifier);
         QCOMPARE(QGuiApplication::clipboard()->text(), topic);
+    }
+
+    // Reported (C14-F07): with focus in another field, a click on the topic and
+    // then Ctrl+A / Ctrl+C acted on THAT field. The press must move focus.
+    void aClickTakesFocusFromAnotherField()
+    {
+        Harness h;
+        const QString topic = QStringLiteral("Welcome to the room.");
+        QVERIFY(build(h, topic));
+        auto *other = h.flick->findChild<QQuickItem *>(QStringLiteral("other"));
+        QVERIFY(other);
+        other->forceActiveFocus();
+        QVERIFY(other->hasActiveFocus());
+
+        QTest::mouseClick(h.window.get(), Qt::LeftButton, Qt::NoModifier,
+                          h.topic->mapToScene(QPointF(2, 6)).toPoint());
+        QVERIFY2(h.topic->hasActiveFocus(), "the click left focus in the other field");
+        QVERIFY(!other->hasActiveFocus());
+
+        QGuiApplication::clipboard()->setText(QStringLiteral("sentinel"));
+        QTest::keyClick(h.window.get(), Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(h.window.get(), Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(QGuiApplication::clipboard()->text(), topic);
+        QVERIFY(other->property("selectedText").toString().isEmpty());
+    }
+
+    // Reported (C14-F08): a right click on the topic opened nothing.
+    void aRightClickOffersCopyCopyLinkAndSelectAll()
+    {
+        Harness h;
+        const QString href = QStringLiteral("https://example.org/rules");
+        QVERIFY(build(h, QStringLiteral("Read https://example.org/rules first.")));
+        auto menu = [&]() {
+            return h.topic->findChild<QObject *>(QStringLiteral("topicContextMenu"));
+        };
+        auto item = [&](const char *name) {
+            return h.topic->findChild<QObject *>(QString::fromLatin1(name));
+        };
+        QVERIFY(menu());
+        QVERIFY(!menu()->property("visible").toBool());
+
+        // Off a link, nothing selected: Copy and Copy link are disabled,
+        // Select all is not.
+        QTest::mouseClick(h.window.get(), Qt::RightButton, Qt::NoModifier,
+                          h.topic->mapToScene(QPointF(2, 6)).toPoint());
+        QTRY_VERIFY(menu()->property("visible").toBool());
+        QVERIFY(!item("topicCopyItem")->property("enabled").toBool());
+        QVERIFY(!item("topicCopyLinkItem")->property("enabled").toBool());
+        QVERIFY(item("topicSelectAllItem")->property("enabled").toBool());
+        QMetaObject::invokeMethod(item("topicSelectAllItem"), "triggered");
+        QCOMPARE(selectedText(h).size(), h.topic->property("length").toInt());
+        QMetaObject::invokeMethod(menu(), "close");
+        QTRY_VERIFY(!menu()->property("visible").toBool());
+
+        // On the link: Copy link is enabled and copies the href, never opening it.
+        QMetaObject::invokeMethod(h.topic, "deselect");
+        QCOMPARE(selectedText(h), QString());
+        const QPoint onLink = linkPoint(h, href);
+        QVERIFY(onLink.x() >= 0);
+        QTest::mouseClick(h.window.get(), Qt::RightButton, Qt::NoModifier, onLink);
+        QTRY_VERIFY(menu()->property("visible").toBool());
+        QVERIFY(item("topicCopyLinkItem")->property("enabled").toBool());
+        // Copy follows the selection, not the link under the pointer.
+        QVERIFY(!item("topicCopyItem")->property("enabled").toBool());
+        QGuiApplication::clipboard()->setText(QStringLiteral("sentinel"));
+        QMetaObject::invokeMethod(item("topicCopyLinkItem"), "triggered");
+        QCOMPARE(QGuiApplication::clipboard()->text(), href);
+        QCOMPARE(h.webOpens(), 0);
+        QCOMPARE(h.warnings, QStringList{});
     }
 
     void noSchemeButWebIsEverALink()

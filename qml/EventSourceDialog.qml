@@ -143,30 +143,55 @@ Dialog {
             font.pixelSize: AppTheme.textBody
             text: qsTr("The event could not be loaded.")
         }
-        Flickable {
+        // The scroller is a sibling over the viewer, never inside it.
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            contentWidth: width
-            contentHeight: sourceText.paintedHeight
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: AppScrollBar { thin: true }
-            // JSON lines are wrapped, never clipped: long strings (bodies,
-            // keys, base64) would otherwise be cut at the edge with only a
-            // faded bar to find the rest.
-            TextEdit {
-                id: sourceText
-                width: parent.width
-                wrapMode: TextEdit.WrapAnywhere
-                objectName: "eventSourceText"
-                readOnly: true
-                selectByMouse: true
-                selectByKeyboard: true
-                textFormat: TextEdit.PlainText
-                color: AppTheme.stormText
-                font.family: AppTheme.monoFont
-                font.pixelSize: AppTheme.textMeta
-                text: root.json
+            Flickable {
+                id: sourceFlick
+                objectName: "eventSourceFlick"
+                anchors.fill: parent
+                clip: true
+                contentWidth: width
+                contentHeight: sourceText.paintedHeight
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: AppScrollBar { thin: true }
+                // JSON lines are wrapped, never clipped: long strings (bodies,
+                // keys, base64) would otherwise be cut at the edge with only a
+                // faded bar to find the rest.
+                TextEdit {
+                    id: sourceText
+                    width: parent.width
+                    wrapMode: TextEdit.WrapAnywhere
+                    objectName: "eventSourceText"
+                    readOnly: true
+                    // Focusable, so the keyboard can move the caret and the
+                    // viewer follows it (PageUp/Down, Home/End, arrows).
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: qsTr("Event source")
+                    onCursorRectangleChanged: {
+                        var r = cursorRectangle
+                        if (r.y < sourceFlick.contentY)
+                            sourceFlick.contentY = r.y
+                        else if (r.y + r.height
+                                 > sourceFlick.contentY + sourceFlick.height)
+                            sourceFlick.contentY =
+                                r.y + r.height - sourceFlick.height
+                    }
+                    selectByMouse: true
+                    selectByKeyboard: true
+                    textFormat: TextEdit.PlainText
+                    color: AppTheme.stormText
+                    font.family: AppTheme.monoFont
+                    font.pixelSize: AppTheme.textMeta
+                    text: root.json
+                }
+            }
+            MiddleClickScroller {
+                objectName: "eventSourceMiddleClickScroller"
+                anchors.fill: parent
+                view: sourceFlick
             }
         }
         RowLayout {

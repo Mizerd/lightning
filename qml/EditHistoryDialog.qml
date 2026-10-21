@@ -45,6 +45,7 @@ Dialog {
         if (timelineModel && timelineModel.requestEditHistory)
             timelineModel.requestEditHistory(id)
     }
+    onOpened: list.forceActiveFocus()
     onClosed: {
         revisions = []
         eventId = ""
@@ -75,6 +76,11 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
+        // Return/Enter closes: this dialog has one action, and a Button alone
+        // answers Space only (C26-F02). On the content Item (a Popup is not
+        // an Item), so it also fires with the Close button focused.
+        Keys.onReturnPressed: root.close()
+        Keys.onEnterPressed: root.close()
         Label {
             text: qsTr("Edit history")
             color: AppTheme.stormText
@@ -108,81 +114,115 @@ Dialog {
                        + "loaded, so the earliest versions of this message "
                        + "may be missing.")
         }
-        ListView {
-            id: list
-            objectName: "editHistoryList"
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: AppTheme.spacing8
-            model: root.revisions
-            ScrollBar.vertical: AppScrollBar { thin: true }
-            delegate: Rectangle {
-                required property var modelData
-                width: ListView.view.width
-                radius: AppTheme.radiusTile
-                color: modelData.isLatest ? AppTheme.stormInset : "transparent"
-                border.width: 1
-                border.color: modelData.isLatest ? AppTheme.stormBorderStrong
-                                                 : AppTheme.stormBorder
-                implicitHeight: revisionCol.implicitHeight + AppTheme.spacing12 * 2
-                ColumnLayout {
-                    id: revisionCol
-                    anchors.fill: parent
-                    anchors.margins: AppTheme.spacing12
-                    spacing: AppTheme.spacing4
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing8
+            ListView {
+                id: list
+                objectName: "editHistoryList"
+                anchors.fill: parent
+                clip: true
+                activeFocusOnTab: true
+                // Keyboard scrolling (C26-F01): a plain ListView has no key
+                // handling of its own without a current-item highlight.
+                function scrollByPx(dy) {
+                    const lo = list.originY
+                    const hi = Math.max(lo, list.originY + list.contentHeight - list.height)
+                    list.contentY = Math.max(lo, Math.min(hi, list.contentY + dy))
+                }
+                Keys.onUpPressed: scrollByPx(-48)
+                Keys.onDownPressed: scrollByPx(48)
+                Keys.onPressed: function (event) {
+                    if (event.key === Qt.Key_PageUp)
+                        scrollByPx(-list.height * 0.9)
+                    else if (event.key === Qt.Key_PageDown)
+                        scrollByPx(list.height * 0.9)
+                    else if (event.key === Qt.Key_Home)
+                        scrollByPx(-list.contentHeight)
+                    else if (event.key === Qt.Key_End)
+                        scrollByPx(list.contentHeight)
+                    else
+                        return
+                    event.accepted = true
+                }
+                Keys.onReturnPressed: root.close()
+                Keys.onEnterPressed: root.close()
+                spacing: AppTheme.spacing8
+                model: root.revisions
+                ScrollBar.vertical: AppScrollBar { thin: true }
+                delegate: Rectangle {
+                    required property var modelData
+                    width: ListView.view.width
+                    radius: AppTheme.radiusTile
+                    color: modelData.isLatest ? AppTheme.stormInset : "transparent"
+                    border.width: 1
+                    border.color: modelData.isLatest ? AppTheme.stormBorderStrong
+                                                     : AppTheme.stormBorder
+                    implicitHeight: revisionCol.implicitHeight + AppTheme.spacing12 * 2
+                    ColumnLayout {
+                        id: revisionCol
+                        anchors.fill: parent
+                        anchors.margins: AppTheme.spacing12
+                        spacing: AppTheme.spacing4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Label {
+                                text: modelData.isOriginal ? qsTr("Original")
+                                                           : root.timeLabel(modelData.timestamp)
+                                color: AppTheme.stormTextMuted
+                                font.family: AppTheme.monoFont
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                            Label {
+                                visible: modelData.isOriginal
+                                text: root.timeLabel(modelData.timestamp)
+                                color: AppTheme.stormTextMuted
+                                font.family: AppTheme.monoFont
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                            Item { Layout.fillWidth: true }
+                            StatusChip {
+                                storm: true
+                                visible: modelData.isLatest
+                                label: qsTr("Current")
+                                tone: "accent"
+                            }
+                            StatusChip {
+                                storm: true
+                                visible: modelData.redacted
+                                label: qsTr("Deleted")
+                                tone: "neutral"
+                            }
+                        }
+                        // Rendered through the timeline's sanitizer (formatted) or
+                        // as plain text; never raw HTML.
                         Label {
-                            text: modelData.isOriginal ? qsTr("Original")
-                                                       : root.timeLabel(modelData.timestamp)
-                            color: AppTheme.stormTextMuted
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.textMeta
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textBody
+                            textFormat: modelData.formattedBody
+                                        && modelData.formattedBody.length > 0
+                                        ? Text.RichText : Text.PlainText
+                            text: modelData.undecryptable
+                                  ? qsTr("This revision could not be decrypted.")
+                                  : modelData.redacted
+                                    ? qsTr("This revision was deleted.")
+                                    : (modelData.formattedBody
+                                       && modelData.formattedBody.length > 0
+                                       ? root.timelineModel.sanitizeHtml(modelData.formattedBody)
+                                       : modelData.body)
+                            font.italic: modelData.undecryptable || modelData.redacted
                         }
-                        Label {
-                            visible: modelData.isOriginal
-                            text: root.timeLabel(modelData.timestamp)
-                            color: AppTheme.stormTextMuted
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        Item { Layout.fillWidth: true }
-                        StatusChip {
-                            storm: true
-                            visible: modelData.isLatest
-                            label: qsTr("Current")
-                            tone: "accent"
-                        }
-                        StatusChip {
-                            storm: true
-                            visible: modelData.redacted
-                            label: qsTr("Deleted")
-                            tone: "neutral"
-                        }
-                    }
-                    // Rendered through the timeline's sanitizer (formatted) or
-                    // as plain text; never raw HTML.
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                        color: AppTheme.stormText
-                        font.pixelSize: AppTheme.textBody
-                        textFormat: modelData.formattedBody
-                                    && modelData.formattedBody.length > 0
-                                    ? Text.RichText : Text.PlainText
-                        text: modelData.undecryptable
-                              ? qsTr("This revision could not be decrypted.")
-                              : modelData.redacted
-                                ? qsTr("This revision was deleted.")
-                                : (modelData.formattedBody
-                                   && modelData.formattedBody.length > 0
-                                   ? root.timelineModel.sanitizeHtml(modelData.formattedBody)
-                                   : modelData.body)
-                        font.italic: modelData.undecryptable || modelData.redacted
                     }
                 }
+            }
+            MiddleClickScroller {
+                objectName: "editHistoryMiddleClickScroller"
+                anchors.fill: parent
+                z: 1
+                view: list
             }
         }
         RowLayout {

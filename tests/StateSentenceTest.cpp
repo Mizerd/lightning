@@ -305,6 +305,8 @@ private Q_SLOTS:
         const QList<QPair<QString, QString>> table = {
             { QStringLiteral("room_created"), a + QStringLiteral(" created the room.") },
             { QStringLiteral("room_name_changed"), a + QStringLiteral(" changed the room name.") },
+            { QStringLiteral("room_name_removed"), a + QStringLiteral(" removed the room name.") },
+            { QStringLiteral("room_topic_removed"), a + QStringLiteral(" removed the room topic.") },
             { QStringLiteral("room_topic_changed"), a + QStringLiteral(" changed the room topic.") },
             { QStringLiteral("room_avatar_changed"), a + QStringLiteral(" changed the room avatar.") },
             { QStringLiteral("encryption_enabled"), QStringLiteral("Encryption was enabled.") },
@@ -326,7 +328,7 @@ private Q_SLOTS:
             { QStringLiteral("invitation_revoked"), a + QStringLiteral(" revoked Bob's invitation.") },
             { QStringLiteral("membership_changed"), QStringLiteral("Membership for Bob changed.") },
         };
-        QCOMPARE(table.size(), 22);
+        QCOMPARE(table.size(), 24);
         // The lookup set and the renderer name the same sentences.
         QCOMPARE(int(matrix::preview::stateSentenceNames().size()), int(table.size()));
         for (const auto &[sentence, english] : table) {

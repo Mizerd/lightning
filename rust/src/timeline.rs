@@ -4600,6 +4600,8 @@ fn state_sentence_english(sentence: &str, actor: &str, target: &str) -> String {
     match sentence {
         "room_created" => format!("{actor} created the room."),
         "room_name_changed" => format!("{actor} changed the room name."),
+        "room_name_removed" => format!("{actor} removed the room name."),
+        "room_topic_removed" => format!("{actor} removed the room topic."),
         "room_topic_changed" => format!("{actor} changed the room topic."),
         "room_avatar_changed" => format!("{actor} changed the room avatar."),
         "encryption_enabled" => "Encryption was enabled.".to_owned(),
@@ -4664,6 +4666,13 @@ fn failed_state_sentence(event_type: &str, error_display: &str) -> Option<&'stat
         Some("space_parent_removed")
     } else if is_policy_rule_type(event_type) && error_display.contains("missing field `entity`") {
         Some("policy_rule_removed")
+    // `m.room.name` requires `name` and `m.room.topic` requires `topic`, so the
+    // empty content that removes either fails to parse (C28-F04) and used to
+    // render a sender-attributed "[unsupported event]" message row.
+    } else if event_type == "m.room.name" && error_display.contains("missing field `name`") {
+        Some("room_name_removed")
+    } else if event_type == "m.room.topic" && error_display.contains("missing field `topic`") {
+        Some("room_topic_removed")
     } else {
         None
     }
@@ -7556,6 +7565,27 @@ mod tests {
             Some("policy_rule_removed")
         );
         assert_eq!(failed_state_sentence("m.space.parent", "invalid type"), None);
+    }
+
+    // C28-F04: removing a room name or topic (`{}` content) is a state change.
+    #[test]
+    fn removing_a_room_name_or_topic_is_a_state_sentence_not_unsupported() {
+        use matrix_sdk::ruma::events::AnySyncStateEvent;
+        for (kind, _field, sentence, english) in [
+            ("m.room.name", "name", "room_name_removed", "@a:b.c removed the room name."),
+            ("m.room.topic", "topic", "room_topic_removed", "@a:b.c removed the room topic."),
+        ] {
+            // The complaint is ruma's own, read off the deserializer the timeline uses.
+            let err = serde_json::from_value::<AnySyncStateEvent>(serde_json::json!({
+                "type": kind, "state_key": "", "event_id": "$p",
+                "sender": "@a:b.c", "origin_server_ts": 1, "content": {},
+            }))
+            .expect_err("empty content does not parse");
+            assert_eq!(failed_state_sentence(kind, &err.to_string()), Some(sentence), "{err}");
+            assert_eq!(state_sentence_english(sentence, "@a:b.c", ""), english);
+            assert_eq!(failed_state_sentence(kind, "invalid type: integer `5`"), None);
+        }
+        assert_eq!(failed_state_sentence("m.room.avatar", "missing field `name`"), None);
     }
 
     #[test]

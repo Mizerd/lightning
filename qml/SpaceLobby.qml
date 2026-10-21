@@ -345,6 +345,8 @@ ColumnLayout {
                 }
                 TapHandler {
                     acceptedButtons: Qt.RightButton
+                    // A touch tap is not a right-click.
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     gesturePolicy: TapHandler.WithinBounds
                     onTapped: (eventPoint) => {
                         if (sectionHeader.overControl(eventPoint.position))

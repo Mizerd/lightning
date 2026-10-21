@@ -2597,6 +2597,14 @@ if(BUILD_TESTING)
     target_link_libraries(version-consistency-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME version-consistency COMMAND version-consistency-test)
 
+    # C15-F03: links on an own bubble take the bubble's ink (function run from
+    # the real MessageDelegate.qml source).
+    qt_add_executable(message-link-ink-test tests/MessageLinkInkTest.cpp)
+    target_compile_definitions(message-link-ink-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(message-link-ink-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME message-link-ink COMMAND message-link-ink-test)
+
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
@@ -2665,6 +2673,17 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME keyboard-focus-widgets-contract
         COMMAND keyboard-focus-widgets-contract-test)
+
+    # Thread panel keyboard contract: Escape claim, Tab exit, autoscroll,
+    # list focus (swarm C30).
+    qt_add_executable(thread-panel-keyboard-contract-test
+        tests/ThreadPanelKeyboardContractTest.cpp)
+    target_compile_definitions(thread-panel-keyboard-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(thread-panel-keyboard-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME thread-panel-keyboard-contract
+        COMMAND thread-panel-keyboard-contract-test)
 
     # GIF picker contract: chrome plus the exact-selection invariants.
     qt_add_executable(gif-picker-redesign-contract-test
@@ -4535,6 +4554,17 @@ if(BUILD_TESTING)
     set_tests_properties(export-room-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Jump to date dialog: Return activates, accessible names (C32).
+    qt_add_executable(jump-to-date-dialog-qml-test
+        tests/JumpToDateDialogQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(jump-to-date-dialog-qml-test)
+    target_link_libraries(jump-to-date-dialog-qml-test PRIVATE Qt6::Test)
+    add_test(NAME jump-to-date-dialog-qml COMMAND jump-to-date-dialog-qml-test)
+    set_tests_properties(jump-to-date-dialog-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Incoming-call card contracts plus a real offscreen instantiation against
     # a ringing CallController.
     qt_add_executable(call-ui-contract-test
@@ -5855,6 +5885,16 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(image-crop-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME image-crop-contract COMMAND image-crop-contract-test)
+
+    # C27: forward and event-source dialog contracts (joined rooms only,
+    # hidden-choice count, keyboard reach, scroll-into-view, autoscroll).
+    qt_add_executable(forward-dialogs-contract-test
+        tests/ForwardDialogsContractTest.cpp
+    )
+    target_compile_definitions(forward-dialogs-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(forward-dialogs-contract-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME forward-dialogs-contract COMMAND forward-dialogs-contract-test)
 
     # Desktop integration: launcher entry, hicolor icons, install rules, Qt
     # identity wiring.

@@ -116,6 +116,57 @@ Rectangle {
 
     property bool copied: false
 
+    // Width at the header's trailing end that the host keeps for something it
+    // draws over the block (the message row's hover action bar sits on the
+    // row's top-right and used to take the Copy button's clicks). 0 = none.
+    property real toolbarClearance: 0
+
+    // Scrolls the code the least that brings the caret inside the viewport.
+    function ensureCaretVisible() {
+        var r = codeArea.cursorRectangle
+        var viewH = codeFlick.height - codeFlick.bottomMargin
+        if (r.y < codeFlick.contentY)
+            codeFlick.contentY = Math.max(0, r.y)
+        else if (r.y + r.height > codeFlick.contentY + viewH)
+            codeFlick.contentY = Math.min(root.maxContentY(),
+                                          r.y + r.height - viewH)
+        var viewW = codeFlick.width - root.verticalBarSpace
+        var maxX = Math.max(0, codeFlick.contentWidth - codeFlick.width)
+        if (r.x < codeFlick.contentX)
+            codeFlick.contentX = Math.max(0, r.x)
+        else if (r.x + r.width > codeFlick.contentX + viewW)
+            codeFlick.contentX = Math.min(maxX, r.x + r.width - viewW)
+    }
+
+    // Drag-selection past the block's edge: while a left press that began in
+    // the code is held outside the body, scroll toward the pointer and keep
+    // extending the selection to it (a stationary pointer sends no moves).
+    function autoscrollTick() {
+        var p = bodyArea.mapFromItem(null, dragPoint.point.scenePosition.x,
+                                     dragPoint.point.scenePosition.y)
+        var step = AppTheme.scaled(16)
+        var dy = p.y < 0 ? p.y : (p.y > bodyArea.height ? p.y - bodyArea.height : 0)
+        var dx = p.x < codeFlick.x ? p.x - codeFlick.x
+               : (p.x > bodyArea.width ? p.x - bodyArea.width : 0)
+        if (dx === 0 && dy === 0)
+            return
+        var f = function (d) {
+            return Math.max(-3, Math.min(3, d / AppTheme.scaled(24))) * step
+        }
+        if (dy !== 0)
+            codeFlick.contentY = Math.max(0, Math.min(root.maxContentY(),
+                                                      codeFlick.contentY + f(dy)))
+        if (dx !== 0)
+            codeFlick.contentX = Math.max(0, Math.min(
+                Math.max(0, codeFlick.contentWidth - codeFlick.width),
+                codeFlick.contentX + f(dx)))
+        var inCode = codeArea.mapFromItem(bodyArea,
+            Math.max(codeFlick.x, Math.min(bodyArea.width, p.x)),
+            Math.max(0, Math.min(bodyArea.height, p.y)))
+        codeArea.moveCursorSelection(codeArea.positionAt(inCode.x, inCode.y),
+                                     TextEdit.SelectCharacters)
+    }
+
     TextEdit {
         id: clipboardRelay
         visible: false
@@ -171,7 +222,7 @@ Rectangle {
 
         RowLayout {
             id: headerRow
-            width: parent.width
+            width: Math.max(0, parent.width - root.toolbarClearance)
             height: 24
             spacing: AppTheme.spacing8
 
@@ -213,6 +264,26 @@ Rectangle {
                 Accessible.name: qsTr("Copy code")
                 Accessible.onPressAction: root.copyCode()
                 onClicked: root.copyCode()
+                // AbstractButton triggers on Space only; Return and the
+                // keypad Enter are the other keys a focused button answers to.
+                // click() runs the button's own press/release/clicked path;
+                // a held key does not re-copy.
+                Keys.onReturnPressed: (e) => {
+                    if (!e.isAutoRepeat) copyButton.click()
+                    e.accepted = true
+                }
+                Keys.onEnterPressed: (e) => {
+                    if (!e.isAutoRepeat) copyButton.click()
+                    e.accepted = true
+                }
+
+                // The icon alone says nothing to a pointer user.
+                ToolTip {
+                    objectName: "codeBlockCopyTip"
+                    visible: copyButton.hovered
+                    delay: 500
+                    text: qsTr("Copy code")
+                }
             }
         }
 
@@ -304,6 +375,29 @@ Rectangle {
                     Accessible.role: Accessible.EditableText
                     Accessible.name: qsTr("Code")
 
+                    // The Flickable is non-interactive, so nothing scrolls the
+                    // caret into view: a selection grown by shift+Down or by a
+                    // drag would otherwise extend off-screen unseen. Driven by
+                    // the caret MOVING (cursorPosition), not by its rectangle,
+                    // so that nothing but a caret move can undo a wheel scroll.
+                    // Deferred so the rectangle has settled.
+                    // (selectAll() does not emit cursorPositionChanged, measured,
+                    // so Ctrl+A does not jump to the end of a tall block.)
+                    onCursorPositionChanged: Qt.callLater(root.ensureCaretVisible)
+
+                    // Passive: watches a held left press, wherever the pointer
+                    // goes, to autoscroll a drag-selection (autoscrollTick).
+                    // It lives on the TextEdit because the press is accepted
+                    // there and never reaches a handler on an ancestor.
+                    PointHandler {
+                        id: dragPoint
+                        objectName: "codeBlockDragPoint"
+                        acceptedButtons: Qt.LeftButton
+                        // selectByMouse does not select on touch, so a held
+                        // finger has no selection to extend.
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    }
+
                     // Every line left to right: TextEdit would take the whole
                     // block's direction from an Arabic comment on line one.
                     ParagraphDirection {
@@ -328,6 +422,15 @@ Rectangle {
                                                     : ScrollBar.AlwaysOff
                     interactive: true
                 }
+            }
+
+            Timer {
+                id: autoscrollTimer
+                objectName: "codeBlockAutoscrollTimer"
+                interval: 40
+                repeat: true
+                running: dragPoint.active
+                onTriggered: root.autoscrollTick()
             }
 
             // The latch's rest clock (see wheelRouter). It starts when the

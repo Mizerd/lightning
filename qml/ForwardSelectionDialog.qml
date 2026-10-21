@@ -127,6 +127,8 @@ Dialog {
 
         // ── Destinations ──
         ListView {
+            id: destList
+            objectName: "forwardDestinationList"
             Layout.fillWidth: true
             Layout.preferredHeight: 240
             visible: !root.sending && !root.finished
@@ -139,10 +141,21 @@ Dialog {
                 required property string roomId
                 required property string name
                 required property bool isSpace
+                required property string membership
                 width: ListView.view.width
                 height: visible ? 38 : 0
-                // A Space is not a room and can't receive a message.
-                visible: !isSpace
+                // Keyboard: a visible row is a Tab stop (Space toggles it,
+                // as ItemDelegate's own click), shown by `highlighted`.
+                activeFocusOnTab: visible
+                highlighted: visualFocus
+                onActiveFocusChanged: {
+                    if (activeFocus)
+                        destList.positionViewAtIndex(index, ListView.Contain)
+                }
+                // A Space is not a room and can't receive a message, and an
+                // invite or knock is not somewhere a message can land (the
+                // single-message dialog lists joined rooms only).
+                visible: !isSpace && membership === "joined"
                          && (root.filter === ""
                              || name.toLowerCase().indexOf(
                                     root.filter.toLowerCase()) >= 0)
@@ -150,6 +163,7 @@ Dialog {
                 contentItem: RowLayout {
                     spacing: AppTheme.spacing8
                     CheckBox {
+                        objectName: "forwardDestinationCheck"
                         checked: root.isChosen(roomId)
                         // The row owns the click; this is an indicator.
                         enabled: false
@@ -164,6 +178,19 @@ Dialog {
                     }
                 }
             }
+        }
+
+        Label {
+            objectName: "forwardNoMatchLabel"
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            // Hidden rows are 0 high, so no row shown means no height.
+            visible: !root.sending && !root.finished
+                     && destList.contentHeight <= 0
+                     && (root.filter !== "" || destList.count > 0)
+            text: qsTr("No rooms match")
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.textMeta
         }
 
         // ── Progress and results ──
@@ -205,6 +232,25 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
+            // Chosen rooms may be scrolled or filtered out of sight; the count
+            // is what Send will actually use.
+            Label {
+                objectName: "forwardChosenCount"
+                visible: !root.sending && !root.finished
+                         && root.targets.length > 0
+                text: qsTr("%n room(s) selected", "", root.targets.length)
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+            }
+            // A choice the filter hides can still be dropped from here.
+            AppButton {
+                objectName: "forwardClearSelection"
+                visible: !root.sending && !root.finished
+                         && root.targets.length > 0
+                text: qsTr("Clear selection")
+                kind: "ghost"
+                onClicked: root.targets = []
+            }
             Item { Layout.fillWidth: true }
             AppButton {
                 text: root.finished ? qsTr("Done") : qsTr("Cancel")

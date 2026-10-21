@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import MatrixClient
 
 // A room or Space topic: selectable, copyable, with its web links clickable.
@@ -56,6 +57,68 @@ TextEdit {
     }
 
     onLinkActivated: (link) => root.openLink(link)
+
+    // The link under the last right click ("" off a link).
+    property string contextLink: ""
+
+    // A left press focuses the topic. A TapHandler's default policy takes only
+    // a passive grab, so the TextEdit still sees the press and its selection
+    // and link handling are untouched.
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onPressedChanged: if (pressed) root.forceActiveFocus(Qt.MouseFocusReason)
+    }
+
+    TapHandler {
+        objectName: "topicContextTap"
+        acceptedButtons: Qt.RightButton
+        // A touch tap is not a right-click.
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onTapped: (point) => {
+            root.contextLink = root.linkAt(point.position.x, point.position.y)
+            contextMenu.popup(point.position.x, point.position.y)
+        }
+    }
+
+    // Same hidden-TextEdit clipboard route as MessageDelegate.copyToClipboard.
+    TextEdit {
+        id: clipboardHelper
+        visible: false
+    }
+    function copyToClipboard(value) {
+        if (!value || value.length === 0) return
+        clipboardHelper.text = value
+        clipboardHelper.selectAll()
+        clipboardHelper.copy()
+        clipboardHelper.text = ""
+    }
+
+    AppMenu {
+        id: contextMenu
+        objectName: "topicContextMenu"
+        AppMenuItem {
+            objectName: "topicCopyItem"
+            iconName: "content_copy"
+            text: qsTr("Copy")
+            enabled: root.selectedText.length > 0
+            onTriggered: root.copy()
+        }
+        AppMenuItem {
+            objectName: "topicCopyLinkItem"
+            iconName: "link"
+            text: qsTr("Copy link")
+            enabled: root.contextLink.length > 0
+            onTriggered: root.copyToClipboard(root.contextLink)
+        }
+        AppMenuItem {
+            objectName: "topicSelectAllItem"
+            text: qsTr("Select all")
+            onTriggered: {
+                root.forceActiveFocus(Qt.MouseFocusReason)
+                root.selectAll()
+            }
+        }
+    }
 
     HoverHandler {
         cursorShape: root.hoveredLink.length > 0 ? Qt.PointingHandCursor

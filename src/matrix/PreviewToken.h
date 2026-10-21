@@ -99,6 +99,10 @@ inline QString stateSentence(QStringView sentence, QString actor, QString target
         return t(QT_TRANSLATE_NOOP("EventPreview", "%1 created the room.")).arg(actor);
     if (sentence == QLatin1String("room_name_changed"))
         return t(QT_TRANSLATE_NOOP("EventPreview", "%1 changed the room name.")).arg(actor);
+    if (sentence == QLatin1String("room_name_removed"))
+        return t(QT_TRANSLATE_NOOP("EventPreview", "%1 removed the room name.")).arg(actor);
+    if (sentence == QLatin1String("room_topic_removed"))
+        return t(QT_TRANSLATE_NOOP("EventPreview", "%1 removed the room topic.")).arg(actor);
     if (sentence == QLatin1String("room_topic_changed"))
         return t(QT_TRANSLATE_NOOP("EventPreview", "%1 changed the room topic.")).arg(actor);
     if (sentence == QLatin1String("room_avatar_changed"))
@@ -148,6 +152,7 @@ inline const QSet<QString> &stateSentenceNames()
 {
     static const QSet<QString> names = {
         QStringLiteral("room_created"), QStringLiteral("room_name_changed"),
+        QStringLiteral("room_name_removed"), QStringLiteral("room_topic_removed"),
         QStringLiteral("room_topic_changed"), QStringLiteral("room_avatar_changed"),
         QStringLiteral("encryption_enabled"), QStringLiteral("room_upgraded"),
         QStringLiteral("call_started"), QStringLiteral("video_call_started"),

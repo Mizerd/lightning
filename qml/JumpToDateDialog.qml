@@ -25,6 +25,8 @@ Dialog {
     width: Math.min(460, parent ? parent.width - AppTheme.spacing24 * 2 : 460)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
+    Accessible.role: Accessible.Dialog
+    Accessible.name: qsTr("Jump to date")
 
     /// "" | "asking" | the sanitized failure category.
     property string status: ""
@@ -107,6 +109,23 @@ Dialog {
         }
     }
 
+    // The Jump button's action, also reached by Return in the date field.
+    function submit() {
+        if (root.customInvalid || root.asking)
+            return
+        var at = root.chosenMs()
+        if (at < 0)
+            return
+        var op = app.jumpToDate(at)
+        if (op === 0) {
+            // 0 means this build can't ask, which isn't the server saying no.
+            root.status = "backend"
+            return
+        }
+        root.pendingOp = op
+        root.status = "asking"
+    }
+
     Connections {
         target: app
         function onJumpToDateFinished(opId, ok, category) {
@@ -164,8 +183,13 @@ Dialog {
             storm: true
             Layout.fillWidth: true
             placeholderText: qsTr("yyyy-mm-dd")
-            inputMask: "9999-99-99"
+            // A validator, not an inputMask: a mask draws "  -  -" in an
+            // empty field and the placeholder format hint never shows.
+            validator: RegularExpressionValidator { regularExpression: /[0-9-]{0,10}/ }
+            Accessible.name: qsTr("Pick a date")
+            Accessible.description: qsTr("yyyy-mm-dd")
             onTextChanged: root.status = ""
+            onAccepted: root.submit()
         }
         Label {
             Layout.fillWidth: true
@@ -193,29 +217,23 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             AppButton {
+                objectName: "jumpToDateCancel"
                 text: qsTr("Cancel")
                 kind: "ghost"
                 onClicked: root.close()
+                Keys.onReturnPressed: (event) => { root.close(); event.accepted = true }
+                Keys.onEnterPressed: (event) => { root.close(); event.accepted = true }
             }
             AppButton {
                 objectName: "jumpToDateConfirm"
                 text: qsTr("Jump")
                 kind: "primary"
                 enabled: !root.customInvalid && !root.asking
-                onClicked: {
-                    var at = root.chosenMs()
-                    if (at < 0)
-                        return
-                    var op = app.jumpToDate(at)
-                    if (op === 0) {
-                        // 0 means this build can't ask, which isn't the server
-                        // saying no.
-                        root.status = "backend"
-                        return
-                    }
-                    root.pendingOp = op
-                    root.status = "asking"
-                }
+                onClicked: root.submit()
+                // AbstractButton reacts to Space only; Return is the dialog's
+                // primary action.
+                Keys.onReturnPressed: (event) => { clicked(); event.accepted = true }
+                Keys.onEnterPressed: (event) => { clicked(); event.accepted = true }
             }
         }
     }

@@ -104,7 +104,11 @@ Rectangle {
     readonly property rect attachmentRect: rectInRow(attachment)
     readonly property rect toolbarRect: rectInRow(toolbar)
     readonly property rect receiptRect: rectInRow(receipts)
-    readonly property rect contentRect: {
+    // The content's horizontal extent within one band (top..bottom): only
+    // what shares the band can be beside the notice. A caption BELOW the card
+    // spans the whole row in Modern/Compact (text is not width-capped), and
+    // counting it at every height left no room beside the card at all.
+    function contentRectIn(top, bottom) {
         var left = attachmentRect.x
         var right = left + attachmentRect.width
         for (var i = 0; i < contentItems.length; ++i) {
@@ -112,6 +116,8 @@ Rectangle {
             if (!c || !c.visible || c.width <= 0 || c.height <= 0)
                 continue
             var r = rectInRow(c)
+            if (r.y >= bottom || r.y + r.height <= top)
+                continue
             left = Math.min(left, r.x)
             right = Math.max(right, r.x + r.width)
         }
@@ -191,6 +197,7 @@ Rectangle {
             if (top < rr.y + rr.height && bottom > rr.y)
                 obstacles.push(rr)
         }
+        var contentRect = contentRectIn(top, bottom)
         var start = ownBubble ? margin : contentRect.x + contentRect.width + gap
         var end = ownBubble ? contentRect.x - gap : row.width - margin
         for (var i = 0; i < obstacles.length; ++i) {

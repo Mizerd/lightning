@@ -472,6 +472,28 @@ Item {
         && (model.eventId || "") !== ""
         && (model.eventId || "") === root.timelineModel.searchCurrentEventId
 
+    // Links drawn ON an own bubble. MessageHtml bakes the page's link ink
+    // (AppTheme.link, set once through setMentionStyle) into every anchor, and
+    // on an own bubble's accent fill that ink is ~1:1 (C15-F03: a link read as
+    // a faint smear). Swap the baked ink for the bubble's own text ink and keep
+    // the link legible by its underline, the same rule inlineLinkInk applies to
+    // the row's action links. A no-op off a bubble.
+    function inkLinksForOwnBubble(html) {
+        if (!drawsOnOwnBubble || !html || html.length === 0)
+            return html
+        var link = ("" + AppTheme.link).toLowerCase()
+        var ink = ("" + AppTheme.ownBubbleText).toLowerCase()
+        var out = html
+        // Plain anchor: the whole style is the baked ink.
+        out = out.split("style=\"color:" + link + "\"").join(
+                    "style=\"color:" + ink + "; text-decoration:underline\"")
+        // Mention pill: ink first, then weight/decoration (kept as the pill
+        // sets them); only the ink moves.
+        out = out.split("style=\"color:" + link + ";").join(
+                    "style=\"color:" + ink + ";")
+        return out
+    }
+
     // Wrap every occurrence of `needle` in a highlight span. The body is
     // RichText, so walk it: tags are copied untouched and only text runs are
     // substituted. Entities are atomic, so "amp" does not split "&amp;".
@@ -1132,13 +1154,23 @@ Item {
     // bubbleRow, not bubble: in Bubbles the bubble is sized from its content,
     // so a child clamped against bubble.width would feed its own input. In
     // Modern/Compact this equals bubble.width.
+    // Modern/Compact use the whole row up to its right edge, as Element and
+    // Discord do: a readable-width cap here left a wide window's messages
+    // wrapping at 720 px beside an empty band (reported 2026-10-20). Cards
+    // (media, polls, previews, files, code) keep their own literal caps.
     readonly property real contentInnerCap: {
         var avail = Math.max(1, bubbleRow.width - root.avatarGutterWidth)
-        avail = root.bubbleMode
-                ? Math.max(60, avail - 40 - root.bubbleReceiptInset)
-                : Math.min(AppTheme.timelineContentMaxWidth, avail)
+        if (root.bubbleMode)
+            avail = Math.max(60, avail - 40 - root.bubbleReceiptInset)
         return Math.max(1, avail - root.bubblePad * 2)
     }
+
+    // The width body text may wrap to. A bubble keeps a readable maximum, so a
+    // wide DM is not one long slab; Modern/Compact text reaches the row's
+    // right edge (less the receipt reserve, applied where it is read).
+    readonly property real bodyTextCap: root.bubbleMode
+        ? Math.min(720, root.contentInnerCap)
+        : root.contentInnerCap
 
     // The hover action bar and the read-receipt facepile are anchored to the
     // same rail from opposite ends of the row. On a short row they overlap and
@@ -1661,9 +1693,8 @@ Item {
                                   Math.max(60, parent.width
                                                - root.avatarGutterWidth - 40
                                                - root.bubbleReceiptInset))
-                         // Modern/Compact: full width up to a readable max.
-                       : Math.min(AppTheme.timelineContentMaxWidth,
-                                  Math.max(1, parent.width - root.avatarGutterWidth))
+                         // Modern/Compact: the whole row, to its right edge.
+                       : Math.max(1, parent.width - root.avatarGutterWidth)
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
                 // No mention wash: mentionHighlight is the danger-family badge
@@ -2179,7 +2210,7 @@ Item {
                             if (root.isEmoteRow)
                                 html = root.withEmoteLead(html)
                             return root.highlightSearchMatches(
-                                        html,
+                                        root.inkLinksForOwnBubble(html),
                                         root.searchHighlight,
                                         root.isCurrentSearchHit)
                         }
@@ -2227,10 +2258,8 @@ Item {
                         // column overflow by the reserve and the text ran
                         // under the facepile (break-it B101).
                         Layout.maximumWidth: bubbleRow.width > 8
-                                             ? Math.max(1, Math.min(
-                                                   720,
-                                                   root.contentInnerCap
-                                                   - root.receiptRailReserve))
+                                             ? Math.max(1, root.bodyTextCap
+                                                   - root.receiptRailReserve)
                                              : 560
                         Layout.rightMargin: root.receiptRailReserve
                         // Right-aligned text needs the column's width: a body
@@ -2289,8 +2318,7 @@ Item {
                         visible: active
                         Layout.fillWidth: true
                         Layout.maximumWidth: bubbleRow.width > 8
-                                             ? Math.min(720,
-                                                        root.contentInnerCap)
+                                             ? root.bodyTextCap
                                              : 560
                         Layout.rightMargin: root.receiptRailReserve
                         // Derived from the row, not bubble.width or the
@@ -2298,7 +2326,7 @@ Item {
                         // column's implicit width, which loops. Same cap as
                         // everywhere else (root.contentInnerCap).
                         readonly property real segmentCap:
-                            Math.max(80, Math.min(720,
+                            Math.max(80, Math.min(root.bodyTextCap,
                                                   root.contentInnerCap - 8))
                         sourceComponent: ColumnLayout {
                             spacing: 4
@@ -2368,8 +2396,9 @@ Item {
                                             id: segmentText
                                             objectName: "messageSegmentText"
                                             text: root.highlightSearchMatches(
-                                                      segmentRow.modelData.text
-                                                      || "",
+                                                      root.inkLinksForOwnBubble(
+                                                          segmentRow.modelData.text
+                                                          || ""),
                                                       root.searchHighlight,
                                                       root.isCurrentSearchHit)
                                             // Same ink, font, scaling and interaction

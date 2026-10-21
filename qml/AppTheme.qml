@@ -2106,7 +2106,8 @@ QtObject {
     readonly property int   emojiGlyphSize: 30
 
     // ---- Layout constraints. ----
-    // Maximum width of a timeline row's content, so wide windows stay readable.
+    // Widest a code block grows before its lines scroll. Message text is not
+    // capped by it: Modern/Compact rows wrap at the row's right edge.
     readonly property int timelineContentMaxWidth: 760
 
     // ---- Typography ----

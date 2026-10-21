@@ -20,6 +20,9 @@ Dialog {
     padding: AppTheme.spacing16
 
     property string searchText: ""
+    // A shrunken filtered list must start at its top, not at the stale
+    // offset of the longer one (a blank band above the first row).
+    onSearchTextChanged: targetList.positionViewAtBeginning()
 
     readonly property bool active: app.forward.active
     onActiveChanged: {
@@ -112,109 +115,126 @@ Dialog {
             Accessible.name: qsTr("Search rooms")
         }
 
-        ListView {
-            id: targetList
-            objectName: "forwardTargetRoomList"
+        // The scroller is a sibling over the list, never inside it.
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: AppTheme.spacing4
-            model: app.allRooms
-            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+            ListView {
+                id: targetList
+                objectName: "forwardTargetRoomList"
+                anchors.fill: parent
+                clip: true
+                spacing: AppTheme.spacing4
+                model: app.allRooms
+                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
-            delegate: Rectangle {
-                id: targetRow
-                required property string roomId
-                required property string name
-                required property string avatarUrl
-                required property bool encrypted
-                required property bool isSpace
-                required property string membership
+                delegate: Rectangle {
+                    id: targetRow
+                    required property string roomId
+                    required property string name
+                    required property string avatarUrl
+                    required property bool encrypted
+                    required property bool isSpace
+                    required property string membership
+                    required property int index
 
-                // Joined rooms only (never a Space or thread): an invite or
-                // knock is not somewhere a message can land.
-                readonly property bool eligible:
-                    !isSpace && membership === "joined"
-                readonly property string visibleName:
-                    name.length > 0 ? name : roomId
-                readonly property bool matchesSearch:
-                    root.searchText.trim().length === 0
-                    || visibleName.toLowerCase().indexOf(
-                           root.searchText.trim().toLowerCase()) !== -1
+                    // Joined rooms only (never a Space or thread): an invite or
+                    // knock is not somewhere a message can land.
+                    readonly property bool eligible:
+                        !isSpace && membership === "joined"
+                    readonly property string visibleName:
+                        name.length > 0 ? name : roomId
+                    readonly property bool matchesSearch:
+                        root.searchText.trim().length === 0
+                        || visibleName.toLowerCase().indexOf(
+                               root.searchText.trim().toLowerCase()) !== -1
 
-                visible: eligible && matchesSearch
-                width: targetList.width
-                height: visible ? 56 : 0
-                radius: AppTheme.radiusMd
-                color: rowHover.hovered ? AppTheme.stormSelection
-                                        : "transparent"
-                HoverHandler { id: rowHover; enabled: !app.forward.busy }
+                    visible: eligible && matchesSearch
+                    width: targetList.width
+                    height: visible ? 56 : 0
+                    radius: AppTheme.radiusMd
+                    color: rowHover.hovered ? AppTheme.stormSelection
+                                            : "transparent"
+                    HoverHandler { id: rowHover; enabled: !app.forward.busy }
 
-                Accessible.role: Accessible.ListItem
-                Accessible.name: targetRow.visibleName
-                Accessible.onPressAction: forwardButton.clicked()
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: targetRow.visibleName
+                    Accessible.onPressAction: forwardButton.clicked()
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: AppTheme.spacing8
-                    spacing: AppTheme.spacing8
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: AppTheme.spacing8
+                        spacing: AppTheme.spacing8
 
-                    Avatar {
-                        mxc: targetRow.avatarUrl
-                        name: targetRow.visibleName
-                        size: 40
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-                        Label {
-                            // Remote or externally chosen text: never markup.
-                            textFormat: Text.PlainText
-                            text: targetRow.visibleName
-                            color: AppTheme.stormText
-                            font.family: AppTheme.menuFont
-                            font.pixelSize: AppTheme.textBody
-                            font.weight: AppTheme.weightStrong
-                            elide: Label.ElideRight
+                        Avatar {
+                            mxc: targetRow.avatarUrl
+                            name: targetRow.visibleName
+                            size: 40
+                        }
+                        ColumnLayout {
                             Layout.fillWidth: true
-                        }
-                        // A lock in the success ink, matching the room
-                        // header's.
-                        RowLayout {
-                            visible: targetRow.encrypted
-                            spacing: AppTheme.spacing4
-                            Icon {
-                                name: "lock"
-                                size: 12
-                                color: AppTheme.stormSuccess
-                            }
+                            spacing: 2
                             Label {
-                                text: qsTr("Encrypted")
-                                color: AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.textMeta
+                                // Remote or externally chosen text: never markup.
+                                textFormat: Text.PlainText
+                                text: targetRow.visibleName
+                                color: AppTheme.stormText
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: AppTheme.textBody
+                                font.weight: AppTheme.weightStrong
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            // A lock in the success ink, matching the room
+                            // header's.
+                            RowLayout {
+                                visible: targetRow.encrypted
+                                spacing: AppTheme.spacing4
+                                Icon {
+                                    name: "lock"
+                                    size: 12
+                                    color: AppTheme.stormSuccess
+                                }
+                                Label {
+                                    text: qsTr("Encrypted")
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                }
                             }
                         }
-                    }
-                    AppButton {
-                        id: forwardButton
-                        objectName: "forwardToRoomButton"
-                        storm: true
-                        kind: "primary"
-                        enabled: !app.forward.busy
-                        text: qsTr("Send")
-                        Accessible.name: qsTr("Forward to %1")
-                                        .arg(targetRow.visibleName)
-                        onClicked: app.forward.forwardTo(targetRow.roomId)
+                        AppButton {
+                            id: forwardButton
+                            objectName: "forwardToRoomButton"
+                            storm: true
+                            kind: "primary"
+                            enabled: !app.forward.busy
+                            text: qsTr("Send")
+                            Accessible.name: qsTr("Forward to %1")
+                                            .arg(targetRow.visibleName)
+                            onClicked: app.forward.forwardTo(targetRow.roomId)
+                            // Tabbing to a row below the fold must bring it
+                            // into view, or Space sends to an unseen room.
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    targetList.positionViewAtIndex(
+                                        index, ListView.Contain)
+                            }
+                        }
                     }
                 }
-            }
 
-            Label {
-                anchors.centerIn: parent
-                visible: targetList.count === 0
-                text: qsTr("No rooms")
-                color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.textBody
+                Label {
+                    anchors.centerIn: parent
+                    visible: targetList.count === 0
+                    text: qsTr("No rooms")
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textBody
+                }
+            }
+            MiddleClickScroller {
+                objectName: "forwardMiddleClickScroller"
+                anchors.fill: parent
+                view: targetList
             }
         }
     }

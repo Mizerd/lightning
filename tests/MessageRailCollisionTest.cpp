@@ -447,8 +447,8 @@ private Q_SLOTS:
         // corner). It takes the band centred on the card or, in a taller row,
         // the band just below the toolbar's, right of the content column
         // (left of an own bubble). At 1000px every row has one (a "wide"
-        // caption ends at the 760px column, leaving x 772-996 below the
-        // toolbar's band). At 520px the toolbar's band covers the centred one
+        // caption runs to the row's edge since 2026-10-20, but it is BELOW the
+        // card, so only the bands it shares count). At 520px the toolbar's band covers the centred one
         // and only Compact's tall row (card from x 8) leaves 156px below it.
         // Reactions and the thread summary sit under the content, never
         // beside the card; the `occupied` loop asserts no overlap, and the
@@ -1150,6 +1150,187 @@ private Q_SLOTS:
         QVERIFY2(widest <= 16, qPrintable(QString::number(widest)));
     }
 
+    // Reported 2026-10-20 on a ~1790px window: Modern body text wrapped at
+    // 720px (a literal on the body) inside a 760px content column, leaving an
+    // empty band to the right of every message. Modern and Compact text, and
+    // the reply quote above it, now run to the row's right edge; a narrow row
+    // (600) is the control, where nothing changes.
+    static QString longParagraph()
+    {
+        return QStringLiteral(
+                   "A deliberately long paragraph that keeps going with "
+                   "ordinary words so the line breaks fall wherever the "
+                   "layout puts the right edge of the text column. ")
+            .repeated(8)
+            .trimmed();
+    }
+    void wideRowTextReachesTheRightEdge_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::addColumn<int>("width");
+        for (int layout : {0, 2})
+            for (int width : {1750, 1240, 1000, 600})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2")
+                                             .arg(layout == 0 ? "modern" : "compact")
+                                             .arg(width)))
+                    << layout << width;
+    }
+    void wideRowTextReachesTheRightEdge()
+    {
+        QFETCH(int, layout);
+        QFETCH(int, width);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("body"), longParagraph());
+        f.insert(QStringLiteral("replyToEventId"), QStringLiteral("$quoted"));
+        f.insert(QStringLiteral("replyToSender"), QStringLiteral("Quoted Sender"));
+        f.insert(QStringLiteral("replyToPreview"), longParagraph());
+        Delegate d;
+        QVERIFY(build(app, f, d, width));
+        d.window->resize(width + 40, 600);
+        QCoreApplication::processEvents();
+        auto *row = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messagePresentationRow"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *quote = findVisual(d.root, QStringLiteral("replyNavigationTarget"));
+        QVERIFY2(row && body && quote, "row, body or reply quote missing");
+        QVERIFY(body->isVisible() && quote->isVisible());
+        const qreal edge = rightEdgeIn(row, d.root);
+        const qreal bodyRight = rightEdgeIn(body, d.root);
+        const qreal quoteRight = rightEdgeIn(quote, d.root);
+        // The column reaches the edge and the wrapped lines use it: a line
+        // ends at most one long word short of the column.
+        const qreal painted = body->property("contentWidth").toReal();
+        QVERIFY2(bodyRight >= edge - 1.0 && bodyRight <= edge + 0.5,
+                 qPrintable(QStringLiteral(
+                     "a %1px row: the body ends at %2 and the row at %3, "
+                     "leaving %4px of empty band beside the text")
+                     .arg(width).arg(bodyRight).arg(edge).arg(edge - bodyRight)));
+        QVERIFY2(painted >= body->width() - 90,
+                 qPrintable(QStringLiteral("the lines fill %1 of a %2px column")
+                                .arg(painted).arg(body->width())));
+        QVERIFY2(quoteRight >= edge - 1.0 && quoteRight <= edge + 0.5,
+                 qPrintable(QStringLiteral(
+                     "a %1px row: the reply quote ends at %2, the row at %3")
+                     .arg(width).arg(quoteRight).arg(edge)));
+    }
+
+    // The receipt facepile still keeps the text clear on a wide row, and the
+    // clearance is the pile's own width, not a column cap: the body ends
+    // within one gap of where the faces begin.
+    void wideRowTextStopsAtTheReceiptPile_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::newRow("modern") << 0;
+        QTest::newRow("compact") << 2;
+    }
+    void wideRowTextStopsAtTheReceiptPile()
+    {
+        QFETCH(int, layout);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("body"), longParagraph());
+        f.insert(QStringLiteral("readReceipts"), receipts(4));
+        f.insert(QStringLiteral("readReceiptsTotal"), 4);
+        Delegate d;
+        QVERIFY(build(app, f, d, 1500));
+        d.window->resize(1540, 600);
+        QCoreApplication::processEvents();
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY2(body && pile && pile->width() > 0, "body or facepile missing");
+        const qreal bodyRight = rightEdgeIn(body, d.root);
+        const qreal pileLeft = leftEdgeIn(pile, d.root);
+        QVERIFY2(bodyRight <= pileLeft + 0.5,
+                 qPrintable(QStringLiteral("the body (ends at %1) runs under "
+                                           "the facepile (starts at %2)")
+                                .arg(bodyRight).arg(pileLeft)));
+        QVERIFY2(bodyRight >= pileLeft - 12.0,
+                 qPrintable(QStringLiteral(
+                     "the body ends at %1, %2px short of the facepile at %3: "
+                     "a cap, not the receipt clearance, decides its width")
+                     .arg(bodyRight).arg(pileLeft - bodyRight).arg(pileLeft)));
+    }
+
+    // Full-width text must not reopen the 2026-09-14 collision: on a SHORT
+    // wide row the hover bar still ends before the facepile, and the body
+    // still ends before the facepile.
+    void theActionBarClearsTheReceiptPileOnAWideShortRow_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::newRow("modern") << 0;
+        QTest::newRow("compact") << 2;
+    }
+    void theActionBarClearsTheReceiptPileOnAWideShortRow()
+    {
+        QFETCH(int, layout);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(4));
+        f.insert(QStringLiteral("readReceiptsTotal"), 4);
+        Delegate d;
+        QVERIFY(build(app, f, d, 1500));
+        d.window->resize(1540, 600);
+        QCoreApplication::processEvents();
+        QQuickItem *bar = forceActionBar(d.root);
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        QVERIFY2(bar && pile && body, "bar, facepile or body missing");
+        QVERIFY(bar->width() > 0 && pile->width() > 0);
+        QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("receiptBandMeetsBar"))
+                     .toBool(),
+                 "fixture: the row is not short enough for the bands to meet");
+        const qreal barRight = rightEdgeIn(bar, d.root);
+        const qreal pileLeft = leftEdgeIn(pile, d.root);
+        QVERIFY2(barRight <= pileLeft + 1.0,
+                 qPrintable(QStringLiteral("the action bar (ends at %1) runs "
+                                           "into the facepile (starts at %2)")
+                                .arg(barRight).arg(pileLeft)));
+        QVERIFY2(rightEdgeIn(body, d.root) <= pileLeft + 0.5,
+                 "the body runs under the facepile on a short wide row");
+    }
+
+    // Bubbles keep a readable bubble: a wide DM is not one slab of text.
+    void aWideBubbleKeepsItsReadableWidth_data()
+    {
+        QTest::addColumn<bool>("own");
+        QTest::newRow("incoming") << false;
+        QTest::newRow("own") << true;
+    }
+    void aWideBubbleKeepsItsReadableWidth()
+    {
+        QFETCH(bool, own);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("body"), longParagraph());
+        Delegate d;
+        QVERIFY(build(app, f, d, 1500, /*direct=*/true));
+        d.window->resize(1540, 600);
+        QCoreApplication::processEvents();
+        QVERIFY(d.root->property("bubbleMode").toBool());
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = findVisual(d.root, QStringLiteral("messageBody"));
+        QVERIFY(bubble && body);
+        QVERIFY2(body->width() > 600 && body->width() <= 720.5,
+                 qPrintable(QStringLiteral("a wide bubble's text is %1px wide")
+                                .arg(body->width())));
+        QVERIFY2(bubble->width() <= 740.5,
+                 qPrintable(QStringLiteral("a wide bubble is %1px wide")
+                                .arg(bubble->width())));
+    }
+
     // A short row with receipts: the bar must end before the facepile begins.
     void theActionBarClearsTheReceiptPileOnAShortRow()
     {
@@ -1545,7 +1726,10 @@ private Q_SLOTS:
         QTRY_COMPARE(view->property("pinnedActionsKey").toString(),
                      QStringLiteral("row-a"));
 
-        // Row B: the far right of the row, outside its bubble.
+        // Row B: the far right of the row. Outside the bubble in Bubbles; in
+        // Modern/Compact the content column runs to the row's right edge
+        // (2026-10-20), so the probe is the column's own and the pin must
+        // move all the same.
         auto *bubbleB = b.root->findChild<QQuickItem *>(
             QStringLiteral("messageContentColumn"));
         auto *presB = b.root->findChild<QQuickItem *>(
@@ -1553,8 +1737,10 @@ private Q_SLOTS:
         QVERIFY(bubbleB && presB);
         const QPointF far = presB->mapToScene(
             QPointF(presB->width() - 24, presB->height() - 4));
-        QVERIFY2(!bubbleB->contains(bubbleB->mapFromScene(far)),
-                 "fixture: the probe lands inside the bubble");
+        QVERIFY2(bubbleB->contains(bubbleB->mapFromScene(far)) == (layout != 1),
+                 layout == 1 ? "fixture: the probe lands inside the bubble"
+                             : "the content column no longer reaches the "
+                               "row's right edge");
         QTest::mouseMove(b.window.get(), far.toPoint());
         click(b, far);
         QTRY_COMPARE_WITH_TIMEOUT(view->property("pinnedActionsKey").toString(),

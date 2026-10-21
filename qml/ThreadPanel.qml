@@ -161,6 +161,66 @@ Rectangle {
         value: app.thread.active && panel.visible
                && panel.Window.active === true && replyList.followLatest
     }
+    // Opening the Threads list moves the keyboard into it (the first row), as
+    // opening a thread moves it into the composer; before, focus stayed in the
+    // room behind and no Tab from there reached the panel. The list can open
+    // empty and fill later, so the request stays pending until a row exists.
+    property bool _focusListPending: false
+    // The request only covers the initial load: a list that stays empty must
+    // not steal focus from the room composer when a thread shows up later.
+    Timer {
+        id: focusListWindow
+        interval: 3000
+        running: panel._focusListPending
+        onTriggered: panel._focusListPending = false
+    }
+    Connections {
+        target: app.thread
+        function onListStateChanged() {
+            if (!app.thread.listLoading && threadListView.count === 0)
+                panel._focusListPending = false
+        }
+    }
+    Connections {
+        target: app.thread
+        function onListStateChanged() {
+            if (app.thread.listOpen && !app.thread.active) {
+                if (!panel._focusListPending && !panel._listWasOpen)
+                    panel._focusListPending = true
+                panel._listWasOpen = true
+                Qt.callLater(panel.focusFirstThreadRow)
+            } else {
+                panel._listWasOpen = false
+                panel._focusListPending = false
+            }
+        }
+        function onStateChanged() {
+            // Thread -> list (back arrow) is a fresh list open.
+            if (app.thread.active) {
+                panel._listWasOpen = false
+                panel._focusListPending = false
+            } else if (app.thread.listOpen && !panel._listWasOpen) {
+                panel._listWasOpen = true
+                panel._focusListPending = true
+                Qt.callLater(panel.focusFirstThreadRow)
+            }
+        }
+    }
+    property bool _listWasOpen: false
+    function focusFirstThreadRow() {
+        if (!panel._focusListPending)
+            return
+        if (!panel.visible || app.thread.active || !app.thread.listOpen) {
+            panel._focusListPending = false
+            return
+        }
+        var first = threadListView.itemAtIndex(0)
+        if (first) {
+            panel._focusListPending = false
+            first.forceActiveFocus(Qt.TabFocusReason)
+        }
+    }
+
     // Replying to a message inside the thread gives the thread composer the
     // keyboard, as Reply does for the room composer. Thread reply targets are
     // only ever set by the user (no draft restores one).
@@ -336,6 +396,10 @@ Rectangle {
                 clip: true
                 model: app.thread.threadList
                 spacing: 1
+                // A list that opened empty gets the keyboard when its first
+                // row arrives (see focusFirstThreadRow).
+                onCountChanged: if (count > 0 && panel._focusListPending)
+                    Qt.callLater(panel.focusFirstThreadRow)
                 // Thread rows use the same tile as room rows (avatar, type
                 // scale, inset hover chip), as Element does.
                 delegate: Item {
@@ -1143,6 +1207,41 @@ Rectangle {
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             }
 
+            // Middle-click autoscroll, as in the room timeline: a sibling of
+            // the list over the same area. The wheel engine is cancelled at
+            // gesture start and the list's own settle path runs when it ends,
+            // so follow-latest, older-page requests and the saved position
+            // stay right. A thread switch or close ends it.
+            MiddleClickScroller {
+                id: threadMiddleClickScroller
+                objectName: "threadMiddleClickScroller"
+                anchors.fill: parent
+                z: threadMiddleClickScroller.latched ? 30 : 2
+                visible: app.thread.state === ThreadController.Ready
+                view: replyList
+                minYFunc: function() { return replyList.wheelMinY() }
+                maxYFunc: function() { return replyList.wheelMaxY() }
+                onActiveChanged: {
+                    if (active) {
+                        app.threadScroll.cancel()
+                        replyList.followLatest = false
+                    } else {
+                        replyList.afterWheelSettled()
+                    }
+                }
+                onScrolled: {
+                    if (replyList.contentY - replyList.originY
+                            < replyList.height * 0.5)
+                        app.thread.model.requestOlder()
+                }
+                Connections {
+                    target: app.thread
+                    function onStateChanged() {
+                        threadMiddleClickScroller.stop("thread")
+                    }
+                }
+            }
+
             // Failure notice for reply navigation, the same sentence as the
             // room timeline. An inline pill, not a dialog.
             Label {
@@ -1556,6 +1655,18 @@ Rectangle {
                                     threadRichSpellTimer.restart()
                                 }
                                 Keys.onShortcutOverride: (event) => {
+                                    // Escape is the window's Shortcut while a
+                                    // thread is open (it closes the panel);
+                                    // this box owns it ONLY while there is a
+                                    // reply banner or a mention popup to
+                                    // dismiss first. Otherwise the window's
+                                    // own priority chain (find bar, search,
+                                    // thread) runs unchanged.
+                                    if (event.key === Qt.Key_Escape
+                                            && event.modifiers === Qt.NoModifier
+                                            && (app.thread.inReply
+                                                || threadMentionPopup.visible))
+                                        event.accepted = true
                                     if (app.shortcuts.editorOverrideFor(
                                             event.key, event.modifiers,
                                             panel.activeThreadEditor().selectionStart
@@ -1595,6 +1706,12 @@ Rectangle {
                                             threadMentionPopup.close()
                                             event.accepted = true; return
                                         }
+                                    }
+                                    if (event.key === Qt.Key_Tab
+                                            && event.modifiers === Qt.NoModifier) {
+                                        panel.leaveComposerForward(
+                                            threadRichInput)
+                                        event.accepted = true; return
                                     }
                                     var richFormatAction =
                                         app.shortcuts.editorActionForKey(
@@ -1803,6 +1920,13 @@ Rectangle {
                             // handles, so the key arrives here as a plain
                             // press; Ctrl+K and Ctrl+Q still reach the window.
                             Keys.onShortcutOverride: (event) => {
+                                // See the rich editor: claimed only while a
+                                // reply banner or mention popup is dismissable.
+                                if (event.key === Qt.Key_Escape
+                                        && event.modifiers === Qt.NoModifier
+                                        && (app.thread.inReply
+                                            || threadMentionPopup.visible))
+                                    event.accepted = true
                                 if (app.shortcuts.editorOverrideFor(
                                         event.key, event.modifiers,
                                         panel.activeThreadEditor().selectionStart
@@ -1846,6 +1970,12 @@ Rectangle {
                                 // Editor formatting, before the plain-key
                                 // branches (every editor binding has Ctrl).
                                 // Unrecognised keys are not accepted.
+                                if (event.key === Qt.Key_Tab
+                                        && event.modifiers === Qt.NoModifier) {
+                                    panel.leaveComposerForward(
+                                        threadComposerInput)
+                                    event.accepted = true; return
+                                }
                                 var threadFormatAction =
                                     app.shortcuts.editorActionForKey(
                                         event.key, event.modifiers)
@@ -2389,6 +2519,14 @@ Rectangle {
                 return false
         }
         return replyList.runKeyAction(actionId)
+    }
+
+    // Tab leaves the composer forward instead of typing a tab character
+    // (Shift+Tab already leaves backward).
+    function leaveComposerForward(editor) {
+        var next = editor.nextItemInFocusChain(true)
+        if (next && next !== editor)
+            next.forceActiveFocus(Qt.TabFocusReason)
     }
 
     function activeThreadEditor() {

@@ -332,18 +332,28 @@ TestCase {
             compare(placeCount(1), 1)
         }
     }
-    function test_wideCaptionLeavesNoFreeSide() {
+    // Modern/Compact captions run to the row's right edge (2026-10-20). A
+    // caption BELOW the card does not share the band beside it, so it must not
+    // take that band away: the notice stays beside the card, clear of the
+    // caption, for incoming and own cards alike.
+    function test_wideCaptionBelowTheCardLeavesTheSideBesideIt() {
         captionHeight = 100
         for (var own of [false, true]) {
             ownBubble = own
             all = [item(1, "k1", "saving")]
             tryVerify(function() { return notice.visible })
             captionWidth = 1000
-            tryVerify(function() { return !notice.visible })
-            compare(pane.items.length, 1)
+            wait(0)
+            verify(notice.visible)
+            compare(pane.items.length, 0)
             compare(placeCount(1), 1)
+            var card = fileCard.mapToItem(row, 0, 0)
+            verify(notice.y < card.y + fileCard.height
+                   && notice.y + notice.height > card.y)
+            assertInsideAndClear()
             captionWidth = 340
-            tryVerify(function() { return notice.visible })
+            wait(0)
+            verify(notice.visible)
             compare(placeCount(1), 1)
         }
     }

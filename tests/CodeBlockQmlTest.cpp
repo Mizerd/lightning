@@ -29,6 +29,7 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStyleHints>
@@ -1395,6 +1396,195 @@ private Q_SLOTS:
         QVERIFY(text->property("selectByMouse").toBool());
         QCOMPARE(text->property("text").toString(),
                  QStringLiteral("<b>not bold</b> && <script>x</script>"));
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // C16-F03: the Flickable is non-interactive, so a caret moved by the
+    // keyboard or by a drag-selection used to leave the viewport behind. The
+    // caret must be scrolled into view, both vertically and horizontally.
+    void theCaretIsScrolledIntoViewWhenItMovesPastTheEdge()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *flick = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(flick && text);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+
+        const int lastLine = text->property("text").toString().size();
+        text->setProperty("cursorPosition", lastLine);
+        QCoreApplication::processEvents();
+        const qreal y = flick->property("contentY").toReal();
+        const QRectF caret = text->property("cursorRectangle").toRectF();
+        QVERIFY2(y > 0.0, "the view stayed at the top while the caret moved "
+                          "400 lines down");
+        QVERIFY2(caret.bottom() <= y + flick->height() + 1.0
+                     && caret.top() >= y - 1.0,
+                 "the caret is outside the visible part of the code");
+
+        // And back: shift-extending upward must follow too.
+        text->setProperty("cursorPosition", 0);
+        QCoreApplication::processEvents();
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // C16-F03 (drag): holding a selection drag below the block scrolls it and
+    // keeps extending the selection to the pointer.
+    void aDragHeldPastTheBottomEdgeScrollsAndExtendsTheSelection()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *flick = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        auto *body = h.find(QStringLiteral("codeBlockBody"));
+        QVERIFY(flick && text && body);
+
+        const QPointF start = body->mapToScene(QPointF(
+            flick->x() + 30, 20));
+        const QPointF below = body->mapToScene(QPointF(
+            flick->x() + 30, body->height() + 120));
+        QTest::mousePress(h.window.get(), Qt::LeftButton, Qt::NoModifier,
+                          start.toPoint());
+        QTest::mouseMove(h.window.get(), below.toPoint());
+        // Deterministic: drive the autoscroll step by hand instead of waiting
+        // on the 40 ms timer, which is wall-clock sensitive under load.
+        const qreal before = flick->property("contentY").toReal();
+        for (int i = 0; i < 12; ++i)
+            QVERIFY(QMetaObject::invokeMethod(h.block, "autoscrollTick"));
+        QVERIFY2(flick->property("contentY").toReal() > before + 50.0,
+                 "holding the drag below the block did not scroll it");
+        QTest::mouseRelease(h.window.get(), Qt::LeftButton, Qt::NoModifier,
+                            below.toPoint());
+        const int end = text->property("selectionEnd").toInt();
+        QVERIFY2(end > 100, "the selection did not grow past the first screen");
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // GUARD, NOT A MUTATION-PROVEN REGRESSION TEST: neither focus nor a text
+    // size change makes this TextEdit emit cursorRectangleChanged under a
+    // still caret (logged with a rectangle-keyed handler: it fires only when
+    // the caret moves), so a handler keyed on the rectangle ALSO passes this.
+    // It pins the property that matters - a wheel scroll away from the caret
+    // survives the events a reader causes - and nothing more.
+    void aWheelScrollIsNotUndoneByARelayoutUnderAStillCaret()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *flick = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(flick);
+        QVERIFY(text);
+        // Caret on the last line (the view follows it down), then a wheel
+        // scroll away from it.
+        QVERIFY(text->setProperty("cursorPosition", text->property("length")));
+        QTRY_VERIFY_WITH_TIMEOUT(flick->property("contentY").toReal() > 600.0,
+                                 kTimeoutMs);
+        QVERIFY(flick->setProperty("contentY", 0.0));
+        QCoreApplication::processEvents();
+        const int pos = text->property("cursorPosition").toInt();
+        auto *theme = h.engine->singletonInstance<QObject *>(
+            QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
+        QVERIFY(theme);
+        const qreal scale = theme->property("textScale").toReal();
+        const auto restore = qScopeGuard([&] {
+            theme->setProperty("textScale", scale);
+        });
+        text->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY_WITH_TIMEOUT(text->hasActiveFocus(), kTimeoutMs);
+        QVERIFY(theme->setProperty("textScale", scale * 1.5));
+        (void)text->property("cursorRectangle");
+        QTest::qWait(100);
+        QCOMPARE(text->property("cursorPosition").toInt(), pos);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // GUARD (also passes on r2): selectAll() does not emit cursorPositionChanged,
+    // so the view stays put; this pins that Ctrl+A never scrolls a tall block.
+    void selectAllDoesNotJumpToTheBottom()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        auto *flick = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(flick);
+        QVERIFY(text);
+        QVERIFY(QMetaObject::invokeMethod(text, "selectAll"));
+        for (int i = 0; i < 4; ++i)
+            QCoreApplication::processEvents();
+        QVERIFY(text->property("selectionEnd").toInt() > 0);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // Touch must not arm the drag autoscroll.
+    void theDragHandlerIgnoresTouch()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("echo hi")));
+        auto *ph = h.block->findChild<QObject *>(
+            QStringLiteral("codeBlockDragPoint"));
+        QVERIFY(ph);
+        const auto devices = ph->property("acceptedDevices").toInt();
+        QVERIFY2(!(devices & int(QInputDevice::DeviceType::TouchScreen)),
+                 "the drag handler accepts touch");
+        QVERIFY(devices & int(QInputDevice::DeviceType::Mouse));
+    }
+
+    // C16-F05: Return and the keypad Enter activate the focused Copy button,
+    // as Space already does.
+    void returnAndEnterActivateTheFocusedCopyButton()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("echo hi")));
+        auto *button = h.find(QStringLiteral("codeBlockCopyButton"));
+        QVERIFY(button);
+        for (const Qt::Key key : {Qt::Key_Return, Qt::Key_Enter}) {
+            QGuiApplication::clipboard()->setText(QStringLiteral("sentinel"));
+            button->forceActiveFocus(Qt::TabFocusReason);
+            QTRY_VERIFY_WITH_TIMEOUT(button->hasActiveFocus(), kTimeoutMs);
+            QTest::keyClick(h.window.get(), key);
+            QCOMPARE(QGuiApplication::clipboard()->text(),
+                     QStringLiteral("echo hi"));
+        }
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // C16-F04 (block half): a host can reserve the header's trailing end, and
+    // the Copy button then stays clear of it.
+    void theCopyButtonStaysClearOfAHostReservedTrailingBand()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("echo hi")));
+        auto *button = h.find(QStringLiteral("codeBlockCopyButton"));
+        QVERIFY(button);
+        const qreal before = button->mapToItem(h.block, QPointF(button->width(), 0)).x();
+        QVERIFY(h.block->setProperty("toolbarClearance", 130.0));
+        QCoreApplication::processEvents();
+        const qreal after = button->mapToItem(h.block, QPointF(button->width(), 0)).x();
+        QVERIFY2(before - after > 129.0 && before - after < 131.0,
+                 "toolbarClearance does not move the Copy button");
+        QVERIFY(after <= h.block->width() - 130.0);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // C16-F02: the icon-only Copy button names itself on hover.
+    void theCopyButtonShowsATooltipOnHover()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("echo hi")));
+        auto *button = h.find(QStringLiteral("codeBlockCopyButton"));
+        QVERIFY(button);
+        auto *tip = h.block->findChild<QObject *>(
+            QStringLiteral("codeBlockCopyTip"));
+        QVERIFY2(tip, "the Copy button has no tooltip");
+        QCOMPARE(tip->property("text").toString(), QStringLiteral("Copy code"));
+        QVERIFY(!tip->property("visible").toBool());
+        const QPointF c = button->mapToScene(
+            QPointF(button->width() / 2, button->height() / 2));
+        QTest::mouseMove(h.window.get(), c.toPoint());
+        QTRY_VERIFY_WITH_TIMEOUT(tip->property("visible").toBool(), kTimeoutMs);
         QCOMPARE(h.warnings, QStringList{});
     }
 

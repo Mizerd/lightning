@@ -9504,6 +9504,86 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->readMarkerRow(), -1);
     }
 
+    // C13-F02: a hunt that gives up must say so. The pill used to vanish after
+    // a click that moved nothing. Fails on the old code: no item named
+    // firstUnreadFailedNote exists there.
+    void aFailedFirstUnreadHuntSaysSo()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 20, QStringLiteral("n"), QStringLiteral("body")),
+            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        auto *note = root->findChild<QQuickItem *>(
+            QStringLiteral("firstUnreadFailedNote"));
+        QVERIFY2(note != nullptr, "the failed-hunt note does not exist");
+        QVERIFY(pill != nullptr);
+        QVERIFY(!note->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(pill->isVisible(), 2000);
+        QMetaObject::invokeMethod(pill, "click");
+        // The pill hides when the last page lands; the failed flag is set only
+        // when the retry timer later fires, so wait for the note itself.
+        QTRY_VERIFY2_WITH_TIMEOUT(note->isVisible(), "the pill vanished and nothing told the reader why", 8000);
+        QVERIFY(!pill->isVisible());
+        // At the room start the centred "Beginning of conversation" label
+        // owns the centre; the note must not cover it.
+        if (controller.pagination()->reachedStart()) {
+            const QPointF left = note->parentItem()->mapToItem(
+                root, QPointF(note->x(), 0));
+            const qreal centre = root->width() / 2;
+            QVERIFY2(left.x() > centre || left.x() + note->width() < centre,
+                     "the failed-hunt note sits over the start label");
+        }
+    }
+
+    // C13-F08: once the room's true start is loaded the "Beginning of
+    // conversation" label is centred at the top; the first-unread pill must
+    // not sit over that centre. Fails on the old code, where the pill is
+    // always horizontally centred.
+    void theFirstUnreadPillLeavesTheStartLabelAloneAtTheRoomStart()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QList<TimelineEvent> events =
+            textFixture(roomId, 60, QStringLiteral("s"), QStringLiteral("body"));
+        TimelineEvent marker;
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.insert(10, marker);
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/1,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(pill != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(pill->isVisible(), 2000);
+        for (int i = 0; i < 4 && !controller.pagination()->reachedStart(); ++i) {
+            controller.pagination()->requestNearTop();
+            QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(), 5000);
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->reachedStart(), 5000);
+        const QPointF pillMid = pill->parentItem()->mapToItem(
+            root, QPointF(pill->x() + pill->width() / 2, 0));
+        const qreal centre = root->width() / 2;
+        QVERIFY2(qAbs(pillMid.x() - centre) > pill->width() / 2 + 40,
+                 qPrintable(QStringLiteral("pill centre %1 is over the start "
+                                           "label's centre %2")
+                                .arg(pillMid.x()).arg(centre)));
+    }
+
     // A read-marker row that was loaded and then goes away takes the pill with
     // it. The "opened with unread" snapshot stands in only for a marker the
     // reader has not seen loaded; once the row was there, its removal (the
