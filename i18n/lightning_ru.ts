@@ -6768,15 +6768,23 @@ Signing out and signing in again is the only fix.</source>
         <source>Message removed</source>
         <translation>Сообщение удалено</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>Изображений: %n</translation>
+        <translation>
+            <numerusform>Изображений: %n</numerusform>
+            <numerusform>Изображений: %n</numerusform>
+            <numerusform>Изображений: %n</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>Вложений: %n</translation>
+        <translation>
+            <numerusform>Вложений: %n</numerusform>
+            <numerusform>Вложений: %n</numerusform>
+            <numerusform>Вложений: %n</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

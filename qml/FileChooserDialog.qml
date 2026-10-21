@@ -546,10 +546,10 @@ Dialog {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
         if (bytes < 1024 * 1024)
-            return qsTr("%1 KB").arg((bytes / 1024).toFixed(1))
+            return qsTr("%1 KB").arg(Number(bytes / 1024).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
         if (bytes < 1024 * 1024 * 1024)
-            return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
-        return qsTr("%1 GB").arg((bytes / (1024 * 1024 * 1024)).toFixed(1))
+            return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
+        return qsTr("%1 GB").arg(Number(bytes / (1024 * 1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
 
     function humanDate(d) {
@@ -562,10 +562,10 @@ Dialog {
             var settings = (typeof app !== "undefined" && app && app.settings)
                            ? app.settings : null
             return settings ? Qt.formatTime(d, settings.clockTimeFormat)
-                            : Qt.locale().toString(d, Locale.ShortFormat)
+                            : Qt.locale(AppLocale.name).toString(d, Locale.ShortFormat)
         }
         // The UI locale's month names, not Qt.formatDate's English ones.
-        return Qt.locale().toString(d, "d MMM yyyy")
+        return Qt.locale(AppLocale.name).toString(d, "d MMM yyyy")
     }
 
     function sortBy(field) {

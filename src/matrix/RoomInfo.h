@@ -1,5 +1,7 @@
 #pragma once
 
+#include "matrix/PreviewToken.h"
+
 #include <QDateTime>
 #include <QHash>
 #include <QString>
@@ -23,7 +25,44 @@ struct RoomInfo {
     QString name;
     QString topic;
     QString avatarUrl;
+    // The words the room list shows, in the UI language they were written in.
+    // When previewKind is not Text they are render(previewKind, previewArg)
+    // and retranslatePreview() writes them again after a language switch.
+    // Backends write the three through setPreviewText()/setPreview() so they
+    // can never disagree.
     QString lastMessagePreview;
+    matrix::preview::Kind previewKind = matrix::preview::Kind::Text;
+    QString previewArg;
+
+    // Free text: a message body, a file name. Never re-worded.
+    void setPreviewText(const QString &text)
+    {
+        lastMessagePreview = text;
+        previewKind = matrix::preview::Kind::Text;
+        previewArg.clear();
+    }
+    void setPreview(matrix::preview::Kind kind, const QString &arg = QString())
+    {
+        if (kind == matrix::preview::Kind::Text) {
+            setPreviewText(arg);
+            return;
+        }
+        previewKind = kind;
+        previewArg = arg;
+        lastMessagePreview = matrix::preview::render(kind, arg);
+    }
+    // Words the preview again in the current UI language; true when that
+    // changed what the room list shows.
+    bool retranslatePreview()
+    {
+        if (previewKind == matrix::preview::Kind::Text)
+            return false;
+        const QString now = matrix::preview::render(previewKind, previewArg);
+        if (now == lastMessagePreview)
+            return false;
+        lastMessagePreview = now;
+        return true;
+    }
     // The room list's sort key. Write it only through raiseActivity().
     QDateTime lastActivity;
 
@@ -139,6 +178,7 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
     return a.id == b.id && a.name == b.name && a.topic == b.topic
         && a.avatarUrl == b.avatarUrl
         && a.lastMessagePreview == b.lastMessagePreview
+        && a.previewKind == b.previewKind && a.previewArg == b.previewArg
         && a.lastActivity == b.lastActivity
         && a.unreadCount == b.unreadCount
         && a.highlightCount == b.highlightCount

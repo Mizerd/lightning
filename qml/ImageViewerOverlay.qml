@@ -700,7 +700,7 @@ Popup {
                           && (viewer.current.sender || "").length > 0
                           ? qsTr("%1 · %2")
                                 .arg(viewer.current.sender)
-                                .arg(Qt.locale().toString(viewer.current.timestamp,
+                                .arg(Qt.locale(AppLocale.name).toString(viewer.current.timestamp,
                                                        "d MMM yyyy hh:mm"))
                           : viewer.current !== null
                             ? (viewer.current.linkHost || "") : ""

@@ -6750,15 +6750,21 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <source>Message removed</source>
         <translation>Mensaje eliminado</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n imagen(es)</translation>
+        <translation>
+            <numerusform>%n imagen</numerusform>
+            <numerusform>%n imágenes</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n archivo(s) adjunto(s)</translation>
+        <translation>
+            <numerusform>%n archivo adjunto</numerusform>
+            <numerusform>%n archivos adjuntos</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

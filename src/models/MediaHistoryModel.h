@@ -97,6 +97,11 @@ public:
 
     void setClient(MatrixClient *client);
 
+    // The date groups are words in the UI language ("Yesterday", "October
+    // 2026"), made in data(); a language switch re-reads them. AppController
+    // calls it on AppLocale::changed.
+    void retranslate();
+
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;

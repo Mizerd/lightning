@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/PresentableName.h"
+#include "matrix/PreviewToken.h"
 
 #include <QString>
 
@@ -28,6 +29,16 @@ QString ownJoinPreview();
 
 QString oneLineSummary(const TimelineEvent &event,
                        const QString &actorLabel = QString());
+
+/// What oneLineSummary() says, as a kind and its argument (PreviewToken.h),
+/// for a surface that keeps the preview and must word it again when the UI
+/// language changes (the room list). render(kind, arg) == oneLineSummary().
+struct Token {
+    Kind kind = Kind::Text;
+    QString arg;
+};
+Token summaryToken(const TimelineEvent &event,
+                   const QString &actorLabel = QString());
 
 // A room-state sentence from the Rust bridge opens with the sender's user id
 // ("@alice:example.org changed the room name."), because the bridge phrases it

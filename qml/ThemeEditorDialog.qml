@@ -2952,9 +2952,9 @@ Popup {
                                           ? qsTr("see-through")
                                           : checkRow.modelData.kind === "ink"
                                             ? qsTr("%1:1").arg(
-                                                  checkRow.modelData.value.toFixed(1))
+                                                  checkRow.modelData.value.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
                                             : qsTr("ΔL* %1").arg(
-                                                  checkRow.modelData.value.toFixed(1))
+                                                  checkRow.modelData.value.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
                                     color: !checkRow.graded
                                            ? AppTheme.editorTextMuted
                                            : checkRow.modelData.passes
@@ -2971,7 +2971,7 @@ Popup {
                                     visible: checkRow.graded
                                     textFormat: Text.PlainText
                                     text: qsTr("/ %1").arg(
-                                              checkRow.modelData.minimum.toFixed(1))
+                                              checkRow.modelData.minimum.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
                                     color: AppTheme.editorTextMuted
                                     font.family: AppTheme.monoFont
                                     font.pixelSize: AppTheme.textMeta

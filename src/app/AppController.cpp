@@ -203,9 +203,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     // The default QLocale follows the language, but QML timestamp bindings
     // only re-run on a notify: clockTimeFormat reads the locale fresh, so
-    // announce it on a language change (the bindings that also call
-    // Qt.locale() then re-read that too).
-    connect(m_localization.get(), &LocalizationManager::languageChanged,
+    // announce it once the language change is complete (AppLocale::changed
+    // comes after the engine has retranslated; bindings that call
+    // Qt.locale(AppLocale.name) depend on it as well).
+    connect(AppLocale::instance(), &AppLocale::changed,
             m_settings.get(), &SettingsManager::clockFormatChanged);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
     // Constructed before any QML exists so the first frame already carries
@@ -388,6 +389,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_widgets = std::make_unique<WidgetController>(this);
     m_activity = std::make_unique<ActivityModel>(this);
     m_mediaHistory = std::make_unique<MediaHistoryModel>(this);
+    // Its date-group headers are worded in the formatting locale.
+    connect(AppLocale::instance(), &AppLocale::changed,
+            m_mediaHistory.get(), &MediaHistoryModel::retranslate);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);

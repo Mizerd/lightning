@@ -2,6 +2,8 @@
 #include "matrix/RoomUnreadRule.h"
 #include "app/SettingsManager.h"
 
+#include "i18n/TimeLocale.h"
+
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
@@ -3765,8 +3767,14 @@ QString SettingsManager::clockTimeFormat() const
     default:
         break;
     }
-    // The locale's short format, queried fresh so locale changes apply.
-    return QLocale().timeFormat(QLocale::ShortFormat);
+    // "Follow the system", queried fresh so a language switch applies: the
+    // desktop's own pattern when its time category speaks the UI language,
+    // else its 12/24-hour cycle in the UI language's pattern (see
+    // i18n::followSystemClockFormat). QLocale() is the formatting locale
+    // LocalizationManager installs.
+    return i18n::followSystemClockFormat(
+        QLocale(), i18n::timeCategoryLocale(),
+        QLocale::system().timeFormat(QLocale::ShortFormat));
 }
 
 bool SettingsManager::enterInsertsNewline() const

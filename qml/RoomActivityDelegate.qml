@@ -61,7 +61,7 @@ Item {
             return ""
         if (root.sameCalendarDay(first, last))
             return ""
-        var locale = Qt.locale()
+        var locale = Qt.locale(AppLocale.name)
         return qsTr("%1 – %2").arg(locale.toString(first, "d MMM"))
                               .arg(locale.toString(last, "d MMM"))
     }

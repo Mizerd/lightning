@@ -332,7 +332,7 @@ Item {
         if (bytes < 1024) return qsTr("%1 B").arg(bytes)
         if (bytes < 1024 * 1024)
             return qsTr("%1 KB").arg(Math.round(bytes / 1024))
-        return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
+        return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
     // Functions rather than properties: they only run inside the summary
     // component (collapsed rows), so uncollapsed rows pay nothing. Property
@@ -1172,8 +1172,8 @@ Item {
         if (days === 0) return qsTr("Today")
         if (days === 1) return qsTr("Yesterday")
         if (days > 1 && days < 7)
-            return Qt.locale().toString(ts, "dddd")
-        return Qt.locale().toString(
+            return Qt.locale(AppLocale.name).toString(ts, "dddd")
+        return Qt.locale(AppLocale.name).toString(
             ts, ts.getFullYear() === now.getFullYear() ? "d MMMM"
                                                        : "d MMMM yyyy")
     }
@@ -3652,8 +3652,8 @@ Item {
                 if (d >= startOfToday)
                     return Qt.formatTime(d, app.settings.clockTimeFormat)
                 if (startOfToday - d < 6 * 86400000)
-                    return Qt.locale().toString(d, "ddd hh:mm")
-                return Qt.locale().toString(d, "MMM d, hh:mm")
+                    return Qt.locale(AppLocale.name).toString(d, "ddd hh:mm")
+                return Qt.locale(AppLocale.name).toString(d, "MMM d, hh:mm")
             }
             // The names behind the "+N" pill (the bridge delivers up to 16).
             function overflowNames() {

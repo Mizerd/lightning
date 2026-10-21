@@ -6768,15 +6768,23 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <source>Message removed</source>
         <translation>Žinutė pašalinta</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>Paveikslėlių: %n</translation>
+        <translation>
+            <numerusform>Paveikslėlių: %n</numerusform>
+            <numerusform>Paveikslėlių: %n</numerusform>
+            <numerusform>Paveikslėlių: %n</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>Priedų: %n</translation>
+        <translation>
+            <numerusform>Priedų: %n</numerusform>
+            <numerusform>Priedų: %n</numerusform>
+            <numerusform>Priedų: %n</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

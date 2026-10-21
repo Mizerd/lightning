@@ -6732,15 +6732,19 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <source>Message removed</source>
         <translation>Pesan dihapus</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n gambar</translation>
+        <translation>
+            <numerusform>%n gambar</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n lampiran</translation>
+        <translation>
+            <numerusform>%n lampiran</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

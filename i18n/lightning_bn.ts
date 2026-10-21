@@ -6741,15 +6741,21 @@ Signing out and signing in again is the only fix.</source>
         <source>Message removed</source>
         <translation>বার্তা সরিয়ে ফেলা হয়েছে</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n টি ছবি</translation>
+        <translation>
+            <numerusform>%n টি ছবি</numerusform>
+            <numerusform>%n টি ছবি</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n টি সংযুক্তি</translation>
+        <translation>
+            <numerusform>%n টি সংযুক্তি</numerusform>
+            <numerusform>%n টি সংযুক্তি</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

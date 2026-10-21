@@ -165,7 +165,9 @@ bool CacheStore::ensureSchema()
         "  last_preview TEXT,"
         "  prev_batch TEXT,"
         "  is_space INTEGER NOT NULL DEFAULT 0,"
-        "  child_room_ids TEXT NOT NULL DEFAULT ''"
+        "  child_room_ids TEXT NOT NULL DEFAULT '',"
+        "  preview_kind INTEGER NOT NULL DEFAULT 0,"
+        "  preview_arg TEXT NOT NULL DEFAULT ''"
         ")",
         "CREATE TABLE IF NOT EXISTS events ("
         "  event_id TEXT PRIMARY KEY,"
@@ -217,6 +219,13 @@ bool CacheStore::ensureSchema()
           "ALTER TABLE rooms ADD COLUMN child_room_ids TEXT NOT NULL DEFAULT ''" },
         { "events", "thread_root_id",
           "ALTER TABLE events ADD COLUMN thread_root_id TEXT NOT NULL DEFAULT ''" },
+        // A preview kept as a kind (matrix/PreviewToken.h) rather than words.
+        // An existing row gets kind 0, Text: its last_preview is shown as it
+        // was, exactly as before the migration.
+        { "rooms",  "preview_kind",
+          "ALTER TABLE rooms ADD COLUMN preview_kind INTEGER NOT NULL DEFAULT 0" },
+        { "rooms",  "preview_arg",
+          "ALTER TABLE rooms ADD COLUMN preview_arg TEXT NOT NULL DEFAULT ''" },
     };
     for (const auto &a : adds) {
         if (columnExists(db, QLatin1String(a.table), QLatin1String(a.col)))
@@ -225,17 +234,25 @@ bool CacheStore::ensureSchema()
         if (!m.exec(QLatin1String(a.ddl))) {
             qCWarning(lcCache) << "migration failed for" << a.table << a.col
                                << m.lastError().text();
-            // Non-fatal: the new fields just will not persist.
+            // Non-fatal: the new fields do not persist. The preview columns
+            // are read and written only when present (m_previewColumns); the
+            // older is_space/child_room_ids/thread_root_id are not guarded and
+            // a failure there does fail their queries.
         } else {
             qCInfo(lcCache) << "migrated" << a.table << "->" << a.col;
         }
     }
+
+    m_previewColumns = columnExists(db, QStringLiteral("rooms"),
+                                    QStringLiteral("preview_kind"))
+        && columnExists(db, QStringLiteral("rooms"), QStringLiteral("preview_arg"));
 
     // Repair NULLs that older builds wrote into NOT NULL columns (see
     // textNonNull()). Idempotent, and a no-op on clean databases.
     struct Repair { const char *table; const char *column; };
     static const Repair repairs[] = {
         { "rooms",  "child_room_ids" },
+        { "rooms",  "preview_arg" },  // a harmless failed UPDATE when absent
         { "events", "thread_root_id" },
     };
     for (const auto &r : repairs) {
@@ -268,8 +285,9 @@ QList<RoomInfo> CacheStore::loadRooms()
     q.prepare(QStringLiteral(
         "SELECT id, name, topic, avatar_mxc, encrypted, unread, "
         "       last_activity_ms, last_preview, prev_batch, "
-        "       is_space, child_room_ids "
-        "FROM rooms"));
+        "       is_space, child_room_ids%1 "
+        "FROM rooms").arg(m_previewColumns ? QStringLiteral(", preview_kind, preview_arg")
+                                           : QString()));
     if (!q.exec()) {
         qCWarning(lcCache) << "loadRooms" << q.lastError().text();
         return out;
@@ -286,6 +304,17 @@ QList<RoomInfo> CacheStore::loadRooms()
         if (ms > 0)
             r.lastActivity   = QDateTime::fromMSecsSinceEpoch(ms);
         r.lastMessagePreview = q.value(7).toString();
+        // Worded now, in the language current at load. An unknown kind (a
+        // newer build's) keeps the stored words.
+        // Known limit (HTTP backend only): a build older than these columns
+        // rewrites last_preview and leaves preview_kind alone, so after a
+        // downgrade and re-upgrade a room can show its stale kind over newer
+        // words until it next syncs. Accepted: the store cannot tell which of
+        // the two an older build wrote.
+        const int kind = m_previewColumns ? q.value(11).toInt() : 0;
+        if (kind != 0 && matrix::preview::isKnownKind(kind))
+            r.setPreview(static_cast<matrix::preview::Kind>(kind),
+                         q.value(12).toString());
         r.prevBatchToken     = q.value(8).toString();
         r.isSpace            = q.value(9).toBool();
         const QString ids    = q.value(10).toString();
@@ -306,9 +335,9 @@ void CacheStore::saveRoom(const RoomInfo &r)
     q.prepare(QStringLiteral(
         "INSERT INTO rooms (id, name, topic, avatar_mxc, encrypted, unread, "
         "                   last_activity_ms, last_preview, prev_batch, "
-        "                   is_space, child_room_ids) "
+        "                   is_space, child_room_ids%1) "
         "VALUES (:id, :name, :topic, :avatar, :enc, :unread, :ts, :prev, :prevBatch,"
-        "        :space, :children) "
+        "        :space, :children%2) "
         "ON CONFLICT(id) DO UPDATE SET "
         "  name=excluded.name, topic=excluded.topic, avatar_mxc=excluded.avatar_mxc,"
         "  encrypted=excluded.encrypted, unread=excluded.unread,"
@@ -316,7 +345,12 @@ void CacheStore::saveRoom(const RoomInfo &r)
         "  last_preview=excluded.last_preview,"
         "  prev_batch=excluded.prev_batch,"
         "  is_space=excluded.is_space,"
-        "  child_room_ids=excluded.child_room_ids"));
+        "  child_room_ids=excluded.child_room_ids%3")
+        .arg(m_previewColumns ? QStringLiteral(", preview_kind, preview_arg") : QString(),
+             m_previewColumns ? QStringLiteral(", :previewKind, :previewArg") : QString(),
+             m_previewColumns ? QStringLiteral(", preview_kind=excluded.preview_kind,"
+                                               "  preview_arg=excluded.preview_arg")
+                              : QString()));
     q.bindValue(QStringLiteral(":id"),        r.id);
     q.bindValue(QStringLiteral(":name"),      r.name);
     q.bindValue(QStringLiteral(":topic"),     r.topic);
@@ -330,6 +364,15 @@ void CacheStore::saveRoom(const RoomInfo &r)
     // custom C++ cache; the SDK store remains the sole encrypted-state owner.
     q.bindValue(QStringLiteral(":prev"),
                 r.encrypted ? QString{} : r.lastMessagePreview);
+    // The same rule for the kind and its argument: the argument can be
+    // decrypted text (a file name, a poll question) and the kind says what
+    // an encrypted message was. Neither is written for an encrypted room.
+    if (m_previewColumns) {
+        q.bindValue(QStringLiteral(":previewKind"),
+                    r.encrypted ? 0 : static_cast<int>(r.previewKind));
+        q.bindValue(QStringLiteral(":previewArg"),
+                    textNonNull(r.encrypted ? QString{} : r.previewArg));
+    }
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
     q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
     // Non-null, so rooms without children store '' (see textNonNull()).

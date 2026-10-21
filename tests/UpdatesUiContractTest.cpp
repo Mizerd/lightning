@@ -351,7 +351,7 @@ private Q_SLOTS:
         QVERIFY(!section.contains(QStringLiteral("lastCheckTime.length")));
         // Formatted as a date in the UI locale (Qt.formatDateTime would
         // ignore it and print English month names).
-        QVERIFY(block.contains(QStringLiteral("Qt.locale().toString(")));
+        QVERIFY(block.contains(QStringLiteral("Qt.locale(AppLocale.name).toString(")));
     }
 
     // ---- Idle does not claim a check has never run ----

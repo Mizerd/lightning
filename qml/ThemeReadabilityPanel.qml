@@ -295,11 +295,11 @@ ColumnLayout {
                                 textFormat: Text.PlainText
                                 text: problemRow.modelData.kind === "ink"
                                       ? qsTr("%1:1 — needs %2:1")
-                                        .arg(problemRow.modelData.value.toFixed(1))
-                                        .arg(problemRow.modelData.minimum.toFixed(1))
+                                        .arg(problemRow.modelData.value.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
+                                        .arg(problemRow.modelData.minimum.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
                                       : qsTr("ΔL* %1 — needs %2")
-                                        .arg(problemRow.modelData.value.toFixed(1))
-                                        .arg(problemRow.modelData.minimum.toFixed(1))
+                                        .arg(problemRow.modelData.value.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
+                                        .arg(problemRow.modelData.minimum.toLocaleString(Qt.locale(AppLocale.name), "f", 1))
                                 color: AppTheme.editorDanger
                                 font.family: AppTheme.monoFont
                                 font.pixelSize: AppTheme.textMeta

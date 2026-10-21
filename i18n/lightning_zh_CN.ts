@@ -6732,15 +6732,19 @@ Signing out and signing in again is the only fix.</source>
         <source>Message removed</source>
         <translation>消息已被移除</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n 张图片</translation>
+        <translation>
+            <numerusform>%n 张图片</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n 个附件</translation>
+        <translation>
+            <numerusform>%n 个附件</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

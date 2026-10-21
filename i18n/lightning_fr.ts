@@ -6750,15 +6750,21 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <source>Message removed</source>
         <translation>Message supprimé</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n image(s)</translation>
+        <translation>
+            <numerusform>%n image</numerusform>
+            <numerusform>%n images</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n pièce(s) jointe(s)</translation>
+        <translation>
+            <numerusform>%n pièce jointe</numerusform>
+            <numerusform>%n pièces jointes</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

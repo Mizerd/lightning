@@ -84,7 +84,7 @@ ColumnLayout {
         if (!n || n <= 0) return "0 B"
         if (n < 1024) return n + " B"
         if (n < 1024 * 1024) return Math.round(n / 1024) + " KB"
-        return (n / (1024 * 1024)).toFixed(1) + " MB"
+        return Number(n / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1) + " MB"
     }
 
     // SettingsScreen's SettingsCard by another name, so these cards sit on the
@@ -216,7 +216,7 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textMeta
                 text: qsTr("Last checked: %1").arg(
                     root.everChecked
-                        ? Qt.locale().toString(root.um.lastCheckTime,
+                        ? Qt.locale(AppLocale.name).toString(root.um.lastCheckTime,
                                             "d MMM yyyy hh:mm")
                         : "")
             }

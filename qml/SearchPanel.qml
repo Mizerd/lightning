@@ -461,7 +461,8 @@ Rectangle {
                                 }
                                 Label {
                                     text: new Date(Number(resultDelegate.timestampMs))
-                                              .toLocaleDateString(Qt.locale(), Locale.ShortFormat)
+                                              .toLocaleDateString(Qt.locale(AppLocale.name), Locale.ShortFormat)
+                                    textFormat: Text.PlainText
                                     color: AppTheme.textMuted
                                     // Scaled like the sender name beside it.
                                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

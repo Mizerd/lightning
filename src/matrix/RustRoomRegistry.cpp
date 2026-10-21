@@ -53,22 +53,33 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
         // raiseActivity is monotonic and the only writer of the sort key.
         const bool newer = room.raiseActivity(timestampFromMs(static_cast<qint64>(
             obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
-        if (!incomingPreview.isEmpty())
-            room.lastMessagePreview = incomingPreview;
+        // A preview Rust would have to word ("Image", "Poll: …") arrives as a
+        // kind as well, worded here in the UI language and again on every
+        // language switch; the English text beside it is only a fallback for
+        // a kind this build does not know.
+        const matrix::preview::Kind incomingKind = matrix::preview::kindFromWire(
+            obj.value(QStringLiteral("last_message_preview_kind")).toString());
+        if (!incomingPreview.isEmpty() && incomingKind != matrix::preview::Kind::Text)
+            room.setPreview(incomingKind,
+                            matrix::preview::normalizePreviewText(
+                                obj.value(QStringLiteral("last_message_preview_arg"))
+                                    .toString()));
+        else if (!incomingPreview.isEmpty())
+            room.setPreviewText(incomingPreview);
         // The newest event cannot be decrypted. It replaces a kept preview only
         // when it is newer than everything this row knows: the kept text is
         // then an OLDER message, and keeping it paired the old text with the
         // new event's time (break-it B084). A preview as new or newer (the
         // event decrypted in an open timeline) stays.
         else if (undecryptable && (room.lastMessagePreview.isEmpty() || newer))
-            room.lastMessagePreview = matrix::preview::undecryptablePreview();
+            room.setPreview(matrix::preview::Kind::Undecryptable);
         // Our own join is the newest event and nothing has been said yet (a
         // DM just accepted): words instead of a blank line. Only a BLANK row:
         // any preview it already has (an open timeline's state row, a live
         // message) describes the same room at least as well.
         else if (obj.value(QStringLiteral("last_message_own_join")).toBool(false)
                  && room.lastMessagePreview.isEmpty())
-            room.lastMessagePreview = matrix::preview::ownJoinPreview();
+            room.setPreview(matrix::preview::Kind::OwnJoin);
     }
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
     room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
@@ -322,7 +333,7 @@ QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms)
             // event skips it, so the preview is an older message): show the
             // placeholder, so preview and time describe the same event.
             if (obj.value(QStringLiteral("last_message_undecryptable")).toBool(false))
-                it->lastMessagePreview = matrix::preview::undecryptablePreview();
+                it->setPreview(matrix::preview::Kind::Undecryptable);
             moved.append(id);
         }
     }

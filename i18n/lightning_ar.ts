@@ -6813,15 +6813,29 @@ Signing out and signing in again is the only fix.</source>
         <source>Message removed</source>
         <translation>أُزيلت الرسالة</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n صورة</translation>
+        <translation>
+            <numerusform>%n صورة</numerusform>
+            <numerusform>%n صورة</numerusform>
+            <numerusform>%n صورة</numerusform>
+            <numerusform>%n صورة</numerusform>
+            <numerusform>%n صورة</numerusform>
+            <numerusform>%n صورة</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n مرفق</translation>
+        <translation>
+            <numerusform>%n مرفق</numerusform>
+            <numerusform>%n مرفق</numerusform>
+            <numerusform>%n مرفق</numerusform>
+            <numerusform>%n مرفق</numerusform>
+            <numerusform>%n مرفق</numerusform>
+            <numerusform>%n مرفق</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

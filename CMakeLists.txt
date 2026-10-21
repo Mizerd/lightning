@@ -1388,7 +1388,7 @@ function(_lightning_configure_qml_module target _scope)
     endif()
     # qmltyperegistrar probes each QML_ELEMENT header as <HeaderName.h>, so
     # every directory holding a registered type must be on the include path.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers src/privacy)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers src/privacy src/i18n)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
@@ -1938,9 +1938,31 @@ if(BUILD_TESTING)
         target_compile_definitions(localization-test PRIVATE
             LIGHTNING_QM_DIR="${CMAKE_CURRENT_BINARY_DIR}/i18n")
     endif()
+    # Qt6::Qml: LocalizationManager.h declares the AppLocale QML singleton.
     target_link_libraries(localization-test PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME localization COMMAND localization-test)
+
+    # Dates and numbers follow the UI language and a switch: the default
+    # QLocale on a desktop whose LC_TIME differs from its LANG, the AppLocale
+    # singleton QML binds to, and a scan of qml/ for formatting that bypasses
+    # it. Sets its own locale environment in main().
+    qt_add_executable(locale-follows-language-test
+        tests/LocaleFollowsLanguageTest.cpp
+        src/i18n/LocalizationManager.h
+        src/i18n/LocalizationManager.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(locale-follows-language-test PRIVATE src)
+    target_compile_definitions(locale-follows-language-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(locale-follows-language-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME locale-follows-language COMMAND locale-follows-language-test)
 
     qt_add_executable(settings-session-test
         tests/SettingsSessionTest.cpp
@@ -4240,6 +4262,17 @@ if(BUILD_TESTING)
     set_tests_properties(qml-component-load PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # The AppLocale QML singleton through the shipped MatrixClient module.
+    qt_add_executable(app-locale-qml-test
+        tests/AppLocaleQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(app-locale-qml-test)
+    target_link_libraries(app-locale-qml-test PRIVATE Qt6::Test)
+    add_test(NAME app-locale-qml COMMAND app-locale-qml-test)
+    set_tests_properties(app-locale-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Change password section: Password echo on every field, and the fields
     # empty with no undo history after submit, on hide and when the account
     # page takes over.
@@ -4908,6 +4941,23 @@ if(BUILD_TESTING)
     target_include_directories(event-preview-test PRIVATE src)
     target_link_libraries(event-preview-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME event-preview COMMAND event-preview-test)
+
+    # Room-list previews follow the UI language: a preview that is words is
+    # kept as a kind and worded with the current translators, at ingest,
+    # after a switch and when the cache is read.
+    qt_add_executable(room-preview-language-test
+        tests/RoomPreviewLanguageTest.cpp
+        src/matrix/PreviewToken.h
+        src/matrix/RustRoomRegistry.cpp
+        src/matrix/EventPreview.cpp
+        src/storage/CacheStore.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(room-preview-language-test PRIVATE src)
+    target_link_libraries(room-preview-language-test PRIVATE
+        Qt6::Core Qt6::Sql Qt6::Test)
+    add_test(NAME room-preview-language COMMAND room-preview-language-test)
 
     # Which invites are announced and when one has resolved, across the room
     # list's remove-and-insert re-sorts. Pure logic.

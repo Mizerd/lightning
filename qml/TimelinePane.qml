@@ -643,8 +643,8 @@ Rectangle {
             if (d >= startOfToday)
                 return Qt.formatTime(d, app.settings.clockTimeFormat)
             if (startOfToday - d < 6 * 86400000)
-                return Qt.locale().toString(d, "ddd hh:mm")
-            return Qt.locale().toString(d, "MMM d, hh:mm")
+                return Qt.locale(AppLocale.name).toString(d, "ddd hh:mm")
+            return Qt.locale(AppLocale.name).toString(d, "MMM d, hh:mm")
         }
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
@@ -2145,7 +2145,7 @@ Rectangle {
                                     var d = new Date(Number(
                                         historyRow.timestampMs))
                                     return d.toLocaleDateString(
-                                        Qt.locale(), Locale.ShortFormat)
+                                        Qt.locale(AppLocale.name), Locale.ShortFormat)
                                 }
                                 color: AppTheme.textMuted
                                 font.family: AppTheme.uiFont

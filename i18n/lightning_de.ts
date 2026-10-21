@@ -6750,15 +6750,21 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <source>Message removed</source>
         <translation>Nachricht entfernt</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>Bilder: %n</translation>
+        <translation>
+            <numerusform>%n Bild</numerusform>
+            <numerusform>%n Bilder</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>Anhänge: %n</translation>
+        <translation>
+            <numerusform>%n Anhang</numerusform>
+            <numerusform>%n Anhänge</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

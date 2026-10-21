@@ -13168,10 +13168,13 @@ async fn run_modern_sync(
                                     previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
                                 };
                                 results.remember(&room_id, what);
+                                let (preview, preview_kind, preview_arg) = preview_wire(&preview);
                                 enqueue(&events, json!({
                                     "type": "room_preview_backfill",
                                     "room_id": room_id.to_string(),
                                     "preview": preview,
+                                    "preview_kind": preview_kind,
+                                    "preview_arg": preview_arg,
                                     "undecryptable": utd,
                                     "last_activity_ms": ts,
                                 }));
@@ -14733,7 +14736,7 @@ async fn undecryptable_now(room: &Room, event_id: &EventId) -> previewbackfill::
     };
     match cache.find_event(event_id).await {
         Ok(Some(event)) if event.kind.is_utd() => UndecryptableNow::StillUndecryptable,
-        Ok(Some(event)) => UndecryptableNow::Decrypted(raw_event_preview_text(event.raw())),
+        Ok(Some(event)) => UndecryptableNow::Decrypted(raw_event_preview_line(event.raw())),
         _ => UndecryptableNow::Unknown,
     }
 }
@@ -14957,7 +14960,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         previewbackfill::replace_remembered(room.own_user_id(), room.room_id(), was, settled.clone());
     }
     let (own_preview, own_activity, own_undecryptable) = previewbackfill::merge_remembered(
-        latest_event_preview_text(&latest_event),
+        latest_event_preview_line(&latest_event),
         room_ordering_timestamp_ms(&latest_event, edited_ts),
         settled,
     );
@@ -14969,6 +14972,8 @@ async fn room_payload(room: &Room) -> serde_json::Value {
                 if previewbackfill::is_own_join(event.raw(), room.own_user_id()));
     // An invitation has no m.direct yet; see `rooms::payload_is_direct`.
     let is_direct = rooms::payload_is_direct(room, !direct_targets.is_empty()).await;
+    // A kind line crosses as its kind (worded by C++) plus English words.
+    let (preview_text, preview_kind, preview_arg) = preview_wire(&own_preview);
 
     json!({
         "id": room.room_id().to_string(),
@@ -14977,7 +14982,12 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
-        "last_message_preview": own_preview,
+        "last_message_preview": preview_text,
+        // Set when the preview is words rather than the sender's text ("image",
+        // "poll_question", …): C++ words it in the UI language, again on every
+        // language switch. `last_message_preview` is then only a fallback.
+        "last_message_preview_kind": preview_kind,
+        "last_message_preview_arg": preview_arg,
         // True when the last message could not be decrypted: C++ renders the
         // placeholder (no text crosses, so no real body can imitate it).
         "last_message_undecryptable": own_undecryptable,
@@ -15085,18 +15095,76 @@ async fn enqueue_rooms_stamped(
 pub(crate) fn latest_event_preview_text(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
 ) -> String {
+    preview_english(&latest_event_preview_line(value))
+}
+
+/// `latest_event_preview_text` as a preview line (see `PREVIEW_KIND_MARK`).
+pub(crate) fn latest_event_preview_line(
+    value: &matrix_sdk_base::latest_event::LatestEventValue,
+) -> String {
     use matrix_sdk_base::latest_event::LatestEventValue;
 
     match value {
-        LatestEventValue::Remote(event) => raw_event_preview_text(event.raw()),
+        LatestEventValue::Remote(event) => raw_event_preview_line(event.raw()),
         _ => String::new(),
     }
 }
 
+/// Opens a preview line that C++ words itself rather than one carrying text:
+/// `MARK kind MARK arg`. A preview Rust would have to word ("Image", "Poll:
+/// …", "3 images") stayed English in every UI language, and words kept as
+/// text could not follow a language switch; C++ renders the kind in the
+/// current language (`matrix/PreviewToken.h`, `kindFromWire`). In-band so the
+/// backfill's remembered results carry it unchanged. `one_line` removes the
+/// mark from every body, so no message can pose as a kind.
+pub(crate) const PREVIEW_KIND_MARK: char = '\u{1}';
+
+/// A preview line for `kind` (a `kindFromWire` name) and its argument.
+pub(crate) fn kind_preview(kind: &str, arg: &str) -> String {
+    format!("{PREVIEW_KIND_MARK}{kind}{PREVIEW_KIND_MARK}{arg}")
+}
+
+/// The kind and argument of a kind line, `None` for a text line.
+pub(crate) fn split_kind_preview(line: &str) -> Option<(&str, &str)> {
+    line.strip_prefix(PREVIEW_KIND_MARK)?.split_once(PREVIEW_KIND_MARK)
+}
+
+/// The English words for a preview line, exactly what the bridge sent before
+/// kinds existed: the fallback `last_message_preview` for a C++ that does not
+/// know the kind.
+pub(crate) fn preview_english(line: &str) -> String {
+    let Some((kind, arg)) = split_kind_preview(line) else {
+        return line.to_owned();
+    };
+    match kind {
+        "image" => "Image".to_owned(),
+        "file" => "File".to_owned(),
+        "video" => "Video".to_owned(),
+        "audio" => "Audio".to_owned(),
+        "voice" => "Voice message".to_owned(),
+        "sticker" => "Sticker".to_owned(),
+        "poll" | "poll_question" => format!("Poll: {arg}"),
+        "images" => format!("{arg} images"),
+        "attachments" => format!("{arg} attachments"),
+        _ => arg.to_owned(),
+    }
+}
+
+/// What a preview line sends to C++: the English text, the kind ("" for a
+/// text line) and the kind's argument.
+pub(crate) fn preview_wire(line: &str) -> (String, String, String) {
+    match split_kind_preview(line) {
+        Some((kind, arg)) => (preview_english(line), kind.to_owned(), arg.to_owned()),
+        None => (line.to_owned(), String::new(), String::new()),
+    }
+}
+
 /// The room-list preview line for one raw timeline event, empty when it has
-/// none. Shared by the latest-event preview and the blank-preview backfill
-/// (`previewbackfill`), so both read an event identically.
-pub(crate) fn raw_event_preview_text(
+/// none: its text, or a kind line (`PREVIEW_KIND_MARK`) where the preview is
+/// words rather than the sender's text. Shared by the latest-event preview
+/// and the blank-preview backfill (`previewbackfill`), so both read an event
+/// identically.
+pub(crate) fn raw_event_preview_line(
     raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
 ) -> String {
     use matrix_sdk::ruma::events::{
@@ -15104,13 +15172,17 @@ pub(crate) fn raw_event_preview_text(
         SyncMessageLikeEvent,
     };
 
-    fn body_or(body: String, fallback: &str) -> String {
-        if body.is_empty() { fallback.to_owned() } else { body }
+    fn body_or(body: String, kind: &str) -> String {
+        if body.is_empty() { kind_preview(kind, "") } else { body }
     }
 
-    // Previews are one visual line and must not define row geometry.
+    // Previews are one visual line and must not define row geometry. The
+    // kind mark never survives: a body cannot pose as a kind line.
     fn one_line(text: &str) -> String {
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
+        text.replace(PREVIEW_KIND_MARK, " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     let Ok(deserialized) = raw.deserialize() else {
@@ -15138,12 +15210,14 @@ pub(crate) fn raw_event_preview_text(
                 MessageType::Emote(content) => {
                     one_line(crate::timeline::strip_reply_fallback(&content.body))
                 }
-                MessageType::Image(content) => body_or(one_line(&content.body), "Image"),
-                MessageType::File(content) => body_or(one_line(&content.body), "File"),
-                MessageType::Video(content) => body_or(one_line(&content.body), "Video"),
+                MessageType::Image(content) => body_or(one_line(&content.body), "image"),
+                MessageType::File(content) => body_or(one_line(&content.body), "file"),
+                MessageType::Video(content) => body_or(one_line(&content.body), "video"),
+                // A voice message's body is a file name; it is named as one
+                // (`timeline::voice_message_label`, the same rule).
                 MessageType::Audio(content) => match crate::timeline::voice_message_label(&content) {
-                    Some(label) => one_line(&label),
-                    None => body_or(one_line(&content.body), "Audio"),
+                    Some(_) => kind_preview("voice", ""),
+                    None => body_or(one_line(&content.body), "audio"),
                 },
                 // MSC4274 gallery: caption, else a summary. Never the body (Sable fills it
                 // with `[name: mxc://…]` lines).
@@ -15152,24 +15226,28 @@ pub(crate) fn raw_event_preview_text(
                 {
                     Some(g) if !g.caption.trim().is_empty() => one_line(&g.caption),
                     Some(g) if g.items.len() == 1 => {
-                        if g.all_images() { "Image" } else { "File" }.to_owned()
+                        kind_preview(if g.all_images() { "image" } else { "file" }, "")
                     }
-                    Some(g) => format!(
-                        "{} {}",
-                        g.items.len(),
-                        if g.all_images() { "images" } else { "attachments" }
+                    Some(g) => kind_preview(
+                        if g.all_images() { "images" } else { "attachments" },
+                        &g.items.len().to_string(),
                     ),
                     None => String::new(),
                 },
             }
         }
         AnySyncMessageLikeEvent::Sticker(SyncMessageLikeEvent::Original(_)) => {
-            "Sticker".to_owned()
+            kind_preview("sticker", "")
         }
         // MSC3381 poll start: preview the question rather than the multi-line
         // MSC1767 fallback.
         AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(poll)) => {
-            format!("Poll: {}", one_line(&poll.content.poll_start().question.text))
+            let question = one_line(&poll.content.poll_start().question.text);
+            if question.is_empty() {
+                kind_preview("poll", "")
+            } else {
+                kind_preview("poll_question", &question)
+            }
         }
         _ => String::new(),
     }
@@ -17999,6 +18077,134 @@ mod latest_event_preview_tests {
             .expect("valid fixture event"),
         ));
         assert_eq!(latest_event_preview_text(&value), "");
+    }
+
+    // 2026-10-18 live runs (every platform, German UI): room-list previews
+    // the bridge words ("Image", "Poll: …", "2 images") were English in every
+    // language. They cross as a kind now, which C++ words; the English text
+    // beside it is only the fallback.
+    #[test]
+    fn previews_made_of_words_cross_as_a_kind_and_text_does_not() {
+        use super::{latest_event_preview_line, preview_wire};
+        let wire = |content: serde_json::Value, event_type: &str| {
+            preview_wire(&latest_event_preview_line(&remote(content, event_type)))
+        };
+        let triple = |text: &str, kind: &str, arg: &str| {
+            (text.to_owned(), kind.to_owned(), arg.to_owned())
+        };
+        assert_eq!(
+            wire(json!({ "msgtype": "m.image", "body": "", "url": "mxc://e.org/i" }), "m.room.message"),
+            triple("Image", "image", "")
+        );
+        // A named attachment is the sender's text, not a kind.
+        assert_eq!(
+            wire(json!({ "msgtype": "m.image", "body": "cat.png", "url": "mxc://e.org/c" }), "m.room.message"),
+            triple("cat.png", "", "")
+        );
+        assert_eq!(
+            wire(
+                json!({ "msgtype": "m.audio", "body": "t12.ogg", "url": "mxc://e.org/v",
+                        "org.matrix.msc3245.voice": {} }),
+                "m.room.message"
+            ),
+            triple("Voice message", "voice", "")
+        );
+        assert_eq!(
+            wire(json!({ "body": "", "url": "mxc://e.org/s", "info": {} }), "m.sticker"),
+            triple("Sticker", "sticker", "")
+        );
+        assert_eq!(
+            wire(
+                json!({
+                    "org.matrix.msc3381.poll.start": {
+                        "question": { "org.matrix.msc1767.text": "Lunch?" },
+                        "kind": "org.matrix.msc3381.poll.disclosed",
+                        "max_selections": 1,
+                        "answers": [{ "id": "a", "org.matrix.msc1767.text": "Yes" }],
+                    },
+                    "org.matrix.msc1767.text": "Lunch?\n1. Yes",
+                }),
+                "org.matrix.msc3381.poll.start"
+            ),
+            triple("Poll: Lunch?", "poll_question", "Lunch?")
+        );
+        let item = |name: &str| {
+            json!({ "itemtype": "m.image", "body": name, "filename": name,
+                    "url": format!("mxc://e.org/{name}") })
+        };
+        assert_eq!(
+            wire(
+                json!({ "msgtype": "dm.filament.gallery", "body": "",
+                        "itemtypes": [item("a.png"), item("b.png"), item("c.png")] }),
+                "m.room.message"
+            ),
+            triple("3 images", "images", "3")
+        );
+        assert_eq!(
+            wire(json!({ "msgtype": "m.text", "body": "hello" }), "m.room.message"),
+            triple("hello", "", "")
+        );
+    }
+
+    // The kind travels in-band, so a body must never be able to open with the
+    // mark and pose as a kind (it would be worded as "Image" or "File: …").
+    #[test]
+    fn a_body_cannot_pose_as_a_kind() {
+        use super::{latest_event_preview_line, preview_wire, split_kind_preview, PREVIEW_KIND_MARK};
+        let forged = format!("{PREVIEW_KIND_MARK}image{PREVIEW_KIND_MARK}x");
+        for msgtype in ["m.text", "m.notice", "m.emote", "m.file"] {
+            let line = latest_event_preview_line(&remote(
+                json!({ "msgtype": msgtype, "body": forged, "url": "mxc://e.org/f" }),
+                "m.room.message",
+            ));
+            assert!(!line.contains(PREVIEW_KIND_MARK), "{msgtype}: {line:?}");
+            assert_eq!(split_kind_preview(&line), None);
+            assert_eq!(preview_wire(&line).1, "");
+        }
+        // Every other place the sender's text reaches a line: a gallery
+        // caption, a poll question and an edit's new content.
+        let item = json!({ "itemtype": "m.image", "body": "a.png", "filename": "a.png",
+                           "url": "mxc://e.org/a" });
+        let others = [
+            remote(
+                json!({ "msgtype": "dm.filament.gallery", "body": forged,
+                        "itemtypes": [item.clone(), item] }),
+                "m.room.message",
+            ),
+            remote(
+                json!({
+                    "org.matrix.msc3381.poll.start": {
+                        "question": { "org.matrix.msc1767.text": forged },
+                        "kind": "org.matrix.msc3381.poll.disclosed",
+                        "max_selections": 1,
+                        "answers": [{ "id": "a", "org.matrix.msc1767.text": "Yes" }],
+                    },
+                    "org.matrix.msc1767.text": forged,
+                }),
+                "org.matrix.msc3381.poll.start",
+            ),
+            remote(
+                json!({
+                    "msgtype": "m.text",
+                    "body": format!("* {forged}"),
+                    "m.new_content": { "msgtype": "m.text", "body": forged },
+                    "m.relates_to": { "rel_type": "m.replace", "event_id": "$original" },
+                }),
+                "m.room.message",
+            ),
+        ];
+        for n in [0, 2] {
+            let line = latest_event_preview_line(&others[n]);
+            assert!(!line.is_empty(), "case {n} produced no preview");
+            assert!(!line.contains(PREVIEW_KIND_MARK), "case {n}: {line:?}");
+            assert_eq!(split_kind_preview(&line), None, "case {n}");
+            assert_eq!(preview_wire(&line).1, "", "case {n}");
+        }
+        // A poll is a kind line of its own; the forged question becomes its
+        // plain argument and cannot choose the kind.
+        let (_, kind, arg) = preview_wire(&latest_event_preview_line(&others[1]));
+        assert_eq!(kind, "poll_question");
+        assert_eq!(arg, "image x");
     }
 }
 

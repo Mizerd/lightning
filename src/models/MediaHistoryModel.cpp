@@ -56,6 +56,13 @@ bool MediaHistoryModel::available() const
     return m_client && m_client->supportsMediaHistory();
 }
 
+void MediaHistoryModel::retranslate()
+{
+    if (m_shown.isEmpty())
+        return;
+    Q_EMIT dataChanged(index(0), index(int(m_shown.size()) - 1), { DateGroupRole });
+}
+
 int MediaHistoryModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : int(m_shown.size());

@@ -220,7 +220,7 @@ Dialog {
                                     var d = new Date(Number(
                                         resultRow.timestampMs))
                                     return d.toLocaleDateString(
-                                        Qt.locale(), Locale.ShortFormat)
+                                        Qt.locale(AppLocale.name), Locale.ShortFormat)
                                 }
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont

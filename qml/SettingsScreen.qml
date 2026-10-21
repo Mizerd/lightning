@@ -1355,7 +1355,7 @@ Item {
         if (!n || n <= 0) return "0 B"
         if (n < 1024) return n + " B"
         if (n < 1024 * 1024) return Math.round(n / 1024) + " KB"
-        return (n / (1024 * 1024)).toFixed(1) + " MB"
+        return Number(n / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1) + " MB"
     }
 
     // Deep links from older call sites (e.g. "security") keep working.
@@ -8817,7 +8817,7 @@ Item {
                                                         if (modelData.lastSeen
                                                             && !isNaN(modelData.lastSeen.getTime()))
                                                             parts.push(qsTr("last seen %1").arg(
-                                                                Qt.locale().toString(modelData.lastSeen,
+                                                                Qt.locale(AppLocale.name).toString(modelData.lastSeen,
                                                                                   "d MMM yyyy hh:mm")))
                                                         if (modelData.lastSeenIp
                                                             && modelData.lastSeenIp.length > 0)

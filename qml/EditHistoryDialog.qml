@@ -63,7 +63,7 @@ Dialog {
     function timeLabel(ts) {
         if (!ts || typeof ts.getTime !== "function" || isNaN(ts.getTime()))
             return ""
-        return Qt.locale().toString(ts, "d MMM yyyy " + app.settings.clockTimeFormat)
+        return Qt.locale(AppLocale.name).toString(ts, "d MMM yyyy " + app.settings.clockTimeFormat)
     }
 
     background: Rectangle {

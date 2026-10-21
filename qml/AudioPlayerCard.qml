@@ -384,8 +384,8 @@ Rectangle {
                     var line = root.ready ? pos + " / " + total : total
                     if (!root.isVoice && root.fileSize > 0) {
                         var kb = root.fileSize / 1024
-                        line += " • " + (kb < 1024 ? kb.toFixed(0) + " KB"
-                                        : (kb / 1024).toFixed(1) + " MB")
+                        line += " • " + (kb < 1024 ? kb.toLocaleString(Qt.locale(AppLocale.name), "f", 0) + " KB"
+                                        : Number(kb / 1024).toLocaleString(Qt.locale(AppLocale.name), "f", 1) + " MB")
                     }
                     return line
                 }

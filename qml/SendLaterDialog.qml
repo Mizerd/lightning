@@ -58,7 +58,7 @@ Dialog {
             return m.getTime()
         }
         case "custom": {
-            var parsed = Date.fromLocaleString(Qt.locale(),
+            var parsed = Date.fromLocaleString(Qt.locale(AppLocale.name),
                                                customDate.text + " " + customTime.text,
                                                "yyyy-MM-dd HH:mm")
             if (isNaN(parsed.getTime()) || parsed.getTime() <= now.getTime())
@@ -101,7 +101,7 @@ Dialog {
         return out
     }
     function whenLabel(ms) {
-        return Qt.locale().toString(new Date(ms), "ddd d MMM " + app.settings.clockTimeFormat)
+        return Qt.locale(AppLocale.name).toString(new Date(ms), "ddd d MMM " + app.settings.clockTimeFormat)
     }
 
     background: Rectangle {

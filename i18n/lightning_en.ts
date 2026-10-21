@@ -190,9 +190,9 @@
     <message numerus="yes">
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform> and %n more (see Developer tools)</numerusform>
+            <numerusform> and %n more (see Developer tools)</numerusform>
         </translation>
     </message>
     <message>
@@ -372,17 +372,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+19"/>
         <source>%n of your chat backgrounds is not saved on your homeserver yet. Signing out now deletes it from this device.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n of your chat backgrounds is not saved on your homeserver yet. Signing out now deletes it from this device.</numerusform>
+            <numerusform>%n of your chat backgrounds are not saved on your homeserver yet. Signing out now deletes them from this device.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n chat background you removed is still on your homeserver and comes back when you sign in again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n chat background you removed is still on your homeserver and comes back when you sign in again.</numerusform>
+            <numerusform>%n chat backgrounds you removed are still on your homeserver and come back when you sign in again.</numerusform>
         </translation>
     </message>
     <message>
@@ -403,9 +403,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+5"/>
         <source>%n room key is not backed up yet. Signing out now loses it for good.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n room key is not backed up yet. Signing out now loses it for good.</numerusform>
+            <numerusform>%n room keys are not backed up yet. Signing out now loses them for good.</numerusform>
         </translation>
     </message>
     <message>
@@ -416,9 +416,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+3"/>
         <source>%n other verified session keeps its own keys, though not necessarily every one this session holds.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n other verified session keeps its own keys, though not necessarily every one this session holds.</numerusform>
+            <numerusform>%n other verified sessions keep their own keys, though not necessarily every one this session holds.</numerusform>
         </translation>
     </message>
     <message>
@@ -858,9 +858,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+28"/>
         <source>%n new mention(s) in %1</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n new mention in %1</numerusform>
+            <numerusform>%n new mentions in %1</numerusform>
         </translation>
     </message>
     <message>
@@ -2994,9 +2994,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location filename="../qml/ChannelCategoryHeader.qml" line="+36"/>
         <source>%1, %n mention(s) inside</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1, %n mention inside</numerusform>
+            <numerusform>%1, %n mentions inside</numerusform>
         </translation>
     </message>
     <message>
@@ -3056,9 +3056,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1, %n mention</numerusform>
+            <numerusform>%1, %n mentions</numerusform>
         </translation>
     </message>
     <message>
@@ -3552,17 +3552,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+27"/>
         <source>Saving %n background(s) on your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Saving %n background on your homeserver…</numerusform>
+            <numerusform>Saving %n backgrounds on your homeserver…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Fetching %n background(s) from your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Fetching %n background from your homeserver…</numerusform>
+            <numerusform>Fetching %n backgrounds from your homeserver…</numerusform>
         </translation>
     </message>
     <message>
@@ -3578,9 +3578,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+2"/>
         <source>%n background(s) could not be saved on or fetched from your homeserver (%1).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n background could not be saved on or fetched from your homeserver (%1).</numerusform>
+            <numerusform>%n backgrounds could not be saved on or fetched from your homeserver (%1).</numerusform>
         </translation>
     </message>
     <message>
@@ -6233,17 +6233,17 @@ Size: %3</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n entries shown; more exist but are not listed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entry shown; more exist but are not listed.</numerusform>
+            <numerusform>%n entries shown; more exist but are not listed.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n entries.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entry.</numerusform>
+            <numerusform>%n entries.</numerusform>
         </translation>
     </message>
     <message>
@@ -6739,15 +6739,21 @@ Signing out and signing in again is the only fix.</source>
         <source>Message removed</source>
         <translation type="unfinished"></translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14"/>
         <source>%n image(s)</source>
-        <translation type="unfinished">%n image</translation>
+        <translation>
+            <numerusform>%n image</numerusform>
+            <numerusform>%n images</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2"/>
         <source>%n attachment(s)</source>
-        <translation type="unfinished">%n attachment</translation>
+        <translation>
+            <numerusform>%n attachment</numerusform>
+            <numerusform>%n attachments</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12"/>
@@ -9255,17 +9261,17 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n line(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n line</numerusform>
+            <numerusform>%n lines</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n log file(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n log file</numerusform>
+            <numerusform>%n log files</numerusform>
         </translation>
     </message>
     <message>
@@ -9286,9 +9292,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+3"/>
         <source>Deleted %n log file(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Deleted %n log file.</numerusform>
+            <numerusform>Deleted %n log files.</numerusform>
         </translation>
     </message>
     <message>
@@ -9314,9 +9320,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+3"/>
         <source>Copied %n line(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Copied %n line.</numerusform>
+            <numerusform>Copied %n lines.</numerusform>
         </translation>
     </message>
 </context>
@@ -10223,8 +10229,8 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <source>%n item(s) in the %1 message(s) read so far.</source>
         <translation>
-            <numerusform>%n item in the %1 message(s) read so far.</numerusform>
-            <numerusform>%n items in the %1 message(s) read so far.</numerusform>
+            <numerusform>%n item in the messages read so far (%1).</numerusform>
+            <numerusform>%n items in the messages read so far (%1).</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -11825,9 +11831,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+1"/>
         <source>Add %n custom emoji to my pack</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Add %n custom emoji to my pack</numerusform>
+            <numerusform>Add %n custom emoji to my pack</numerusform>
         </translation>
     </message>
     <message>
@@ -13372,25 +13378,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+277"/>
         <location line="+1547"/>
         <source>%n new messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n new message</numerusform>
+            <numerusform>%n new messages</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="-1543"/>
         <source>%n new Matrix notifications</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n new Matrix notification</numerusform>
+            <numerusform>%n new Matrix notifications</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1546"/>
         <source>in %n rooms</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>in %n room</numerusform>
+            <numerusform>in %n rooms</numerusform>
         </translation>
     </message>
 </context>
@@ -15274,17 +15280,17 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1, %n mention</numerusform>
+            <numerusform>%1, %n mentions</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%1, %n unread message(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1, %n unread message</numerusform>
+            <numerusform>%1, %n unread messages</numerusform>
         </translation>
     </message>
     <message>
@@ -15853,15 +15859,15 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+7"/>
         <source>%n member(s) (%1 invited)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n member (%1 invited)</numerusform>
+            <numerusform>%n members (%1 invited)</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n member(s)</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n member</numerusform>
             <numerusform>%n members</numerusform>
         </translation>
@@ -16360,9 +16366,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>Exported %n room key(s). Keep the file and its passphrase safe, and apart from each other.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Exported %n room key. Keep the file and its passphrase safe, and apart from each other.</numerusform>
+            <numerusform>Exported %n room keys. Keep the file and its passphrase safe, and apart from each other.</numerusform>
         </translation>
     </message>
     <message>
@@ -16508,9 +16514,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+20"/>
         <source>Exporting room keys… %n gathered so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Exporting room keys… %n gathered so far.</numerusform>
+            <numerusform>Exporting room keys… %n gathered so far.</numerusform>
         </translation>
     </message>
     <message>
@@ -18214,9 +18220,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n change(s) waiting to sync.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n change waiting to sync.</numerusform>
+            <numerusform>%n changes waiting to sync.</numerusform>
         </translation>
     </message>
     <message>
@@ -18232,9 +18238,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+19"/>
         <source>Your account already has synced settings, and %n setting(s) you chose on this device differ. Nothing has been changed yet.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Your account already has synced settings, and %n setting you chose on this device differs. Nothing has been changed yet.</numerusform>
+            <numerusform>Your account already has synced settings, and %n settings you chose on this device differ. Nothing has been changed yet.</numerusform>
         </translation>
     </message>
     <message>
@@ -18298,9 +18304,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>Importing will change %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Importing will change %n setting.</numerusform>
+            <numerusform>Importing will change %n settings.</numerusform>
         </translation>
     </message>
     <message>
@@ -18316,17 +18322,17 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+16"/>
         <source>%n shortcut(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n shortcut</numerusform>
+            <numerusform>%n shortcuts</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n custom theme(s) added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n custom theme added</numerusform>
+            <numerusform>%n custom themes added</numerusform>
         </translation>
     </message>
     <message>
@@ -18337,9 +18343,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+11"/>
         <source>%n entry(ies) this version does not know were ignored.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entry this version does not know was ignored.</numerusform>
+            <numerusform>%n entries this version does not know were ignored.</numerusform>
         </translation>
     </message>
     <message>
@@ -18356,17 +18362,17 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+7"/>
         <source>Imported %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Imported %n setting.</numerusform>
+            <numerusform>Imported %n settings.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n shortcut(s) could not be used and were skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n shortcut could not be used and was skipped.</numerusform>
+            <numerusform>%n shortcuts could not be used and were skipped.</numerusform>
         </translation>
     </message>
     <message>
@@ -22044,17 +22050,17 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message numerus="yes">
         <location line="+1"/>
         <source>%n section(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n section</numerusform>
+            <numerusform>%n sections</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n setting(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n setting</numerusform>
+            <numerusform>%n settings</numerusform>
         </translation>
     </message>
     <message>
@@ -25311,9 +25317,9 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>Exported %n image(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Exported %n image.</numerusform>
+            <numerusform>Exported %n images.</numerusform>
         </translation>
     </message>
     <message>
@@ -25324,9 +25330,9 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n custom emoji to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Added %n custom emoji to your pack.</numerusform>
+            <numerusform>Added %n custom emoji to your pack.</numerusform>
         </translation>
     </message>
     <message>
@@ -25337,41 +25343,41 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n image(s) to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Added %n image to your pack.</numerusform>
+            <numerusform>Added %n images to your pack.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n could not be included.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n could not be included.</numerusform>
+            <numerusform>%n could not be included.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n already there or not usable.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n already there or not usable.</numerusform>
+            <numerusform>%n already there or not usable.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n could not be downloaded.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n could not be downloaded.</numerusform>
+            <numerusform>%n could not be downloaded.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n failed.</numerusform>
+            <numerusform>%n failed.</numerusform>
         </translation>
     </message>
 </context>
@@ -25405,17 +25411,17 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n sticker</numerusform>
+            <numerusform>%n stickers</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n emoji</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n emoji</numerusform>
+            <numerusform>%n emoji</numerusform>
         </translation>
     </message>
     <message>
@@ -25937,9 +25943,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+17"/>
         <source>%n element(s)</source>
         <comment>custom theme, size of a group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n element</numerusform>
+            <numerusform>%n elements</numerusform>
         </translation>
     </message>
     <message>
@@ -26133,9 +26139,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+17"/>
         <source>Also changes %n element(s)</source>
         <comment>custom theme, count of linked elements</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Also changes %n element</numerusform>
+            <numerusform>Also changes %n elements</numerusform>
         </translation>
     </message>
     <message>
@@ -26157,9 +26163,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+14"/>
         <source>%n keep their own colour</source>
         <comment>custom theme, count of elements that do not follow</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n keeps its own colour</numerusform>
+            <numerusform>%n keep their own colour</numerusform>
         </translation>
     </message>
     <message>
@@ -26191,9 +26197,9 @@ Note: importing keys does not verify this session.</source>
         <location line="-133"/>
         <source>%n changed</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n changed</numerusform>
+            <numerusform>%n changed</numerusform>
         </translation>
     </message>
     <message>
@@ -26260,9 +26266,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+10"/>
         <source>This theme has %n colour(s) of its own.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>This theme has %n colour of its own.</numerusform>
+            <numerusform>This theme has %n colours of its own.</numerusform>
         </translation>
     </message>
     <message>
@@ -26594,7 +26600,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+16"/>
         <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n colour could not be checked: a see-through colour reads differently depending on what is behind it.</numerusform>
             <numerusform>%n colours could not be checked: a see-through colour reads differently depending on what is behind it.</numerusform>
         </translation>
@@ -26603,7 +26609,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+15"/>
         <source>%n check(s) could not be made: this build has no colour by that name.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n check could not be made: this build has no colour by that name.</numerusform>
             <numerusform>%n checks could not be made: this build has no colour by that name.</numerusform>
         </translation>
@@ -26672,9 +26678,9 @@ Note: importing keys does not verify this session.</source>
         <location line="-301"/>
         <source>%1 · %2 · %n thing(s) in it are hard to read</source>
         <comment>custom theme share summary</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1 · %2 · %n thing in it is hard to read</numerusform>
+            <numerusform>%1 · %2 · %n things in it are hard to read</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -26683,9 +26689,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+220"/>
         <source>%n colour(s)</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n colour</numerusform>
+            <numerusform>%n colours</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -26694,9 +26700,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+220"/>
         <source>%n gradient(s)</source>
         <comment>custom theme, gradients</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n gradient</numerusform>
+            <numerusform>%n gradients</numerusform>
         </translation>
     </message>
     <message>
@@ -26738,9 +26744,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+18"/>
         <source>%n thing(s) in it would be hard to read (estimated)</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n thing in it would be hard to read (estimated)</numerusform>
+            <numerusform>%n things in it would be hard to read (estimated)</numerusform>
         </translation>
     </message>
     <message>
@@ -26805,16 +26811,16 @@ Note: importing keys does not verify this session.</source>
         <location line="+47"/>
         <source>%n spot(s) hard to read. Review</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n spot hard to read. Review</numerusform>
+            <numerusform>%n spots hard to read. Review</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>Readable, %n not checked</numerusform>
             <numerusform>Readable, %n not checked</numerusform>
         </translation>

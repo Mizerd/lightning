@@ -171,7 +171,8 @@ pub(crate) fn pick_preview(newest_first: &[TimelineEvent]) -> Option<Outcome> {
     if raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.room.encrypted") {
         return Some(Outcome::Undecryptable(ts, event.event_id()));
     }
-    let text = crate::raw_event_preview_text(raw);
+    // A preview line: a kind line stays one, so C++ words it.
+    let text = crate::raw_event_preview_line(raw);
     if text.is_empty() { None } else { Some(Outcome::Found(text, ts)) }
 }
 

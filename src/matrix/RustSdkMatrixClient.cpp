@@ -19,6 +19,7 @@
 #include "crypto/BackupController.h"
 #include "crypto/E2eeDiagnostics.h"
 #include "crypto/QrImageProvider.h"
+#include "i18n/LocalizationManager.h"
 #include "matrix/EventPreview.h"
 #include "matrix/LoginFailureText.h"
 #include "matrix/MediaStoreKey.h"
@@ -213,12 +214,14 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
-QString previewFor(const TimelineEvent &event,
-                   const QString &actorLabel = QString())
+// Single normalizing choke point: multi-line bodies (poll fallbacks, mention
+// permalinks) must never reach the room list verbatim. Kept as a kind, not
+// words, so a language switch re-words it (RoomInfo::retranslatePreview).
+void setPreviewFrom(RoomInfo &room, const TimelineEvent &event,
+                    const QString &actorLabel = QString())
 {
-    // Single normalizing choke point: multi-line bodies (poll fallbacks,
-    // mention permalinks) must never reach the room list verbatim.
-    return matrix::preview::oneLineSummary(event, actorLabel);
+    const auto token = matrix::preview::summaryToken(event, actorLabel);
+    room.setPreview(token.kind, token.arg);
 }
 
 } // namespace
@@ -235,6 +238,17 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
     m_highlightGapTimer.setSingleShot(true);
     connect(&m_highlightGapTimer, &QTimer::timeout, this,
             &RustSdkMatrixClient::flushHighlightGaps);
+    // A preview kept as a kind ("You joined", "Image") is worded again in the
+    // new UI language; it stayed in the old one until the room's next message.
+    connect(AppLocale::instance(), &AppLocale::changed, this, [this] {
+        QStringList changed;
+        for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
+            if (it->retranslatePreview())
+                changed.append(it.key());
+        }
+        for (const QString &roomId : std::as_const(changed))
+            Q_EMIT roomUpdated(roomId);
+    });
 
     qCInfo(lcRust) << "Rust SDK backend loaded:"
                    << rustBackendName()
@@ -6736,18 +6750,31 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // Only fills a BLANK row: a preview the room already has came from a
         // newer producer, and activity is monotonic anyway.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
-        QString preview = event.value(QStringLiteral("preview")).toString();
-        if (preview.isEmpty()
-            && event.value(QStringLiteral("undecryptable")).toBool(false))
-            preview = matrix::preview::undecryptablePreview();
+        const QString preview = matrix::preview::normalizePreviewText(
+            event.value(QStringLiteral("preview")).toString());
+        // As in a room payload: a kind is worded here, the English text is the
+        // fallback for one this build does not know.
+        matrix::preview::Kind kind = matrix::preview::kindFromWire(
+            event.value(QStringLiteral("preview_kind")).toString());
+        QString arg = kind == matrix::preview::Kind::Text
+            ? preview
+            : matrix::preview::normalizePreviewText(
+                  event.value(QStringLiteral("preview_arg")).toString());
+        if (preview.isEmpty()) {
+            kind = event.value(QStringLiteral("undecryptable")).toBool(false)
+                ? matrix::preview::Kind::Undecryptable
+                : matrix::preview::Kind::Text;
+            arg.clear();
+        }
         auto it = m_rooms.find(roomId);
         // Blank, or still the placeholder from an earlier look at the same room
-        // (the key may have arrived since).
+        // (the key may have arrived since). By kind: the placeholder's words
+        // depend on the language it was written in.
         if (it != m_rooms.end()
             && (it->lastMessagePreview.isEmpty()
-                || it->lastMessagePreview == matrix::preview::undecryptablePreview())
-            && !preview.isEmpty()) {
-            it->lastMessagePreview = preview;
+                || it->previewKind == matrix::preview::Kind::Undecryptable)
+            && (kind != matrix::preview::Kind::Text || !arg.isEmpty())) {
+            it->setPreview(kind, arg);
             it->raiseActivity(timestampFromMs(static_cast<qint64>(
                 event.value(QStringLiteral("last_activity_ms")).toDouble(0))));
             Q_EMIT roomUpdated(roomId);
@@ -7789,7 +7816,7 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
             const QString body =
                 matrix::preview::normalizePreviewText(timelineEvent.body);
             if (!body.isEmpty())
-                roomIt->lastMessagePreview = body;
+                roomIt->setPreviewText(body);
             // The payload's own stamp: an event without one must not move the
             // room to "now" (timelineEvent.timestamp falls back to it).
             roomIt->raiseActivity(timestampFromMs(static_cast<qint64>(
@@ -7910,7 +7937,7 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         if (countsAsActivity) {
             // A call row raises the room but has no body to preview.
             if (roomrecency::replacesPreview(timelineEvent))
-                roomIt->lastMessagePreview = previewFor(timelineEvent);
+                setPreviewFrom(*roomIt, timelineEvent);
             roomIt->raiseActivity(timelineEvent.timestamp);
             Q_EMIT roomUpdated(roomId);
         }
@@ -8114,7 +8141,7 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
             if (known != event.sender)
                 actor = known;
         }
-        roomIt->lastMessagePreview = previewFor(event, actor);
+        setPreviewFrom(*roomIt, event, actor);
         roomIt->raiseActivity(event.timestamp);
         Q_EMIT roomUpdated(roomId);
         return;

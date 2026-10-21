@@ -57,6 +57,10 @@ public:
 private:
     QString m_userId;
     QString m_dbPath;
+    // Whether rooms has preview_kind/preview_arg. A failed migration leaves
+    // them out, and loadRooms/saveRoom then use the old column list rather
+    // than failing outright and losing every cached room.
+    bool m_previewColumns = false;
     QString m_connectionName;
     QSqlDatabase database() const;
     bool ensureSchema();

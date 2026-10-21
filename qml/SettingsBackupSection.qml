@@ -184,7 +184,7 @@ ColumnLayout {
                         if (backup.sync.lastSyncedMs > 0)
                             return qsTr("Up to date. Last synced %1.")
                                    .arg(new Date(backup.sync.lastSyncedMs)
-                                        .toLocaleString(Qt.locale(), Locale.ShortFormat))
+                                        .toLocaleString(Qt.locale(AppLocale.name), Locale.ShortFormat))
                         return qsTr("Up to date.")
                     }
                     return ""

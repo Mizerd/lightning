@@ -1,9 +1,11 @@
 #include "i18n/LocalizationManager.h"
 
 #include "app/SettingsManager.h"
+#include "i18n/TimeLocale.h"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QJSEngine>
 #include <QLocale>
 #include <QTranslator>
 #include <QVariantMap>
@@ -58,6 +60,22 @@ QString canonical(const QString &tag)
 }
 
 } // namespace
+
+AppLocale *AppLocale::instance()
+{
+    // Never destroyed: QML engines and backends may outlive any owner we could
+    // pick, and it holds no resources.
+    static AppLocale *const self = new AppLocale;
+    return self;
+}
+
+AppLocale *AppLocale::create(QQmlEngine *, QJSEngine *)
+{
+    AppLocale *self = instance();
+    // Shared by every engine; no engine may delete it.
+    QJSEngine::setObjectOwnership(self, QJSEngine::CppOwnership);
+    return self;
+}
 
 LocalizationManager::LocalizationManager(SettingsManager *settings,
                                          QObject *parent)
@@ -159,6 +177,26 @@ QString LocalizationManager::systemLanguage(const QLocale &locale)
     return matchPreferenceList(locale.uiLanguages());
 }
 
+QLocale LocalizationManager::formattingLocale(const QString &uiCode,
+                                              const QLocale &system,
+                                              const QLocale &timeCategory)
+{
+    const QLocale ui(uiCode);
+    // The desktop's time category speaks the UI language: it is the user's
+    // own choice of conventions for that language (LANG=en_US with
+    // LC_TIME=en_GB writes 20/10/2026 and 24-hour time), territory included.
+    if (timeCategory.language() == ui.language())
+        return timeCategory;
+    if (ui.language() != system.language())
+        return ui;
+    // Same language as the desktop but another one for dates (LC_TIME=lt_LT
+    // under an English LANG): the language's CLDR data in the desktop's
+    // territory, never the time category's foreign month names. A pair CLDR
+    // does not know resolves to another language's locale; keep the UI's.
+    const QLocale regional(ui.language(), ui.script(), system.territory());
+    return regional.language() == ui.language() ? regional : ui;
+}
+
 bool LocalizationManager::translationsAvailable()
 {
 #ifdef LIGHTNING_HAS_TRANSLATIONS
@@ -231,19 +269,21 @@ void LocalizationManager::applyLanguage(const QString &policy)
                              : policy;
 
     removeTranslators();
-    m_effective = installCatalog(code) ? code : QStringLiteral("en");
+    m_effective = code;
+    // A language whose catalog does not load falls back to English, and
+    // English needs its own catalog too: without it every "%n room(s)"
+    // renders its "(s)".
+    if (!installCatalog(code)) {
+        m_effective = QStringLiteral("en");
+        installCatalog(m_effective);
+    }
 
     // Numbers, sizes and dates read the default QLocale, which is the system's
     // and not the UI language: an English UI on a Lithuanian desktop showed
-    // "1,28 MiB". Follow the UI language, but only when it is not the system's
-    // own language, so a system en_GB keeps 24-hour time and its date order
-    // rather than being replaced by plain "en" (United States).
-    {
-        const QLocale ui(m_effective);
-        QLocale::setDefault(ui.language() == QLocale::system().language()
-                                ? QLocale::system()
-                                : ui);
-    }
+    // "1,28 MiB", and with LANG=en_US but LC_TIME=lt_LT "10 spal." (the
+    // system locale mixes categories). See formattingLocale().
+    QLocale::setDefault(formattingLocale(m_effective, QLocale::system(),
+                                         i18n::timeCategoryLocale()));
 
     // Layout direction is process-wide; Main.qml applies it via
     // LayoutMirroring.
@@ -254,6 +294,9 @@ void LocalizationManager::applyLanguage(const QString &policy)
 
     Q_EMIT languageChanged();
     Q_EMIT retranslateRequested();
+    // After both: the QML engine has retranslated, so a binding that re-runs
+    // on AppLocale.name sees the new catalog too.
+    AppLocale::instance()->notifyChanged();
 }
 
 bool LocalizationManager::installCatalog(const QString &code)

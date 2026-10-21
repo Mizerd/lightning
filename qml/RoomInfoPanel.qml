@@ -1831,7 +1831,8 @@ Rectangle {
                                     text: new Date(pinDelegate.modelData
                                                    .timestampMs)
                                           .toLocaleDateString(
-                                              Qt.locale(), Locale.ShortFormat)
+                                              Qt.locale(AppLocale.name), Locale.ShortFormat)
+                                    textFormat: Text.PlainText
                                     color: AppTheme.textMuted
                                     font.pixelSize: AppTheme.textMeta
                                 }

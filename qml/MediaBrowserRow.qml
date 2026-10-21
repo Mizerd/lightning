@@ -91,7 +91,7 @@ ItemDelegate {
                         bits.push(row.humanSize(row.size))
                     if (row.durationMs > 0)
                         bits.push(row.humanDuration(row.durationMs))
-                    bits.push(Qt.locale().toString(
+                    bits.push(Qt.locale(AppLocale.name).toString(
                         new Date(row.timestampMs), "d MMM yyyy hh:mm"))
                     return bits.join(" · ")
                 }
@@ -143,10 +143,10 @@ ItemDelegate {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
         if (bytes < 1024 * 1024)
-            return qsTr("%1 KB").arg((bytes / 1024).toFixed(1))
+            return qsTr("%1 KB").arg(Number(bytes / 1024).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
         if (bytes < 1024 * 1024 * 1024)
-            return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
-        return qsTr("%1 GB").arg((bytes / (1024 * 1024 * 1024)).toFixed(1))
+            return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
+        return qsTr("%1 GB").arg(Number(bytes / (1024 * 1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
 
     function humanDuration(ms) {

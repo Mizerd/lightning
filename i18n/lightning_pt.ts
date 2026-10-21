@@ -6750,15 +6750,21 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <source>Message removed</source>
         <translation>Mensagem removida</translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+14" />
         <source>%n image(s)</source>
-        <translation>%n imagem(ns)</translation>
+        <translation>
+            <numerusform>%n imagem</numerusform>
+            <numerusform>%n imagens</numerusform>
+        </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2" />
         <source>%n attachment(s)</source>
-        <translation>%n anexo(s)</translation>
+        <translation>
+            <numerusform>%n anexo</numerusform>
+            <numerusform>%n anexos</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+12" />

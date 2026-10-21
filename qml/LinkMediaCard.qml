@@ -58,7 +58,7 @@ Item {
         if (bytes < 1024) return qsTr("%1 B").arg(bytes)
         if (bytes < 1024 * 1024)
             return qsTr("%1 KB").arg(Math.round(bytes / 1024))
-        return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
+        return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
     readonly property string kindText: root.isVideo ? qsTr("Video") : qsTr("Image")
     // "Video · 12.4 MB", or the kind alone when the size is unknown.

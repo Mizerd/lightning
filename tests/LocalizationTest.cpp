@@ -112,6 +112,62 @@ QString summarizeKeys(const QSet<QString> &keys)
     return sorted.join(QLatin1Char('\n'));
 }
 
+
+struct PluralMessage {
+    QString context;
+    QString source;
+    QString comment;
+    QStringList forms;
+    bool finished = false;
+};
+
+// The numerus="yes" messages of one catalog, with their forms.
+QList<PluralMessage> pluralMessages(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    QList<PluralMessage> out;
+    QXmlStreamReader xml(&file);
+    QString context;
+    PluralMessage current;
+    bool inPlural = false;
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.isStartElement()) {
+            if (xml.name() == QLatin1String("name") && !inPlural) {
+                context = xml.readElementText();
+            } else if (xml.name() == QLatin1String("message")) {
+                inPlural = xml.attributes().value(QLatin1String("numerus"))
+                           == QLatin1String("yes");
+                current = PluralMessage{};
+                current.context = context;
+            } else if (inPlural && xml.name() == QLatin1String("source")) {
+                current.source = xml.readElementText();
+            } else if (inPlural && xml.name() == QLatin1String("comment")) {
+                current.comment = xml.readElementText();
+            } else if (inPlural && xml.name() == QLatin1String("translation")) {
+                const auto type = xml.attributes().value(QLatin1String("type"));
+                current.finished = type.isEmpty();
+            } else if (inPlural && xml.name() == QLatin1String("numerusform")) {
+                current.forms << xml.readElementText();
+            }
+        } else if (xml.isEndElement() && xml.name() == QLatin1String("message")) {
+            if (inPlural)
+                out << current;
+            inPlural = false;
+        }
+    }
+    return xml.hasError() ? QList<PluralMessage>() : out;
+}
+
+// "(s)", "(es)", "(ies)": the source spelling of a plural that a real form
+// replaces.
+bool readsLikeASourcePlural(const QString &text)
+{
+    static const QRegularExpression suffix(QStringLiteral("\\((?:s|es|ies)\\)"));
+    return suffix.match(text).hasMatch();
+}
 } // namespace
 
 class LocalizationTest : public QObject
@@ -577,6 +633,63 @@ private Q_SLOTS:
         QCOMPARE(many, QStringLiteral("%n rooms"));
         QVERIFY2(!one.contains(QStringLiteral("(s)")),
                  "the English UI would render a literal \"(s)\"");
+    }
+
+    // Every count in the English UI is a real plural. lrelease runs with
+    // -nounfinished, so an entry left "unfinished" (59 were, most with empty
+    // forms) is dropped from lightning_en.qm and Qt renders the source:
+    // "1 member(s)". The catalog side: finished, two forms, no "(s)".
+    void everyEnglishPluralHasItsTwoForms()
+    {
+        const QList<PluralMessage> plurals =
+            pluralMessages(repoFile(QStringLiteral("i18n/lightning_en.ts")));
+        QVERIFY2(plurals.size() > 100, "implausibly few plural messages");
+        QStringList offenders;
+        for (const PluralMessage &m : plurals) {
+            bool ok = m.finished && m.forms.size() == 2;
+            for (const QString &form : m.forms)
+                ok = ok && form.contains(QLatin1String("%n"))
+                     && !readsLikeASourcePlural(form);
+            if (!ok)
+                offenders << m.context + QStringLiteral(" | ") + m.source;
+        }
+        QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join(QLatin1Char('\n'))));
+    }
+
+    // The compiled side, through the translator the app installs: no count of
+    // one or of three renders a "(s)".
+    void noEnglishCountRendersASourcePlural()
+    {
+#ifndef LIGHTNING_HAS_TRANSLATIONS
+        QSKIP("configured without Qt Linguist tools — no catalog is compiled");
+#else
+        QTranslator en;
+        QVERIFY(en.load(QStringLiteral(LIGHTNING_QM_DIR "/lightning_en.qm")));
+        QVERIFY(QCoreApplication::installTranslator(&en));
+        // The report, exactly.
+        QCOMPARE(QCoreApplication::translate("RoomInfoPanel", "%n member(s)", nullptr, 1),
+                 QStringLiteral("1 member"));
+        QCOMPARE(QCoreApplication::translate("RoomInfoPanel", "%n member(s)", nullptr, 3),
+                 QStringLiteral("3 members"));
+        QStringList offenders;
+        const QList<PluralMessage> plurals =
+            pluralMessages(repoFile(QStringLiteral("i18n/lightning_en.ts")));
+        for (const PluralMessage &m : plurals) {
+            const QByteArray ctx = m.context.toUtf8();
+            const QByteArray src = m.source.toUtf8();
+            const QByteArray cmt = m.comment.toUtf8();
+            for (int n : { 1, 3 }) {
+                const QString shown = QCoreApplication::translate(
+                    ctx.constData(), src.constData(),
+                    m.comment.isEmpty() ? nullptr : cmt.constData(), n);
+                if (readsLikeASourcePlural(shown))
+                    offenders << QStringLiteral("%1 | %2 -> %3")
+                                     .arg(m.context, m.source, shown);
+            }
+        }
+        QCoreApplication::removeTranslator(&en);
+        QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join(QLatin1Char('\n'))));
+#endif
     }
 
     // Smoke-test the Lithuanian catalog through the compiled artifact the app

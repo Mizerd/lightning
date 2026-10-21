@@ -2,6 +2,7 @@
 #include "matrix/EventPreview.h"
 
 #include "app/SettingsManager.h"
+#include "i18n/LocalizationManager.h"
 #include "matrix/MediaHelpers.h"
 #include "storage/CacheStore.h"
 
@@ -70,6 +71,16 @@ CppHttpMatrixClient::CppHttpMatrixClient(SettingsManager *settings, QObject *par
     QObject::connect(&m_syncRetryTimer, &QTimer::timeout, this, [this] {
         if (m_syncActive)
             startNextSync();
+    });
+    // A preview kept as a kind is worded again in the new UI language.
+    QObject::connect(AppLocale::instance(), &AppLocale::changed, this, [this] {
+        QStringList changed;
+        for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
+            if (it->retranslatePreview())
+                changed.append(it.key());
+        }
+        for (const QString &roomId : std::as_const(changed))
+            Q_EMIT roomUpdated(roomId);
     });
 }
 
@@ -940,11 +951,14 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
         if (!tl.isEmpty()) {
             const auto &last = tl.last();
             RoomInfo &stored = m_rooms[roomId];
-            stored.lastMessagePreview =
-                matrix::media::previewSnippet(last.body.isEmpty()
-                    ? (last.redacted ? tr("[message deleted]")
-                                     : last.mediaFilename)
-                    : last.body);
+            // A deleted message is a kind, not words: the cache keeps it as
+            // one, so it reads in the current language after a switch or a
+            // restart (the words used to be persisted).
+            if (last.body.isEmpty() && last.redacted)
+                stored.setPreview(matrix::preview::Kind::Removed);
+            else
+                stored.setPreviewText(matrix::media::previewSnippet(
+                    last.body.isEmpty() ? last.mediaFilename : last.body));
             stored.lastActivity = last.timestamp;
         }
 

@@ -127,7 +127,7 @@ Dialog {
                       && d.getMonth() === now.getMonth()
                       && d.getDate() === now.getDate()
         return sameDay ? Qt.formatTime(d, app.settings.clockTimeFormat)
-                       : Qt.locale().toString(d, Locale.ShortFormat)
+                       : Qt.locale(AppLocale.name).toString(d, Locale.ShortFormat)
     }
     // A sender the model could not name yet arrives as a bare Matrix ID; the
     // localpart reads as a name ("@bob:example.org" -> "bob"), as mention
