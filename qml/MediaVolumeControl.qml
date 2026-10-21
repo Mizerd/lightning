@@ -5,6 +5,12 @@ import MatrixClient
 // Compact shared volume control for audio and video. The caller owns the
 // QAudioOutput; this presents its muted/volume state, with the slider in a
 // hover/focus popup.
+//
+// Keyboard: the button is a Tab stop (Space/Enter mutes); focusing it opens
+// the slider, and Tab moves into the slider, a Tab stop of its own: Up/Down
+// (or Right/Left) step 5 %, Home is silent, End is full, and Tab/Shift+Tab
+// leave it again. Up/Down on the button itself step the level too. Both carry
+// the level in their accessible text (design-media U5).
 IconButton {
     id: root
 
@@ -12,13 +18,22 @@ IconButton {
     property bool scrim: false
     property string sliderObjectName: "mediaVolumeSlider"
     property real lastAudibleVolume: 0.8
+    // Up/Down on the button step the level. A host with its own volume keys
+    // (the video bar: Up unmutes, Down keeps a mute) turns this off and gets
+    // them instead.
+    property bool arrowKeysStepLevel: true
 
-    iconName: !audio || audio.muted || audio.volume <= 0
+    // Muted reads as muted; no player yet (an idle row) is not muted.
+    iconName: audio && (audio.muted || audio.volume <= 0)
               ? "volume_off" : "volume_up"
     iconColorOverride: scrim ? AppTheme.scrimInk : ""
     enabled: audio !== null
+    // The level in percent, 0 while muted.
+    readonly property int levelPercent: !audio || audio.muted ? 0
+        : Math.round(audio.volume * 100)
     Accessible.name: audio && (audio.muted || audio.volume <= 0)
                      ? qsTr("Unmute") : qsTr("Mute")
+    Accessible.description: qsTr("Volume %1%").arg(root.levelPercent)
     ToolTip.text: Accessible.name
     ToolTip.visible: hovered && !volumePopup.visible
     ToolTip.delay: 600
@@ -52,6 +67,38 @@ IconButton {
     }
 
     onClicked: toggleMute()
+
+    // A keyboard step of the level, as a slider move would make it.
+    function setLevel(v) {
+        if (!audio)
+            return
+        v = Math.max(0, Math.min(1, Math.round(v * 20) / 20))
+        markUserVolumeIntent()
+        audio.volume = v
+        audio.muted = v <= 0
+        if (v > 0)
+            lastAudibleVolume = v
+        rememberVolume(v)
+    }
+    Keys.onPressed: (event) => {
+        if (!root.audio)
+            return
+        var level = root.audio.muted ? 0 : root.audio.volume
+        if ((event.key === Qt.Key_Up || event.key === Qt.Key_Down)
+                && !root.arrowKeysStepLevel) {
+            return
+        } else if (event.key === Qt.Key_Up) {
+            root.setLevel(level + 0.05)
+        } else if (event.key === Qt.Key_Down) {
+            root.setLevel(level - 0.05)
+        } else if (event.key === Qt.Key_Tab && volumePopup.visible) {
+            // Into the slider: a Tab stop of its own.
+            volumeSlider.forceActiveFocus(Qt.TabFocusReason)
+        } else {
+            return
+        }
+        event.accepted = true
+    }
 
     Connections {
         target: root.audio
@@ -106,7 +153,8 @@ IconButton {
             to: 1
             stepSize: 0.05
             value: root.audio ? root.audio.volume : 0.8
-            Accessible.name: qsTr("Volume")
+            focusPolicy: Qt.StrongFocus
+            Accessible.name: qsTr("Volume %1%").arg(root.levelPercent)
             Accessible.description: qsTr("Playback volume")
             onMoved: {
                 if (!root.audio)
@@ -117,6 +165,28 @@ IconButton {
                 if (value > 0)
                     root.lastAudibleVolume = value
                 root.rememberVolume(value)
+            }
+            // Up/Down/Left/Right are the Slider's own steps (they emit
+            // moved()); Home and End, and leaving with Tab, are added here.
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Home) {
+                    root.setLevel(0)
+                } else if (event.key === Qt.Key_End) {
+                    root.setLevel(1)
+                } else if (event.key === Qt.Key_Backtab
+                           || (event.key === Qt.Key_Tab
+                               && (event.modifiers & Qt.ShiftModifier))) {
+                    root.forceActiveFocus(Qt.BacktabFocusReason)
+                } else if (event.key === Qt.Key_Tab) {
+                    var next = root.nextItemInFocusChain(true)
+                    if (next)
+                        next.forceActiveFocus(Qt.TabFocusReason)
+                } else if (event.key === Qt.Key_Escape) {
+                    root.forceActiveFocus(Qt.OtherFocusReason)
+                } else {
+                    return
+                }
+                event.accepted = true
             }
             // Track and handle must use the same horizontal expression.
             background: Rectangle {

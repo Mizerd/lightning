@@ -526,27 +526,34 @@ ApplicationWindow {
 
     // No global header bar; the shell columns carry their own headers.
 
+    // Space toggles whatever inline media is audible. A Keys handler on an
+    // ancestor rather than a Shortcut: a Shortcut would take Space before the
+    // focused item (timeline paging, emoji/GIF grids, composer, a settings
+    // field), while bubbling keys only reach here if nothing else wanted them.
+    // On the chat screen and in Settings alike (design-media B2: a clip kept
+    // playing in Settings with nothing able to pause it).
+    function toggleAudibleMedia(event) {
+        // Held Space would toggle on every auto-repeat.
+        if (event.isAutoRepeat) {
+            event.accepted = false
+            return
+        }
+        if (app.playback.audibleOwner.length > 0) {
+            app.playback.requestTogglePlayPause()
+            event.accepted = true
+        } else {
+            event.accepted = false
+        }
+    }
+
     Loader {
         id: pageLoader
         anchors.fill: parent
+        // Above the docked player strip when it runs along the bottom.
+        anchors.bottomMargin: voiceDockFallback.visible
+                              ? voiceDockFallback.height : 0
 
-        // Space toggles whatever inline media is audible. A Keys handler on an
-        // ancestor rather than a Shortcut: a Shortcut would take Space before
-        // the focused item (timeline paging, emoji/GIF grids, composer), while
-        // bubbling keys only reach here if nothing else wanted them.
-        Keys.onSpacePressed: (event) => {
-            // Held Space would toggle on every auto-repeat.
-            if (event.isAutoRepeat) {
-                event.accepted = false
-                return
-            }
-            if (app.playback.audibleOwner.length > 0) {
-                app.playback.requestTogglePlayPause()
-                event.accepted = true
-            } else {
-                event.accepted = false
-            }
-        }
+        Keys.onSpacePressed: (event) => window.toggleAudibleMedia(event)
         // Hidden, not unloaded, under full-view Settings so chat state
         // survives.
         visible: app.currentScreen !== 2
@@ -635,6 +642,9 @@ ApplicationWindow {
         id: settingsViewLoader
         objectName: "settingsViewLoader"
         anchors.fill: parent
+        anchors.bottomMargin: voiceDockFallback.visible
+                              ? voiceDockFallback.height : 0
+        Keys.onSpacePressed: (event) => window.toggleAudibleMedia(event)
         property bool warm: false
         active: warm || app.currentScreen === 2
         visible: app.currentScreen === 2
@@ -652,6 +662,112 @@ ApplicationWindow {
         interval: 2500
         running: app.currentScreen === 1 && !settingsViewLoader.warm
         onTriggered: settingsViewLoader.warm = true
+    }
+
+    // ── The voice/audio player, at window level so it outlives every screen
+    // switch (design-media B2: it lived in TimelinePane, which Settings hides,
+    // so a clip played on in Settings with nothing showing or stopping it).
+    //
+    // Docked (the default, app.settings.voicePlayerDocked): the strip lives in
+    // TimelinePane under the room header. Where no room column shows it
+    // (Settings; a thread taking the whole pane), this one runs along the
+    // bottom instead and the screens above stop short of it, so it never
+    // covers anything.
+    // The chat pane, found once and kept (MainScreen names it).
+    property Item voicePane: null
+    function findVoicePane() {
+        var queue = pageLoader.item ? [pageLoader.item] : []
+        for (var depth = 0; depth < 8 && queue.length > 0; ++depth) {
+            var next = []
+            for (var i = 0; i < queue.length; ++i) {
+                var it = queue[i]
+                if (it.objectName === "timelinePane")
+                    return it
+                for (var j = 0; j < it.children.length; ++j)
+                    next.push(it.children[j])
+            }
+            queue = next
+        }
+        return null
+    }
+    function refreshVoicePane() {
+        if (!window.voicePane && app.voicePlayback.active)
+            window.voicePane = window.findVoicePane()
+    }
+    Connections {
+        target: app.voicePlayback
+        function onCurrentChanged() { window.refreshVoicePane() }
+    }
+    Connections {
+        target: pageLoader
+        function onLoaded() {
+            window.voicePane = null
+            window.refreshVoicePane()
+        }
+    }
+    VoicePlayerBar {
+        id: voiceDockFallback
+        objectName: "voicePlayerDockFallback"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 6
+        atBottom: true
+        shown: app.voicePlayback.active && app.settings.voicePlayerDocked
+               && (app.currentScreen === 2
+                   || (app.currentScreen === 1
+                       && !(window.voicePane
+                            && window.voicePane.voiceDockShown)))
+    }
+    // Keyboard access to the player from anywhere (design-media U5: Tab
+    // never reached it from the timeline, and the composer keeps Tab): the
+    // rebindable `media.focusPlayer` (ShortcutRegistry). Focus lands on a
+    // control where Space plays or pauses (the strip's or the row's
+    // play/pause button, or the card, which takes Space itself); Tab then
+    // walks the player's controls.
+    function focusVoicePlayer() {
+        if (voiceMiniPlayer.wanted) {
+            voiceMiniPlayer.focusCard()
+            return
+        }
+        if (voiceDockFallback.visible) {
+            voiceDockFallback.focusPlayer()
+            return
+        }
+        window.refreshVoicePane()
+        if (window.voicePane && window.voicePane.voiceDockShown) {
+            window.voicePane.focusVoiceDock()
+            return
+        }
+        // Popped out with the clip's row on screen: that row is the player.
+        var row = app.voicePlayback.visibleRow
+        if (row && row.focusPlayButton)
+            row.focusPlayButton()
+    }
+    Shortcut {
+        objectName: "focusVoicePlayerShortcut"
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("media.focusPlayer")]
+        }
+        enabled: app.voicePlayback.active
+                 && (app.currentScreen === 1 || app.currentScreen === 2)
+        onActivated: window.focusVoicePlayer()
+    }
+    // Popped out: the floating card, over everything but popups.
+    VoiceMiniPlayer {
+        id: voiceMiniPlayer
+        anchors.fill: parent
+        z: 40
+        // The chat column, for the card's first spot.
+        hintProvider: function() {
+            var pane = window.voicePane
+            if (!pane || !pane.visible || !pane.chatSafeArea)
+                return null
+            var r = pane.chatSafeArea
+            var p = pane.mapToItem(voiceMiniPlayer, r.x, r.y)
+            return Qt.rect(p.x, p.y, r.width, r.height)
+        }
     }
 
     // Development-only screenshot-demo control panel, an overlay child of the

@@ -617,8 +617,11 @@ private Q_SLOTS:
         QVERIFY2(card.contains(
                      QStringLiteral("audio: root.isCurrent ? root.voice.audioOutput : null")),
                  "the volume control must drive the app-owned player");
-        QVERIFY2(card.contains(
-                     QStringLiteral("onTriggered: app.settings.mediaPlaybackRate = modelData")),
+        // A voice row writes the remembered voice speed, an audio file only
+        // its own clip's (AudioPlayerCard.setRate; design-media U3).
+        QVERIFY2(card.contains(QStringLiteral("onTriggered: root.setRate(modelData)"))
+                     && card.contains(QStringLiteral(
+                         "app.settings.voicePlaybackRate = rate")),
                  "the speed menu must write the remembered setting");
         QVERIFY2(card.contains(QStringLiteral("audioSpeedMenu")),
                  "the speed control must be selectable, not cycle-only");

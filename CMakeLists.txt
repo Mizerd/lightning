@@ -882,6 +882,8 @@ set(APP_SOURCES
     src/media/VoicePlaybackController.cpp
     src/media/QtAudioGate.h
     src/media/QtAudioGate.cpp
+    src/media/MprisServer.h
+    src/media/MprisServer.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
@@ -1156,6 +1158,10 @@ set(APP_QML_FILES
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
     qml/VoiceMiniPlayer.qml
+    qml/VoicePlayerBar.qml
+    qml/VoicePlayerLogic.qml
+    qml/VoiceSeekBar.qml
+    qml/VoiceSpeedChip.qml
     qml/DownloadsCard.qml
     qml/AttachmentDownloadNotice.qml
     qml/PaneDownloadsCard.qml
@@ -2692,6 +2698,16 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-pane-qml-test PRIVATE Qt6::Test)
     add_test(NAME timeline-pane-qml COMMAND timeline-pane-qml-test)
     set_tests_properties(timeline-pane-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The docked voice/audio player strip over the real TimelinePane: its own
+    # band under the room header, covering no row in any layout or width.
+    qt_add_executable(voice-player-dock-qml-test
+        tests/VoicePlayerDockQmlTest.cpp
+    )
+    lightning_configure_qml_test(voice-player-dock-qml-test)
+    add_test(NAME voice-player-dock-qml COMMAND voice-player-dock-qml-test)
+    set_tests_properties(voice-player-dock-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The reaction picker over the real TimelinePane: compact and anchored at
@@ -5395,6 +5411,20 @@ if(BUILD_TESTING)
     add_test(NAME qt-audio-gate COMMAND qt-audio-gate-test)
     set_tests_properties(qt-audio-gate PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # MPRIS for the voice/audio player: on the bus only while a clip is
+    # loaded, its properties and privacy-following metadata, and the media
+    # keys' methods, driven by a separate client connection. It starts its own
+    # private dbus-daemon (skips without one) and never touches the session
+    # bus of whoever runs it.
+    if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+        qt_add_executable(mpris-server-test tests/MprisServerTest.cpp)
+        target_link_libraries(mpris-server-test PRIVATE lightning-app-testlib
+            Qt6::DBus Qt6::Multimedia Qt6::Test)
+        add_test(NAME mpris-server COMMAND mpris-server-test)
+        set_tests_properties(mpris-server PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 
     # Bare-localpart user lookup: candidates from the account's server, profile
     # confirmation before exposure, dedup with provenance, stale rejection.
@@ -6353,6 +6383,15 @@ if(BUILD_TESTING)
         add_test(NAME video-player-qml
             COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-video-player.sh)
         set_tests_properties(video-player-qml PROPERTIES
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
+        # The voice/audio player's QML: the docked strip and the popped-out
+        # card (free move, resize, snap, persistence, never off screen,
+        # keyboard), the scrubber, the timeline row and the shared volume
+        # control (scripts/test-voice-player.sh).
+        add_test(NAME voice-player-qml
+            COMMAND bash ${PROJECT_SOURCE_DIR}/scripts/test-voice-player.sh)
+        set_tests_properties(voice-player-qml PROPERTIES
             SKIP_RETURN_CODE 77
             ENVIRONMENT "QMLTESTRUNNER=${LIGHTNING_QMLTESTRUNNER}")
     endif()
@@ -7358,4 +7397,18 @@ if(BUILD_TESTING)
     add_test(NAME global-shortcuts-nodbus COMMAND global-shortcuts-nodbus-test)
     set_tests_properties(global-shortcuts-nodbus PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# MPRIS (src/media/MprisServer) must never reach the session bus of whoever
+# runs ctest: an AppController plays a clip in many suites. Every suite
+# carries the opt-out but the MPRIS suite itself, which brings its own
+# private bus.
+if(BUILD_TESTING)
+    get_property(_lightning_tests DIRECTORY PROPERTY TESTS)
+    foreach(_lightning_test IN LISTS _lightning_tests)
+        if(NOT _lightning_test STREQUAL "mpris-server")
+            set_property(TEST ${_lightning_test} APPEND PROPERTY
+                ENVIRONMENT "LIGHTNING_DISABLE_MPRIS=1")
+        endif()
+    endforeach()
 endif()

@@ -2180,24 +2180,57 @@ bool TimelineModel::isEventRedacted(const QString &roomId,
 QVariantMap TimelineModel::nextVoiceMessage(const QString &roomId,
                                             const QString &afterEventId) const
 {
-    if (roomId.isEmpty() || roomId != m_realRoomId)
+    const QVariantList run = voiceRunAfter(roomId, afterEventId, QString(), 1);
+    return run.isEmpty() ? QVariantMap() : run.constFirst().toMap();
+}
+
+QVariantList TimelineModel::voiceRunAfter(const QString &roomId,
+                                          const QString &afterEventId,
+                                          const QString &threadRootId,
+                                          int max) const
+{
+    if (roomId.isEmpty() || roomId != m_realRoomId || max <= 0)
+        return {};
+    // A thread clip's run lives in that thread's timeline and nowhere else; a
+    // main-timeline clip's never in a thread's.
+    const bool threadModel = MatrixClient::isThreadTimelineId(m_roomId);
+    if (threadRootId.isEmpty() == threadModel)
+        return {};
+    if (threadModel
+        && MatrixClient::threadTimelineRootId(m_roomId) != threadRootId)
         return {};
     const int start = rowForEventId(afterEventId);
     if (start < 0)
         return {};
+    QVariantList run;
     // m_events is oldest first, so "next" is the following row.
     for (int row = start + 1; row < m_events.size(); ++row) {
         const TimelineEvent &e = m_events.at(row);
+        // In the main timeline a thread reply is hidden (a root, which some
+        // backends stamp with its own id, is not). A thread's timeline
+        // holds only that thread (its root, and replies the backend may or
+        // may not stamp with the root), so only a row naming ANOTHER root is
+        // foreign there.
+        const bool foreign = threadModel
+            ? (!e.threadRootId.isEmpty() && e.threadRootId != threadRootId
+               && e.eventId != threadRootId)
+            : (!e.threadRootId.isEmpty() && e.threadRootId != e.eventId);
         if (e.isVirtual() || e.type == TimelineEvent::StateChange
-            || e.redacted || !e.threadRootId.isEmpty())
+            || e.redacted || foreign)
             continue;
         if (e.type != TimelineEvent::Audio || !e.mediaIsVoice
             || e.eventId.isEmpty() || e.isLocalEcho || e.mediaKey.isEmpty()
             || !e.mediaSourceAvailable)
-            return {};
+            break;
         const QModelIndex idx = index(row, 0);
-        return {
+        QVariantList waveform;
+        waveform.reserve(e.mediaWaveform.size());
+        for (int amp : e.mediaWaveform)
+            waveform.append(amp);
+        run.append(QVariantMap{
+            { QStringLiteral("waveform"), waveform },
             { QStringLiteral("eventId"), e.eventId },
+            { QStringLiteral("roomId"), roomId },
             { QStringLiteral("mediaKey"), e.mediaKey },
             { QStringLiteral("senderName"),
               data(idx, SenderDisplayNameRole).toString() },
@@ -2209,10 +2242,12 @@ QVariantMap TimelineModel::nextVoiceMessage(const QString &roomId,
             { QStringLiteral("isVoice"), true },
             { QStringLiteral("durationMs"), e.mediaDurationMs },
             { QStringLiteral("fileSize"), static_cast<qint64>(e.mediaSize) },
-            { QStringLiteral("threadRootId"), QString() },
-        };
+            { QStringLiteral("threadRootId"), threadRootId },
+        });
+        if (run.size() >= max)
+            break;
     }
-    return {};
+    return run;
 }
 
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)

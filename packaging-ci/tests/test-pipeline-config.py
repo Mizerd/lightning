@@ -810,6 +810,19 @@ check(not any(arg.startswith("--talk-name=org.mpris.MediaPlayer2.")
               and arg != "--talk-name=org.mpris.MediaPlayer2.spotify"
               for arg in _flatpak_args),
       "the Flatpak talks to no MPRIS player but Spotify")
+# MPRIS (src/media/MprisServer): the sandbox must let the app OWN its player
+# name, and the per-instance form a second profile takes, or the media keys
+# silently do nothing in the Flatpak.
+check("--own-name=org.mpris.MediaPlayer2.lightning" in _flatpak_args
+      and "--own-name=org.mpris.MediaPlayer2.lightning.*" in _flatpak_args,
+      "the Flatpak may own the MPRIS player names")
+with open(os.path.join(HERE, "..", "..", "org.lightning_matrix.Lightning.yaml"),
+          encoding="utf-8") as handle:
+    _root_flatpak_args = [line.strip()[2:].strip() for line in handle
+                          if line.strip().startswith("- --")]
+check("--own-name=org.mpris.MediaPlayer2.lightning" in _root_flatpak_args
+      and "--own-name=org.mpris.MediaPlayer2.lightning.*" in _root_flatpak_args,
+      "the root (Flathub) manifest may own the MPRIS player names too")
 
 # Windows bundles like the AppImage, and the builder image must also carry
 # GStreamer, or CMake silently configures the engine out.
@@ -1592,6 +1605,11 @@ _snap_plugs = [
 # list entries, since a comment names the same string.
 check("audio-record" in _snap_plugs,
       "the snap declares the microphone interface calling needs")
+# MPRIS: the app's slot owns the player name. No fixed `name:`, so a
+# parallel install (lightning_x) gets its own instead of colliding.
+check("mpris" in _snap_plugs and "interface: mpris" in snap_yaml
+      and "name: lightning" not in snap_yaml,
+      "the snap declares the MPRIS slot for the voice/audio player, unnamed")
 
 # The snap is asked through its own launcher, which is all snapd ever runs,
 # and element by element: a snap without libsrtp2 passed --call-media-status

@@ -6768,6 +6768,8 @@ Item {
         AudioPlayerCard {
             objectName: "audioMedia"
             hostContentWidth: root.contentInnerCap
+            // In Bubbles the bubble is the card's surface: no box in a box.
+            inBubble: root.bubbleMode
             mediaKey: model.mediaKey || ""
             // The app-owned player is keyed by the event, so this row finds a
             // clip that kept playing while the room was closed. A local echo

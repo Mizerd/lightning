@@ -44,6 +44,11 @@ apps:
       # libsecret / Secret Service access for token storage.
       - password-manager-service
       - gpu-2404
+    # MPRIS for the voice/audio player (media keys, desktop "now playing").
+    # The slot below sets no fixed `name:`, so snapd derives it from the
+    # snap's instance name and a parallel install does not share one.
+    slots:
+      - mpris
 
 # GL from Canonical's Mesa content snap rather than a staged driver stack,
 # which must match the kernel's DRM and receives its own security fixes. The
@@ -58,6 +63,10 @@ apps:
 #   snap connect lightning:audio-record
 #   snap connect lightning:camera
 #   snap connect lightning:password-manager-service
+slots:
+  mpris:
+    interface: mpris
+
 plugs:
   gpu-2404:
     interface: content

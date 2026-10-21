@@ -31,7 +31,22 @@ Rectangle {
     readonly property bool playing:
         preview.playbackState === MediaPlayer.PlayingState
 
+    // Playback starts through the Qt audio gate (`qtAudio`, the pwcrash
+    // package: no QMediaPlayer starts before the audio backend is ready). A
+    // component loaded alone in a test has no gate and plays directly.
+    function gatedPlay(p) {
+        if (typeof qtAudio !== "undefined" && qtAudio)
+            qtAudio.play(p)
+        else
+            p.play()
+    }
+    function cancelGatedPlay(p) {
+        if (typeof qtAudio !== "undefined" && qtAudio)
+            qtAudio.cancelPlay(p)
+    }
+
     function stopPlayback() {
+        root.cancelGatedPlay(preview)
         preview.stop()
     }
 
@@ -69,7 +84,10 @@ Rectangle {
         }
     }
     // Stop once the clip is gone (sent or discarded).
-    onFilePathChanged: preview.stop()
+    onFilePathChanged: {
+        root.cancelGatedPlay(preview)
+        preview.stop()
+    }
 
     RowLayout {
         id: previewRow
@@ -88,10 +106,12 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: {
-                if (root.playing)
+                if (root.playing) {
+                    root.cancelGatedPlay(preview)
                     preview.pause()
-                else
-                    preview.play()
+                } else {
+                    root.gatedPlay(preview)
+                }
             }
         }
         // The waveform, with the played part inked and tap-to-seek, like
@@ -183,6 +203,7 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: {
+                root.cancelGatedPlay(preview)
                 preview.stop()
                 root.discardRequested()
             }
@@ -199,6 +220,7 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: {
+                root.cancelGatedPlay(preview)
                 preview.stop()
                 root.sendRequested()
             }

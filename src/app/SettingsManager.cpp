@@ -87,6 +87,10 @@ constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
 constexpr auto kMediaVolume         = "media/volume";       // 0..1
 constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
 constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
+constexpr auto kVoicePlayerDocked   = "media/playerDocked";   // bool
+// QRectF: x/y fractions of the free space, width/height pixels.
+constexpr auto kVoiceMiniPlayerGeometry = "media/miniPlayerGeometry";
+constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate"; // 0.25..4.0
 // GIF browser policy.
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
@@ -3654,6 +3658,11 @@ void SettingsManager::setMediaPlaybackRate(qreal v)
     const qreal clamped = v < 0.25 ? 0.25 : (v > 4.0 ? 4.0 : v);
     if (qFuzzyCompare(mediaPlaybackRate() + 1.0, clamped + 1.0))
         return;
+    // The voice speed inherits this key until it is first written: freeze
+    // the inherited value first, so a speed chosen for other media from here
+    // on does not silently change how voice messages play.
+    if (!m_store->contains(kVoicePlaybackRate))
+        m_store->setValue(kVoicePlaybackRate, mediaPlaybackRate());
     m_store->setValue(kMediaPlaybackRate, clamped);
     Q_EMIT mediaPlaybackRateChanged();
 }
@@ -3674,6 +3683,78 @@ void SettingsManager::setVoiceMiniPlayerCorner(int corner)
         return;
     m_store->setValue(kVoiceMiniPlayerCorner, valid);
     Q_EMIT voiceMiniPlayerCornerChanged();
+}
+
+bool SettingsManager::voicePlayerDocked() const
+{
+    return m_store->value(kVoicePlayerDocked, true).toBool();
+}
+
+void SettingsManager::setVoicePlayerDocked(bool docked)
+{
+    if (voicePlayerDocked() == docked)
+        return;
+    m_store->setValue(kVoicePlayerDocked, docked);
+    Q_EMIT voicePlayerDockedChanged();
+}
+
+QRectF SettingsManager::voiceMiniPlayerGeometry() const
+{
+    const QVariant raw = m_store->value(kVoiceMiniPlayerGeometry);
+    if (!raw.isValid() || !raw.canConvert<QRectF>())
+        return {};
+    const QRectF r = raw.toRectF();
+    // Anything a newer build, a hand edit or a corrupt file could leave: a
+    // non-finite or non-positive size is "never placed", and the fractions
+    // are bounded so the card cannot be restored outside its area.
+    if (!qIsFinite(r.x()) || !qIsFinite(r.y()) || !qIsFinite(r.width())
+        || !qIsFinite(r.height()) || r.width() <= 0 || r.height() <= 0)
+        return {};
+    return QRectF(qBound(0.0, r.x(), 1.0), qBound(0.0, r.y(), 1.0),
+                  qMin(r.width(), 4000.0), qMin(r.height(), 4000.0));
+}
+
+void SettingsManager::setVoiceMiniPlayerGeometry(const QRectF &geometry)
+{
+    QRectF valid;
+    if (qIsFinite(geometry.x()) && qIsFinite(geometry.y())
+        && qIsFinite(geometry.width()) && qIsFinite(geometry.height())
+        && geometry.width() > 0 && geometry.height() > 0) {
+        valid = QRectF(qBound(0.0, geometry.x(), 1.0),
+                       qBound(0.0, geometry.y(), 1.0),
+                       qMin(geometry.width(), 4000.0),
+                       qMin(geometry.height(), 4000.0));
+    }
+    if (voiceMiniPlayerGeometry() == valid)
+        return;
+    if (valid.isValid())
+        m_store->setValue(kVoiceMiniPlayerGeometry, valid);
+    else
+        m_store->remove(kVoiceMiniPlayerGeometry);
+    Q_EMIT voiceMiniPlayerGeometryChanged();
+}
+
+qreal SettingsManager::voicePlaybackRate() const
+{
+    if (!m_store->contains(kVoicePlaybackRate))
+        return mediaPlaybackRate();
+    bool ok = false;
+    const qreal v = m_store->value(kVoicePlaybackRate, 1.0).toDouble(&ok);
+    if (!ok || !(v >= 0.25) || !(v <= 4.0))
+        return 1.0;
+    return v;
+}
+
+void SettingsManager::setVoicePlaybackRate(qreal v)
+{
+    const qreal clamped = v < 0.25 ? 0.25 : (v > 4.0 ? 4.0 : v);
+    // Written even when equal to the inherited value, so the voice speed
+    // stops following the shared key from here on.
+    const bool changed =
+        !qFuzzyCompare(voicePlaybackRate() + 1.0, clamped + 1.0);
+    m_store->setValue(kVoicePlaybackRate, clamped);
+    if (changed)
+        Q_EMIT voicePlaybackRateChanged();
 }
 
 int SettingsManager::gifAutoplay() const

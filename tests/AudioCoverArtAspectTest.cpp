@@ -1,8 +1,9 @@
-// The audio card's cover-art box keeps the artwork's aspect at every size.
-// Bounding only the height lets a tall cover get a full-width box capped at
-// 420 tall, with PreserveAspectFit leaving dead space at both sides; both
-// axes are bounded and the width derives from the capped height. Drives the
-// real qml/AudioPlayerCard.qml with real images.
+// The audio card's cover art (design-media B6): a FIXED square thumbnail the
+// play button sits on, whatever the artwork's shape, so a row never changes
+// height when a cover appears (it used to grow a box up to 420 px tall on
+// play and drop it at the end, moving the history twice). Plus the card's
+// clocks and waveform shape. Drives the real qml/AudioPlayerCard.qml with
+// real images.
 
 #include <QtTest/QtTest>
 
@@ -97,64 +98,47 @@ private Q_SLOTS:
         QVERIFY(m_dir.isValid());
     }
 
-    // A square cover in a wide enough card gets a square box.
-    void aSquareCoverGetsASquareBox()
+    // Any cover, square, tall or wide, is the same fixed 40 px tile, cropped
+    // to fill it; the row is as tall as it was without one (B6).
+    void everyCoverIsTheSameFixedTileAndTheRowKeepsItsHeight()
     {
-        Card card = makeCard(makeImage(QStringLiteral("sq.png"), 600, 600), 360);
-        QVERIFY(card.item != nullptr);
-        QVERIFY2(card.box != nullptr, "the cover art box was not created");
-        QTRY_VERIFY(card.box->width() > 1);
-        QCOMPARE(card.box->width(), card.box->height());
-        // 360 card minus 6px margin each side.
-        QCOMPARE(card.box->width(), 348.0);
+        Card bare = makeCard(QUrl(), 360);
+        QVERIFY(bare.item != nullptr);
+        bare.item->setProperty("isVoice", false);
+        QVERIFY(bare.box != nullptr);
+        QVERIFY(bare.box->isVisible());
+        const qreal rowHeight = bare.item->implicitHeight();
+        QVERIFY(rowHeight > 0);
+
+        const struct { const char *name; int w; int h; } covers[] = {
+            { "sq.png", 600, 600 }, { "tall.png", 400, 1200 },
+            { "wide.png", 1200, 400 } };
+        for (const auto &cover : covers) {
+            Card card = makeCard(makeImage(QString::fromLatin1(cover.name),
+                                           cover.w, cover.h), 360);
+            QVERIFY(card.item != nullptr);
+            card.item->setProperty("isVoice", false);
+            QVERIFY2(card.box != nullptr, "the cover art tile was not created");
+            QTRY_VERIFY(card.box->width() > 1);
+            QCOMPARE(card.box->width(), 40.0);
+            QCOMPARE(card.box->height(), 40.0);
+            QCOMPARE(card.item->implicitHeight(), rowHeight);
+            auto *image = card.item->findChild<QQuickItem *>(
+                QStringLiteral("audioCoverArtwork"));
+            QVERIFY(image);
+            QCOMPARE(image->property("fillMode").toInt(),
+                     int(2) /* Image.PreserveAspectCrop */);
+        }
     }
 
-    // A tall cover past the 420 edge cap keeps its aspect: both axes are
-    // bounded.
-    void aTallCoverKeepsItsAspectWhenTheCapEngages()
-    {
-        Card card = makeCard(makeImage(QStringLiteral("tall.png"), 400, 1200),
-                             360);
-        QVERIFY(card.item != nullptr);
-        QVERIFY(card.box != nullptr);
-        QTRY_VERIFY(card.box->height() > 1);
-
-        // Capped on the long edge...
-        QCOMPARE(card.box->height(), 420.0);
-        // ...and the short edge follows the artwork, not the card.
-        QCOMPARE(card.box->width(), 140.0);
-        QVERIFY2(card.box->width() < 348.0,
-                 "a full-width box at the height cap does not match a tall "
-                 "cover's aspect — the artwork letterboxes with dead surface "
-                 "down both sides");
-
-        const qreal ratio = card.box->height() / card.box->width();
-        QVERIFY2(qAbs(ratio - 3.0) < 0.02,
-                 qPrintable(QStringLiteral("box ratio %1, artwork ratio 3.0")
-                                .arg(ratio)));
-    }
-
-    // A wide cover is bounded by the card, not the cap, and still matches.
-    void aWideCoverIsBoundedByTheCard()
-    {
-        Card card = makeCard(makeImage(QStringLiteral("wide.png"), 1200, 400),
-                             360);
-        QVERIFY(card.item != nullptr);
-        QVERIFY(card.box != nullptr);
-        QTRY_VERIFY(card.box->width() > 1);
-
-        QCOMPARE(card.box->width(), 348.0);
-        QCOMPARE(card.box->height(), 116.0);
-    }
-
-    // No artwork: the box takes no space.
-    void noArtworkLeavesNoBox()
+    // A voice message has no tile at all: just the play button.
+    void aVoiceMessageHasNoCoverTile()
     {
         Card card = makeCard(QUrl(), 360);
         QVERIFY(card.item != nullptr);
+        card.item->setProperty("isVoice", true);
         QVERIFY(card.box != nullptr);
         QVERIFY(!card.box->isVisible());
-        QCOMPARE(card.box->height(), 0.0);
     }
 
     // A position floors and a total rounds. The summary line rounds the
@@ -205,15 +189,17 @@ private Q_SLOTS:
         card.item->setProperty("waveform", wf);
 
         QQuickItem *row = card.item->findChild<QQuickItem *>(
-            QStringLiteral("audioWaveRow"));
+            QStringLiteral("voiceSeekWave"));
         QVERIFY2(row != nullptr, "the waveform row was not created");
         QTRY_VERIFY(row->isVisible() && row->width() > 1);
 
         // findChild cannot reach Repeater delegates; walk the Row's children.
+        // The bars are stretched over the row (no dead space), so they are
+        // as wide as the row allows; only the Repeater itself is skipped.
         QList<qreal> heights;
         const auto kids = row->childItems();
         for (QQuickItem *kid : kids) {
-            if (kid->height() > 0 && kid->width() > 0 && kid->width() <= 4)
+            if (kid->height() > 0 && kid->width() > 0)
                 heights.append(kid->height());
         }
         QVERIFY2(heights.size() >= 4,

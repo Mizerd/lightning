@@ -368,6 +368,8 @@ FocusScope {
             audio: bar.audio
             scrim: true
             sliderObjectName: "videoVolumeSlider"
+            // The bar's own Up/Down (Up unmutes, Down keeps a mute).
+            arrowKeysStepLevel: false
             iconSize: bar.large ? 22 : 18
             implicitWidth: bar.buttonSize; implicitHeight: bar.buttonSize
             // Tab lands here and opens the level popup; Up/Down (handled by

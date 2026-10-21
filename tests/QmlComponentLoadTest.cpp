@@ -120,9 +120,14 @@ constexpr const char *kComponents[] = {
     // Room and Space topics; reads app.linkPreviews. A TextEdit, where a Text
     // property such as lineHeight is a load-time error.
     "TopicText",
-    // The floating voice/audio mini-player; renders app.voicePlayback and
-    // app.settings.voiceMiniPlayerCorner, and shows nothing while idle.
+    // The popped-out voice/audio player card; renders app.voicePlayback and
+    // app.settings.voiceMiniPlayerGeometry, and shows nothing while idle.
     "VoiceMiniPlayer",
+    // The docked "now playing" strip, its scrubber and its speed chip; all
+    // bind app.voicePlayback at load.
+    "VoicePlayerBar",
+    "VoiceSeekBar",
+    "VoiceSpeedChip",
     // The downloads card (app.downloads.items) and the native chooser
     // wrapper (app.files); both bind app objects at load.
     "DownloadsCard",

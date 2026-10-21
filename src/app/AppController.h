@@ -125,6 +125,7 @@ class MouseNavigationFilter;
 }
 
 class MatrixClient;
+class MprisServer;
 class NotificationManager;
 namespace lightning::accounts {
 class SessionPool;
@@ -1461,10 +1462,19 @@ private:
     void refreshOwnProfile(qint64 minIntervalMs);
     static constexpr qint64 kOwnProfileEventRefreshMs = 2000;
     static constexpr qint64 kOwnProfileActivationRefreshMs = 60000;
-    // Auto-play next: starts the voice message after `afterEventId` in the
-    // open timeline, if one directly follows (TimelineModel::nextVoiceMessage).
+    // Auto-play next: starts the voice message after `afterEventId` in its
+    // own timeline (main or thread), read live when that timeline is loaded,
+    // else from `snapshot`, the run the player kept (design-media B3).
     void playNextVoiceMessage(const QString &roomId,
-                              const QString &afterEventId);
+                              const QString &afterEventId,
+                              const QString &threadRootId,
+                              const QVariantList &snapshot);
+    // The run after `afterEventId` from whichever loaded timeline is its own;
+    // *known says whether one was (else the result means nothing).
+    QVariantList liveVoiceRun(const QString &roomId,
+                              const QString &afterEventId,
+                              const QString &threadRootId,
+                              bool *known) const;
     // verificationRole for a flow starting now.
     QString verificationRoleAtStart(bool isSelf) const;
     // The status strip's message: expires after a while (a running call's
@@ -2127,4 +2137,7 @@ private:
     // animationsSuspended: no window of this application has focus.
     bool m_animationsSuspended = false;
     void refreshAnimationsSuspended();
+    // MPRIS for the voice/audio player. Declared last so it is destroyed
+    // first, before the player it reads.
+    std::unique_ptr<MprisServer> m_mpris;
 };

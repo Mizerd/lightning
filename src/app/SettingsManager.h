@@ -460,6 +460,29 @@ class SettingsManager : public QObject
     Q_PROPERTY(int voiceMiniPlayerCorner READ voiceMiniPlayerCorner
                    WRITE setVoiceMiniPlayerCorner
                    NOTIFY voiceMiniPlayerCornerChanged)
+    // How the voice/audio player shows while a clip is loaded: docked as a
+    // slim "now playing" strip under the header (the default; it is laid out
+    // in its own band, so it covers nothing), or popped out as a floating card
+    // the user moves and resizes freely.
+    Q_PROPERTY(bool voicePlayerDocked READ voicePlayerDocked
+                   WRITE setVoicePlayerDocked NOTIFY voicePlayerDockedChanged)
+    // The popped-out card's place and size. x and y are FRACTIONS (0..1) of
+    // the free space the card can move in (the area minus the card), so the
+    // card keeps its relative place through a window resize and can never be
+    // restored off screen; width and height are pixels, clamped by the host
+    // to what fits. An invalid rect (width <= 0) means "never placed": the
+    // host picks its default spot.
+    Q_PROPERTY(QRectF voiceMiniPlayerGeometry READ voiceMiniPlayerGeometry
+                   WRITE setVoiceMiniPlayerGeometry
+                   NOTIFY voiceMiniPlayerGeometryChanged)
+    // The playback speed of VOICE MESSAGES (0.25..4.0), remembered: a reader
+    // who listens to voice notes at 1.5x wants every voice note at 1.5x.
+    // Audio FILES (music, podcasts) start at 1x every time and their speed is
+    // the clip's own (VoicePlaybackController::rate). Until it is first
+    // written it reads the older shared `mediaPlaybackRate`, which was the
+    // voice/audio speed, so an existing choice carries over.
+    Q_PROPERTY(qreal voicePlaybackRate READ voicePlaybackRate
+                   WRITE setVoicePlaybackRate NOTIFY voicePlaybackRateChanged)
     // Whole-interface zoom percent (75..150). Global: main() turns it into
     // QT_SCALE_FACTOR before the app exists, so it applies on next launch.
     Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
@@ -1031,6 +1054,12 @@ public:
     void setMediaPlaybackRate(qreal v);
     int voiceMiniPlayerCorner() const;
     void setVoiceMiniPlayerCorner(int corner);
+    bool voicePlayerDocked() const;
+    void setVoicePlayerDocked(bool docked);
+    QRectF voiceMiniPlayerGeometry() const;
+    void setVoiceMiniPlayerGeometry(const QRectF &geometry);
+    qreal voicePlaybackRate() const;
+    void setVoicePlaybackRate(qreal v);
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
@@ -1367,6 +1396,9 @@ Q_SIGNALS:
     void mediaVolumeChanged();
     void mediaPlaybackRateChanged();
     void voiceMiniPlayerCornerChanged();
+    void voicePlayerDockedChanged();
+    void voiceMiniPlayerGeometryChanged();
+    void voicePlaybackRateChanged();
     void interfaceZoomChanged();
     void textRenderingChanged();
     void sessionChanged();

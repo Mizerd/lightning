@@ -6,9 +6,12 @@
 //     for the first cannot take the player back;
 //   * sign-out and account switch clear it, a redaction stops it;
 //   * a timeline row rebuilt after the switch shows the live clip;
-//   * the floating mini-player shows while the clip's room is elsewhere,
-//     hides in that room, snaps to the corner it is dragged to, remembers it,
-//     and moves off a corner the call PiP covers.
+//   * auto-play-next follows the clip's OWN timeline, through a room switch;
+//   * a call pauses the clip and its end resumes it; Space still reaches a
+//     clip paused before a room switch; voice and file speeds are separate;
+//   * an audio file's tags outlive its play; an idle row starts mid-clip;
+//   * the popped-out player shows wherever the clip's row is not (Settings
+//     included), the docked strip by default, and both choices persist.
 //
 // Sources are silent WAV files from a test resolver, so no homeserver and no
 // audible output are involved. MediaBridge's own fetch path is covered by its
@@ -125,6 +128,56 @@ bool writeSilentWav(const QString &path, int seconds)
     s.writeRawData("data", 4);
     s << dataBytes;
     out.append(QByteArray(int(dataBytes), '\0'));
+    QFile f(path);
+    return f.open(QIODevice::WriteOnly) && f.write(out) == out.size();
+}
+
+// A silent WAV carrying RIFF INFO tags (INAM title, IART artist), which the
+// media backend reports as the file's title and artist.
+bool writeTaggedWav(const QString &path, int seconds, const QByteArray &title,
+                    const QByteArray &artist)
+{
+    const quint32 rate = 8000;
+    const quint32 dataBytes = rate * 2 * quint32(seconds);
+    const auto chunk = [](const char *id, QByteArray text) {
+        text.append('\0');
+        if (text.size() % 2)
+            text.append('\0');
+        QByteArray out(id, 4);
+        QDataStream s(&out, QIODevice::Append);
+        s.setByteOrder(QDataStream::LittleEndian);
+        s << quint32(text.size());
+        out.append(text);
+        return out;
+    };
+    QByteArray info("INFO");
+    info.append(chunk("INAM", title));
+    info.append(chunk("IART", artist));
+    QByteArray list("LIST");
+    {
+        QDataStream s(&list, QIODevice::Append);
+        s.setByteOrder(QDataStream::LittleEndian);
+        s << quint32(info.size());
+    }
+    list.append(info);
+    QByteArray body;
+    QDataStream s(&body, QIODevice::WriteOnly);
+    s.setByteOrder(QDataStream::LittleEndian);
+    s.writeRawData("WAVE", 4);
+    s.writeRawData("fmt ", 4);
+    s << quint32(16) << quint16(1) << quint16(1) << rate << (rate * 2)
+      << quint16(2) << quint16(16);
+    s.writeRawData(list.constData(), int(list.size()));
+    s.writeRawData("data", 4);
+    s << dataBytes;
+    body.append(QByteArray(int(dataBytes), '\0'));
+    QByteArray out("RIFF");
+    {
+        QDataStream h(&out, QIODevice::Append);
+        h.setByteOrder(QDataStream::LittleEndian);
+        h << quint32(body.size());
+    }
+    out.append(body);
     QFile f(path);
     return f.open(QIODevice::WriteOnly) && f.write(out) == out.size();
 }
@@ -451,7 +504,9 @@ private Q_SLOTS:
 
         // An audio file (isVoice false) ending does not chain.
         Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general, QString(), false);
-        // Nor does a clip played from a thread.
+        // Nor does a clip from a thread whose run nobody knows (no thread
+        // timeline loaded, no snapshot): it is the THREAD's run, never the
+        // room's.
         Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general,
                                 QStringLiteral("$root"), true);
         QVERIFY(!vp->active());
@@ -500,15 +555,20 @@ private Q_SLOTS:
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
         vp->stop();
         QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
-        // A room switch drops it while the clip keeps playing.
+        // A room switch keeps it while the clip keeps playing: the run plays
+        // on from its snapshot (design-media B3), so its next clip is still
+        // the one to have ready.
         vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
         app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
-        QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
-        // A thread clip prefetches nothing.
+        QTest::qWait(100);
+        QCOMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
+        // A thread clip whose thread is not loaded prefetches nothing: its
+        // run is the thread's, never the room's.
+        vp->stop();
         app.setCurrentRoomId(general);
-        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+        vp->play(QStringLiteral("$t1"), general, QStringLiteral("mk-one"),
                  { { QStringLiteral("isVoice"), true },
                    { QStringLiteral("threadRootId"), QStringLiteral("$root") } });
         QTest::qWait(100);
@@ -639,7 +699,7 @@ private Q_SLOTS:
         auto *vp = app.voicePlayback();
         installSources(vp);
         app.settings()->setMediaVolume(0.3);
-        app.settings()->setMediaPlaybackRate(1.5);
+        app.settings()->setVoicePlaybackRate(1.5);
         vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("Alice")));
         vp->pause();
@@ -647,7 +707,7 @@ private Q_SLOTS:
         QVERIFY(qAbs(vp->audioOutput()->volume() - 0.3f) < 0.001f);
         QCOMPARE(vp->player()->playbackRate(), 1.5);
         app.settings()->setMediaVolume(0.6);
-        app.settings()->setMediaPlaybackRate(0.75);
+        app.settings()->setVoicePlaybackRate(0.75);
         QVERIFY(qAbs(vp->audioOutput()->volume() - 0.6f) < 0.001f);
         QCOMPARE(vp->player()->playbackRate(), 0.75);
         // The shared volume control writes `userUnmuted` on its output.
@@ -904,11 +964,12 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         QVERIFY(!again->property("isCurrent").toBool());
     }
 
-    // B107: a short waveform draws over only part of the row (3 px a bar,
-    // left-aligned), and a tap mapped over the whole row: a click at 77% of
-    // the bars sought to about 17%. It maps over the drawn bars now, and a
-    // tap in the empty space past them seeks nowhere.
-    void aWaveformTapMapsOverTheDrawnBars()
+    // B107, then design-media P4/U5: a short waveform used to draw over only
+    // part of the row (3 px a bar, left-aligned), leaving dead space after it,
+    // and an idle row could not be seeked at all. The bars now stretch over
+    // the whole row, a tap maps over that width, and on an idle row it starts
+    // the clip at that point.
+    void aWaveformFillsTheRowAndAnIdleTapStartsThere()
     {
         QQuickWindow window;
         window.resize(420, 200);
@@ -916,11 +977,17 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         auto *app = new AppController(AppController::MockBackend, false,
                                       &engine);
         engine.rootContext()->setContextProperty(QStringLiteral("app"), app);
+        auto *mock = app->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->setSupportsMediaBridgeForTest(true);
+        auto *vp = app->voicePlayback();
+        installSources(vp);
         QQmlComponent component(&engine);
         component.setData(R"(
 import QtQuick
 import MatrixClient
-AudioPlayerCard { width: 360; isVoice: true; durationMs: 60000 }
+AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000
+                  eventId: "$wave"; roomId: "!a:one.example"; mediaKey: "mk-one" }
 )", QUrl(QStringLiteral("qrc:/voiceWaveformCard.qml")));
         QVERIFY2(component.errors().isEmpty(),
                  qPrintable(component.errorString()));
@@ -935,34 +1002,45 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 60000 }
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
 
-        auto *row = cardItem->findChild<QQuickItem *>(
-            QStringLiteral("audioWaveRow"));
-        QVERIFY(row);
-        QTRY_COMPARE(row->property("barCount").toInt(), 20);
-        const double drawn = row->property("drawnWidth").toDouble();
-        QCOMPARE(drawn, 59.0);
-        // The scenario only exists while the row is wider than the bars.
-        QVERIFY2(row->width() > drawn * 2,
-                 qPrintable(QStringLiteral("row %1").arg(row->width())));
+        auto *wave = cardItem->findChild<QQuickItem *>(
+            QStringLiteral("voiceSeekWave"));
+        QVERIFY(wave);
+        QTRY_VERIFY(wave->isVisible());
+        qreal right = 0;
+        int bars = 0;
+        const auto kids = wave->childItems();
+        for (QQuickItem *bar : kids) {
+            if (bar->width() <= 0 || bar->height() <= 0)
+                continue;
+            ++bars;
+            right = qMax(right, bar->x() + bar->width());
+        }
+        // Slim bars across the whole width, each sampling its bucket.
+        QCOMPARE(bars, int((wave->width() + 1) / 3));
+        QVERIFY2(right >= wave->width() * 0.97,
+                 qPrintable(QStringLiteral("20 bars end at %1 of %2 px")
+                                .arg(right).arg(wave->width())));
 
-        const auto fractionAt = [&](double x) {
-            QVariant result;
-            const bool ok = QMetaObject::invokeMethod(
-                cardItem, "waveSeekFraction", Q_RETURN_ARG(QVariant, result),
-                Q_ARG(QVariant, QVariant(x)));
-            return ok ? result.toDouble() : -2.0;
-        };
-        QVERIFY(qAbs(fractionAt(0.77 * drawn) - 0.77) < 0.001);
-        QCOMPARE(fractionAt(0.0), 0.0);
-        QCOMPARE(fractionAt(drawn), 1.0);
-        // Past the bars: nothing, rather than the middle of the clip.
-        QCOMPARE(fractionAt(row->width() - 10), -1.0);
+        // A click at half the width of an idle row starts the clip there.
+        auto *seek = cardItem->findChild<QQuickItem *>(
+            QStringLiteral("audioWaveRow"));
+        QVERIFY(seek);
+        const QPointF at = seek->mapToScene(
+            QPointF(seek->width() * 0.5, seek->height() / 2));
+        QTest::mouseClick(&window, Qt::LeftButton, {}, at.toPoint());
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$wave"));
+        QTRY_VERIFY_WITH_TIMEOUT(vp->loaded() && vp->seekable(), 5000);
+        QTRY_VERIFY2(qAbs(vp->position() - 2000) < 400,
+                     qPrintable(QString::number(vp->position())));
+        vp->stop();
     }
 
-    // The mini-player: shown while the clip's room is elsewhere, hidden in
-    // that room; dragged towards a corner it snaps there and the corner is
-    // remembered by the next launch; a PiP over the corner moves it.
-    void theMiniPlayerFollowsTheRoomAndRemembersItsCorner()
+    // The popped-out player (design-media U1/B2/U2), on the real controller:
+    // docked by default (no card), popped out it shows wherever the clip's row
+    // is not on screen (in the clip's own room too, and in Settings), and the
+    // choice and the card's place persist to the next launch; a corrupt
+    // stored place reads as "never placed".
+    void thePopOutCardShowsWhereverTheRowIsNotAndPersists()
     {
         QQuickWindow window;
         window.resize(900, 700);
@@ -971,30 +1049,18 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 60000 }
                                       &engine);
         engine.rootContext()->setContextProperty(QStringLiteral("app"), app);
         app->showMain();
-        QCOMPARE(app->currentScreen(), AppController::MainScreen);
-        QCOMPARE(app->settings()->voiceMiniPlayerCorner(), 0);
+        QVERIFY2(app->settings()->voicePlayerDocked(),
+                 "the player is not docked by default");
         auto *vp = app->voicePlayback();
         installSources(vp);
 
         QQmlComponent component(&engine);
-        // A stand-in for Main.qml's corner-prompt column, on the overlay as
-        // there, hidden until the end.
         component.setData(R"(
 import QtQuick
-import QtQuick.Controls
 import MatrixClient
 Item {
     width: 900; height: 700
-    // Main.qml binds `parent: Overlay.overlay`; here the scene has no window
-    // at creation, so the test places it once it has one.
-    function placePrompts() { prompts.parent = Overlay.overlay }
     VoiceMiniPlayer { objectName: "host"; anchors.fill: parent }
-    Rectangle {
-        id: prompts
-        objectName: "cornerPromptHost"
-        visible: false
-        x: 600; y: 400; width: 280; height: 280
-    }
 }
 )", QUrl(QStringLiteral("qrc:/voiceMiniPlayer.qml")));
         QVERIFY2(component.errors().isEmpty(),
@@ -1003,18 +1069,13 @@ Item {
         auto *sceneItem = qobject_cast<QQuickItem *>(scene.get());
         QVERIFY(sceneItem);
         sceneItem->setParentItem(window.contentItem());
-        auto *hostItem = sceneItem->findChild<QQuickItem *>(
-            QStringLiteral("host"));
-        QVERIFY(hostItem);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
-        QVERIFY(QMetaObject::invokeMethod(sceneItem, "placePrompts"));
-        auto *card = hostItem->findChild<QQuickItem *>(
+        auto *host = sceneItem->findChild<QQuickItem *>(QStringLiteral("host"));
+        auto *card = host->findChild<QQuickItem *>(
             QStringLiteral("voiceMiniPlayer"));
-        QVERIFY(card);
-        QVERIFY(!card->isVisible());
+        QVERIFY(host && card);
 
-        // Playing in the room on screen: no card, the row is the player.
         app->setCurrentRoomId(kRoomA);
         vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
                  { { QStringLiteral("senderName"), QStringLiteral("Alice") },
@@ -1022,125 +1083,359 @@ Item {
                    { QStringLiteral("roomName"), QStringLiteral("Lounge") } });
         vp->pause();
         QTest::qWait(250);
-        QVERIFY2(!card->isVisible(), "the card showed in the clip's own room");
+        QVERIFY2(!card->isVisible(), "the card showed while docked");
 
-        // Leaving the room shows it, naming the sender and the room.
-        app->setCurrentRoomId(kRoomB);
-        QTRY_VERIFY(card->isVisible());
+        app->settings()->setVoicePlayerDocked(false);
+        // In the clip's own room, its row not on screen: the card (U2).
         QTRY_COMPARE(card->opacity(), 1.0);
-        auto *sender = card->findChild<QObject *>(
-            QStringLiteral("voiceMiniPlayerSender"));
         auto *room = card->findChild<QObject *>(
             QStringLiteral("voiceMiniPlayerRoom"));
-        QVERIFY(sender && room);
-        QCOMPARE(sender->property("text").toString(), QStringLiteral("Alice"));
-        QCOMPARE(room->property("text").toString(), QStringLiteral("Lounge"));
-        // Resting bottom-right, inside the safe area's margin.
-        QTRY_COMPARE(card->x(), 900.0 - card->width() - 12.0);
-        QTRY_COMPARE(card->y(), 700.0 - card->height() - 12.0);
-
-        // Back in the clip's room: hidden again.
-        app->setCurrentRoomId(kRoomA);
-        QTRY_VERIFY(!card->isVisible());
-        app->setCurrentRoomId(QString()); // Home
-        QTRY_VERIFY(card->isVisible());
-
-        // A real drag towards the top-left snaps there and is remembered.
-        const QPointF start = card->mapToScene(
-            QPointF(card->width() / 2, 6));
-        QTest::mousePress(&window, Qt::LeftButton, {}, start.toPoint());
-        auto *dragHandler = card->findChild<QObject *>(
-            QStringLiteral("voiceMiniPlayerDrag"));
-        QVERIFY(dragHandler);
-        for (int step = 1; step <= 10; ++step) {
-            QTest::mouseMove(&window,
-                             (start - QPointF(60.0 * step, 50.0 * step))
-                                 .toPoint());
-            if (step == 2)
-                QVERIFY(dragHandler->property("active").toBool());
+        QVERIFY(room);
+        QCOMPARE(room->property("text").toString(),
+                 QStringLiteral("Voice message · Lounge"));
+        // A row that says it is on screen hides it; its going away shows it.
+        {
+            QObject row;
+            vp->reportRowVisible(&row, QStringLiteral("$one"), true);
+            QVERIFY(vp->rowOnScreen());
+            QVERIFY(!host->property("wanted").toBool());
+            // Settings hides every row: the card again (B2).
+            app->showSettings();
+            QVERIFY(host->property("wanted").toBool());
+            app->showMain();
+            QVERIFY(!host->property("wanted").toBool());
         }
+        QVERIFY2(!vp->rowOnScreen(), "a destroyed row still counted");
+        QVERIFY(host->property("wanted").toBool());
+
+        // A drag and drop is remembered as a place relative to the window.
+        const QPointF from = card->mapToScene(QPointF(14, 14));
+        QTest::mousePress(&window, Qt::LeftButton, {}, from.toPoint());
+        for (int step = 1; step <= 10; ++step)
+            QTest::mouseMove(&window,
+                             (from - QPointF(30.0 * step, 30.0 * step))
+                                 .toPoint());
         QTest::mouseRelease(&window, Qt::LeftButton, {},
-                            (start - QPointF(600, 500)).toPoint());
-        QTRY_COMPARE(app->settings()->voiceMiniPlayerCorner(), 3);
-        QTRY_COMPARE(card->x(), 12.0);
-        QTRY_COMPARE(card->y(), 12.0);
-        QVERIFY2(app->currentRoomId().isEmpty(),
-                 "the drag also counted as a click that opened the room");
+                            (from - QPointF(300, 300)).toPoint());
+        const QRectF placed = app->settings()->voiceMiniPlayerGeometry();
+        QVERIFY2(placed.width() > 0, "the drop was not remembered");
+        QVERIFY(placed.x() >= 0 && placed.x() <= 1);
+        QVERIFY(placed.y() >= 0 && placed.y() <= 1);
+        QVERIFY2(app->currentRoomId() == kRoomA,
+                 "the drag also counted as a click on the title");
 
-        // A PiP window (or the corner prompts) over that corner moves the card
-        // to the nearest free one (the other corner on the same side first:
-        // bottom-left), without forgetting the choice.
-        QVERIFY(hostItem->setProperty(
-            "avoidRects", QVariantList{ QRectF(0, 0, 400, 300) }));
-        QTRY_COMPARE(card->y(), 700.0 - card->height() - 12.0);
-        QCOMPARE(card->x(), 12.0);
-        QCOMPARE(app->settings()->voiceMiniPlayerCorner(), 3);
-        QVERIFY(hostItem->setProperty("avoidRects", QVariantList{}));
-        QTRY_COMPARE(card->y(), 12.0);
-
-        // The window's corner prompts (an incoming call, verification...)
-        // own the bottom-right: a card remembered there moves up to the
-        // top-right while they show, and back when they go.
-        app->settings()->setVoiceMiniPlayerCorner(0);
-        QTRY_COMPARE(card->x(), 900.0 - card->width() - 12.0);
-        QTRY_COMPARE(card->y(), 700.0 - card->height() - 12.0);
-        auto *prompts = scene->findChild<QQuickItem *>(
-            QStringLiteral("cornerPromptHost"));
-        QVERIFY(prompts);
-        QVERIFY2(prompts->parentItem() && prompts->parentItem() != sceneItem,
-                 "the stand-in never reached the overlay");
-        prompts->setVisible(true);
-        QTRY_COMPARE(card->y(), 12.0);
-        QCOMPARE(card->x(), 900.0 - card->width() - 12.0);
-        prompts->setVisible(false);
-        QTRY_COMPARE(card->y(), 700.0 - card->height() - 12.0);
-        app->settings()->setVoiceMiniPlayerCorner(3);
-        QTRY_COMPARE(card->y(), 12.0);
-
-        // A clip played from a thread panel: its room being open is not
-        // enough, its thread panel must be. A closed panel (a room switch
-        // closes it, and so can the reader) leaves only the card.
-        app->setCurrentRoomId(kRoomA);
-        vp->play(QStringLiteral("$reply"), kRoomA, QStringLiteral("mk-two"),
-                 { { QStringLiteral("senderName"), QStringLiteral("Bob") },
-                   { QStringLiteral("isVoice"), true },
-                   { QStringLiteral("threadRootId"), QStringLiteral("$root") } });
-        vp->pause();
-        QVERIFY(!app->thread()->active());
-        // `wanted`, not isVisible(): a card fading out from the previous step
-        // is still visible for 160 ms and would pass this for the wrong
-        // reason.
-        QVERIFY2(hostItem->property("wanted").toBool(),
-                 "a thread clip with its panel closed has no UI at all");
-        QTRY_COMPARE(card->opacity(), 1.0);
-        app->thread()->openThread(kRoomA, QStringLiteral("$root"));
-        QVERIFY(app->thread()->active());
-        QVERIFY2(!hostItem->property("wanted").toBool(),
-                 "the card showed beside the thread panel playing it");
-        QTRY_VERIFY(!card->isVisible());
-        app->thread()->close();
-        QVERIFY(hostItem->property("wanted").toBool());
-        QTRY_COMPARE(card->opacity(), 1.0);
-
-        // Stop from the card clears the clip and the card.
-        auto *stopButton = card->findChild<QObject *>(
-            QStringLiteral("voiceMiniPlayerStop"));
-        QVERIFY(stopButton);
-        QVERIFY(QMetaObject::invokeMethod(stopButton, "clicked"));
-        QVERIFY(!vp->active());
+        vp->stop();
         QTRY_VERIFY(!card->isVisible());
 
-        // The next launch reads the remembered corner; an unknown stored value
-        // reads as the default rather than the nearest corner.
+        // The next launch reads both choices; a corrupt place is "unplaced",
+        // never off screen.
         {
             AppController next(AppController::MockBackend);
-            QCOMPARE(next.settings()->voiceMiniPlayerCorner(), 3);
+            QCOMPARE(next.settings()->voicePlayerDocked(), false);
+            QCOMPARE(next.settings()->voiceMiniPlayerGeometry(), placed);
             QSettings raw;
-            raw.setValue(QStringLiteral("media/miniPlayerCorner"), 7);
+            raw.setValue(QStringLiteral("media/miniPlayerGeometry"),
+                         QRectF(qInf(), 0.5, 300, 90));
             raw.sync();
-            QCOMPARE(next.settings()->voiceMiniPlayerCorner(), 0);
+            QVERIFY(!next.settings()->voiceMiniPlayerGeometry().isValid());
+            raw.setValue(QStringLiteral("media/miniPlayerGeometry"),
+                         QRectF(7, -2, 300, 90));
+            raw.sync();
+            const QRectF bounded = next.settings()->voiceMiniPlayerGeometry();
+            QCOMPARE(bounded.x(), 1.0);
+            QCOMPARE(bounded.y(), 0.0);
         }
         scene.reset();
+    }
+
+    // design-media B3: the chain played on only while its room was open; it
+    // stopped after the first clip once the reader left. It follows the clip's
+    // own run now, wherever the reader is.
+    void theChainPlaysOnAfterLeavingTheRoom()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        const QString general = QStringLiteral("!general:mock.local");
+        app.setCurrentRoomId(general);
+        QTRY_VERIFY(app.timeline()->rowCount() > 4);
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
+        Q_EMIT client->eventAppended(general,
+            voiceEvent(general, QStringLiteral("$v3"), QStringLiteral("mk-one")));
+        Q_EMIT client->eventAppended(general,
+            plainEvent(general, QStringLiteral("$text"),
+                       TimelineEvent::TextMessage));
+
+        vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        QTRY_COMPARE(vp->upNext().size(), 2);
+        QVERIFY(vp->hasNext());
+        // The reader leaves for another room straight away.
+        app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        QTRY_COMPARE(app.timeline()->roomId(),
+                     QStringLiteral("!devs:mock.local"));
+        QTest::qWait(50);
+        QCOMPARE(vp->upNext().size(), 2);
+
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
+        QCOMPARE(vp->roomId(), general);
+        QCOMPARE(vp->upNext().size(), 1);
+        // The bar's Next skips along the same run.
+        QVERIFY(vp->playNext());
+        QCOMPARE(vp->eventId(), QStringLiteral("$v3"));
+        QVERIFY(!vp->hasNext());
+        // ...and the run ends at the text message.
+        Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QTRY_VERIFY(!vp->active());
+    }
+
+    // A redaction of a voice message still waiting in the run takes it out.
+    void aRedactedClipLeavesTheRun()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("A")));
+        vp->setUpNext({ QVariantMap{ { QStringLiteral("eventId"),
+                                       QStringLiteral("$two") },
+                                     { QStringLiteral("mediaKey"),
+                                       QStringLiteral("mk-two") } } });
+        QVERIFY(vp->hasNext());
+        Q_EMIT client->eventRedacted(kRoomA, QStringLiteral("$two"));
+        QVERIFY(!vp->hasNext());
+        vp->stop();
+    }
+
+    // design-media U3: a clip a call paused stayed paused after the hang-up,
+    // with no reason shown. The call's pause is marked, and its end resumes
+    // the clip, unless the reader touched it meanwhile.
+    void theEndOfACallResumesTheClipItPaused()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *call = app.groupCall();
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("Alice")));
+        QTRY_VERIFY(vp->playing());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        Q_EMIT call->stateChanged();
+        QTRY_VERIFY(!vp->playing());
+        QVERIFY2(vp->pausedForCall(), "the call's pause is not marked");
+        call->setCallStateForTest(SfuCallController::State::Idle);
+        Q_EMIT call->stateChanged();
+        QTRY_VERIFY2(vp->playing(), "the hang-up did not resume the clip");
+        QVERIFY(!vp->pausedForCall());
+
+        // Paused by the reader during the call: the hang-up leaves it alone.
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        Q_EMIT call->stateChanged();
+        QTRY_VERIFY(!vp->playing());
+        vp->resume();
+        QTRY_VERIFY(vp->playing());
+        vp->pause();
+        QTRY_VERIFY(!vp->playing());
+        QVERIFY(!vp->pausedForCall());
+        call->setCallStateForTest(SfuCallController::State::Idle);
+        Q_EMIT call->stateChanged();
+        QTest::qWait(200);
+        QVERIFY2(!vp->playing(), "the hang-up undid the reader's own pause");
+        vp->stop();
+    }
+
+    // design-media U5: Space did nothing after a room switch if the clip was
+    // PAUSED at the time: only a playing clip took audibility back.
+    void aPausedClipStillAnswersSpaceAfterARoomSwitch()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        app.setCurrentRoomId(kRoomA);
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("Alice")));
+        QTRY_VERIFY(vp->playing());
+        vp->pause();
+        QTRY_VERIFY(!vp->playing());
+        app.setCurrentRoomId(kRoomB);
+        QCoreApplication::processEvents();
+        QCOMPARE(app.playback()->audibleOwner(), vp->ownerKey());
+        // Space, as Main.qml delivers it.
+        app.playback()->requestTogglePlayPause();
+        QTRY_VERIFY2(vp->playing(), "Space did not resume the paused clip");
+        vp->stop();
+    }
+
+    // design-media U3: speed is per kind. Voice messages play at the
+    // remembered voice speed; an audio file starts at 1x and its speed is
+    // its own, never written over the voice speed.
+    void voiceAndFileSpeedsAreSeparate()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        app.settings()->setVoicePlaybackRate(1.5);
+        vp->play(QStringLiteral("$file"), kRoomA, QStringLiteral("mk-one"),
+                 { { QStringLiteral("isVoice"), false },
+                   { QStringLiteral("filename"), QStringLiteral("song.wav") } });
+        QVERIFY(vp->player());
+        QCOMPARE(vp->rate(), 1.0);
+        QCOMPARE(vp->player()->playbackRate(), 1.0);
+        vp->setRate(2.0);
+        QCOMPARE(vp->player()->playbackRate(), 2.0);
+        QCOMPARE(app.settings()->voicePlaybackRate(), 1.5);
+        vp->play(QStringLiteral("$voice"), kRoomA, QStringLiteral("mk-two"),
+                 voiceMeta(QStringLiteral("A")));
+        QCOMPARE(vp->rate(), 1.5);
+        QCOMPARE(vp->player()->playbackRate(), 1.5);
+        // The next file starts at 1x again.
+        vp->play(QStringLiteral("$file2"), kRoomA, QStringLiteral("mk-one"),
+                 { { QStringLiteral("isVoice"), false } });
+        QCOMPARE(vp->player()->playbackRate(), 1.0);
+        vp->stop();
+        // An earlier shared speed carries over to voice once.
+        {
+            QSettings raw;
+            raw.remove(QStringLiteral("media/voicePlaybackRate"));
+            raw.setValue(QStringLiteral("media/playbackRate"), 1.25);
+            raw.sync();
+            AppController fresh(AppController::MockBackend);
+            QCOMPARE(fresh.settings()->voicePlaybackRate(), 1.25);
+            // A later change of the shared key no longer moves it.
+            fresh.settings()->setMediaPlaybackRate(2.0);
+            QCOMPARE(fresh.settings()->voicePlaybackRate(), 1.25);
+        }
+    }
+
+    // design-media B6: an audio file's tags (title, artist) came only from
+    // the live player, so they appeared and vanished with playback. They are
+    // remembered per file for the session (RAM) and outlive the play.
+    void anAudioFilesTagsOutliveItsPlay()
+    {
+        const QString tagged = m_media.filePath(QStringLiteral("tagged.wav"));
+        QVERIFY(writeTaggedWav(tagged, 2, "Short Test Song", "The Band"));
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        const QString url = QUrl::fromLocalFile(tagged).toString();
+        vp->setSourceResolverForTest([url](const QString &key) {
+            return key == QLatin1String("mk-tagged") ? url : QString();
+        });
+        QVERIFY(vp->clipInfo(QStringLiteral("mk-tagged")).isEmpty());
+        vp->play(QStringLiteral("$tagged"), kRoomA, QStringLiteral("mk-tagged"),
+                 { { QStringLiteral("isVoice"), false },
+                   { QStringLiteral("filename"), QStringLiteral("t.wav") } });
+        QTRY_COMPARE_WITH_TIMEOUT(vp->trackTitle(),
+                                  QStringLiteral("Short Test Song"), 5000);
+        QCOMPARE(vp->trackArtist(), QStringLiteral("The Band"));
+        vp->stop();
+        const QVariantMap info = vp->clipInfo(QStringLiteral("mk-tagged"));
+        QCOMPARE(info.value(QStringLiteral("title")).toString(),
+                 QStringLiteral("Short Test Song"));
+        QCOMPARE(info.value(QStringLiteral("artist")).toString(),
+                 QStringLiteral("The Band"));
+    }
+
+    // design-media U5: a seek on an idle row starts the clip there; a seek
+    // while the file is still being fetched is kept until it opens.
+    void aClipCanStartPartWayIn()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        QVariantMap meta = voiceMeta(QStringLiteral("A"));
+        meta.insert(QStringLiteral("startAtMs"), 2500);
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"), meta);
+        QTRY_VERIFY_WITH_TIMEOUT(vp->loaded() && vp->seekable(), 5000);
+        QTRY_VERIFY2(qAbs(vp->position() - 2500) < 300,
+                     qPrintable(QString::number(vp->position())));
+        vp->stop();
+        // Still fetching ("" from the resolver): the seek waits.
+        vp->play(QStringLiteral("$pending"), kRoomA,
+                 QStringLiteral("mk-pending"), voiceMeta(QStringLiteral("A")));
+        QCOMPARE(vp->fetchState(), QStringLiteral("fetching"));
+        vp->seek(1200);
+        QCOMPARE(vp->position(), qint64(1200));
+        vp->stop();
+    }
+
+    // Review round 1 (L3): what a session learned about its files (tags and
+    // cover art, clipInfo) went with neither a sign-out nor an account
+    // switch, so the next account's rows could show them.
+    void anAccountSwitchForgetsTheFilesTags()
+    {
+        const QString tagged = m_media.filePath(QStringLiteral("tagged2.wav"));
+        QVERIFY(writeTaggedWav(tagged, 2, "Private Title", "Private Artist"));
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        signIn(app, secrets);
+        auto *vp = app.voicePlayback();
+        const QString url = QUrl::fromLocalFile(tagged).toString();
+        vp->setSourceResolverForTest([url](const QString &key) {
+            return key == QLatin1String("mk-tagged") ? url : QString();
+        });
+        vp->play(QStringLiteral("$tagged"), kRoomA, QStringLiteral("mk-tagged"),
+                 { { QStringLiteral("isVoice"), false } });
+        QTRY_COMPARE_WITH_TIMEOUT(vp->trackTitle(),
+                                  QStringLiteral("Private Title"), 5000);
+        vp->stop();
+        QVERIFY(!vp->clipInfo(QStringLiteral("mk-tagged")).isEmpty());
+        app.switchToAccount(kBob);
+        QVERIFY2(vp->clipInfo(QStringLiteral("mk-tagged")).isEmpty(),
+                 "the previous account's file tags survived the switch");
+        QTRY_VERIFY(!app.accountSwitching());
+    }
+
+    // Review round 1 (L4): leaving (or being removed from) the clip's room
+    // stops the clip and drops its run, whether or not that room is open.
+    void leavingTheClipsRoomStopsIt()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client);
+        app.setCurrentRoomId(kRoomB);
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("Alice")));
+        vp->setUpNext({ QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$two") },
+            { QStringLiteral("mediaKey"), QStringLiteral("mk-two") } } });
+        // Another room going: nothing happens.
+        Q_EMIT client->roomMembershipLost(QStringLiteral("!other:x"),
+                                          QStringLiteral("left"), QString());
+        QVERIFY(vp->active());
+        Q_EMIT client->roomMembershipLost(kRoomA, QStringLiteral("left"),
+                                          QStringLiteral("A"));
+        QVERIFY2(!vp->active(), "a clip from a left room kept playing");
+        QVERIFY(!vp->hasNext());
+    }
+
+    // Review round 1 (L8): the visible row is reachable, so the window's
+    // "focus the player" shortcut can land on its play button.
+    void theVisibleRowIsExposed()
+    {
+        AppController app(AppController::MockBackend);
+        auto *vp = app.voicePlayback();
+        installSources(vp);
+        vp->play(QStringLiteral("$one"), kRoomA, QStringLiteral("mk-one"),
+                 voiceMeta(QStringLiteral("Alice")));
+        QCOMPARE(vp->visibleRow(), nullptr);
+        {
+            QObject row;
+            vp->reportRowVisible(&row, QStringLiteral("$one"), true);
+            QCOMPARE(vp->visibleRow(), &row);
+        }
+        QCOMPARE(vp->visibleRow(), nullptr);
+        vp->stop();
     }
 };
 

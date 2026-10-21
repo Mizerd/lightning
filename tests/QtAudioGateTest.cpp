@@ -250,6 +250,50 @@ private Q_SLOTS:
         vp.stop();
     }
 
+    // A call that starts while a clip's start waits at the gate pauses it
+    // for the call: nothing starts while the call runs, even once the gate
+    // opens, and the end of the call plays it (through the gate again).
+    void aClipHeldAtTheGateWhenACallStartsPlaysOnlyAfterTheCall()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString clip = dir.filePath(QStringLiteral("one.wav"));
+        QVERIFY(writeSilentWav(clip, 3));
+        FakeServer server;
+        server.thread = false;
+        QtAudioGate gate(QtAudioGate::Mode::Pulse, server.probes());
+        gate.setTimingForTest(20, 100);
+
+        VoicePlaybackController vp;
+        vp.setAudioGateForTest(&gate);
+        const QString url = QUrl::fromLocalFile(clip).toString();
+        vp.setSourceResolverForTest([url](const QString &) { return url; });
+        vp.play(QStringLiteral("$one"), QStringLiteral("!room:x"),
+                QStringLiteral("mk-one"), {});
+        QVERIFY(vp.loaded());
+        QCOMPARE(gate.pendingForTest(), 1);
+        QCOMPARE(vp.playerStartsForTest(), 0);
+
+        vp.pauseForCall();
+        QVERIFY2(vp.pausedForCall(),
+                 "a start waiting at the gate was not counted as running");
+        QCOMPARE(gate.pendingForTest(), 0);
+
+        // The gate opens during the call: still silent.
+        server.thread = true;
+        QTest::qWait(400);
+        QTRY_VERIFY_WITH_TIMEOUT(gate.checkNow(), 2000);
+        QTest::qWait(300);
+        QCOMPARE(vp.playerStartsForTest(), 0);
+        QVERIFY(!vp.playing());
+
+        // The call ends: the clip plays.
+        vp.resumeAfterCall();
+        QVERIFY(!vp.pausedForCall());
+        QTRY_COMPARE_WITH_TIMEOUT(vp.playerStartsForTest(), 1, 3000);
+        vp.stop();
+    }
+
     // Another card taking the speaker while a voice clip waits at the gate
     // drops the wait: it must not start later over that card.
     void anotherCardTakingTheSpeakerDropsAWaitingStart()

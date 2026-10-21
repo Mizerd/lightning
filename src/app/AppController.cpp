@@ -34,6 +34,7 @@
 #endif
 #include "matrix/RoomUnreadRule.h"
 #include "media/MediaManager.h"
+#include "media/MprisServer.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
@@ -742,6 +743,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                   .toString()
             : QString();
     });
+    // The desktop's media keys and "now playing" widgets reach that player
+    // through MPRIS while a clip is loaded (D-Bus desktops; inert elsewhere).
+    m_mpris = std::make_unique<MprisServer>(m_voicePlayback.get());
+    connect(m_mpris.get(), &MprisServer::raiseRequested, this,
+            &AppController::trayShowRequested);
+    // A desktop "now playing" widget and the lock screen are as public as a
+    // notification: the metadata follows the notification preview privacy
+    // of the clip's room (sender and title / sender only / nothing).
+    m_mpris->setPreviewPolicy([this](const QString &roomId) {
+        return noticePreviewFor(roomId);
+    });
+    connect(m_settings.get(), &SettingsManager::notificationPreviewChanged,
+            m_mpris.get(), &MprisServer::refreshMetadata);
+    connect(m_settings.get(),
+            &SettingsManager::notificationPreviewEncryptedChanged,
+            m_mpris.get(), &MprisServer::refreshMetadata);
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
@@ -2249,20 +2266,35 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::eventRedacted, this,
             [this](const QString &roomId, const QString &eventId) {
         m_voicePlayback->handleRedaction(roomId, eventId);
+        // Nor may a redacted voice message still waiting in the run play.
+        if (m_voicePlayback->active() && m_voicePlayback->roomId() == roomId) {
+            QVariantList queue = m_voicePlayback->upNext();
+            const auto before = queue.size();
+            queue.removeIf([&eventId](const QVariant &item) {
+                return item.toMap().value(QStringLiteral("eventId"))
+                           .toString() == eventId;
+            });
+            if (queue.size() != before)
+                m_voicePlayback->setUpNext(queue);
+        }
     });
     // Auto-play next: a voice message that ends on its own starts the next
-    // voice message of the same main timeline, if it directly follows (see
-    // TimelineModel::nextVoiceMessage). Voice only, never audio files, and
-    // never from a thread. A clip the reader stopped or paused never gets
-    // here; neither does one in a room that is not the open timeline.
+    // voice message of the same timeline (the room's main timeline, or the
+    // thread it was played from), if it directly follows (see
+    // TimelineModel::voiceRunAfter). Voice only, never audio files. A clip
+    // the reader stopped or paused never gets here. The run comes from the
+    // clip's OWN timeline: read live while that timeline is loaded, else from
+    // the snapshot the player kept (upNext), so leaving the room does not end
+    // the chain (design-media B3; it used to stop after the first clip).
     connect(m_voicePlayback.get(), &VoicePlaybackController::clipFinished, this,
             [this](const QString &eventId, const QString &roomId,
-                   const QString &threadRootId, bool isVoice) {
-        if (!isVoice || !threadRootId.isEmpty() || m_voicePlayback->active())
+                   const QString &threadRootId, bool isVoice,
+                   const QVariantList &upNext) {
+        if (!isVoice || m_voicePlayback->active())
             return;
         // A clip that played to its end resets the skip budget below.
         m_voiceAutoplaySkips = 0;
-        playNextVoiceMessage(roomId, eventId);
+        playNextVoiceMessage(roomId, eventId, threadRootId, upNext);
     });
     // A clip the chain started that cannot be played (fetch refused, invalid
     // media) used to end the run silently, leaving the rest unheard. It is
@@ -2295,6 +2327,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (m_voicePlayback->eventId() != failed
                 || m_voicePlayback->fetchState() != QLatin1String("failed"))
                 return;
+            const QString thread = m_voicePlayback->threadRootId();
+            const QVariantList queue = m_voicePlayback->upNext();
             if (m_voiceAutoplaySkips >= kMaxVoiceAutoplaySkips) {
                 qCInfo(lcApp) << "voice auto-play stopped after"
                               << m_voiceAutoplaySkips << "unplayable clips";
@@ -2304,13 +2338,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             }
             ++m_voiceAutoplaySkips;
             qCInfo(lcApp) << "voice auto-play skipped an unplayable clip";
-            playNextVoiceMessage(room, failed);
+            playNextVoiceMessage(room, failed, thread, queue);
         }, Qt::QueuedConnection);
     });
-    // Prefetch the clip auto-play-next would start, so the chain has no
-    // download gap. One at a time: it follows whatever is playing, moves when
-    // the clip or the timeline changes, and is dropped on stop and when the
-    // open room is no longer the clip's.
+    // Keep the run after the playing voice message (its queue, upNext) in
+    // step with its own timeline while that is loaded, and prefetch the clip
+    // auto-play-next would start, so the chain has no download gap. One at a
+    // time: it follows whatever is playing, moves when the clip, the run or
+    // the timeline changes, and is dropped on stop. A room switch keeps both:
+    // the run plays on from the snapshot.
     // Deferred to the event loop: play() stops the previous clip (emitting
     // currentChanged with nothing loaded) BEFORE it registers interest in the
     // new clip's bytes, so deciding right there would cancel the very prefetch
@@ -2321,6 +2357,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this] { scheduleVoicePrefetchUpdate(); });
     connect(m_timeline.get(), &QAbstractItemModel::modelReset, this,
             [this] { scheduleVoicePrefetchUpdate(); });
+    connect(m_thread->model(), &QAbstractItemModel::rowsInserted, this,
+            [this] { scheduleVoicePrefetchUpdate(); });
+    connect(m_thread->model(), &QAbstractItemModel::modelReset, this,
+            [this] { scheduleVoicePrefetchUpdate(); });
+    connect(m_voicePlayback.get(), &VoicePlaybackController::upNextChanged,
+            this, [this] { scheduleVoicePrefetchUpdate(); });
     const auto checkVoiceRedaction = [this] {
         if (!m_voicePlayback->active())
             return;
@@ -2346,7 +2388,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             checkVoiceRedaction);
     // A call going live pauses the clip, once, on the edge into the call: a
     // clip the user resumes mid-call is not paused again by the call's later
-    // state changes. Not stopped, so its row or the mini-player can resume it.
+    // state changes. Not stopped, so its row or the player bar can resume it;
+    // and on the edge OUT of the call, a clip the call paused and nobody
+    // touched since resumes by itself, as in Discord and Telegram (the bar
+    // says "Paused for call" meanwhile).
     const auto voiceCallWasLive = std::make_shared<bool>(false);
     const auto pauseVoiceForCall = [this, voiceCallWasLive] {
         using CallState = CallController::State;
@@ -2356,7 +2401,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             || oneToOne == CallState::Active
             || m_groupCall->active();
         if (callLive && !*voiceCallWasLive)
-            m_voicePlayback->pause();
+            m_voicePlayback->pauseForCall();
+        else if (!callLive && *voiceCallWasLive)
+            m_voicePlayback->resumeAfterCall();
         *voiceCallWasLive = callLive;
     };
     connect(m_calls.get(), &CallController::stateChanged, this,
@@ -2927,6 +2974,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool wasOpen = !roomId.isEmpty() && roomId == m_currentRoomId;
                 if (wasOpen)
                     closeCurrentRoomNoLongerIn(roomId);
+                else if (m_voicePlayback->active()
+                         && m_voicePlayback->roomId() == roomId)
+                    m_voicePlayback->stop();
                 const QString notice =
                     lightning::rooms::membershipLostNotice(loss, roomName, wasOpen);
                 if (!notice.isEmpty())
@@ -3614,11 +3664,21 @@ void AppController::updateVoicePrefetch()
 {
     QString wanted;
     QVariantMap next;
-    if (m_voicePlayback->active() && m_voicePlayback->isVoice()
-        && m_voicePlayback->threadRootId().isEmpty()) {
-        next = m_timeline->nextVoiceMessage(m_voicePlayback->roomId(),
-                                            m_voicePlayback->eventId());
-        wanted = next.value(QStringLiteral("mediaKey")).toString();
+    if (m_voicePlayback->active() && m_voicePlayback->isVoice()) {
+        // The run as the clip's own timeline shows it now, while that is
+        // loaded; otherwise the snapshot stands.
+        bool known = false;
+        const QVariantList run = liveVoiceRun(m_voicePlayback->roomId(),
+                                              m_voicePlayback->eventId(),
+                                              m_voicePlayback->threadRootId(),
+                                              &known);
+        if (known)
+            m_voicePlayback->setUpNext(run);
+        const QVariantList queue = m_voicePlayback->upNext();
+        if (!queue.isEmpty()) {
+            next = queue.constFirst().toMap();
+            wanted = next.value(QStringLiteral("mediaKey")).toString();
+        }
     }
     if (wanted == m_voicePrefetchKey)
         return;
@@ -4077,22 +4137,66 @@ void AppController::refreshOwnProfile(qint64 minIntervalMs)
     m_client->fetchUserProfile(uid);
 }
 
-void AppController::playNextVoiceMessage(const QString &roomId,
-                                         const QString &afterEventId)
+QVariantList AppController::liveVoiceRun(const QString &roomId,
+                                         const QString &afterEventId,
+                                         const QString &threadRootId,
+                                         bool *known) const
 {
-    const QVariantMap next = m_timeline->nextVoiceMessage(roomId, afterEventId);
+    // Whichever loaded timeline is the clip's own: the room's main timeline,
+    // or the thread panel's for a thread clip. "Known" only when that
+    // timeline holds the clip itself, so an unloaded room never reads as "no
+    // run" and wipes the snapshot.
+    // A thread ROOT is a main-timeline message (some backends stamp it with
+    // its own id as the root): its run is the room's.
+    const QString thread =
+        threadRootId == afterEventId ? QString() : threadRootId;
+    TimelineModel *model = thread.isEmpty() ? m_timeline.get()
+                                            : m_thread->model();
+    const bool holds = model && !afterEventId.isEmpty()
+        && model->realRoomIdForEvent(afterEventId) == roomId
+        && (thread.isEmpty()
+            || MatrixClient::threadTimelineRootId(model->roomId()) == thread);
+    if (known)
+        *known = holds;
+    if (!holds)
+        return {};
+    return model->voiceRunAfter(roomId, afterEventId, thread);
+}
+
+void AppController::playNextVoiceMessage(const QString &roomId,
+                                         const QString &afterEventId,
+                                         const QString &threadRootId,
+                                         const QVariantList &snapshot)
+{
+    // The clip's own timeline when it is loaded (it may have grown since the
+    // snapshot), else the snapshot the player kept when the clip ended.
+    bool known = false;
+    const QVariantList live =
+        liveVoiceRun(roomId, afterEventId, threadRootId, &known);
+    const QVariantList run = known ? live : snapshot;
     // The run ends here: no clip stays marked as the chain's, or the reader
     // replaying the last one would have a failure skipped forward.
     m_voiceAutoplayEventId.clear();
-    if (next.isEmpty())
+    if (run.isEmpty())
         return;
+    QVariantMap next = run.constFirst().toMap();
+    if (next.value(QStringLiteral("roomName")).toString().isEmpty()
+        && m_allRooms)
+        next.insert(QStringLiteral("roomName"),
+                    m_allRooms->findRoom(roomId).value(QStringLiteral("name")));
     // Marked before play(), which may report a failure synchronously, and
     // its currentChanged emissions are the chain's own, not the reader's.
     m_voiceAutoplayEventId = next.value(QStringLiteral("eventId")).toString();
-    const QScopedValueRollback starting(m_voiceAutoplayStarting, true);
-    m_voicePlayback->play(m_voiceAutoplayEventId, roomId,
-                          next.value(QStringLiteral("mediaKey")).toString(),
-                          next);
+    {
+        const QScopedValueRollback starting(m_voiceAutoplayStarting, true);
+        m_voicePlayback->play(m_voiceAutoplayEventId, roomId,
+                              next.value(QStringLiteral("mediaKey")).toString(),
+                              next);
+    }
+    // The rest of the run goes with it, so it plays on wherever the reader
+    // is by the time this one ends.
+    if (m_voicePlayback->eventId() == m_voiceAutoplayEventId)
+        m_voicePlayback->setUpNext(run.mid(1));
 }
 
 bool AppController::startVoiceRecording(const QString &owner)
@@ -4794,6 +4898,11 @@ void AppController::closeCurrentRoomNoLongerIn(const QString &roomId)
 {
     if (roomId.isEmpty())
         return;
+    // A clip from a room the user is no longer in stops (and its run with
+    // it), whether or not that room is the one on screen.
+    if (m_voicePlayback && m_voicePlayback->active()
+        && m_voicePlayback->roomId() == roomId)
+        m_voicePlayback->stop();
     if (m_currentRoomId == roomId) {
         qCInfo(lcApp) << "open room closed: no longer joined or invited";
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -7309,8 +7418,9 @@ void AppController::onLoggedOut()
     // Closed on both paths, switch included, so a late answer cannot write
     // into the next account's file.
     m_bridgeLabels.close();
-    // No playback (or decrypted-media handle) survives sign-out.
-    m_voicePlayback->stop();
+    // No playback (or decrypted-media handle) survives sign-out, nor what
+    // the session learned about its files (tags, cover art).
+    m_voicePlayback->clearSession();
     resetVoicePrefetch();
     m_playback->stopAll();
     // Where each video stopped belongs to this account. AFTER stopAll():
@@ -7528,8 +7638,9 @@ void AppController::clearCrossAccountCaches()
     const lightning::switchtrace::StepScope traceS6(
         lightning::switchtrace::Step::S6);
     // Playback stops before the decrypted media files are wiped, so no
-    // player holds an open handle into the previous account's cache.
-    m_voicePlayback->stop();
+    // player holds an open handle into the previous account's cache; the
+    // previous account's file tags and cover art are forgotten with it.
+    m_voicePlayback->clearSession();
     m_playback->stopAll();
     // The previous account's video positions go with it; after stopAll(),
     // which makes a playing card remember its position synchronously.

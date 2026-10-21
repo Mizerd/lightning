@@ -356,6 +356,11 @@ Item {
           section: "sound",
           breadcrumb: qsTr("Sound & video · Media"),
           anchor: "mediaVolumeSettingSlider" },
+        { title: qsTr("Audio player position"),
+          keywords: qsTr("audio player voice message music now playing strip dock docked pop out floating mini player"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Media"),
+          anchor: "voicePlayerDockedCheck" },
         { title: qsTr("Camera"),
           keywords: qsTr("camera webcam video device call"),
           section: "sound",
@@ -6744,6 +6749,17 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.")
+                                }
+                                // Docked strip or floating card for the voice
+                                // and audio player; the player's own pop-out
+                                // and dock buttons write the same setting.
+                                CheckBox {
+                                    objectName: "voicePlayerDockedCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Show the audio player as a strip under the header")
+                                    checked: app.settings.voicePlayerDocked
+                                    onToggled: app.settings.voicePlayerDocked = checked
+                                    Accessible.description: qsTr("When off, the player for voice messages and audio files floats over the window, and you can move and resize it.")
                                 }
                             }
                         }

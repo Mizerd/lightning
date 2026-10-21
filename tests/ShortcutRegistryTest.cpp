@@ -285,6 +285,9 @@ private Q_SLOTS:
             { QStringLiteral("call.leave"), QStringLiteral("Ctrl+Shift+Y") },
             { QStringLiteral("call.toggleScreenShare"),
               QStringLiteral("Ctrl+Shift+S") },
+            // The voice/audio player (design-media U5); never Ctrl+Alt.
+            { QStringLiteral("media.focusPlayer"),
+              QStringLiteral("Ctrl+Shift+J") },
         };
         for (const auto &row : expected) {
             QVERIFY2(resolved.contains(row.first),

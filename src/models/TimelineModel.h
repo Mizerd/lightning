@@ -390,6 +390,18 @@ public:
     /// or an unsent local echo ends the run.
     QVariantMap nextVoiceMessage(const QString &roomId,
                                  const QString &afterEventId) const;
+    /// The whole run of voice messages after `afterEventId`, oldest first, at
+    /// most `max` of them, each map as nextVoiceMessage() returns it (plus
+    /// roomId). With `threadRootId` empty this is the main timeline's run, as
+    /// nextVoiceMessage(); with it set, this model must be that thread's
+    /// timeline and the run is the thread's replies. Empty when this model
+    /// does not hold that room (or thread) or `afterEventId` is not loaded.
+    /// The voice player keeps it as its queue, so the run plays on after the
+    /// reader leaves the room (design-media B3).
+    QVariantList voiceRunAfter(const QString &roomId,
+                               const QString &afterEventId,
+                               const QString &threadRootId = {},
+                               int max = 50) const;
     /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
     /// when the loaded timeline does not carry one.
     ///

@@ -1575,6 +1575,21 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
 
+        // The docked "now playing" strip (design-media U1), in a band of its
+        // own right under the room header, above the call bars and the
+        // timeline, so it covers no message: the timeline is shorter instead,
+        // and since that is pinned to its bottom edge the newest rows do not
+        // move. Shown while any clip is loaded and the player is docked;
+        // Main.qml hosts the popped-out card, and the strip for screens
+        // without this column.
+        VoicePlayerBar {
+            id: voiceDock
+            objectName: "voicePlayerDock"
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
+            shown: root.voiceDockShown
+        }
+
         // In-call controls under the room header, for both the legacy 1:1 lane
         // and MatrixRTC. Zero height when no call is live in this room.
         CallHeaderBar {
@@ -7652,15 +7667,71 @@ Rectangle {
         }
     }
 
-    // The floating mini-player for a voice/audio clip playing from a room that
-    // is not on screen (app.voicePlayback keeps it playing through a room
-    // switch). It floats over the chat column between the header controls and
-    // the composer, and never covers either.
-    VoiceMiniPlayer {
-        id: voiceMiniPlayer
-        anchors.fill: parent
-        z: 300
-        safeArea: root.chatSafeArea
+    // The voice/audio player: docked here as `voiceDock` (in roomColumn),
+    // popped out as Main.qml's window-level card, which survives Settings.
+    // Main.qml reads these two.
+    readonly property bool voiceDockShown: app.voicePlayback.active
+        && app.settings.voicePlayerDocked && roomColumn.visible
+    function focusVoiceDock() {
+        voiceDock.focusPlayer()
+    }
+    // The popped-out card in this pane's coordinates, for the downloads card
+    // to stand clear of (it lives in Main.qml, at window level).
+    Item {
+        id: voiceCardProxy
+        visible: false
+        property Item card: null
+        function refresh() {
+            var w = root.Window.window
+            if (!card && w && w.contentItem)
+                card = root.findVoiceCard(w.contentItem, 0)
+            if (!card || !card.visible || card.opacity <= 0) {
+                visible = false
+                return
+            }
+            var p = card.mapToItem(root, 0, 0)
+            x = p.x; y = p.y; width = card.width; height = card.height
+            visible = true
+        }
+        Connections {
+            target: voiceCardProxy.card
+            enabled: voiceCardProxy.card !== null
+            ignoreUnknownSignals: true
+            function onXChanged() { voiceCardProxy.refresh() }
+            function onYChanged() { voiceCardProxy.refresh() }
+            function onWidthChanged() { voiceCardProxy.refresh() }
+            function onHeightChanged() { voiceCardProxy.refresh() }
+            function onVisibleChanged() { voiceCardProxy.refresh() }
+        }
+        Connections {
+            target: app.voicePlayback
+            function onCurrentChanged() { voiceCardProxy.refresh() }
+        }
+        // The pane itself moving (a resized room list, the window) moves the
+        // mirrored rectangle too.
+        Connections {
+            target: root
+            function onXChanged() { voiceCardProxy.refresh() }
+            function onYChanged() { voiceCardProxy.refresh() }
+            function onWidthChanged() { voiceCardProxy.refresh() }
+            function onHeightChanged() { voiceCardProxy.refresh() }
+        }
+    }
+    function findVoiceCard(item, depth) {
+        if (!item || depth > 3)
+            return null
+        if (item.objectName === "voiceMiniPlayer")
+            return item
+        for (var i = 0; i < item.children.length; ++i) {
+            var kid = item.children[i]
+            if (kid.objectName === "voiceMiniPlayerHost"
+                    || kid.objectName === "voiceMiniPlayer") {
+                var found = root.findVoiceCard(kid, depth + 1)
+                if (found)
+                    return found
+            }
+        }
+        return null
     }
     // Downloads no timeline row shows (app.downloads owns them, so they
     // survive a room switch): the image viewer's and media history's saves, a
@@ -7673,16 +7744,10 @@ Rectangle {
         id: downloadsCard
         z: 299
         safeArea: root.chatSafeArea
-        // The mini-player's card, which fills the same parent; when it rests
-        // in this corner the downloads stand above it.
-        avoid: {
-            var kids = voiceMiniPlayer.children
-            for (var i = 0; i < kids.length; ++i) {
-                if (kids[i].objectName === "voiceMiniPlayer")
-                    return kids[i]
-            }
-            return null
-        }
+        // The popped-out player card (mirrored into this pane's
+        // coordinates); when it rests in this corner the downloads stand
+        // above it.
+        avoid: voiceCardProxy
     }
     // The chat column between the room header (and call bars) and the
     // composer, in this item's coordinates.
@@ -7695,6 +7760,7 @@ Rectangle {
             + (timelineCallHeaderBar.visible
                ? timelineCallHeaderBar.height : 0)
             + (callStageHost.visible ? callStageHost.height : 0)
+            + (voiceDock.visible ? voiceDock.height : 0)
         // The timeline's own bottom edge, so the bars between it and the
         // composer (typing indicator, forward selection) stay clear.
         var bottom = roomColumn.y + timelineArea.y + timelineArea.height

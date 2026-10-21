@@ -91,6 +91,7 @@ void ShortcutRegistry::buildTables()
     const QString composerCat = tr("Message box");
     const QString composeCat = tr("Message formatting");
     const QString callCat = tr("Calls");
+    const QString mediaCat = tr("Media");
 
     // Every row must be wired to a QML `Shortcut`: a registry entry whose QML
     // site was never migrated is a shortcut that reports a key and does
@@ -266,6 +267,19 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("call.toggleScreenShare"), callCat,
           tr("Share your screen, or stop sharing"),
           QStringLiteral("Ctrl+Shift+S"), GlobalContext },
+
+        // ── Media ───────────────────────────────────────────────────────
+        //
+        // Keyboard access to the voice/audio player from anywhere: focus
+        // lands on its play/pause (the docked strip's, the clip's row's) or
+        // on the popped-out card, so Space plays or pauses and Tab walks its
+        // controls. Inert while nothing is loaded. Not Ctrl+Alt (AltGr and
+        // macOS, see room.markUnread); every other Ctrl+Shift letter that
+        // reads as "player" is taken (P pinned, S share, M mark read), and
+        // J is free in every context and in the reserved table.
+        { QStringLiteral("media.focusPlayer"), mediaCat,
+          tr("Focus the audio player"), QStringLiteral("Ctrl+Shift+J"),
+          GlobalContext },
 
         // ── Message box surfaces (Global context) ───────────────────────
         //
