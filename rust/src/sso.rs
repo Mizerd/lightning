@@ -64,7 +64,7 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_providers", async move {
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_begin", async move {
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
@@ -240,7 +240,7 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_finish", async move {
                 let client = match client_slot.lock().ok().and_then(|mut g| g.take()) {

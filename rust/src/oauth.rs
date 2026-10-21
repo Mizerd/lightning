@@ -432,7 +432,7 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_discover", async move {
                 // In-memory client: discovery must not create a store.
@@ -543,7 +543,7 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
         let state_slot = Arc::clone(&bridge.oauth_state);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_begin", async move {
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
@@ -687,7 +687,7 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
         let state_slot = Arc::clone(&bridge.oauth_state);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_finish", async move {
                 let client = match client_slot.lock().ok().and_then(|mut g| g.take()) {
@@ -784,7 +784,7 @@ pub unsafe extern "C" fn mx_rust_oauth_abort(ptr: *mut c_void) -> *mut c_char {
         let state_slot = Arc::clone(&bridge.oauth_state);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_abort", async move {
                 let client = client_slot.lock().ok().and_then(|mut g| g.take());
@@ -1014,7 +1014,7 @@ pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
         let refresh_token = unsafe { cstr_arg(refresh_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "revoke_refused_sign_in", async move {
                 let category = match tokio::time::timeout(
@@ -1059,7 +1059,7 @@ pub unsafe extern "C" fn mx_rust_whoami_probe(
         let access_token = unsafe { cstr_arg(access_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        std::thread::spawn(move || {
+        crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "whoami_probe", async move {
                 let (result, device_id) = match tokio::time::timeout(

@@ -367,7 +367,9 @@ impl RustClient {
     fn new_with(store_path: PathBuf, profile: Option<&labs::Profile>) -> Result<Self, String> {
         let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
         let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.worker_threads(2);
+        builder
+            .worker_threads(2)
+            .thread_stack_size(SESSION_THREAD_STACK_BYTES);
         match profile {
             Some(profile) => {
                 builder
@@ -2060,18 +2062,76 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
     }));
 }
 
+/// Stack for session threads and the SDK runtime's workers. A session thread
+/// `block_on`s a whole restore or login future, and a Background handle's is
+/// larger still (`scope_open` wraps it). On std's 2 MiB default, a TLS
+/// handshake that took a HelloRetryRequest into rustls' hybrid ML-KEM key
+/// share ran off the end of the stack inside aws-lc's keygen and SIGSEGVed
+/// the process (2026-10-21, Labs live accounts against a real homeserver; the
+/// swarm's plain-HTTP local server never negotiates TLS, so it could not see
+/// it). Reserved, not resident: a page costs memory only once touched. The
+/// runtime setting covers its blocking pool too.
+pub(crate) const SESSION_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 /// A session thread. Named `lt-<kind>-<slot>` for a Background handle (no
 /// PII; `/proc/self/task` attributes it), unnamed as before otherwise.
 pub(crate) fn spawn_session_thread<F>(name: Option<String>, body: F) -> std::thread::JoinHandle<()>
 where
     F: FnOnce() + Send + 'static,
 {
-    match name {
-        Some(name) => std::thread::Builder::new()
-            .name(name)
-            .spawn(body)
-            .expect("failed to spawn a session thread"),
-        None => std::thread::spawn(body),
+    let builder = std::thread::Builder::new().stack_size(SESSION_THREAD_STACK_BYTES);
+    let builder = match name {
+        Some(name) => builder.name(name),
+        None => builder,
+    };
+    builder.spawn(body).expect("failed to spawn a session thread")
+}
+
+#[cfg(test)]
+mod session_stack_tests {
+    use super::*;
+
+    /// Roughly `depth` x 64 KiB of real stack. Each frame's buffer is read
+    /// after the recursive call returns, so the frames cannot be folded into a
+    /// loop or a tail call.
+    #[inline(never)]
+    fn consume_stack(depth: usize) -> u64 {
+        let mut frame = [0u8; 64 * 1024];
+        frame[depth % frame.len()] = depth as u8;
+        std::hint::black_box(&mut frame);
+        if depth == 0 {
+            return u64::from(frame[0]);
+        }
+        let below = consume_stack(depth - 1);
+        std::hint::black_box(&frame);
+        below + u64::from(frame[depth % frame.len()]) + 1
+    }
+
+    /// ~6 MiB: three times std's 2 MiB default, well inside the session stack.
+    const DEEP: usize = 96;
+
+    #[test]
+    fn a_session_thread_survives_a_deep_stack() {
+        // On std's 2 MiB default this overflows the guard page and aborts the
+        // whole test binary: the same SIGSEGV the pool's Background restore
+        // hit inside aws-lc's ML-KEM keygen.
+        for name in [None, Some("lt-op-test".to_owned())] {
+            let total = spawn_session_thread(name, || {
+                assert!(consume_stack(DEEP) > 0);
+            })
+            .join();
+            assert!(total.is_ok(), "the session thread panicked");
+        }
+    }
+
+    #[test]
+    fn the_shared_runtime_workers_survive_a_deep_stack() {
+        // Tasks the SDK spawns (and every FFI call that spawns on the shared
+        // runtime) are polled on these workers, not on the session thread.
+        let bridge = RustClient::new(PathBuf::new()).expect("bridge");
+        let task = bridge.runtime.spawn(async { consume_stack(DEEP) });
+        let total = bridge.runtime.block_on(task).expect("the worker task panicked");
+        assert!(total > 0);
     }
 }
 
