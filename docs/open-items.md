@@ -1,5 +1,40 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-20 — OPEN (GitHub #30/#48): a plain message Element shows is absent from the room
+
+The report: an `m.text` (no thread, no edit) missing between two rows that
+are shown, still missing after 0.10.1 and after restarts. Every
+display-side and filter path is refuted with evidence in the vault note
+`Tasks/2026-10-20-msg48.md`; what fits is a GAP in the SDK event cache: a
+sync response the cache never saw leaves a hole that is permanent, because
+matrix-sdk 0.18 drops `prev_batch` from a later non-`limited` response when
+the room's chunk already holds events (`event_cache/caches/room/state.rs`
+`handle_sync`). One way it happened is FIXED: on classic sync (no MSC4186)
+nothing subscribed the event cache until the first room was opened
+(`subscribe_event_cache_before_classic_sync`, lib.rs). Whether that was the
+reporter's cause is NOT established (it needs their `room_list mode=` line).
+Two HYPOTHESES remain open: a quit between the sync position being stored
+and the cache task storing the response, and a server sending
+`limited: false` over a gap. Settings -> About -> "Reset local cache"
+clears an existing hole.
+
+The instrument: `LIGHTNING_TIMELINE_TRACE=1` (`rust/src/missingtrace.rs`).
+About 4 s after a room opens it reads up to 300 events of `/messages` from
+the server (no retries, 10 s per request, nothing stored, abandoned when the
+room closes) and logs, through `--log-file`, every server event BETWEEN two
+items of the SDK timeline that the timeline lacks: `timeline-trace ...
+missing_from_sdk_timeline event=<hash> type= msgtype= rel= sent=<minute>
+in_room_chunk= out_of_band= filter= reason=`, then a summary with
+`sdk_items=` and per-reason counts. `not_in_room_chunk` is the gap,
+`in_chunk_not_shown` an SDK timeline fault; `filtered`, `thread_reply`,
+`edit` and `aggregated` are expected. It measures the SDK timeline, not
+what QML paints. Ids are hashed; no body or sender.
+
+```sh
+LIGHTNING_TIMELINE_TRACE=1 lightning-matrix --log-file=/tmp/timeline.log
+grep -E 'timeline-trace|room_list mode' /tmp/timeline.log
+```
+
 ## 2026-10-18 — DECIDED: product decisions that had no entry of their own
 
 Taken 2026-10-18 for Rokas under his standing rule (copy the mainstream

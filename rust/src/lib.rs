@@ -102,6 +102,7 @@ mod mediafiles;
 mod mediahealth;
 mod mediahistory;
 mod mediastore;
+mod missingtrace;
 mod cachelayout;
 mod storelocking;
 mod sendrecovery;
@@ -13556,6 +13557,39 @@ fn classic_sync_settings(timeout: std::time::Duration) -> SyncSettings {
     SyncSettings::default().timeout(timeout)
 }
 
+/// GitHub #30/#48: the event cache must be listening BEFORE the first classic
+/// /sync request, or that response never reaches it.
+///
+/// `EventCache::subscribe()` spawns the only task that stores sync responses
+/// in the event cache (matrix-sdk 0.18 event_cache/mod.rs). Sliding sync gets
+/// it from `RoomListService::new`; classic sync has no such service, so the
+/// first subscriber used to be the first `TimelineBuilder::build`, i.e. the
+/// first room the user OPENED. Every response before that (the catch-up after
+/// a restart, above all) was processed, its token stored, and its events never
+/// cached. A hole like that is permanent: a later response that is not
+/// `limited` lands after the room's cached events with its `prev_batch`
+/// dropped (event_cache/caches/room/state.rs `handle_sync`), so nothing ever
+/// paginates into the gap. Messages that arrived while the client was closed
+/// stayed missing from the room for good, while Element showed them.
+///
+/// Idempotent: the SDK initialises the listener once per client.
+fn subscribe_event_cache_before_classic_sync(
+    client: &Client,
+    events: &Arc<Mutex<VecDeque<String>>>,
+) {
+    if let Err(err) = client.event_cache().subscribe() {
+        // In practice only "the client is gone"; the loop fails on its own then.
+        let kind = match err {
+            matrix_sdk::event_cache::EventCacheError::ClientDropped => "client_dropped",
+            _ => "other",
+        };
+        enqueue(events, json!({
+            "type": "rust_trace",
+            "line": format!("classic sync: event cache subscribe failed ({kind})"),
+        }));
+    }
+}
+
 async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -13578,6 +13612,7 @@ async fn run_classic_sync_with(
     silence: ClassicSilenceBudget,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+    subscribe_event_cache_before_classic_sync(&client, &events);
     // See syncnotify::CatchupClock. The SDK runs the event handlers inside
     // `sync_once`, BEFORE the callback below, so a catch-up response is judged
     // while the clock still says "catching up".
@@ -19516,6 +19551,145 @@ mod classic_sync_wedge_tests {
         });
         ready_rx.recv().expect("listener thread started");
         format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    /// A homeserver whose first two `/sync` answers each carry one plain
+    /// `m.text` in a joined room, neither `limited` and both with a
+    /// `prev_batch` (a catch-up after a restart, then the next live message),
+    /// and every later answer nothing. Counts the syncs.
+    fn serve_message_syncs(syncs: Arc<AtomicUsize>, room_id: &'static str,
+                           event_ids: [&'static str; 2]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let syncs = Arc::clone(&syncs);
+                thread::spawn(move || {
+                    let line = read_request(&mut stream);
+                    let target = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    let path = target.split_once('?').map_or(target.as_str(), |(p, _)| p);
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
+                    } else if path == "/_matrix/client/v3/sync" {
+                        let n = syncs.fetch_add(1, Ordering::SeqCst) + 1;
+                        let body = if n <= 2 {
+                            serde_json::json!({
+                                "next_batch": format!("s{n}"),
+                                "rooms": { "join": { room_id: {
+                                    "timeline": {
+                                        "limited": false,
+                                        "prev_batch": format!("p{}", n - 1),
+                                        "events": [{
+                                            "type": "m.room.message",
+                                            "event_id": event_ids[n - 1],
+                                            "sender": "@flo:example.org",
+                                            "origin_server_ts": 1_760_000_000_000u64 + n as u64,
+                                            "content": { "msgtype": "m.text", "body": "x" },
+                                        }],
+                                    },
+                                }}},
+                            })
+                        } else {
+                            serde_json::json!({ "next_batch": format!("s{n}") })
+                        };
+                        respond(&mut stream, "200 OK", &body.to_string());
+                    } else {
+                        respond(&mut stream, "404 Not Found",
+                                r#"{"errcode":"M_UNRECOGNIZED","error":"test"}"#);
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    /// GitHub #30/#48. A message delivered by the classic loop before any room
+    /// was opened must be in the room's event cache: that is where every
+    /// timeline is built from, and a response the cache never saw leaves a gap
+    /// nothing fills (see `subscribe_event_cache_before_classic_sync`).
+    ///
+    /// Before the fix nothing subscribed the event cache on this path until the
+    /// first timeline build, so the cache below (subscribed only AFTER the loop,
+    /// as a room open would) held nothing.
+    ///
+    /// The second response is the one that made the hole permanent in the
+    /// field: not `limited`, so the cache drops its `prev_batch` once the room
+    /// holds events, and nothing ever paginates back past it. It must land
+    /// directly after the first. (The permanent case also needs history cached
+    /// in an EARLIER session, which one in-memory client cannot stage.)
+    #[test]
+    fn a_classic_response_before_any_room_opens_reaches_the_event_cache() {
+        const ROOM: &str = "!room:example.org";
+        const EVENT: &str = "$long-message:example.org";
+        const NEXT: &str = "$next-message:example.org";
+        let syncs = Arc::new(AtomicUsize::new(0));
+        let addr = serve_message_syncs(Arc::clone(&syncs), ROOM, [EVENT, NEXT]);
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let found = runtime.block_on(async {
+            let client = restored_client(&addr).await;
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(&syncs);
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                while tokio::time::Instant::now() < deadline
+                    && watched.load(Ordering::SeqCst) < 4
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let silence = ClassicSilenceBudget {
+                report_after: Duration::from_secs(60),
+                restart_after: Duration::from_secs(120),
+                resume_gap: Duration::from_secs(3600),
+            };
+            tokio::join!(
+                run_classic_sync_with(
+                    client.clone(), Arc::clone(&events), never_verifying(),
+                    Default::default(), cancel_rx, silence),
+                watcher
+            );
+
+            // What a room open does first (TimelineBuilder::build).
+            client.event_cache().subscribe().expect("subscribe");
+            let room_id = matrix_sdk::ruma::RoomId::parse(ROOM).expect("room id");
+            let room = client.get_room(&room_id).expect("the sync created the room");
+            let (cache, _handles) = room.event_cache().await.expect("room event cache");
+            // The cache stores a response on its own task; give it time.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                let ids: Vec<String> = cache
+                    .events()
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|e| e.event_id().map(|id| id.to_string()))
+                    .collect();
+                if ids.iter().any(|id| id == NEXT) || tokio::time::Instant::now() > deadline {
+                    break ids;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+
+        assert!(syncs.load(Ordering::SeqCst) >= 2,
+                "the loop never got past the first sync; this test proved nothing: {:?}",
+                drain(&events));
+        assert!(found.iter().any(|id| id == EVENT),
+                "the message the first classic sync delivered never reached the event \
+                 cache, so no timeline can show it: cached={found:?}");
+        assert_eq!(found, vec![EVENT.to_owned(), NEXT.to_owned()],
+                   "the next non-limited response must continue the history the first \
+                    one left, with nothing between them");
     }
 
     async fn restored_client(addr: &str) -> matrix_sdk::Client {

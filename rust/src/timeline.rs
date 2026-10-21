@@ -3054,6 +3054,17 @@ async fn open_room_task(
         }
     }
 
+    // Opt-in (LIGHTNING_TIMELINE_TRACE): which server events between two items
+    // of this SDK timeline it lacks, and why (GitHub #30/#48; missingtrace.rs).
+    if crate::missingtrace::enabled() {
+        let trace_registry = Arc::clone(&registry);
+        tokio::spawn(crate::missingtrace::check_open_room(
+            Arc::downgrade(&timeline),
+            events.clone(),
+            move || trace_registry.is_current(room_gen, lifecycle),
+        ));
+    }
+
     // Opt-in send-state reconciliation (LIGHTNING_SEND_TRACE) for echoes stuck
     // at "sending…". matrix-sdk-ui's `room_send_queue_update_task` ignores a
     // lagged broadcast without resyncing, so a lost terminal update leaves an
