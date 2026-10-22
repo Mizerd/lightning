@@ -211,6 +211,62 @@ ApplicationWindow {
         QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(), selected);
     }
 
+    void selectionEscapesAnExcludedViewport_data()
+    {
+        QTest::addColumn<bool>("older");
+        QTest::newRow("older") << true;
+        QTest::newRow("newer") << false;
+    }
+
+    void selectionEscapesAnExcludedViewport()
+    {
+        QFETCH(bool, older);
+        openJoinedRoom();
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 3; ++i) {
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$excluded-viewport-%1").arg(i);
+            event.sender = "@peer:example.org";
+            event.body = "Selection boundary";
+            event.timestamp = QDateTime::currentDateTimeUtc().addSecs(i);
+            if (i == 1)
+                event.type = TimelineEvent::CallEvent;
+            events.append(event);
+        }
+        Q_EMIT mock->eventsInsertedAt(m_controller->currentRoomId(),
+                                      m_controller->timeline()->events().size(), events);
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        auto *view = item("timelineListView");
+        auto *pane = item("timelinePane");
+        QTRY_VERIFY(view->hasActiveFocus());
+        QTest::qWait(50);
+        QVariant row, value;
+        QVERIFY(QMetaObject::invokeMethod(view, "viewRowForStableId",
+            Q_RETURN_ARG(QVariant, row), Q_ARG(QVariant, QVariant(events.at(1).eventId))));
+        QVERIFY(QMetaObject::invokeMethod(view, "itemAtViewRow",
+            Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, row)));
+        auto *card = qobject_cast<QQuickItem *>(value.value<QObject *>());
+        QVERIFY(card);
+        QVERIFY(!card->property("replyEligible").toBool());
+        // Make the excluded region taller than the viewport without depending
+        // on theme-specific call-card sizing or creating a real call.
+        card->setHeight(view->height() * 3);
+        QTest::qWait(100);
+        QVERIFY(view->setProperty("contentY", card->y() + view->height() * 0.5));
+        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        const qreal before = view->property("contentY").toReal();
+        QVERIFY(before > card->y());
+        QVERIFY(before + view->height() < card->y() + card->height());
+        QVERIFY(view->property("selectionDetached").toBool());
+        QTest::keyClick(m_window, older ? Qt::Key_K : Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(pane->property("keyboardSelectedEventId").toString(),
+                 older ? events.first().eventId : events.last().eventId);
+        QVERIFY(older ? view->property("contentY").toReal() > before
+                      : view->property("contentY").toReal() < before);
+    }
+
     void redactingSelectedMessagePreventsReply()
     {
         openJoinedRoom();

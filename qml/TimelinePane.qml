@@ -3242,8 +3242,15 @@ Rectangle {
                     if (direction < 0 && nearWindowNewEdge())
                         extendRowWindowAtNewEnd()
                     var row = viewRowForStableId(root.keyboardSelectedEventId)
-                    if (selectionDetached || !messageIntersectsViewport(row))
-                        return selectVisibleMessage(direction)
+                    if (selectionDetached || !messageIntersectsViewport(row)) {
+                        if (selectVisibleMessage(direction))
+                            return true
+                        // No eligible row is visible. Continue beyond the
+                        // viewport instead of repeating the same empty search.
+                        // Newer includes the row at contentY: it may end just
+                        // before the viewport and be the nearest valid target.
+                        row = viewRowAtContentY(contentY) + (direction < 0 ? 1 : 0)
+                    }
                     for (var next = row + direction;
                          next >= 0 && next < count; next += direction) {
                         var eventId = navigableEventAt(next)
