@@ -23,6 +23,8 @@ the keyboard. The quick switcher keeps its keyboard focus while open.
 | Ctrl+R | `timeline.reply` | Reply to the selected message and focus compose. |
 
 The last five actions run only while the room timeline has focus.
+Redacted messages, local echoes, call cards and room-activity rows are
+skipped as reply targets.
 They may use plain letters, such as K/J/R (lowercase k/j/r; capital
 letters require an explicit Shift modifier in the stored sequence).
 The message editor keeps ordinary typing and formatting shortcuts.

@@ -881,14 +881,20 @@ Item {
         }
         return false
     }
+    // Shared by pointer reply and timeline keyboard selection. Keep this
+    // local to the row: messagePermalink() scans the timeline, so it belongs
+    // at activation time rather than in every delegate's binding.
+    readonly property bool replyEligible:
+        root.rowActionsEnabled && !root.readOnlyView
+        && model.redacted !== true && model.isLocalEcho !== true
+        && !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
+        && !root.isThreadKeyWait && !!root.timelineModel
+        && (model.eventId || "").length > 0
+        && (model.eventId || "").indexOf("local:") !== 0
+
     function replyOnDoubleTap(host, pos) {
         var id = model.eventId || ""
-        if (!root.rowActionsEnabled || root.readOnlyView
-                || model.redacted === true
-                || root.isVirtualRow || root.isStateActivity || root.isCallEvent
-                || root.isThreadKeyWait
-                || id.length === 0 || id.indexOf("local:") === 0
-                || !root.timelineModel
+        if (!root.replyEligible
                 || root.timelineModel.messagePermalink(id).length === 0)
             return false
         if (root.pointTakesInput(host, pos))

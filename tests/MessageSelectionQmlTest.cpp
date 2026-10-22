@@ -176,6 +176,57 @@ ApplicationWindow {
                          .toString().isEmpty());
     }
 
+    void invalidReplyTargetsAreSkipped_data()
+    {
+        QTest::addColumn<QString>("kind");
+        for (const auto &kind : {"redacted", "local", "state", "call"})
+            QTest::newRow(kind) << QString::fromLatin1(kind);
+    }
+
+    void invalidReplyTargetsAreSkipped()
+    {
+        QFETCH(QString, kind);
+        openJoinedRoom();
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        TimelineEvent event;
+        event.eventId = kind == "local" ? "local:review" : "$review-invalid";
+        event.sender = "@peer:example.org";
+        event.body = "Not a reply target";
+        event.timestamp = QDateTime::currentDateTimeUtc();
+        event.redacted = kind == "redacted";
+        event.isLocalEcho = kind == "local";
+        if (kind == "state") event.type = TimelineEvent::StateChange;
+        if (kind == "call") event.type = TimelineEvent::CallEvent;
+        mock->appendEventForTest(m_controller->currentRoomId(), event);
+        QTest::qWait(100);
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        QTest::qWait(50);
+        const auto selected = item("timelinePane")->property("keyboardSelectedEventId").toString();
+        QVERIFY(!selected.isEmpty());
+        QVERIFY(selected != event.eventId);
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(), selected);
+    }
+
+    void redactingSelectedMessagePreventsReply()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::qWait(50);
+        const auto selected = item("timelinePane")->property("keyboardSelectedEventId").toString();
+        const int row = m_controller->timeline()->rowForStableId(selected);
+        QVERIFY(row >= 0);
+        auto event = m_controller->timeline()->events().at(row);
+        event.redacted = true;
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        Q_EMIT mock->eventChangedAt(m_controller->currentRoomId(), row, event);
+        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QVERIFY(!m_controller->composer()->isReplying());
+    }
+
     void removedSelectionCannotReplyToAnotherRow()
     {
         openJoinedRoom();

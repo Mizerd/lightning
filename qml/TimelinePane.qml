@@ -3140,7 +3140,7 @@ Rectangle {
 
                 function navigableEventAt(row) {
                     var item = itemAtViewRow(row)
-                    if (!item || item.height <= 0 || !item.replyOnDoubleTap)
+                    if (!item || item.height <= 0 || !item.replyEligible)
                         return ""
                     return eventIdAtViewRow(row)
                 }
