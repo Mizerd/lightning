@@ -260,6 +260,55 @@ ApplicationWindow {
                  events.last().eventId);
     }
 
+    void halfPageDownCrossesWindowBoundaryWithoutSettling()
+    {
+        openJoinedRoom();
+        auto *proxy = qobject_cast<ReverseListProxyModel *>(m_controller->timelineView());
+        QVERIFY(proxy);
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::qWait(50);
+        auto *view = item("timelineListView");
+        proxy->setWindow(5, 10);
+        QTest::qWait(30);
+        QVariant minimum;
+        QVERIFY(QMetaObject::invokeMethod(view, "wheelMinY", Q_RETURN_ARG(QVariant, minimum)));
+        QVERIFY(view->setProperty("contentY", minimum));
+        QCOMPARE(proxy->windowSkip(), 5);
+        const auto selected = item("timelinePane")->property("keyboardSelectedEventId");
+        // No event-loop pause: a held key must not rely on the settle timer.
+        for (int i = 0; i < 8; ++i)
+            QTest::keyClick(m_window, Qt::Key_D, Qt::ControlModifier);
+        QCOMPARE(proxy->windowSkip(), 0);
+        QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId"), selected);
+    }
+
+    void newerMessageCrossesWindowBoundary()
+    {
+        openJoinedRoom();
+        auto *proxy = qobject_cast<ReverseListProxyModel *>(m_controller->timelineView());
+        QVERIFY(proxy);
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::qWait(50);
+        auto *view = item("timelineListView");
+        proxy->setWindow(5, 10);
+        QTest::qWait(30);
+        QVariant minimum, selected;
+        QVERIFY(QMetaObject::invokeMethod(view, "wheelMinY", Q_RETURN_ARG(QVariant, minimum)));
+        QVERIFY(view->setProperty("contentY", minimum));
+        QVERIFY(QMetaObject::invokeMethod(view, "eventIdAtViewRow",
+            Q_RETURN_ARG(QVariant, selected), Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(!selected.toString().isEmpty());
+        QVERIFY(item("timelinePane")->setProperty("keyboardSelectedEventId", selected));
+        const int sourceRow = m_controller->timeline()->rowForStableId(selected.toString());
+        QVERIFY(sourceRow >= 0);
+        const auto expected = m_controller->timeline()->events().at(sourceRow + 1).eventId;
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(proxy->windowSkip(), 0);
+        QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(), expected);
+    }
+
     void removedSelectionCannotReplyToAnotherRow()
     {
         openJoinedRoom();

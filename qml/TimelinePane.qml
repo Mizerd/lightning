@@ -3197,6 +3197,13 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     noteReaderTookControl()
+                    // Extending the newest end translates the coordinate
+                    // system. Preserve the requested displacement across it.
+                    if (target < contentY && nearWindowNewEdge()) {
+                        var beforeExtension = contentY
+                        extendRowWindowAtNewEnd()
+                        target += contentY - beforeExtension
+                    }
                     contentY = Math.max(wheelMinY(), Math.min(wheelMaxY(), target))
                     updateStickAndPaginate()
                     captureViewAnchor()
@@ -3232,6 +3239,8 @@ Rectangle {
 
                 function stepSelectedMessage(direction) {
                     stopEntrySelection()
+                    if (direction < 0 && nearWindowNewEdge())
+                        extendRowWindowAtNewEnd()
                     var row = viewRowForStableId(root.keyboardSelectedEventId)
                     if (selectionDetached || !messageIntersectsViewport(row))
                         return selectVisibleMessage(direction)
