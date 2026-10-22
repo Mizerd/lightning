@@ -3259,7 +3259,7 @@ Rectangle {
                 }
 
                 function navigationAction(key, modifiers) {
-                    return root.timelineFocusable
+                    return activeFocus && root.timelineFocusable
                         ? app.shortcuts.messageSelectionActionForKey(key, modifiers)
                         : ""
                 }

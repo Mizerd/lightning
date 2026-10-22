@@ -22,7 +22,11 @@ the keyboard. The quick switcher keeps its keyboard focus while open.
 | Ctrl+D | `timeline.halfPageDown` | Immediately scroll down half a viewport. |
 | Ctrl+R | `timeline.reply` | Reply to the selected message and focus compose. |
 
-The last five actions run only while the room timeline has focus.
+The last five actions run only while the room timeline itself has focus.
+Tab and arrow navigation can instead focus an individual message row;
+that existing row focus keeps its own actions and hides message selection.
+Selection shortcuts do not act on the hidden selection in that state.
+Use Alt+L to return to message selection before replying with Ctrl+R.
 Redacted messages, local echoes, call cards and room-activity rows are
 skipped as reply targets.
 They may use plain letters, such as K/J/R (lowercase k/j/r; capital

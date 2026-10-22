@@ -228,6 +228,29 @@ ApplicationWindow {
         QVERIFY(!m_controller->composer()->isReplying());
     }
 
+    void rowFocusCannotReplyToHiddenSelection()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::qWait(50);
+        auto *view = item("timelineListView");
+        QVariant value;
+        QVERIFY(QMetaObject::invokeMethod(view, "itemAtViewRow",
+            Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, QVariant(1))));
+        auto *row = qobject_cast<QQuickItem *>(value.value<QObject *>());
+        QVERIFY(row);
+        row->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(row->hasActiveFocus());
+        QVERIFY(!view->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QVERIFY(!m_controller->composer()->isReplying());
+        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTRY_VERIFY(view->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QVERIFY(m_controller->composer()->isReplying());
+    }
+
     void latestEntryKeepsPresentationBounded()
     {
         openJoinedRoom();
