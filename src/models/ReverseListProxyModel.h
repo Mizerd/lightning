@@ -27,6 +27,11 @@ public:
     // a brief hitch beats a silent no-op.
     Q_INVOKABLE void releaseAll();
 
+    // Explicit latest jump: replace a historical slice with a bounded live
+    // slice, without exposing the intervening backlog. Unlike scrolling,
+    // this may reset delegates because their viewport is being abandoned.
+    Q_INVOKABLE void showLatestWindow(int rows);
+
     // ── Sliding window ──────────────────────────────────────────────────
     //
     // Per-frame cost scales with the number of instantiated rows, so a long

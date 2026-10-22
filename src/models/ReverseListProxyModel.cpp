@@ -437,6 +437,24 @@ bool ReverseListProxyModel::extendWindowAtNewEnd(int extraRows)
     return true;   // setWindowSkip() above emitted windowChanged()
 }
 
+void ReverseListProxyModel::showLatestWindow(int rows)
+{
+    const int cap = std::max(1, rows);
+    if (m_windowSkip == 0) {
+        setWindow(0, cap);
+        return;
+    }
+    // setWindow preserves overlapping rows for scrolling. A distant jump
+    // has no such continuity requirement: do not insert the entire skipped
+    // range just to discard it again.
+    beginResetModel();
+    m_windowCap = cap;
+    m_revealedRows = std::min(cap, sourceRowTotal());
+    setWindowSkip(0);
+    endResetModel();
+    scheduleReveal();
+}
+
 void ReverseListProxyModel::clearWindow()
 {
     m_windowCap = 0;

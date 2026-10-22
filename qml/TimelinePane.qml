@@ -3172,7 +3172,8 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     noteReaderTookControl()
-                    releasePendingRows()
+                    app.timelineView.showLatestWindow(windowMinRows)
+                    rowColumn.forceLayout()
                     stickToBottom = true
                     viewAnchorId = ""
                     viewAnchorLastY = 0

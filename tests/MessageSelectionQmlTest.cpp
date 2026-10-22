@@ -17,6 +17,7 @@
 #include "models/PaginationController.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "models/ReverseListProxyModel.h"
 
 class MessageSelectionQmlTest : public QObject
 {
@@ -225,6 +226,38 @@ ApplicationWindow {
         Q_EMIT mock->eventChangedAt(m_controller->currentRoomId(), row, event);
         QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
         QVERIFY(!m_controller->composer()->isReplying());
+    }
+
+    void latestEntryKeepsPresentationBounded()
+    {
+        openJoinedRoom();
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 900; ++i) {
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$bounded-%1").arg(i);
+            event.sender = "@peer:example.org";
+            event.body = "Window regression message";
+            event.timestamp = QDateTime::currentDateTimeUtc().addSecs(i);
+            events.append(event);
+        }
+        Q_EMIT mock->eventsInsertedAt(m_controller->currentRoomId(),
+                                      m_controller->timeline()->events().size(), events);
+        auto *proxy = qobject_cast<ReverseListProxyModel *>(m_controller->timelineView());
+        QVERIFY(proxy);
+        proxy->setWindow(600, 100);
+        int peak = proxy->rowCount();
+        QObject observer;
+        auto sample = [&] { peak = qMax(peak, proxy->rowCount()); };
+        connect(proxy, &QAbstractItemModel::rowsInserted, &observer, sample);
+        connect(proxy, &QAbstractItemModel::modelReset, &observer, sample);
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::qWait(100);
+        QCOMPARE(proxy->windowSkip(), 0);
+        QVERIFY2(peak <= 320, qPrintable(QStringLiteral("Peak exposed rows: %1").arg(peak)));
+        QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(),
+                 events.last().eventId);
     }
 
     void removedSelectionCannotReplyToAnotherRow()

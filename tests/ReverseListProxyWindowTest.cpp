@@ -111,6 +111,33 @@ class ReverseListProxyWindowTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void latestJumpNeverExposesTheSkippedBacklog()
+    {
+        FakeSource source;
+        source.seed(2000);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+        proxy.setWindow(1600, 100);
+        int peak = proxy.rowCount();
+        auto sample = [&] { peak = qMax(peak, proxy.rowCount()); };
+        connect(&proxy, &QAbstractItemModel::rowsInserted, this, sample);
+        connect(&proxy, &QAbstractItemModel::modelReset, this, sample);
+        proxy.showLatestWindow(320);
+        QCOMPARE(proxy.windowSkip(), 0);
+        QCOMPARE(proxy.rowCount(), 320);
+        QVERIFY(peak <= 320);
+        QCOMPARE(proxyText(proxy, 0), QStringLiteral("e1999"));
+        verifyMappingIsConsistent(proxy, source);
+        QTest::qWait(300);
+        QCOMPARE(proxy.rowCount(), 320);
+        QSignalSpy reset(&proxy, &QAbstractItemModel::modelReset);
+        proxy.showLatestWindow(320);
+        QCOMPARE(reset.count(), 0);
+        source.appendLive(QStringLiteral("live"));
+        QCOMPARE(proxyText(proxy, 0), QStringLiteral("live"));
+        verifyMappingIsConsistent(proxy, source);
+    }
+
     // With no window the proxy is newest-first over the whole source.
     void unwindowedProxyIsNewestFirstOverEverything()
     {
