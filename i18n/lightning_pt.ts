@@ -4025,7 +4025,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Isto está a demorar mais do que o esperado. O servidor da outra pessoa pode estar lento a responder. Se aparecer uma sala na sua lista, use essa em vez de criar outra.</translation>
     </message>
@@ -4095,7 +4095,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Convidar utilizadores não é suportado neste backend.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Pode ter sido criada uma sala vazia na sua conta; se a vir na lista de salas, pode sair dela.</translation>
     </message>
@@ -9275,6 +9275,11 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Frequência limitada</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Não confirmado</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Falhou</translation>
@@ -10987,13 +10992,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Presença indisponível</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>Convidado</translation>
     </message>
@@ -11013,7 +11018,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Link do perfil copiado</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>Biografia</translation>
     </message>
@@ -11239,7 +11244,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>ID Matrix copiado</translation>
     </message>

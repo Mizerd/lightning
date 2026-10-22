@@ -147,6 +147,8 @@ private:
     MatrixClient *m_client = nullptr;
     UserSearchModel *m_userSearch = nullptr;
     quint64 m_pendingOp = 0;
+    quint64 m_inviteOp = 0;      // pendingOp when it is an invite batch
+    quint64 m_lateInviteOp = 0;  // an invite batch the bound gave up on
     QString m_errorMessage;
     QVariantList m_existingDms;
     QVariantList m_inviteResults;

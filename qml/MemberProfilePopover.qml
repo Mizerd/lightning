@@ -946,9 +946,12 @@ Popup {
                         elide: Label.ElideRight
                         // The text is not selectable, so a double click
                         // copies the exact id.
-                        TapHandler {
-                            gesturePolicy: TapHandler.WithinBounds
-                            onDoubleTapped: root.copyUserId()
+                        MouseArea {
+                            objectName: "profileUserIdCopyArea"
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton
+                            cursorShape: Qt.PointingHandCursor
+                            onDoubleClicked: root.copyUserId()
                         }
                         HoverHandler { id: userIdHover }
                         ToolTip.text: qsTr("Double-click to copy")
@@ -1830,6 +1833,7 @@ Popup {
 
             Label {
                 id: copiedNotice
+                objectName: "profileCopiedNotice"
                 visible: false
                 // Set by _copy(): names what went to the clipboard.
                 text: ""

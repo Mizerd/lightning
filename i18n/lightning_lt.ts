@@ -4040,7 +4040,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Tai trunka ilgiau nei tikėtasi. Kito asmens serveris gali lėtai atsakinėti. Jei kambarys atsirado jūsų sąraše, naudokite jį, o ne pradėkite kitą.</translation>
     </message>
@@ -4110,7 +4110,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Ši posistemė nepalaiko naudotojų kvietimo.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Jūsų paskyroje galėjo būti sukurtas tuščias kambarys; jei jį matote savo kambarių sąraše, galite jį palikti.</translation>
     </message>
@@ -9301,6 +9301,11 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Kaina ribota</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Nepatvirtinta</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Nepavyko</translation>
@@ -11046,7 +11051,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 profilis</translation>
     </message>
     <message>
-        <location line="+422"/>
+        <location line="+425"/>
         <source>Message</source>
         <translation>Žinutė</translation>
     </message>
@@ -11071,8 +11076,8 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Kopijuoti profilio nuorodą</translation>
     </message>
     <message>
-        <location line="-303"/>
-        <location line="+349"/>
+        <location line="-306"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Dalyvavimas nepasiekiamas</translation>

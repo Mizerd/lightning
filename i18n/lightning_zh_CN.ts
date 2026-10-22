@@ -4010,7 +4010,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>耗时超出预期。对方的服务器可能响应较慢。如果列表中出现了房间，请使用它，而不要再创建一个。</translation>
     </message>
@@ -4080,7 +4080,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>此后端不支持邀请用户。</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>你的账号上可能已创建了一个空房间；如果你在房间列表中看到它，可以离开。</translation>
     </message>
@@ -9249,6 +9249,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>请求过于频繁</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>未确认</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>失败</translation>
@@ -10952,13 +10957,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>无法获取在线状态</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>已邀请</translation>
     </message>
@@ -10978,7 +10983,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>个人资料链接已复制</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>简介</translation>
     </message>
@@ -11204,7 +11209,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>已复制 Matrix ID</translation>
     </message>

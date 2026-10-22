@@ -1680,6 +1680,9 @@ pub(crate) fn set_space_child_suggested(
 // Invites to existing rooms
 // ---------------------------------------------------------------------------
 
+/// A federated invite can hang; the dialog must always get an answer.
+const INVITE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+
 pub(crate) fn invite_users(
     bridge: &RustClient,
     room_id: String,
@@ -1707,10 +1710,26 @@ pub(crate) fn invite_users(
             seen.push(user.clone());
             let outcome = match UserId::parse(&user) {
                 Err(_) => Err("invalid_user".to_owned()),
-                Ok(uid) => room
-                    .invite_user_by_id(&uid)
-                    .await
-                    .map_err(|err| classify_room_error(&err.to_string()).to_owned()),
+                Ok(uid) => match tokio::time::timeout(
+                    INVITE_REQUEST_TIMEOUT,
+                    room.invite_user_by_id(&uid),
+                )
+                .await
+                {
+                    Ok(done) => done
+                        .map_err(|err| classify_room_error(&err.to_string()).to_owned()),
+                    // A federated invite can outlive any answer while the
+                    // server still performs it: ask the store before saying
+                    // it did not happen.
+                    Err(_) => {
+                        use matrix_sdk::ruma::events::room::member::MembershipState;
+                        let member = room.get_member_no_sync(&uid).await.ok().flatten();
+                        match member.map(|m| m.membership().clone()) {
+                            Some(MembershipState::Invite) | Some(MembershipState::Join) => Ok(()),
+                            _ => Err("timeout".to_owned()),
+                        }
+                    }
+                },
             };
             if !timelines.lifecycle_current(lifecycle) {
                 return;

@@ -4040,7 +4040,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Это занимает больше времени, чем ожидалось. Сервер собеседника может медленно отвечать. Если комната появится в вашем списке, используйте её, а не создавайте новую.</translation>
     </message>
@@ -4110,7 +4110,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Приглашение пользователей не поддерживается этим бэкендом.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Пустая комната могла быть создана в вашей учётной записи; если вы видите её в списке комнат, можно выйти из неё.</translation>
     </message>
@@ -9301,6 +9301,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>Частота ограничена</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Не подтверждено</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Не удалось</translation>
@@ -11022,13 +11027,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Присутствие недоступно</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>Приглашён</translation>
     </message>
@@ -11048,7 +11053,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ссылка на профиль скопирована.</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>Био</translation>
     </message>
@@ -11274,7 +11279,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>Идентификатор Matrix скопирован</translation>
     </message>

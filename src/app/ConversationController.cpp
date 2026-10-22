@@ -62,6 +62,33 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_opTimeout, &QTimer::timeout, this, [this]() {
         if (m_pendingOp == 0)
             return;
+        if (m_inviteOp == m_pendingOp) {
+            // No answer for the invite batch: end the spinner, say which
+            // rows are unconfirmed, and keep listening for a late answer.
+            m_lateInviteOp = m_inviteOp;
+            m_inviteOp = 0;
+            m_pendingOp = 0;
+            int ok = 0, fail = 0;
+            for (QVariant &value : m_inviteResults) {
+                QVariantMap row = value.toMap();
+                if (row.value(QStringLiteral("state")).toString()
+                        == QLatin1String("pending")) {
+                    row.insert(QStringLiteral("state"), QStringLiteral("failed"));
+                    row.insert(QStringLiteral("category"),
+                               QStringLiteral("timeout"));
+                    value = row;
+                }
+                if (row.value(QStringLiteral("state")).toString()
+                        == QLatin1String("ok"))
+                    ++ok;
+                else
+                    ++fail;
+            }
+            Q_EMIT inviteResultsChanged();
+            Q_EMIT busyChanged();
+            Q_EMIT inviteBatchCompleted(ok, fail);
+            return;
+        }
         // The create is still running server-side: remember who it was for so
         // that a retry for the SAME person is refused until it answers, instead
         // of leaving one more empty room per retry.
@@ -376,6 +403,8 @@ void ConversationController::inviteUsers(const QString &roomId,
         return;
     }
     m_pendingOp = opId;
+    m_inviteOp = opId;
+    m_lateInviteOp = 0;
     m_opTimeout.start();
     m_inviteResults.clear();
     for (const QString &user : unique) {
@@ -513,9 +542,13 @@ void ConversationController::onInviteUserFinished(quint64 opId,
                                                   const QString &category)
 {
     Q_UNUSED(roomId);
-    if (opId != m_pendingOp || m_pendingOp == 0)
+    const bool late = m_lateInviteOp != 0 && opId == m_lateInviteOp;
+    if (!late && (opId != m_pendingOp || m_pendingOp == 0))
         return;
-    m_opTimeout.stop();
+    // Still waiting for the rest of the batch: restart the bound, never
+    // drop it, or a lost batch-done leaves the spinner for ever.
+    if (!late)
+        m_opTimeout.start();
     for (QVariant &value : m_inviteResults) {
         QVariantMap row = value.toMap();
         if (row.value(QStringLiteral("userId")).toString() != userId)
@@ -534,10 +567,15 @@ void ConversationController::onInviteBatchFinished(quint64 opId,
                                                    int okCount, int failCount)
 {
     Q_UNUSED(roomId);
+    if (m_lateInviteOp != 0 && opId == m_lateInviteOp) {
+        m_lateInviteOp = 0;   // already reported as done by the bound
+        return;
+    }
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
     m_opTimeout.stop();
     m_pendingOp = 0;
+    m_inviteOp = 0;
     Q_EMIT busyChanged();
     Q_EMIT inviteBatchCompleted(okCount, failCount);
 }

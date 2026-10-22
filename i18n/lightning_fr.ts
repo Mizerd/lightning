@@ -4025,7 +4025,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Cela prend plus de temps que prévu. Le serveur de l&apos;autre personne est peut-être lent à répondre. Si un salon apparaît dans votre liste, utilisez-le plutôt que d&apos;en créer un autre.</translation>
     </message>
@@ -4095,7 +4095,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>L&apos;invitation d&apos;utilisateurs n&apos;est pas prise en charge par ce backend.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Un salon vide a peut-être été créé sur votre compte ; si vous en voyez un dans votre liste, vous pouvez le quitter.</translation>
     </message>
@@ -9275,6 +9275,11 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Débit limité</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Non confirmé</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Échec</translation>
@@ -10987,13 +10992,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Présence indisponible</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>Invité</translation>
     </message>
@@ -11013,7 +11018,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lien du profil copié</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>Biographie</translation>
     </message>
@@ -11239,7 +11244,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>Identifiant Matrix copié</translation>
     </message>
@@ -22386,7 +22391,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
         <location line="+4"/>
         <location line="+6771"/>
         <source>Large album art</source>
-        <translation>Grande pochette d'album</translation>
+        <translation>Grande pochette d&apos;album</translation>
     </message>
     <message>
         <location line="-6770"/>
@@ -22858,7 +22863,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="+8"/>
         <source>Shows the cover of an audio file as a large square above its controls. When off, or when the file has no cover, a small tile sits beside the play button.</source>
-        <translation>Affiche la pochette d'un fichier audio en grand carré au-dessus des commandes. Désactivé, ou si le fichier n'a pas de pochette, une petite vignette se place à côté du bouton de lecture.</translation>
+        <translation>Affiche la pochette d&apos;un fichier audio en grand carré au-dessus des commandes. Désactivé, ou si le fichier n&apos;a pas de pochette, une petite vignette se place à côté du bouton de lecture.</translation>
     </message>
     <message>
         <location line="+1048"/>

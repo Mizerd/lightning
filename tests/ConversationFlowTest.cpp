@@ -867,6 +867,62 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
     }
 
+    // A lost answer must not leave the invite dialog spinning for ever: the
+    // bound ends the batch (rows "Not confirmed"), and a LATE answer for it
+    // still lands on the rows rather than being dropped as stale.
+    void inviteWithNoAnswerEndsAndALateSuccessStillLands()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setOpTimeoutMsForTest(20);
+        QSignalSpy done(&controller, &ConversationController::inviteBatchCompleted);
+        const QString room = QStringLiteral("!room:example.org");
+        controller.inviteUsers(room, { QStringLiteral("@a:example.org") });
+        const quint64 op = client.lastOpId;
+        QVERIFY(controller.busy());
+
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
+        QCOMPARE(done.count(), 1);
+        const auto state = [&]() {
+            return controller.inviteResults().at(0).toMap();
+        };
+        QCOMPARE(state().value(QStringLiteral("state")).toString(),
+                 QStringLiteral("failed"));
+        QCOMPARE(state().value(QStringLiteral("category")).toString(),
+                 QStringLiteral("timeout"));
+
+        // The server did perform it: the late result corrects the row.
+        Q_EMIT client.inviteUserFinished(op, room, QStringLiteral("@a:example.org"),
+                                         true, QString());
+        QCOMPARE(state().value(QStringLiteral("state")).toString(),
+                 QStringLiteral("ok"));
+        Q_EMIT client.inviteBatchFinished(op, room, 1, 0);
+        QCOMPARE(done.count(), 1);   // not reported twice
+    }
+
+    // A per-user result must not cancel the bound: with the batch-done lost
+    // after a success, the spinner still ends.
+    void inviteSuccessWithLostBatchDoneStillEnds()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setOpTimeoutMsForTest(20);
+        QSignalSpy done(&controller, &ConversationController::inviteBatchCompleted);
+        const QString room = QStringLiteral("!room:example.org");
+        controller.inviteUsers(room, { QStringLiteral("@a:example.org") });
+        Q_EMIT client.inviteUserFinished(client.lastOpId, room,
+                                         QStringLiteral("@a:example.org"), true,
+                                         QString());
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
+        QCOMPARE(done.count(), 1);
+        QCOMPARE(done.first().at(0).toInt(), 1);
+        QCOMPARE(controller.inviteResults().at(0).toMap()
+                     .value(QStringLiteral("state")).toString(),
+                 QStringLiteral("ok"));
+    }
+
     // Closing the dialog must not unlock a second create. `Client::create_dm`
     // is one /createRoom carrying the invite, and an unreachable peer server
     // can hang it; the server still creates the room, without the m.direct

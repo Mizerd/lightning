@@ -4010,7 +4010,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Ini memakan waktu lebih lama dari yang diharapkan. Server pihak lain mungkin lambat merespons. Jika ruang muncul di daftar Anda, gunakan ruang itu daripada memulai yang lain.</translation>
     </message>
@@ -4080,7 +4080,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Mengundang pengguna tidak didukung pada backend ini.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Sebuah ruang kosong mungkin telah dibuat di akun Anda; jika Anda melihatnya di daftar ruang, Anda dapat keluar darinya.</translation>
     </message>
@@ -9249,6 +9249,11 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Laju dibatasi</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Belum dikonfirmasi</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Gagal</translation>
@@ -10952,13 +10957,13 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Kehadiran tidak tersedia</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>Diundang</translation>
     </message>
@@ -10978,7 +10983,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tautan profil disalin</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>Biografi</translation>
     </message>
@@ -11204,7 +11209,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>ID Matrix disalin</translation>
     </message>

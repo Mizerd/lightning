@@ -4023,7 +4023,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>প্রত্যাশার চেয়ে বেশি সময় লাগছে। অন্য ব্যক্তির সার্ভার ধীরে সাড়া দিচ্ছে হতে পারে। তালিকায় কোনো রুম দেখা গেলে আরেকটি শুরু না করে সেটি ব্যবহার করুন।</translation>
     </message>
@@ -4093,7 +4093,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এই ব্যাকএন্ডে ব্যবহারকারী আমন্ত্রণ সমর্থিত নয়।</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>আপনার অ্যাকাউন্টে একটি খালি রুম তৈরি হয়ে থাকতে পারে; রুমের তালিকায় দেখলে সেটি ছেড়ে দিতে পারেন।</translation>
     </message>
@@ -9266,6 +9266,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>হার সীমিত</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>নিশ্চিত নয়</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>ব্যর্থ</translation>
@@ -10978,13 +10983,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>উপস্থিতি উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-783"/>
         <source>Invited</source>
         <translation>আমন্ত্রিত</translation>
     </message>
@@ -11004,7 +11009,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রোফাইল লিঙ্ক কপি করা হয়েছে</translation>
     </message>
     <message>
-        <location line="+638"/>
+        <location line="+641"/>
         <source>Bio</source>
         <translation>বায়ো</translation>
     </message>
@@ -11230,7 +11235,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1360"/>
         <source>Matrix ID copied</source>
         <translation>Matrix আইডি অনুলিপি হয়েছে</translation>
     </message>

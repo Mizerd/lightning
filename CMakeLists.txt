@@ -6985,6 +6985,20 @@ if(BUILD_TESTING)
     set_tests_properties(invite-people-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Member profile popover: double-click on the Matrix ID copies it.
+    qt_add_executable(member-profile-copy-qml-test
+        tests/MemberProfileCopyQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(member-profile-copy-qml-test)
+    target_compile_definitions(member-profile-copy-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(member-profile-copy-qml-test PRIVATE Qt6::Test)
+    add_test(NAME member-profile-copy-qml
+        COMMAND member-profile-copy-qml-test)
+    set_tests_properties(member-profile-copy-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Quick switcher: mode transitions, command actions, live theme execution,
     # Escape.
     qt_add_executable(quick-switcher-modes-qml-test

@@ -4025,7 +4025,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+75"/>
+        <location filename="../src/app/ConversationController.cpp" line="+102"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation>Das dauert länger als erwartet. Der Server der anderen Person antwortet möglicherweise langsam. Wenn ein Raum in deiner Liste erscheint, verwende diesen, statt einen weiteren zu beginnen.</translation>
     </message>
@@ -4095,7 +4095,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das Einladen von Benutzern wird von diesem Backend nicht unterstützt.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+81"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
         <translation>Auf deinem Konto wurde möglicherweise ein leerer Raum erstellt; wenn du einen in deiner Raumliste siehst, kannst du ihn verlassen.</translation>
     </message>
@@ -9275,6 +9275,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ratenbegrenzt</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>Not confirmed</source>
+        <translation>Nicht bestätigt</translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>Failed</source>
         <translation>Fehlgeschlagen</translation>
@@ -11012,7 +11017,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+261"/>
-        <location line="+349"/>
+        <location line="+352"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Präsenz nicht verfügbar</translation>

@@ -355,6 +355,8 @@ Dialog {
                                             return qsTr("Not permitted")
                                         if (modelData.category === "rate_limited")
                                             return qsTr("Rate limited")
+                                        if (modelData.category === "timeout")
+                                            return qsTr("Not confirmed")
                                         return qsTr("Failed")
                                     }
                                     return qsTr("Pending…")
