@@ -365,6 +365,11 @@ Item {
           section: "sound",
           breadcrumb: qsTr("Sound & video · Media"),
           anchor: "voicePlayerDockedCheck" },
+        { title: qsTr("Large album art"),
+          keywords: qsTr("album art cover artwork audio file music big large square compact"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Media playback"),
+          anchor: "largeAlbumArtCheck" },
         { title: qsTr("Camera"),
           keywords: qsTr("camera webcam video device call"),
           section: "sound",
@@ -7127,6 +7132,14 @@ Item {
                                     checked: app.settings.voicePlayerDocked
                                     onToggled: app.settings.voicePlayerDocked = checked
                                     Accessible.description: qsTr("When off, the player for voice messages and audio files floats over the window, and you can move and resize it.")
+                                }
+                                CheckBox {
+                                    objectName: "largeAlbumArtCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Large album art")
+                                    checked: app.settings.largeAlbumArt
+                                    onToggled: app.settings.largeAlbumArt = checked
+                                    Accessible.description: qsTr("Shows the cover of an audio file as a large square above its controls. When off, or when the file has no cover, a small tile sits beside the play button.")
                                 }
                             }
                         }

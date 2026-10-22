@@ -466,6 +466,11 @@ class SettingsManager : public QObject
     // the user moves and resizes freely.
     Q_PROPERTY(bool voicePlayerDocked READ voicePlayerDocked
                    WRITE setVoicePlayerDocked NOTIFY voicePlayerDockedChanged)
+    // Audio-file rows show the cover art as a large square above the controls
+    // (default on); off keeps the compact tile beside the play button. A file
+    // with no art always uses the compact layout.
+    Q_PROPERTY(bool largeAlbumArt READ largeAlbumArt WRITE setLargeAlbumArt
+                   NOTIFY largeAlbumArtChanged)
     // The popped-out card's place and size. x and y are FRACTIONS (0..1) of
     // the free space the card can move in (the area minus the card), so the
     // card keeps its relative place through a window resize and can never be
@@ -1062,6 +1067,8 @@ public:
     int voiceMiniPlayerCorner() const;
     void setVoiceMiniPlayerCorner(int corner);
     bool voicePlayerDocked() const;
+    bool largeAlbumArt() const;
+    Q_INVOKABLE void setLargeAlbumArt(bool large);
     void setVoicePlayerDocked(bool docked);
     QRectF voiceMiniPlayerGeometry() const;
     void setVoiceMiniPlayerGeometry(const QRectF &geometry);
@@ -1404,6 +1411,7 @@ Q_SIGNALS:
     void mediaPlaybackRateChanged();
     void voiceMiniPlayerCornerChanged();
     void voicePlayerDockedChanged();
+    void largeAlbumArtChanged();
     void voiceMiniPlayerGeometryChanged();
     void voicePlaybackRateChanged();
     void interfaceZoomChanged();
@@ -1427,6 +1435,7 @@ private:
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
     void migratePrefetchFromAnimation();
+    void migrateComposerModeToMarkdown();
     // Store paths of recorded unfinished sign-ins whose store still exists;
     // markers whose store is gone are removed. Called at every start. See
     // recordPendingSignIn().

@@ -15,10 +15,14 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QTemporaryDir>
 #include <QUrl>
 
+#include <QSettings>
+
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 
 class AudioCoverArtAspectTest : public QObject
 {
@@ -42,6 +46,8 @@ private:
         std::unique_ptr<QObject> root;
         QQuickItem *item = nullptr;
         QQuickItem *box = nullptr;
+        // A window, so the layouts polish and sizes are real.
+        std::unique_ptr<QQuickWindow> window;
     };
 
     // Instantiates the production card with a file:// artwork URL;
@@ -70,6 +76,10 @@ AudioPlayerCard { objectName: "card" }
         if (!card.item)
             return card;
 
+        card.window = std::make_unique<QQuickWindow>();
+        card.window->resize(int(cardWidth) + 40, 600);
+        card.item->setParentItem(card.window->contentItem());
+        card.window->show();
         card.item->setWidth(cardWidth);
         card.item->setProperty("artworkSource", artwork.toString());
         card.box = card.item->findChild<QQuickItem *>(
@@ -92,10 +102,72 @@ AudioPlayerCard { objectName: "card" }
         return card;
     }
 
+    void setLarge(Card &card, bool large)
+    {
+        auto *controller = card.engine->rootContext()
+            ->contextProperty(QStringLiteral("app")).value<QObject *>();
+        auto *settings = controller->findChild<SettingsManager *>();
+        QVERIFY(settings);
+        settings->setLargeAlbumArt(large);
+        QTest::qWait(50);
+    }
+
+    static QRectF sceneRectOf(QQuickItem *item)
+    {
+        return QRectF(item->mapToScene(QPointF(0, 0)), item->size());
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
         QVERIFY(m_dir.isValid());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("audio-cover-art-aspect-test"));
+        QSettings().clear();
+    }
+
+    // The play button never covers the art, in either layout (0.10.2 drew it
+    // on top of the 40 px tile), and the setting switches between them.
+    void thePlayButtonNeverCoversTheCoverAndTheSettingSwitchesLayout()
+    {
+        Card card = makeCard(makeImage(QStringLiteral("g.png"), 600, 600), 360);
+        QVERIFY(card.item != nullptr);
+        card.item->setProperty("isVoice", false);
+        auto *play = card.item->findChild<QQuickItem *>(
+            QStringLiteral("audioPlayPauseButton"));
+        auto *tile = card.item->findChild<QQuickItem *>(
+            QStringLiteral("audioCoverArtBox"));
+        auto *large = card.item->findChild<QQuickItem *>(
+            QStringLiteral("audioLargeCoverBox"));
+        QVERIFY(play && tile && large);
+
+        // Default on, with art: the large cover, above the controls.
+        setLarge(card, true);
+        QTRY_VERIFY(large->isVisible());
+        QVERIFY(!tile->isVisible());
+        QTRY_VERIFY(large->width() > 100);
+        QCOMPARE(large->width(), large->height());
+        QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(large)),
+                 "the play button covers the large cover");
+        const qreal withLarge = card.item->implicitHeight();
+
+        // Off: the compact tile, beside the button, not under it.
+        setLarge(card, false);
+        QTRY_VERIFY(tile->isVisible());
+        QVERIFY(!large->isVisible());
+        QCOMPARE(tile->width(), 40.0);
+        QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(tile)),
+                 "the play button covers the compact tile");
+        QVERIFY(card.item->implicitHeight() < withLarge);
+
+        // No art at all: compact even with the setting on.
+        card.item->setProperty("artworkSource", QString());
+        setLarge(card, true);
+        QTRY_VERIFY(!large->isVisible());
+        QVERIFY(tile->isVisible());
+        QVERIFY(!sceneRectOf(play).intersects(sceneRectOf(tile)));
     }
 
     // Any cover, square, tall or wide, is the same fixed 40 px tile, cropped
@@ -106,6 +178,7 @@ private Q_SLOTS:
         QVERIFY(bare.item != nullptr);
         bare.item->setProperty("isVoice", false);
         QVERIFY(bare.box != nullptr);
+        setLarge(bare, false);
         QVERIFY(bare.box->isVisible());
         const qreal rowHeight = bare.item->implicitHeight();
         QVERIFY(rowHeight > 0);
@@ -118,6 +191,7 @@ private Q_SLOTS:
                                            cover.w, cover.h), 360);
             QVERIFY(card.item != nullptr);
             card.item->setProperty("isVoice", false);
+            setLarge(card, false);
             QVERIFY2(card.box != nullptr, "the cover art tile was not created");
             QTRY_VERIFY(card.box->width() > 1);
             QCOMPARE(card.box->width(), 40.0);

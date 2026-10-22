@@ -2329,9 +2329,12 @@ Item {
                         // Moves into the overflow menu below the width its
                         // label needs (see compactToolbarRow).
                         visible: !root.compactToolbarRow
-                        kind: "ghost"
+                        // Bordered, so the active mode (named on the chip)
+                        // reads as state in both modes, not as an action.
+                        kind: "secondary"
                         size: "sm"
-                        text: root.richMode ? qsTr("Rich text") : qsTr("Markdown")
+                        text: root.richMode ? qsTr("Rich text")
+                                            : qsTr("Markdown")
                         Accessible.name: root.richMode
                                          ? qsTr("Switch to Markdown composing")
                                          : qsTr("Switch to rich-text composing")

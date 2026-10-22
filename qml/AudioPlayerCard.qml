@@ -15,7 +15,8 @@ import MatrixClient
 // drag) and by keyboard, and on an idle row a seek starts the clip there.
 //
 // The row's height never changes with playback (design-media B6): an audio
-// file's cover art is a fixed thumbnail under its play button, and its
+// file's cover art is a fixed thumbnail beside its play button (or, with
+// "Large album art", a big square above the controls), and its
 // embedded title replaces the file name, both from the controller's RAM-only
 // record of an earlier play (clipInfo), so they stay after the clip ends. The
 // speed and volume controls keep their places at rest, so the scrubber does
@@ -233,7 +234,14 @@ Rectangle {
         360, root.hostContentWidth >= 0
              ? root.hostContentWidth
              : (bubble ? bubble.width : 360))
-    implicitHeight: cardRow.implicitHeight + 12
+    // "Large album art" (app.settings.largeAlbumArt, default on): an audio
+    // file whose cover has been seen shows it as a big square above the
+    // controls. Without art, or with the setting off, the compact 40 px tile
+    // sits BESIDE the play button. Either way the button never covers the art.
+    readonly property bool largeCover:
+        !root.isVoice && root.artworkSource.length > 0
+        && app.settings && app.settings.largeAlbumArt !== false
+    implicitHeight: cardColumn.implicitHeight + 12
     color: root.inBubble ? "transparent" : AppTheme.embedSurface
     radius: AppTheme.radiusSm
     border.color: AppTheme.border
@@ -245,29 +253,59 @@ Rectangle {
     /// The width the host allows; negative means unset.
     property real hostContentWidth: -1
 
-    RowLayout {
-        id: cardRow
+    ColumnLayout {
+        id: cardColumn
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 6
         anchors.leftMargin: root.inBubble ? 0 : 6
         anchors.rightMargin: root.inBubble ? 0 : 6
+        spacing: 6
+
+        // The large cover: a square as wide as the card allows (capped), above
+        // the controls.
+        Rectangle {
+            id: largeCoverBox
+            objectName: "audioLargeCoverBox"
+            visible: root.largeCover
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Math.max(
+                40, Math.min(cardColumn.width, 240))
+            Layout.preferredHeight: Layout.preferredWidth
+            radius: AppTheme.radiusSm
+            color: AppTheme.cardElevated
+            clip: true
+            Image {
+                objectName: "audioLargeCoverArtwork"
+                anchors.fill: parent
+                source: largeCoverBox.visible ? root.artworkSource : ""
+                sourceSize.width: 480
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                Accessible.name: qsTr("Audio cover artwork")
+            }
+        }
+
+    RowLayout {
+        id: cardRow
+        Layout.fillWidth: true
         spacing: 8
 
-        // An audio file's cover: a fixed thumbnail the play button sits on,
-        // as on every music card; the tile alone until a play has seen a
-        // cover. A voice message has just the button.
+        // The compact cover tile of an audio file, BESIDE the play button
+        // (never under it). A voice message has just the button.
         Item {
             objectName: "audioArtSlot"
             Layout.alignment: Qt.AlignTop
-            implicitWidth: root.isVoice ? playButton.implicitWidth : 40
-            implicitHeight: root.isVoice ? playButton.implicitHeight : 40
+            visible: !root.isVoice && !root.largeCover
+            implicitWidth: 40
+            implicitHeight: 40
             Rectangle {
                 id: coverArtBox
                 objectName: "audioCoverArtBox"
                 anchors.fill: parent
-                visible: !root.isVoice
+                visible: !root.isVoice && !root.largeCover
                 radius: AppTheme.radiusSm
                 color: AppTheme.cardElevated
                 clip: true
@@ -284,6 +322,11 @@ Rectangle {
                     Accessible.name: qsTr("Audio cover artwork")
                 }
             }
+        }
+        Item {
+            Layout.alignment: Qt.AlignTop
+            implicitWidth: playButton.implicitWidth
+            implicitHeight: root.isVoice ? playButton.implicitHeight : 40
             IconButton {
                 id: playButton
                 objectName: "audioPlayPauseButton"
@@ -496,5 +539,6 @@ Rectangle {
             ToolTip.delay: 600
             onClicked: root.saveRequested()
         }
+    }
     }
 }

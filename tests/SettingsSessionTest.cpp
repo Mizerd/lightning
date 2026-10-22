@@ -113,6 +113,9 @@ private Q_SLOTS:
     void clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys();
     void validThemeIdsRoundTripAndPersist();
     void unknownStoredThemeFallsBackToSystem();
+    void composerModeIsMarkdownForAFreshProfile();
+    void aStoredRichModeIsMigratedToMarkdownOnce();
+    void largeAlbumArtDefaultsOnAndPersists();
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
     void shareQualityDefaultsPersistAndSnap();
@@ -607,6 +610,44 @@ void SettingsSessionTest::validThemeIdsRoundTripAndPersist()
     // Persistence across a fresh instance (same QSettings backing).
     SettingsManager reopened;
     QCOMPARE(reopened.theme(), SettingsManager::NordTheme);
+}
+
+void SettingsSessionTest::composerModeIsMarkdownForAFreshProfile()
+{
+    SettingsManager fresh;
+    QCOMPARE(fresh.composerMode(), QStringLiteral("markdown"));
+    // An explicit later choice of rich text sticks across a restart.
+    fresh.setComposerMode(QStringLiteral("rich"));
+    SettingsManager reopened;
+    QCOMPARE(reopened.composerMode(), QStringLiteral("rich"));
+}
+
+void SettingsSessionTest::aStoredRichModeIsMigratedToMarkdownOnce()
+{
+    {
+        QSettings raw;   // a profile from before the Markdown default
+        raw.setValue(QStringLiteral("composer/mode"), QStringLiteral("rich"));
+        raw.sync();
+    }
+    {
+        SettingsManager migrated;
+        QCOMPARE(migrated.composerMode(), QStringLiteral("markdown"));
+        // The user then picks rich text on purpose.
+        migrated.setComposerMode(QStringLiteral("rich"));
+    }
+    SettingsManager later;
+    QCOMPARE(later.composerMode(), QStringLiteral("rich"));
+}
+
+void SettingsSessionTest::largeAlbumArtDefaultsOnAndPersists()
+{
+    {
+        SettingsManager s;
+        QVERIFY(s.largeAlbumArt());
+        s.setLargeAlbumArt(false);
+    }
+    SettingsManager reopened;
+    QVERIFY(!reopened.largeAlbumArt());
 }
 
 void SettingsSessionTest::unknownStoredThemeFallsBackToSystem()

@@ -88,6 +88,7 @@ constexpr auto kMediaVolume         = "media/volume";       // 0..1
 constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
 constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
 constexpr auto kVoicePlayerDocked   = "media/playerDocked";   // bool
+constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";    // bool, default on
 // QRectF: x/y fractions of the free space, width/height pixels.
 constexpr auto kVoiceMiniPlayerGeometry = "media/miniPlayerGeometry";
 constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate"; // 0.25..4.0
@@ -116,6 +117,8 @@ constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kComposerMode        = "composer/mode";
+// Set once migrateComposerModeToMarkdown() has run (see there).
+constexpr auto kComposerMarkdownMarker = "composer/markdownDefaultMigrated";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
 constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
 constexpr auto kSpellExtraLanguages = "composer/spellExtraLanguages";
@@ -247,6 +250,7 @@ SettingsManager::SettingsManager(QObject *parent)
     }
     migrateLegacySessionRecord();
     migratePrefetchFromAnimation();
+    migrateComposerModeToMarkdown();
     // B118: a damaged settings file used to look exactly like a fresh install.
     // QSettings reports a parse failure only at the first sync (in this
     // constructor), and
@@ -481,6 +485,19 @@ void SettingsManager::migratePrefetchFromAnimation()
     if (gifAutoplay() == 2)
         m_store->setValue(kVideoPrefetchEnabled, false);
     m_store->setValue(kPrefetchDecoupledMarker, true);
+}
+
+void SettingsManager::migrateComposerModeToMarkdown()
+{
+    // Markdown is the default composer mode: users type "# a" and "* a" and
+    // expect them to format. The store cannot tell a stored "rich" that was
+    // chosen from one left by an old build, so every profile is moved to
+    // Markdown ONCE; a "rich" chosen afterwards is the user's and sticks,
+    // because the marker is then set.
+    if (m_store->value(kComposerMarkdownMarker).toBool())
+        return;
+    m_store->setValue(kComposerMode, QStringLiteral("markdown"));
+    m_store->setValue(kComposerMarkdownMarker, true);
 }
 
 void SettingsManager::migrateLegacySessionRecord()
@@ -3708,6 +3725,19 @@ void SettingsManager::setVoicePlayerDocked(bool docked)
         return;
     m_store->setValue(kVoicePlayerDocked, docked);
     Q_EMIT voicePlayerDockedChanged();
+}
+
+bool SettingsManager::largeAlbumArt() const
+{
+    return m_store->value(kLargeAlbumArt, true).toBool();
+}
+
+void SettingsManager::setLargeAlbumArt(bool large)
+{
+    if (largeAlbumArt() == large)
+        return;
+    m_store->setValue(kLargeAlbumArt, large);
+    Q_EMIT largeAlbumArtChanged();
 }
 
 QRectF SettingsManager::voiceMiniPlayerGeometry() const

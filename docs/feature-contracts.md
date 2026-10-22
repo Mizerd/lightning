@@ -2778,3 +2778,17 @@ live, and the server answers presence. Research and design: vault note
   Lightning. A revoked session cannot send and is left alone.
 - **Tests:** `game-activity`, `music-activity` (MPRIS against a fake Spotify
   on a private dbus-daemon), `presence-manager`. Live behaviour is NOT TESTED.
+
+### Audio album art and the composer's default mode (0.10.3)
+
+- An audio-file row shows its cover as a large square above the controls when
+  "Large album art" is on (Settings > Sound & video > Media playback,
+  `media/largeAlbumArt`, default on) and a cover has been seen. With the
+  setting off, or no cover, a compact 40 px tile sits BESIDE the play button;
+  the button never covers the art in either layout. The docked player strip is
+  unchanged. The cover appears after the first play (the controller's RAM-only
+  clip info), so the row grows once and then stays stable.
+- Markdown is the composer's default mode. Because the store cannot tell a
+  chosen `composer/mode=rich` from a stale one, every profile is moved to
+  Markdown once (`composer/markdownDefaultMigrated`); a rich-text choice made
+  afterwards persists.
