@@ -94,6 +94,7 @@ TestCase {
         property real voicePlaybackRate: 1.0
         property real mediaVolume: 1.0
         property int gifAutoplay: 0
+        property bool largeAlbumArt: true
         function knownMediaSizeBytes(k) { return 0 }
     }
     QtObject {
@@ -238,6 +239,7 @@ TestCase {
         settings.voicePlayerDocked = true
         settings.voiceMiniPlayerGeometry = Qt.rect(0, 0, 0, 0)
         settings.voicePlaybackRate = 1.0
+        settings.largeAlbumArt = true
         appStub.currentScreen = 1
         appStub.opened = []
         AppTheme.mode = 2
@@ -666,7 +668,13 @@ TestCase {
         compare(voice.made("seek:")[1], "seek:0")
     }
 
+    readonly property string tinyCover:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+    // With "Large album art" OFF the compact tile sits beside the button, so
+    // the row's height never depends on whether a cover has been seen.
     function test_anAudioFileKeepsItsHeightAndShowsItsTitle() {
+        settings.largeAlbumArt = false
         var row = createTemporaryObject(rowComponent, test,
                                         { isVoice: false,
                                           filename: "Short Test Song.mp3" })
@@ -676,7 +684,7 @@ TestCase {
         var seekBefore = find(row, "audioSeekSlider").width
         // An earlier play found the tags and a cover.
         voice.info = { "mk-row": { title: "Short Test Song", artist: "Band",
-                                   artworkSource: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" } }
+                                   artworkSource: tinyCover } }
         voice.clipInfoRevision++
         compare(title.text, "Short Test Song")
         verify(find(row, "audioClock").text.indexOf("Band") >= 0)
@@ -689,6 +697,43 @@ TestCase {
         compare(row.implicitHeight, before)
         compare(find(row, "audioSeekSlider").width, seekBefore,
                 "the scrubber shrank when playback started")
+    }
+
+    // With it ON (the default) the big cover appears once an earlier play has
+    // seen one (clip info is RAM-only, so it cannot be known earlier): the row
+    // grows ONCE, at that moment, and playback never changes it afterwards.
+    function test_aLargeCoverGrowsTheRowOnceAndPlaybackNeverMovesIt() {
+        compare(settings.largeAlbumArt, true)
+        var row = createTemporaryObject(rowComponent, test,
+                                        { isVoice: false,
+                                          filename: "Short Test Song.mp3" })
+        var compact = row.implicitHeight
+        voice.info = { "mk-row": { title: "Short Test Song", artist: "Band",
+                                   artworkSource: tinyCover } }
+        voice.clipInfoRevision++
+        wait(50)
+        var box = find(row, "audioLargeCoverBox")
+        verify(box && box.visible, "the large cover is not shown")
+        var withCover = row.implicitHeight
+        // The compact tile leaves the control row, so the scrubber widens
+        // once with the cover; playback must not move it again.
+        var seekWithCover = find(row, "audioSeekSlider").width
+        verify(withCover >= compact + box.height,
+               "the row did not make room for the large cover: " + compact
+               + " -> " + withCover)
+        // Play, pause, finish: the height stays where the cover put it.
+        voice.load({ eventId: "$row", isVoice: false, loaded: true })
+        wait(0)
+        compare(row.implicitHeight, withCover, "starting playback moved the row")
+        compare(find(row, "audioSeekSlider").width, seekWithCover,
+                "the scrubber changed width when playback began")
+        voice.load({ eventId: "$row", isVoice: false, loaded: false })
+        wait(0)
+        compare(row.implicitHeight, withCover, "stopping playback moved the row")
+        // Turning the setting off returns the compact row.
+        settings.largeAlbumArt = false
+        wait(50)
+        compare(row.implicitHeight, compact)
     }
 
     function test_anIdleVoiceRowShowsTheVoiceSpeed() {

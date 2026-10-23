@@ -14,7 +14,9 @@ import MatrixClient
 // one), else a progress slider. Both are seek targets, by pointer (tap or
 // drag) and by keyboard, and on an idle row a seek starts the clip there.
 //
-// The row's height never changes with playback (design-media B6): an audio
+// The row's height never changes with playback (design-media B6), only once
+// when a cover is first seen with "Large album art" on (the big square cannot
+// be known before an earlier play: clip info is RAM-only): an audio
 // file's cover art is a fixed thumbnail beside its play button (or, with
 // "Large album art", a big square above the controls), and its
 // embedded title replaces the file name, both from the controller's RAM-only
