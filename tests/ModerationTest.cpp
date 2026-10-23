@@ -302,7 +302,7 @@ private Q_SLOTS:
         };
         const QVector<Case> cases{
             { "/MessageDelegate.qml", "text: qsTr(\"Delete\")",
-              "redactEvent(root.menuEventId)", "confirmDestructive" },
+              "redactEvent(root.menuEventId)", "root.deleteThisMessage()" },
             { "/MessageDelegate.qml", "removeEditsMenuItem",
               "app.composer.removeEdits(root.menuEventId)", "confirmDestructive" },
             { "/MessageDelegate.qml", "endPollMenuItem",
@@ -339,6 +339,38 @@ private Q_SLOTS:
                                     .arg(QLatin1String(c.file),
                                          QLatin1String(c.anchor))));
         }
+
+        // Delete is routed through deleteThisMessage(), which the menu item
+        // AND the timeline.deleteMessage hotkey share. Follow it: every
+        // redactEvent in it must sit inside the callback handed to
+        // confirmDestructive, and the hotkey must use the same function.
+        QFile del(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY2(del.open(QIODevice::ReadOnly), qPrintable(del.fileName()));
+        const QString src = QString::fromUtf8(del.readAll());
+        const int fn = src.indexOf(QStringLiteral("function deleteThisMessage()"));
+        QVERIFY2(fn > 0, "deleteThisMessage() is gone, so Delete's route is unchecked");
+        const int fnOpen = src.indexOf(QLatin1Char('{'), fn);
+        int d = 0, fnClose = -1;
+        for (int i = fnOpen; i < src.size(); ++i) {
+            if (src.at(i) == QLatin1Char('{'))
+                ++d;
+            else if (src.at(i) == QLatin1Char('}') && --d == 0) {
+                fnClose = i;
+                break;
+            }
+        }
+        QVERIFY2(fnClose > fnOpen, "deleteThisMessage() is unbalanced");
+        const QString fnBody = src.mid(fnOpen, fnClose - fnOpen + 1);
+        const int redactions = fnBody.count(QStringLiteral("redactEvent("));
+        QVERIFY2(redactions >= 1, "deleteThisMessage() no longer redacts");
+        QCOMPARE(fnBody.count(QStringLiteral("function() { root.timelineModel.redactEvent(")),
+                 redactions);
+        QCOMPARE(fnBody.count(QStringLiteral("confirmDestructive(")), redactions);
+        QVERIFY2(src.contains(QStringLiteral(
+                     "case \"timeline.deleteMessage\": deleteThisMessage()")),
+                 "the Delete hotkey no longer goes through deleteThisMessage()");
+        QVERIFY2(!src.contains(QStringLiteral("case \"timeline.deleteMessage\": root.timelineModel.redactEvent")),
+                 "the Delete hotkey redacts without asking");
     }
 
     // A thread-reply notification must not jump to the reply on the room
@@ -390,13 +422,24 @@ private Q_SLOTS:
         // A text scan cannot see branch structure, so pin the shape too: the
         // room-timeline fallback must be the else of the last `if (inThread)`,
         // not an unconditional call after it.
+        // Inline thread style: narrow to the thread FIRST (showThread), then
+        // jump, so the target is a visible row; the branch must return.
+        const int inlineAt = body.indexOf(QStringLiteral("threadRepliesInline === true"));
+        QVERIFY2(inlineAt >= 0, "the inline-thread notification branch is gone");
+        const int narrow = body.indexOf(QStringLiteral("app.showThread("), inlineAt);
+        const int inlineJump = body.indexOf(QStringLiteral("jumpToEvent(eventId)"), inlineAt);
+        const int inlineRet = body.indexOf(QStringLiteral("return"), inlineJump);
+        QVERIFY2(narrow > inlineAt && inlineJump > narrow && inlineRet > inlineJump,
+                 "the inline branch must narrow to the thread, then jump, then return");
+        const int panelAt = body.indexOf(QStringLiteral("if (inThread)"), inlineRet);
+        QVERIFY2(panelAt > inlineRet, "the panel-mode thread branch is gone");
         const int thread = body.lastIndexOf(QStringLiteral("if (inThread)"));
         QVERIFY2(thread >= 0, "the thread branch is gone");
         const int otherwise = body.indexOf(QStringLiteral("} else if ("), thread);
         QVERIFY2(otherwise > thread,
                  "the room-timeline jump is no longer the ELSE of the thread "
                  "branch, so a thread reply can reach it again");
-        QVERIFY2(body.indexOf(QStringLiteral("jumpToEvent(eventId)")) > otherwise,
+        QVERIFY2(body.lastIndexOf(QStringLiteral("jumpToEvent(eventId)")) > otherwise,
                  "jumpToEvent(eventId) is not inside that else branch");
     }
 
