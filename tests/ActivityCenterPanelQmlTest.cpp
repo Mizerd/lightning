@@ -34,7 +34,7 @@ private:
         QStringList warnings;
     };
 
-    bool make(Fixture &f)
+    bool make(Fixture &f, bool openPanel = true)
     {
         f.engine = std::make_unique<QQmlApplicationEngine>();
         connect(f.engine.get(), &QQmlEngine::warnings, this,
@@ -104,7 +104,13 @@ ApplicationWindow {
     visible: true
     width: 900
     height: 800
-    ActivityCenterPanel { objectName: "panel" }
+    TextField { objectName: "composer"; focus: true; text: "draft" }
+    ActivityCenterPanel { id: panel; objectName: "panel" }
+    Shortcut {
+        sequence: "Ctrl+I"
+        enabled: !panel.visible
+        onActivated: panel.openPanel()
+    }
 }
 )QML",
                      QUrl());
@@ -116,7 +122,8 @@ ApplicationWindow {
         f.panel = f.window->findChild<QObject *>(QStringLiteral("panel"));
         if (!f.panel)
             return false;
-        QMetaObject::invokeMethod(f.panel, "openPanel");
+        if (openPanel)
+            QMetaObject::invokeMethod(f.panel, "openPanel");
         settle();
         f.list = f.panel->findChild<QQuickItem *>(QStringLiteral("activityList"));
         return f.list != nullptr;
@@ -146,6 +153,86 @@ ApplicationWindow {
     }
 
 private Q_SLOTS:
+    void openingFromTheKeyboardFocusesTheList()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QVERIFY(composer->hasActiveFocus());
+
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_Up);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QTest::keyClick(w, Qt::Key_Return);
+        QCOMPARE(f.activity->property("lastOpened").toString(), QStringLiteral("e2"));
+        QCOMPARE(f.activity->property("openCalls").toInt(), 1);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QCOMPARE(composer->property("text").toString(), QStringLiteral("draft"));
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void reopeningReturnsFocusFromControlsToTheCurrentRow()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+
+        // Tab still reaches the dialog's controls; reopening must not leave
+        // arrows on whichever control had focus when the dialog was closed.
+        QTest::keyClick(w, Qt::Key_Tab);
+        QVERIFY(!f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY(composer->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 2);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void anEmptyListCanBeDismissedWithoutOpeningAnEntry()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QVERIFY(QMetaObject::invokeMethod(f.activity, "clear"));
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("count").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QTest::keyClick(w, Qt::Key_Return);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QVERIFY(f.panel->property("opened").toBool());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY(composer->hasActiveFocus());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void returnEnterAndSpaceOpenTheCurrentEntry()
     {
         Fixture f;
@@ -298,6 +385,12 @@ private Q_SLOTS:
         QVERIFY(make(f));
         QVERIFY(f.list->property("contentHeight").toReal()
                 > f.list->height());
+        // The panel now focuses the list on opening. Move focus away first
+        // so this test still exercises a later focus transition.
+        auto *control = f.panel->findChild<QQuickItem *>(QStringLiteral("activityMarkAllSeen"));
+        QVERIFY(control);
+        control->forceActiveFocus();
+        QVERIFY(!f.list->hasActiveFocus());
         // Scroll away from row 0, then give the list focus.
         QMetaObject::invokeMethod(f.list, "positionViewAtEnd");
         settle();

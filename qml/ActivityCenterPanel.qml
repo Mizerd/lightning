@@ -23,6 +23,10 @@ Dialog {
     padding: AppTheme.spacing16
 
     readonly property var activity: app.activity
+    // Opening a modal gives the popup focus, but not its keyboard-driven
+    // list. Do this on every open, including after tabbing to a control;
+    // leave the current row and the model's seen state alone.
+    onOpened: listView.forceActiveFocus(Qt.PopupFocusReason)
 
     // The keyword list is NOT edited here: it used to be a second, local list
     // that only filtered this panel and never notified or pushed. The account's
@@ -326,7 +330,8 @@ Dialog {
                 onActiveFocusChanged: if (activeFocus && count > 0)
                     positionViewAtIndex(Math.max(0, currentIndex), ListView.Contain)
                 function openCurrent() {
-                    if (listView.currentItem)
+                    if (listView.currentIndex >= 0 && listView.currentIndex < listView.count
+                            && listView.currentItem)
                         root.openEntry(listView.currentItem.entryId)
                 }
                 ScrollBar.vertical: ScrollBar { }
