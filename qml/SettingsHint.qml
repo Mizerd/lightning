@@ -14,6 +14,6 @@ Label {
     lineHeight: AppTheme.lineHeightBody
     lineHeightMode: Text.ProportionalHeight
     color: AppTheme.stormTextMuted
-    font.pixelSize: AppTheme.textMeta
+    font.pixelSize: AppTheme.settingsHintSize
     textFormat: Text.PlainText
 }

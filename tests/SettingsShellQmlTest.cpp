@@ -1846,6 +1846,43 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+    // Chat 2026-10-22: the navigation listed sub-sections with no sign that
+    // they fold. A section with sub-sections carries a chevron, down while its
+    // list is open and right while it is folded, and a second click on the open
+    // section folds the list.
+    void aSectionWithSubSectionsShowsAChevronAndFolds()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *row = item("settingsNavRow_account");
+        QVERIFY(row);
+        clickItem(row);
+        QCoreApplication::processEvents();
+        auto *chevron = item("settingsNavChevron_account");
+        QVERIFY2(chevron, "the Account row has no disclosure chevron");
+        QVERIFY(chevron->isVisible());
+        QCOMPARE(chevron->property("name").toString(),
+                 QStringLiteral("expand_more"));
+        auto *outline = visibleItem(QStringLiteral("settingsNavOutlineEntry_0"));
+        QVERIFY2(outline, "the open section's sub-sections are not showing");
+        // Sub-sections sit to the right of the root row's label.
+        auto *rowLabelProbe = item("settingsNavRowFill_account");
+        QVERIFY(rowLabelProbe);
+        QVERIFY(outline->mapToItem(rowLabelProbe, QPointF(0, 0)).x() > 0);
+
+        clickItem(row);
+        QCoreApplication::processEvents();
+        QCOMPARE(chevron->property("name").toString(),
+                 QStringLiteral("chevron_right"));
+        QVERIFY(!visibleItem(QStringLiteral("settingsNavOutlineEntry_0")));
+
+        clickItem(row);
+        QCoreApplication::processEvents();
+        QCOMPARE(chevron->property("name").toString(),
+                 QStringLiteral("expand_more"));
+        QVERIFY(visibleItem(QStringLiteral("settingsNavOutlineEntry_0")));
+    }
+
     // The starred-GIF store has its own count/size row and a confirmed Clear
     // All, exercised with real GifStarredStore state and a real Dialog.
     void starredGifsSettingsRowReflectsStoreAndClearAllEmptiesIt()
@@ -5027,7 +5064,9 @@ private slots:
         const auto children =
             row->property("contentItem").value<QQuickItem *>()->childItems();
         for (QQuickItem *child : children) {
-            if (child->property("elide").isValid())
+            // The label, not the disclosure chevron or the alert dot.
+            if (child->property("elide").isValid()
+                && !child->objectName().startsWith(QLatin1String("settingsNav")))
                 label = child;
         }
         QVERIFY2(label, "the nav row has no elided label");

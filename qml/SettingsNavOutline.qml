@@ -27,7 +27,7 @@ Item {
     visible: shown && entries.length > 0
     Layout.fillWidth: true
     // Indented under the row's label, clear of its caret gutter.
-    Layout.leftMargin: AppTheme.spacing8
+    Layout.leftMargin: AppTheme.spacing12
     implicitHeight: visible ? column.implicitHeight + AppTheme.spacing4 : 0
 
     Accessible.role: Accessible.List
@@ -72,7 +72,7 @@ Item {
                 readonly property bool current: outline.activeIndex === index
                 objectName: "settingsNavOutlineEntry_" + index
                 width: column.width
-                implicitHeight: 26
+                implicitHeight: 28
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
                 // Paddings and the bar are physical, so under RTL they swap:
@@ -117,7 +117,7 @@ Item {
                     elide: Label.ElideRight
                     color: entryRow.current ? AppTheme.stormText
                                             : AppTheme.stormTextSecondary
-                    font.pixelSize: AppTheme.textMeta
+                    font.pixelSize: AppTheme.settingsHintSize
                     font.weight: entryRow.current ? AppTheme.weightStrong
                                                   : AppTheme.weightMedium
                 }

@@ -1273,10 +1273,24 @@ Item {
         return false
     }
 
+    // Sections whose "On this page" list the reader folded away. The open
+    // section's list shows unless its key is here.
+    property var collapsedOutlines: ({})
+    function outlineCollapsed(key) { return root.collapsedOutlines[key] === true }
+    function toggleOutline(key) {
+        var next = Object.assign({}, root.collapsedOutlines)
+        if (next[key] === true)
+            delete next[key]
+        else
+            next[key] = true
+        root.collapsedOutlines = next
+    }
+
     // The outline under one section's nav row.
     component SettingsNavOutlineFor: SettingsNavOutline {
         required property string sectionKey
         shown: root.section === sectionKey
+               && !root.outlineCollapsed(sectionKey)
                && root.settingsSearchQuery.trim().length === 0
         entries: root.outlineEntries(sectionKey)
         activeIndex: root.section === sectionKey ? root.outlineActive : -1
@@ -1294,6 +1308,12 @@ Item {
         // Attention dot on the row leading to something that needs attention.
         // Dismissible (see sessionVerificationWarning).
         property bool alert: false
+        // A section with sub-sections folds: a chevron says so, pointing down
+        // while its list is open and right while it is folded.
+        readonly property bool hasOutline:
+            root.outlineEntries(sectionKey).length > 0
+        readonly property bool outlineOpen:
+            highlighted && !root.outlineCollapsed(sectionKey)
         objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
         implicitHeight: 32
@@ -1320,7 +1340,16 @@ Item {
         onActiveFocusChanged: if (activeFocus) navFlick.ensureVisibleItem(navRow)
         Accessible.name: navLabel
         Accessible.selected: navRow.highlighted
-        onClicked: root.section = sectionKey
+        onClicked: {
+            // A second click on the open section folds or unfolds its list.
+            if (highlighted && hasOutline) {
+                root.toggleOutline(sectionKey)
+                return
+            }
+            root.section = sectionKey
+            if (root.outlineCollapsed(sectionKey))
+                root.toggleOutline(sectionKey)
+        }
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
             // Pin the icon's height to the label's implicitHeight: the icon
@@ -1348,6 +1377,15 @@ Item {
                 font.pixelSize: AppTheme.textBody
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
                 elide: Label.ElideRight
+            }
+            Icon {
+                objectName: "settingsNavChevron_" + navRow.sectionKey
+                visible: navRow.hasOutline
+                name: navRow.outlineOpen ? "expand_more" : "chevron_right"
+                size: 16
+                Layout.alignment: Qt.AlignVCenter
+                color: navRow.highlighted ? AppTheme.stormText
+                                          : AppTheme.stormTextMuted
             }
             Rectangle {
                 objectName: "settingsNavAlert_" + navRow.sectionKey
@@ -1942,7 +1980,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("No matching settings")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                         }
 
                         Repeater {
@@ -1996,7 +2034,7 @@ Item {
                                             Layout.fillWidth: true
                                             text: resultRow.modelData.breadcrumb
                                             color: AppTheme.stormTextMuted
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                             elide: Label.ElideRight
                                         }
                                         // A click anywhere in the text column
@@ -2223,7 +2261,7 @@ Item {
                                         text: quickChip.modelData
                                         // Ordinary UI text; mono is for code,
                                         // keycaps and Matrix IDs.
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         font.weight: AppTheme.weightMedium
                                         color: AppTheme.stormTextSecondary
                                     }
@@ -2339,7 +2377,7 @@ Item {
                                     + qsTr("%n setting(s)", "",
                                            root.matchedSearchResults.length))
                             }
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             font.weight: AppTheme.weightMedium
                             color: AppTheme.stormTextMuted
                             elide: Label.ElideRight
@@ -2859,7 +2897,7 @@ Item {
                                             color: miniThemeCard.selectedTheme
                                                    ? AppTheme.stormText
                                                    : AppTheme.stormTextSecondary
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                             font.weight: AppTheme.weightStrong
                                         }
                                     }
@@ -2975,7 +3013,7 @@ Item {
                                                        "custom theme summary",
                                                        app.customTheme.overrideCount)
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     // Which areas carry a gradient: the colour
                                     // count above does not count them.
@@ -2986,7 +3024,7 @@ Item {
                                         elide: Text.ElideRight
                                         textFormat: Text.PlainText
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         text: {
                                             var g = app.customTheme.gradients
                                             var roles = app.customTheme.roles
@@ -3179,7 +3217,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("When on, Lightning follows the system scheme: "
                                        + "Moss Light in light mode, Indigo Night in dark mode.")
                         }
@@ -3231,7 +3269,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             // Describes what the layout is.
                             text: qsTr("Channels lists every space you are in as "
                                        + "a folder, with the rooms it contains "
@@ -3259,7 +3297,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Bubbles applies to direct messages; rooms keep "
                                        + "the Modern rows. Compact tightens every timeline.")
                         }
@@ -3407,7 +3445,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Scales message and list text, and the "
                                        + "Spaces rail with it, so its nesting "
                                        + "levels stay readable at any size. "
@@ -3496,7 +3534,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Scales the entire interface — text, "
                                        + "icons and layout. Ctrl+= and Ctrl+- "
                                        + "adjust it anywhere. Takes effect the "
@@ -3542,7 +3580,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Native hands text to your system's "
                                        + "font renderer, so it follows its "
                                        + "hinting and anti-aliasing settings. "
@@ -3630,7 +3668,7 @@ Item {
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Applies to the whole interface. Code, Matrix "
                                        + "IDs, icons, and emoji keep their own fonts.")
                         }
@@ -3685,7 +3723,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Says the choice is kept.
                                     text: root.fontManager
                                         ? (root.fontManager.uiFamilyUnavailableReason === "unusable"
@@ -3738,7 +3776,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: root.fontManager
                                         ? (root.fontManager.monospaceFamilyUnavailableReason === "unusable"
                                            ? qsTr("\u201C%1\u201D cannot draw letters and "
@@ -3759,7 +3797,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("The code font is used for code blocks, "
                                                + "keyboard shortcuts and Matrix "
                                                + "identifiers.")
@@ -3785,7 +3823,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Says plainly that the file is copied.
                                     text: qsTr("Load a TrueType or OpenType file that is "
                                                + "not installed system-wide. Lightning "
@@ -3831,7 +3869,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // One sentence per refusal category (a C++
                                     // constant). The rejected file name is not
                                     // echoed back.
@@ -3927,7 +3965,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Drag the line between two panels to "
                                                + "resize them. Widths are remembered.")
                                 }
@@ -3942,7 +3980,7 @@ Item {
                                     text: qsTr("Spaces rail depth")
                                     color: AppTheme.stormText
                                     font.family: AppTheme.uiFont
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 SegmentedControl {
@@ -3978,7 +4016,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Regions tint the rail behind a Space "
                                                + "and everything inside it. Classic is "
                                                + "the flat rail from earlier versions, "
@@ -4035,7 +4073,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: Qt.platform.os === "osx"
                                           ? (app.settings.notificationsEnabled
                                              ? qsTr("Notifications need the menu bar icon, so it stays "
@@ -4078,7 +4116,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Hide routine joins, leaves, profile changes, "
                                                + "and room setting updates. Messages and "
                                                + "decryption warnings remain visible.")
@@ -4131,7 +4169,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Names what it covers and what it does not
                                     // (reply quotes stay).
                                     text: qsTr("Pictures, GIFs, stickers, video, audio, "
@@ -4188,7 +4226,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("How far one physical mouse-wheel notch moves "
                                                + "the timeline. Touchpad and precision scrolling "
                                                + "stay fine-grained regardless of this setting.")
@@ -4229,7 +4267,7 @@ Item {
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         text: qsTr("Applies to the window and to task "
                                                    + "switchers that follow the running "
                                                    + "window. The desktop launcher keeps "
@@ -4246,7 +4284,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: message
                                 }
                                 RowLayout {
@@ -4348,7 +4386,7 @@ Item {
                                         return qsTr("The interface changes immediately. A few strings already on screen update when you next open their panel.")
                                     }
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                 }
                             }
                         }
@@ -4478,7 +4516,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Does not claim "no animation anywhere":
                                     // video in the timeline is content.
                                     text: qsTr("Shortens or removes interface "
@@ -4540,7 +4578,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("GIFs, stickers, animated avatars, "
                                                + "banners and chat backgrounds. They "
                                                + "pause while Lightning is not "
@@ -4650,7 +4688,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("New messages still update a room's preview "
                                                + "and badge at once, but it only moves up "
                                                + "when you open another room, switch "
@@ -4701,7 +4739,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // States both keys in both states.
                                     text: app.settings.enterInsertsNewline
                                         ? qsTr("Enter starts a new line; Ctrl+Enter sends.")
@@ -4770,7 +4808,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: app.spell && app.spell.available
                                            ? AppTheme.stormTextMuted : AppTheme.stormText
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: {
                                         if (!app.spell)
                                             return ""
@@ -4893,7 +4931,7 @@ Item {
                                                     textFormat: Text.PlainText
                                                     text: root.spellLanguageLabel(extraChip.modelData)
                                                     color: AppTheme.stormText
-                                                    font.pixelSize: AppTheme.textMeta
+                                                    font.pixelSize: AppTheme.settingsHintSize
                                                 }
                                                 IconButton {
                                                     objectName: "spellExtraLanguageRemove"
@@ -4925,7 +4963,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     visible: !!app.spell && app.settings.spellCheckEnabled
                                              && app.spell.missingLanguages.length > 0
                                     text: {
@@ -4961,7 +4999,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: Qt.platform.os === "osx"
                                         ? qsTr("Only clear typos are changed, after you finish the word, and never in code, links, mentions or commands. Press Backspace or ⌘Z right after a correction to undo it.")
                                         : qsTr("Only clear typos are changed, after you finish the word, and never in code, links, mentions or commands. Press Backspace or Ctrl+Z right after a correction to undo it.")
@@ -4983,7 +5021,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     visible: !app.spell || app.spell.personalWords.length === 0
                                     text: qsTr("Words you add with “Add to dictionary” are listed here and accepted in every language.")
                                 }
@@ -5050,7 +5088,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Honest about interop: clients that ignore
                                     // the caption field show the file without
                                     // text.
@@ -5074,7 +5112,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Typing a shortcode like "
                                                + "\":thumbsup:\" turns it into "
                                                + "the emoji as soon as it is "
@@ -5106,7 +5144,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Turn off what you do not use. "
                                                + "Attach stays: in a narrow "
                                                + "window it is where the other "
@@ -5189,7 +5227,7 @@ Item {
                             text: qsTr("Per account, like your theme. Press Change "
                                        + "and then the combination you want.")
                             color: AppTheme.settingsText
-                            font.pixelSize: AppTheme.textMeta
+                            font.pixelSize: AppTheme.settingsHintSize
                         }
 
                         // Desktop-wide call keys (GitHub #47). Linux only: the
@@ -5214,7 +5252,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Mute, deafen and leave the call while another "
                                                + "window has the focus. Your desktop asks "
                                                + "before it allows this.")
@@ -5229,7 +5267,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: app.globalShortcuts.statusText
                                 }
                                 AppButton {
@@ -5268,7 +5306,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Some shortcuts share a key. Qt fires "
                                                + "neither of two shortcuts on the same "
                                                + "combination, so both actions are "
@@ -5334,7 +5372,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Explains why a bare letter is refused and
                                     // why Ctrl+B does two things.
                                     text: qsTr("A shortcut needs Ctrl, Alt or Super: "
@@ -5438,7 +5476,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Room keys are not shared with "
                                                + "devices their owner has not "
                                                + "cross-signed, and messages "
@@ -5457,7 +5495,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     font.weight: AppTheme.weightStrong
                                     // The SDK reads this when building a client
                                     // and cannot change it afterwards.
@@ -5504,7 +5542,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Private sends m.read.private
                                     // (rust/src/lib.rs receipts_for_mode,
                                     // automatic_receipt; timeline.rs
@@ -5550,7 +5588,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Typing notices are the most frequent "
                                                + "thing a chat client discloses — "
                                                + "every few keystrokes, to everyone "
@@ -5604,7 +5642,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Tells your homeserver when you are online or "
                                                + "idle, so people you share rooms with can see "
                                                + "it. Turning this off publishes offline once "
@@ -5797,7 +5835,7 @@ Item {
                                             visible: ignoredRow.gone
                                             text: qsTr("No longer ignored")
                                             color: AppTheme.stormTextMuted
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                         }
                                         AppButton {
                                             id: stopBtn
@@ -5835,7 +5873,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: ignoredUsersCard.unignoreError
                                 }
                                 Label {
@@ -5845,7 +5883,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Ignoring hides a person's "
                                                + "messages and invites in "
                                                + "every room. The list is "
@@ -5895,7 +5933,7 @@ Item {
                                         + "device's disk encryption is what "
                                         + "protects both.")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -5911,7 +5949,7 @@ Item {
                                                    "",
                                                    app.messageSearch.indexedMessages)
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     AppButton {
                                         objectName: "clearSearchIndexButton"
@@ -5951,7 +5989,7 @@ Item {
                                         + "calls and continues after a "
                                         + "restart.")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                 }
                                 Label {
                                     objectName: "indexAllProgressLabel"
@@ -6136,7 +6174,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("A picture opens in Lightning's viewer and a video plays here. "
                                                + "A video, or a picture too large to preview, is downloaded "
                                                + "from the link's site only when you press Play or open it.")
@@ -6159,7 +6197,7 @@ Item {
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         // Previews go through the homeserver first
                                         // and fall back to a direct fetch only
                                         // when it cannot supply one (Synapse
@@ -6220,7 +6258,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Downloads videos up to the size below, and audio "
                                                + "and voice messages, before you press Play, so "
                                                + "playback starts at once. This uses data and disk "
@@ -6359,7 +6397,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("GIPHY: %1 · KLIPY: %2")
                                         .arg(app.gif.providerConfigured("giphy")
                                              ? qsTr("configured") : qsTr("no API key"))
@@ -6381,7 +6419,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("GIF searches are sent directly to the "
                                                + "selected provider. Saved and recent "
                                                + "GIFs are stored locally on this device "
@@ -6432,7 +6470,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("%1 image(s), %2 — kept on this "
                                                + "device only and removed "
                                                + "when you sign out of this "
@@ -6467,7 +6505,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Branched rather than a %n plural: without
                                     // a loaded translation "(s)" renders
                                     // literally.
@@ -6519,7 +6557,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     color: keepState.indexOf("notKept") === 0
                                            ? AppTheme.stormDanger
                                            : AppTheme.stormTextSecondary
@@ -6568,7 +6606,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Matches rooms.rs media_persistence and
                                     // mediastore.rs. Sent attachments are the
                                     // SDK send queue's and ignore the setting.
@@ -6629,7 +6667,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: root.storedMediaStatus
                                 }
                                 Connections {
@@ -6672,7 +6710,7 @@ Item {
                                         textFormat: Text.PlainText
                                         elide: Text.ElideMiddle
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         text: app.downloads
                                             ? qsTr("Save files to %1")
                                               .arg(app.downloads.folderDisplay)
@@ -6715,7 +6753,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: !!app.downloads && app.downloads.sandboxRequiresAsking
                                         ? qsTr("This copy of Lightning runs in "
                                                + "a sandbox that cannot write to "
@@ -6785,7 +6823,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // States what each mode does and which is
                                     // the default:
                                     // SettingsManager::notificationPreview()
@@ -6857,7 +6895,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("The sound plays only when a "
                                                + "notification is shown, so muted and "
                                                + "active rooms stay silent. Bursts are "
@@ -6943,7 +6981,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Lightning plays its own chime, and "
                                                + "mentions get a slightly more urgent "
                                                + "one; the desktop's notification sound "
@@ -6981,7 +7019,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // The Rust backend saves per-room modes to
                                     // the server's push rules; other backends
                                     // keep them device-local.
@@ -7085,7 +7123,7 @@ Item {
                                                   app.settings.noiseSuppressionMode))
                                         textFormat: Text.PlainText
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -7163,7 +7201,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.")
                                 }
                                 // Docked strip or floating card for the voice
@@ -7332,7 +7370,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("These sounds play only on this computer; nobody else in the call hears them. While you are deafened, only your own actions make a sound. Whether a call rings at all is set under Notifications.")
                                 }
                             }
@@ -7488,7 +7526,7 @@ Item {
                                                 text: app.accounts ? (app.accounts.activeUserId || "") : ""
                                                 color: AppTheme.stormTextMuted
                                                 font.family: AppTheme.monoFont
-                                                font.pixelSize: AppTheme.textMeta
+                                                font.pixelSize: AppTheme.settingsHintSize
                                                 elide: Label.ElideMiddle
                                             }
                                             IconButton {
@@ -7524,7 +7562,7 @@ Item {
                                             text: qsTr("Device %1").arg(app.sessionDeviceId)
                                             color: AppTheme.stormTextMuted
                                             font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                         }
                                     }
                                 }
@@ -7589,7 +7627,7 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             horizontalAlignment: Text.AlignRight
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                             readonly property int used:
                                                 app.displayNameLength(displayNameField.text.trim())
                                             // Only near the ceiling.
@@ -7609,7 +7647,7 @@ Item {
                                             lineHeightMode: Text.ProportionalHeight
                                             visible: app.ownDisplayNameError.length > 0
                                             color: AppTheme.stormDanger
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                             text: app.ownDisplayNameError
                                             textFormat: Text.PlainText
                                         }
@@ -7682,7 +7720,7 @@ Item {
                                             + "adjusted to stay readable on "
                                             + "whatever theme they use.")
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     // A Flow, not a RowLayout: a RowLayout's
                                     // minimum is the sum of its children, which
@@ -7827,7 +7865,7 @@ Item {
                                             text: nameColorPicker.draft
                                             color: AppTheme.stormTextSecondary
                                             font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                         }
                                         Item { Layout.fillWidth: true }
                                         AppButton {
@@ -7853,7 +7891,7 @@ Item {
                                         textFormat: Text.PlainText
                                         visible: app.nameColors.lastError.length > 0
                                         color: AppTheme.stormDanger
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         text: app.nameColors.lastError
                                               === "unsupported"
                                             ? qsTr("Your homeserver cannot store "
@@ -7927,7 +7965,7 @@ Item {
                                                 lineHeightMode: Text.ProportionalHeight
                                                 text: qsTr("You choose which part of the image to use.")
                                                 color: AppTheme.stormTextMuted
-                                                font.pixelSize: AppTheme.textMeta
+                                                font.pixelSize: AppTheme.settingsHintSize
                                             }
                                         }
                                     }
@@ -7940,7 +7978,7 @@ Item {
                                         visible: app.ownAvatarError.length > 0
                                         text: app.ownAvatarError
                                         color: AppTheme.stormDanger
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     NativeFileDialog {
                                         id: ownAvatarFileDialog
@@ -7983,7 +8021,7 @@ Item {
                                         lineHeightMode: Text.ProportionalHeight
                                         text: qsTr("A short note about yourself. Anyone who opens your profile can read it.")
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     ScrollView {
                                         Layout.fillWidth: true
@@ -8028,7 +8066,7 @@ Item {
                                                 .arg(app.bio ? app.bio.maxLength : 0)
                                             color: (app.bio && ownBioField.text.length > app.bio.maxLength)
                                                 ? AppTheme.stormDanger : AppTheme.stormTextMuted
-                                            font.pixelSize: AppTheme.textMeta
+                                            font.pixelSize: AppTheme.settingsHintSize
                                         }
                                         Item { Layout.fillWidth: true }
                                         AppButton {
@@ -8069,7 +8107,7 @@ Item {
                                         visible: !!(app.bio && !app.bio.supported)
                                         text: qsTr("Your homeserver does not support profile bios yet.")
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                     Label {
                                         objectName: "ownBioError"
@@ -8080,7 +8118,7 @@ Item {
                                         visible: !!(app.bio && app.bio.lastError.length > 0)
                                         text: app.bio ? app.bio.lastError : ""
                                         color: AppTheme.stormDanger
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                 }
                                 AppButton {
@@ -8094,7 +8132,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("To sign out, use the account menu at the "
                                                + "bottom of the sidebar.")
                                 }
@@ -8188,7 +8226,7 @@ Item {
                                         visible: !ownBannerImage.visible
                                         text: qsTr("No banner")
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                     }
                                 }
                                 RowLayout {
@@ -8220,7 +8258,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Named causes get an actionable sentence;
                                     // a raw category read like a rejected
                                     // image.
@@ -8250,7 +8288,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Your homeserver does not support profile banners "
                                                + "yet. They need extended profile fields "
                                                + "(MSC4133), which most servers have not enabled. "
@@ -8262,7 +8300,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // A banner is public profile data.
                                     text: qsTr("A wide image shown behind your profile card, "
                                                + "about 3:1. It is part of your public profile, "
@@ -8332,7 +8370,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Changing the homeserver takes effect at the next sign-in.")
                                 }
                             }
@@ -8831,7 +8869,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Use a code instead of a "
                                                + "password. The new device is "
                                                + "signed in and verified in "
@@ -8964,7 +9002,7 @@ Item {
                                              && app.backup.uploadState !== "unknown"
                                     color: AppTheme.stormTextMuted
                                     font.family: AppTheme.monoFont
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: app.backup.uploadState === "uploading"
                                           ? qsTr("Uploading room keys: %1 of %2")
                                                 .arg(app.backup.backedUp).arg(app.backup.total)
@@ -9279,7 +9317,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Enter your recovery key or passphrase. It "
                                                + "restores your message keys, and if "
                                                + "your account's cross-signing keys are "
@@ -9546,7 +9584,7 @@ Item {
                                                     Layout.fillWidth: true
                                                     color: AppTheme.stormTextMuted
                                                     font.family: AppTheme.monoFont
-                                                    font.pixelSize: AppTheme.textMeta
+                                                    font.pixelSize: AppTheme.settingsHintSize
                                                     elide: Label.ElideRight
                                                     text: {
                                                         var parts = [ modelData.deviceId ]
@@ -9723,7 +9761,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.family: AppTheme.monoFont
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Device ID: %1").arg(
                                         app.sessionDeviceId !== ""
                                             ? app.sessionDeviceId
@@ -9737,7 +9775,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     visible: app.sessionTrustState !== "Verified"
                                     text: qsTr(
                                         "Verify this session using another session already " +
@@ -9913,7 +9951,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr(
                                         "Entering your recovery key or passphrase restores your " +
                                         "message keys and verifies this session, with no second " +
@@ -9949,7 +9987,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr(
                                         "Import an encrypted Matrix room-key export from another " +
                                         "session. Imported keys may unlock older encrypted messages, " +
@@ -10142,7 +10180,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr(
                                         "Verification establishes trust in this session. " +
                                         "Secure Backup and room-key imports provide decryption keys " +
@@ -10194,7 +10232,7 @@ Item {
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textMeta
+                                        font.pixelSize: AppTheme.settingsHintSize
                                         text: qsTr(
                                             "Reset deletes only Lightning's local Rust SDK store " +
                                             "for this account (also available from a terminal: " +
@@ -10299,7 +10337,7 @@ Item {
                                                + "change applies to a call in "
                                                + "progress.")
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
@@ -10408,7 +10446,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("Rebuilds the open room's timeline from the "
                                                + "SDK. Safe at any time.")
                                 }
@@ -10483,7 +10521,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     // Pinned in rust/Cargo.toml; update together.
                                     text: qsTr("Matrix engine: matrix-sdk 0.18.0 / matrix-sdk-ui 0.18.0 (Rust)")
                                 }
@@ -10493,7 +10531,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textMeta
+                                    font.pixelSize: AppTheme.settingsHintSize
                                     text: qsTr("License: GPL-3.0-or-later")
                                 }
                             }

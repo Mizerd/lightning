@@ -2136,6 +2136,9 @@ QtObject {
     readonly property int textBody:      14
     readonly property int textMeta:      12
     readonly property int textMicro:     10
+    // Settings option descriptions and hints: one step above textMeta, which
+    // read too small beside the 14px option labels (GitHub chat, 2026-10-22).
+    readonly property int settingsHintSize: 13
 
     // Weights. font.weight takes an int in Qt 6.
     readonly property int weightBody:    400
