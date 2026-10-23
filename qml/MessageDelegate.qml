@@ -1787,6 +1787,12 @@ Item {
                         color: AppTheme.timestampInk
                         // Scaled like the identity-line timestamp.
                         font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                        // The gutter is fixed; the string grows with the text
+                        // scale and the 12h clock. Shrink to the slot instead
+                        // of overflowing the row's left edge.
+                        wrapMode: Text.NoWrap
+                        fontSizeMode: Text.HorizontalFit
+                        minimumPixelSize: 6
                         Accessible.name: qsTr("Sent at %1").arg(text)
                     }
                 }

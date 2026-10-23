@@ -10788,6 +10788,72 @@ private Q_SLOTS:
                  "the jump landed away from the located message");
     }
 
+    // A continuation row's hover timestamp lives in a fixed-width gutter. At
+    // a large text scale the string outgrew it and was drawn off the row's
+    // left edge. Geometry, at 100% as the control and at the reported scales.
+    void theContinuationTimestampStaysInsideItsGutter_data()
+    {
+        QTest::addColumn<double>("scale");
+        QTest::newRow("100") << 1.0;
+        QTest::newRow("130") << 1.3;
+        QTest::newRow("140") << 1.4;
+        QTest::newRow("150") << 1.5;
+    }
+
+    void theContinuationTimestampStaysInsideItsGutter()
+    {
+        QFETCH(double, scale);
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 60, 0.0, 420);
+        QVERIFY(timeline != nullptr);
+        QQmlExpression setScale(
+            qmlContext(timeline), timeline,
+            QStringLiteral("AppTheme.textScale = %1").arg(scale));
+        setScale.evaluate();
+        QVERIFY2(!setScale.hasError(),
+                 setScale.error().toString().toUtf8().constData());
+        QTest::qWait(200);
+
+        // Hover rows near the middle until one shows its gutter timestamp.
+        QQuickItem *label = nullptr;
+        QQuickItem *rowItem = nullptr;
+        const std::function<QQuickItem *(QQuickItem *)> find =
+            [&](QQuickItem *it) -> QQuickItem * {
+            if (it->objectName() == QLatin1String("continuationTimestamp"))
+                return it;
+            for (QQuickItem *c : it->childItems())
+                if (QQuickItem *f = find(c))
+                    return f;
+            return nullptr;
+        };
+        for (int y = 40; y < window.height() - 20 && !label; y += 18) {
+            QTest::mouseMove(&window, QPoint(300, y));
+            QTest::qWait(30);
+            label = find(window.contentItem());
+        }
+        QVERIFY2(label != nullptr,
+                 "no continuation timestamp appeared on hover, so the "
+                 "geometry below would pass vacuously");
+        Q_UNUSED(rowItem);
+        QVERIFY2(label->property("contentWidth").toReal()
+                     <= label->width() + 0.5,
+                 qPrintable(QStringLiteral(
+                                "timestamp text %1 wider than its slot %2")
+                                .arg(label->property("contentWidth").toReal())
+                                .arg(label->width())));
+        // Its slot starts inside the window, and the text's left edge too.
+        const QPointF topLeft = label->mapToScene(QPointF(0, 0));
+        const qreal textLeft = topLeft.x() + label->width()
+            - label->property("contentWidth").toReal();
+        QVERIFY2(textLeft >= 0.0, qPrintable(QStringLiteral(
+            "timestamp drawn at x=%1, outside the row").arg(textLeft)));
+        // And the slot is a real one, not a collapsed zero-width item.
+        QVERIFY(label->width() > 10.0);
+    }
+
     // A landing whose view keeps changing shape gives up after a bounded
     // number of retries instead of waiting forever.
     void aLandingWhoseViewNeverStopsChangingGivesUpInsteadOfWaitingForever()
