@@ -226,7 +226,10 @@ void TimelineModel::refreshLatestCallEvent()
 
 bool TimelineModel::isThreadReplyAwaitingKeys(const TimelineEvent &e) const
 {
+    // Inline thread style: thread replies belong in this timeline, so an
+    // undecryptable one is an ordinary undecryptable row with a thread tag.
     return e.undecryptable && !e.threadRootId.isEmpty()
+        && !m_threadRepliesInline
         && !MatrixClient::isThreadTimelineId(m_roomId);
 }
 
@@ -448,9 +451,51 @@ void TimelineModel::setRoomId(const QString &roomId)
     // Spoiler reveals belong to the timeline they were made in. Theme changes
     // and member hydration do not clear them.
     m_spoilersRevealed.clear();
+    // A thread filter names a root of the room being left.
+    if (!m_threadFilterRootId.isEmpty()) {
+        m_threadFilterRootId.clear();
+        Q_EMIT threadPresentationChanged();
+    }
     reload();
     refreshTypingText();
     Q_EMIT paginationChanged();
+}
+
+void TimelineModel::setThreadRepliesInline(bool on)
+{
+    if (m_threadRepliesInline == on)
+        return;
+    m_threadRepliesInline = on;
+    // A thread filter names a thread of the inline view; hideThreadReplies is
+    // a standing preference and only takes effect while inline.
+    if (!on)
+        m_threadFilterRootId.clear();
+    Q_EMIT threadPresentationChanged();
+    // isThreadReplyAwaitingKeys and every row shape that depends on it.
+    if (!m_events.isEmpty())
+        Q_EMIT dataChanged(index(0), index(rowCount() - 1));
+}
+
+void TimelineModel::setThreadFilterRootId(const QString &rootEventId)
+{
+    const QString next = m_threadRepliesInline ? rootEventId : QString();
+    if (m_threadFilterRootId == next)
+        return;
+    m_threadFilterRootId = next;
+    Q_EMIT threadPresentationChanged();
+}
+
+void TimelineModel::setHideThreadReplies(bool hide)
+{
+    if (m_hideThreadReplies == hide)
+        return;
+    m_hideThreadReplies = hide;
+    Q_EMIT threadPresentationChanged();
+}
+
+void TimelineModel::clearThreadFilters()
+{
+    setThreadFilterRootId(QString());
 }
 
 void TimelineModel::beginSearch(const QString &query)

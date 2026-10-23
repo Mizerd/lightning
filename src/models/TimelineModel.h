@@ -59,6 +59,29 @@ class TimelineModel : public QAbstractListModel
     Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
                    WRITE setShowProfileChangeEvents
                    NOTIFY showProfileChangeEventsChanged)
+    // Thread style "Inline" (Nheko-like): this room timeline carries true
+    // m.thread replies interleaved by time (the backend built it with
+    // hide_threaded_events = false). Set by AppController from the setting.
+    // Off, an undecryptable thread reply renders as the one-line thread
+    // notice (isThreadReplyAwaitingKeys); on, it is an ordinary row of this
+    // timeline with a thread tag.
+    Q_PROPERTY(bool threadRepliesInline READ threadRepliesInline
+                   WRITE setThreadRepliesInline
+                   NOTIFY threadPresentationChanged)
+    // Inline style only. A non-empty root narrows the timeline to that thread
+    // (the root and its replies) and wins while set; hideThreadReplies is the
+    // inverse, the room without any thread reply (roots keep their summary
+    // card). Presentation filters like room activity: rows stay in the model
+    // and QML gives the others zero height, so selection, search and receipts
+    // keep their indexes. The thread filter is cleared on a room switch and
+    // whenever the inline style is turned off; hideThreadReplies mirrors the
+    // persistent setting of the same name (AppController).
+    Q_PROPERTY(QString threadFilterRootId READ threadFilterRootId
+                   WRITE setThreadFilterRootId
+                   NOTIFY threadPresentationChanged)
+    Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
+                   WRITE setHideThreadReplies
+                   NOTIFY threadPresentationChanged)
 
 public:
     enum Roles {
@@ -271,6 +294,17 @@ public:
     void setShowMembershipEvents(bool show);
     bool showProfileChangeEvents() const { return m_showProfileChangeEvents; }
     void setShowProfileChangeEvents(bool show);
+    bool threadRepliesInline() const { return m_threadRepliesInline; }
+    void setThreadRepliesInline(bool on);
+    QString threadFilterRootId() const { return m_threadFilterRootId; }
+    void setThreadFilterRootId(const QString &rootEventId);
+    bool hideThreadReplies() const { return m_hideThreadReplies; }
+    void setHideThreadReplies(bool hide);
+    // Leave the one-thread view (hideThreadReplies, a preference, stays).
+    Q_INVOKABLE void clearThreadFilters();
+    // Re-read the room from a backend that answers timeline() anew (the mock
+    // and HTTP backends) after it changed what that answer contains.
+    void reloadFromBackend() { reload(); }
 
     // Whether a routine state row of this kind is drawn. Public so the filter
     // matrix is testable without a backend. The QML row filter
@@ -508,6 +542,7 @@ Q_SIGNALS:
     void showRoomActivityChanged();
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
+    void threadPresentationChanged();
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);
@@ -727,4 +762,7 @@ private:
     // The two halves of "room activity", each defaulting true.
     bool m_showMembershipEvents = true;
     bool m_showProfileChangeEvents = true;
+    bool m_threadRepliesInline = false;
+    QString m_threadFilterRootId;
+    bool m_hideThreadReplies = false;
 };

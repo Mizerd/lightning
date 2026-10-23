@@ -107,3 +107,13 @@ history.
 Selecting latest also saves follow-latest intent for the room, so
 returning after messages arrive shows the new latest message. Leaving
 the room scrolled into history instead restores its historical view.
+
+## Thread panel
+
+While the thread panel holds a thread, `composer.focus`,
+`timeline.selectLatestMessage` and `timeline.resumeMessageSelection` act on
+the panel (its composer, its reply list), and the reply list takes the same
+message-selection bindings (`timeline.olderMessage`, `timeline.newerMessage`,
+`timeline.halfPageUp`, `timeline.halfPageDown`, `timeline.reply`). Under the
+inline Thread style (Settings > Appearance) thread replies are rows of the room
+timeline, so the room bindings reach them directly.

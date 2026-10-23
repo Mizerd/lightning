@@ -721,6 +721,51 @@ backend capability checks and honest live-test status.
 - True thread-reply filtering from the live main timeline, cold-cache
   initial loading, stable per-thread scrolling, quick-switch navigation, and
   in-place thread E2EE recovery
+- **Thread style setting (2026-10-23), Settings > Appearance.** `threadStyle`
+  0 = Thread panel (Element-like, DEFAULT, everything above unchanged) or
+  1 = Inline (Nheko-like). Account-scoped like `messageLayout`, synced.
+  * Inline builds the live room timeline with `TimelineFocus::Live {
+    hide_threaded_events: false }` (`TimelineRegistry::threads_in_live`, FFI
+    `mx_rust_timeline_set_threads_in_live`, carried onto every fresh handle);
+    changing the setting reopens the open room. Thread replies are then
+    ordinary rows of the room timeline in time order, so keyboard selection,
+    double-click reply, `:shortcode` completion, search and every row action
+    work on them without a second implementation. Each root and reply carries
+    a thread tag (`threadTag`, the root id's identity ink).
+  * Two presentation filters on `TimelineModel`, zero-height like the
+    room-activity filter (rows stay in the model, so selection, search and
+    receipts keep their indexes): `threadFilterRootId` narrows to one thread
+    (root + replies; a tag click, "Reply in thread", a summary card, the
+    Threads list, all through `AppController::showThread`), cleared on a room
+    switch; `hideThreadReplies` is the inverse — the room without any thread
+    reply, roots keeping their summary card — a persistent global setting
+    (`timeline/hideThreadReplies`) switched from the room header
+    (`threadRepliesToggleButton`). The narrowed thread wins while set; the
+    filter bar's "Back to the room" returns to the room as the reader keeps it.
+  * **§8 still holds for sending**: while narrowed, the ROOM composer targets
+    the thread (`MessageComposer::threadTargetRootId`, persistent across
+    sends) and text, rich text, replies, attachments, voice, polls, GIFs and
+    stickers all go through the SDK THREAD send paths
+    (`sendThreadReplyTo`, `sendThread*`), never a room send. A reply to a
+    thread reply shown inline goes into its thread as an in-thread reply.
+  * The automatic read receipt is UNTHREADED in inline mode (the newest row
+    read may be a threaded event, which a main-thread receipt cannot name,
+    and the reader saw those replies); panel mode keeps `ReceiptThread::Main`.
+  * An undecryptable thread reply is an ordinary UTD row with a tag inline;
+    the one-line "waiting for keys" notice is panel mode only.
+  * The thread panel stays usable in inline mode (notifications still open
+    it). Live homeserver/Element interop of inline mode: NOT TESTED.
+- **Thread panel parity (2026-10-23).** The panel composer has the room
+  composer's `:shortcode` completion popup and `:alias: ` auto-convert
+  through the SAME C++ rules (`MessageComposer::emojiCompletionsForText`,
+  `emojiCompletionEdit`, `shortcodeAutoConvertEdit`, which return an edit
+  instead of owning the text), and thread sends take the same send-time
+  emoji pass (`applyOutgoingEmoji`, so installed-pack `:shortcode:`s become
+  inline emoji in threads too). While the panel holds a thread,
+  `composer.focus`, `timeline.selectLatestMessage` and
+  `timeline.resumeMessageSelection` drive the panel, and its reply list takes
+  the MessageSelectionContext keys (older/newer, half pages, reply) with the
+  same delegate mark and eligibility as the room timeline.
 
 ### E2EE
 

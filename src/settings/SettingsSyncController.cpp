@@ -95,6 +95,11 @@ QString enumText(const QString &name, const QVariant &v)
         case 0: return QObject::tr("Classic");
         case 1: return QObject::tr("Channels");
         }
+    } else if (name == QLatin1String("threadStyle")) {
+        switch (i) {
+        case 0: return QObject::tr("Thread panel");
+        case 1: return QObject::tr("Inline threads");
+        }
     } else if (name == QLatin1String("clockFormat")) {
         switch (i) {
         case 0: return QObject::tr("Follow the system");

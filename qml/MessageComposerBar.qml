@@ -1348,7 +1348,13 @@ Item {
     // Send the chosen pack sticker as m.sticker to the room open now. The mxc
     // goes straight into the event; the SDK owns the send, echo and retry.
     function onStickerPicked(image) {
-        app.stickers.sendToRoom(app.currentRoomId, image)
+        // Inline thread style: into the thread the composer targets, through
+        // the SDK thread path; never a room send (CLAUDE.md §8).
+        var threadRoot = app.composer.sendThreadRootId || ""
+        if (threadRoot.length > 0)
+            app.stickers.sendToThread(app.currentRoomId, threadRoot, image)
+        else
+            app.stickers.sendToRoom(app.currentRoomId, image)
     }
 
     // Download, validate and send the chosen GIF, captured to this room so a
@@ -1356,8 +1362,16 @@ Item {
     function onGifPicked(result) {
         // A GIF picked while replying is a reply to that message; the chip is
         // spent once the target is captured by the send.
-        app.gifSend.sendToRoom(app.currentRoomId, result,
-                               app.composer.replyingToEventId)
+        var threadRoot = app.composer.sendThreadRootId || ""
+        if (threadRoot.length > 0) {
+            var replyTo = app.composer.replyingToEventId === threadRoot
+                    ? "" : app.composer.replyingToEventId
+            app.gifSend.sendToThread(app.currentRoomId, threadRoot, result,
+                                     replyTo)
+        } else {
+            app.gifSend.sendToRoom(app.currentRoomId, result,
+                                   app.composer.replyingToEventId)
+        }
         app.composer.clearReplyTarget()
     }
     Connections {
@@ -2761,6 +2775,10 @@ Item {
                                 return qsTr("Select a room to start typing")
                             if (app.composer.isEditing)
                                 return qsTr("Edit message…")
+                            // Inline thread style, narrowed to a thread: what
+                            // is typed here goes into that thread.
+                            if ((app.composer.threadTargetRootId || "").length > 0)
+                                return qsTr("Reply in thread…")
                             // roomDisplayName() reads the room list through a
                             // Q_INVOKABLE, which a binding does not track; the
                             // revision does, so a rename (or a new room's name

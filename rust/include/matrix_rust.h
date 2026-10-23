@@ -573,6 +573,10 @@ char *mx_rust_timeline_open(void *client, const char *room_id);
  * Explicit user-initiated jump-to-latest ONLY — never scrolling/pagination.
  * Emits the ordinary timeline_reset, plus a `trimmed_from` count. */
 char *mx_rust_timeline_reload_at_live(void *client, const char *room_id);
+/* Thread style: on != 0 keeps m.thread replies in the live room timeline
+ * (inline, Nheko-like; hide_threaded_events = false) for the NEXT live
+ * timeline built, and makes the automatic receipt unthreaded. */
+char *mx_rust_timeline_set_threads_in_live(void *client, int on);
 char *mx_rust_timeline_close(void *client);
 char *mx_rust_timeline_paginate_back(void *client,
                                      const char *room_id,

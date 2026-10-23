@@ -354,6 +354,25 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     applyPrivacyPreferences();
     connect(m_settings.get(), &SettingsManager::readReceiptModeChanged, this,
             [this] { applyPrivacyPreferences(); });
+    // Thread style. The composer follows the timeline's thread filter: while
+    // the room is narrowed to one thread, the room composer sends into it.
+    applyThreadStyle(false);
+    connect(m_settings.get(), &SettingsManager::threadStyleChanged, this,
+            [this] { applyThreadStyle(true); });
+    connect(m_timeline.get(), &TimelineModel::threadPresentationChanged, this,
+            [this] {
+                m_composer->setThreadTargetRootId(
+                    m_timeline->threadFilterRootId());
+                // The model's toggle (room header, filter bar) is the setting.
+                m_settings->setHideThreadReplies(
+                    m_timeline->hideThreadReplies());
+            });
+    m_timeline->setHideThreadReplies(m_settings->hideThreadReplies());
+    connect(m_settings.get(), &SettingsManager::hideThreadRepliesChanged, this,
+            [this] {
+                m_timeline->setHideThreadReplies(
+                    m_settings->hideThreadReplies());
+            });
     // MSC4153 is applied at client build time, so a change affects the next
     // client only.
     connect(m_settings.get(), &SettingsManager::strictDeviceTrustChanged, this,
@@ -727,6 +746,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             });
     m_composer->setEmojiAutoConvertEnabled(
         m_settings->emojiShortcodeAutoConvert());
+    // The thread composer sends through the same emoji pass (one rule set).
+    m_thread->setOutgoingEmoji([this](QString &body, QVariantMap &spec) {
+        m_composer->applyOutgoingEmoji(body, spec);
+    });
     m_timeline->setInlineImageResolver(
         [this](const QString &mxc) {
             return m_mediaBridge->mxcImageSource(mxc, 64);
@@ -1349,6 +1372,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // A fresh client starts with public receipts, so push the stored choice
     // on every attachment.
     applyPrivacyPreferences();
+    applyThreadStyle(false);
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
@@ -3836,6 +3860,51 @@ void AppController::applyPrivacyPreferences()
     if (m_composer)
         m_composer->setTypingNotificationsEnabled(
             m_settings->sendTypingNotifications());
+}
+
+void AppController::showThread(const QString &roomId,
+                               const QString &rootEventId)
+{
+    if (roomId.isEmpty() || rootEventId.isEmpty())
+        return;
+    if (m_timeline && m_timeline->threadRepliesInline()
+        && roomId == m_currentRoomId) {
+        // The panel and the Threads list give the room back to the timeline.
+        if (m_thread->active())
+            m_thread->close();
+        if (m_thread->listOpen())
+            m_thread->closeList();
+        m_timeline->setThreadFilterRootId(rootEventId);
+        return;
+    }
+    m_thread->openThread(roomId, rootEventId);
+}
+
+void AppController::applyThreadStyle(bool reopen)
+{
+    const bool inlineThreads =
+        m_settings
+        && m_settings->threadStyle() == SettingsManager::kThreadStyleInline;
+    const bool changed =
+        m_timeline && m_timeline->threadRepliesInline() != inlineThreads;
+    if (m_client)
+        m_client->setThreadRepliesInLiveTimeline(inlineThreads);
+    if (m_timeline)
+        m_timeline->setThreadRepliesInline(inlineThreads);
+    if (!reopen || !changed || !m_client || m_currentRoomId.isEmpty())
+        return;
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend == RustBackend) {
+        // A fresh SDK timeline with the new focus (hide_threaded_events): the
+        // reader changed what the room timeline contains, so this is the one
+        // rebuild a setting may ask for (never a decryption retry).
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+            rust->openRoomTimeline(m_currentRoomId);
+        return;
+    }
+#endif
+    // Backends without a persistent SDK timeline answer timeline() anew.
+    m_timeline->reloadFromBackend();
 }
 
 void AppController::prepareForShutdown()

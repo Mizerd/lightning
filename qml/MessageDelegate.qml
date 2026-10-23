@@ -179,6 +179,34 @@ Item {
     readonly property bool suppressedAsThreadRoot:
         root.timelineView && (root.timelineView.suppressRootEventId || "") !== ""
         && (model.eventId || "") === root.timelineView.suppressRootEventId
+    // Thread style "Inline" (Nheko-like): thread replies are rows of the room
+    // timeline, tagged; the model's thread filters narrow the view by giving
+    // other rows zero height, like the room-activity filter, so selection,
+    // search and receipts keep their rows. Never in the thread panel.
+    readonly property bool threadInline:
+        !root.inThreadPanel && !!root.timelineModel
+        && root.timelineModel.threadRepliesInline === true
+    // The thread this row belongs to: its root for a reply, itself for a root.
+    readonly property string rowThreadId:
+        (model.threadRootId || "").length > 0 ? model.threadRootId
+        : (model.isThreadRoot === true ? (model.eventId || "") : "")
+    readonly property bool threadFilterVisible: {
+        if (!root.threadInline)
+            return true
+        var focus = root.timelineModel.threadFilterRootId || ""
+        if (focus.length > 0)
+            return (model.eventId || "") === focus
+                || (model.threadRootId || "") === focus
+        if (root.timelineModel.hideThreadReplies === true)
+            return (model.threadRootId || "").length === 0
+        return true
+    }
+    // Shows a thread as the Thread style asks: the side panel, or this
+    // timeline narrowed to it (AppController.showThread).
+    function showThread(rootId) {
+        if (rootId && rootId.length > 0)
+            app.showThread(app.currentRoomId, rootId)
+    }
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
 
@@ -234,10 +262,11 @@ Item {
             || app.cryptoBootstrap.phase
                 === CryptoBootstrapModel.NoBackupAvailable)
     visible: roomActivityVisible && !suppressedAsThreadRoot && !dividerSuppressed
-             && !deletedFollower
+             && !deletedFollower && threadFilterVisible
     readonly property real naturalImplicitHeight:
         (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed
          || deletedFollower) ? 0
+        : !threadFilterVisible ? 0
         : isVirtualRow ? virtualRow.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
         : isThreadKeyWait ? threadKeyWaitRow.implicitHeight + AppTheme.spacingS * 2
@@ -828,9 +857,12 @@ Item {
             return
         }
         var previewText = root.timelineModel.replyPreviewForEvent(eventId)
+        // Inline thread style: a reply to a thread message stays in its thread.
         app.composer.beginReply(eventId, details.senderName || details.senderId,
                                 (previewText || "").substring(0, 80),
-                                root.timelineModel.mediaKeyForEvent(eventId))
+                                root.timelineModel.mediaKeyForEvent(eventId),
+                                root.threadInline ? (details.threadRootId || "")
+                                                  : "")
     }
     // The hovered row's tint: the theme's own ink at a low alpha, so every
     // palette lifts a row by about the same amount. It was AppTheme.hover, a
@@ -852,7 +884,7 @@ Item {
         var details = root.timelineModel.messageDetails(eventId)
         var rootId = (details.threadRootId || "").length > 0
                      ? details.threadRootId : eventId
-        app.thread.openThread(app.currentRoomId, rootId)
+        root.showThread(rootId)
     }
     // Double-click on a message starts a reply to it, from the part of the row
     // that does nothing else. A double-click on text selects a word, and one on
@@ -1518,8 +1550,7 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     enabled: root.rowActionsEnabled
-                    onClicked: app.thread.openThread(app.currentRoomId,
-                                                     keyWaitLine.rootId)
+                    onClicked: root.showThread(keyWaitLine.rootId)
                 }
             }
             Label {
@@ -1838,11 +1869,7 @@ Item {
                             // The reply preview navigates to its target.
                             replyBox.visible ? replyBox : null,
                             // The sender name opens the profile.
-                            identityLoader.visible ? identityLoader : null,
-                            // The bar's padding and the gaps between its
-                            // buttons do not accept the press.
-                            messageActionBarLoader.visible
-                                ? messageActionBarLoader : null
+                            identityLoader.visible ? identityLoader : null
                         ]
                         for (var i = 0; i < bands.length; ++i) {
                             var b = bands[i]
@@ -1850,6 +1877,21 @@ Item {
                             var m = bubble.mapToItem(b, pos.x, pos.y)
                             if (m.x >= 0 && m.x <= b.width
                                 && m.y >= 0 && m.y <= b.height)
+                                return true
+                        }
+                        // The hover action bar: only its controls. Its padding
+                        // passes the press through to the bubble, and the bar
+                        // shows on hover over the row's top-right corner, so
+                        // refusing the whole band refused double-click over
+                        // most of a short row in the narrow thread panel
+                        // (reported: "double-click to reply doesn't work in
+                        // the thread pane").
+                        var bar = messageActionBarLoader
+                        if (bar.visible && bar.item) {
+                            var mb = bubble.mapToItem(bar, pos.x, pos.y)
+                            if (mb.x >= 0 && mb.x <= bar.width
+                                && mb.y >= 0 && mb.y <= bar.height
+                                && root.pointTakesInput(bar, mb))
                                 return true
                         }
                         return false
@@ -1964,6 +2006,72 @@ Item {
                             font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: qsTr("Sent at %1").arg(text)
                         }
+                        }
+                    }
+
+                    // Inline thread style: the thread tag (Nheko's). It names
+                    // the thread this row belongs to, in the root's identity
+                    // ink so neighbouring threads read apart; a click narrows
+                    // the timeline to that thread, and on a narrowed timeline
+                    // the crossed tag widens it back. A Loader: most rows are
+                    // in no thread.
+                    Loader {
+                        id: threadTagLoader
+                        objectName: "threadTagLoader"
+                        active: root.threadInline && root.rowThreadId !== ""
+                                && model.redacted !== true
+                        visible: active
+                        Layout.fillWidth: false
+                        Layout.maximumWidth: root.contentInnerCap
+                        sourceComponent: AbstractButton {
+                            id: threadTag
+                            objectName: "threadTag"
+                            readonly property bool narrowed:
+                                (root.timelineModel.threadFilterRootId || "")
+                                === root.rowThreadId
+                            readonly property color ink:
+                                AppTheme.userColor(root.rowThreadId)
+                            enabled: root.rowActionsEnabled
+                            focusPolicy: Qt.NoFocus
+                            hoverEnabled: true
+                            padding: 0
+                            leftPadding: AppTheme.spacingXS
+                            rightPadding: AppTheme.spacingS
+                            implicitHeight: AppTheme.scaled(18)
+                            Accessible.name: text
+                            text: narrowed ? qsTr("Back to the room")
+                                           : qsTr("Show only this thread")
+                            ToolTip.text: text
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            background: Rectangle {
+                                radius: height / 2
+                                color: threadTag.hovered
+                                       ? Qt.alpha(threadTag.ink, 0.22)
+                                       : Qt.alpha(threadTag.ink, 0.12)
+                            }
+                            contentItem: Row {
+                                spacing: AppTheme.spacingXS
+                                Icon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    name: threadTag.narrowed ? "close" : "forum"
+                                    size: 12
+                                    color: threadTag.ink
+                                }
+                                Label {
+                                    objectName: "threadTagLabel"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: (model.threadRootId || "").length > 0
+                                          ? qsTr("in thread") : qsTr("thread")
+                                    color: threadTag.ink
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                                    font.strikeout: threadTag.narrowed
+                                }
+                            }
+                            onClicked: {
+                                root.timelineModel.threadFilterRootId =
+                                    narrowed ? "" : root.rowThreadId
+                            }
                         }
                     }
 
@@ -2926,8 +3034,8 @@ Item {
                             latestAvatarMxc: model.threadLatestSenderAvatarMxc || ""
                             latestTimestamp: model.threadLatestTimestamp
                             unread: model.threadUnread === true
-                            onActivated: app.thread.openThread(
-                                app.currentRoomId, root.eventIdForActions())
+                            onActivated: root.showThread(
+                                root.eventIdForActions())
 
                             // Read once so a late model change cannot mix two
                             // threads' faces.
@@ -4211,7 +4319,7 @@ Item {
                         var rootId = (details.threadRootId || "").length > 0
                                      ? details.threadRootId
                                      : root.menuEventId
-                        app.thread.openThread(app.currentRoomId, rootId)
+                        root.showThread(rootId)
                         moreMenu.close()
                     }
                 }

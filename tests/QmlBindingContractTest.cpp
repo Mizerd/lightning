@@ -882,8 +882,12 @@ private Q_SLOTS:
             "latestKind: model.threadLatestKind")));
         QVERIFY(delegate.contains(QStringLiteral(
             "latestSender: model.threadLatestSenderDisplayName")));
+        // Through the Thread style: the panel, or the inline timeline narrowed
+        // to the thread (AppController::showThread).
         QVERIFY(delegate.contains(QStringLiteral(
-            "onActivated: app.thread.openThread(")));
+            "onActivated: root.showThread(")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "app.showThread(app.currentRoomId, rootId)")));
         // The old plain-text presentation must not return.
         QVERIFY(!delegate.contains(QStringLiteral("reply(s) in thread")));
         QVERIFY(!delegate.contains(QStringLiteral("· in thread")));

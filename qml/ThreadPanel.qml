@@ -414,8 +414,10 @@ Rectangle {
                     readonly property bool rowUnread: modelData.unread === true
 
                     function open() {
-                        app.thread.openThread(app.currentRoomId,
-                                              modelData.rootEventId || "")
+                        // The panel, or the room timeline narrowed to the
+                        // thread under the inline Thread style.
+                        app.showThread(app.currentRoomId,
+                                       modelData.rootEventId || "")
                     }
 
                     // Keyboard reachable.
@@ -1051,7 +1053,117 @@ Rectangle {
                     return false
                 }
                 activeFocusOnTab: true
+
+                // Keyboard message selection: the room timeline's bindings
+                // (ShortcutRegistry's MessageSelectionContext: older/newer,
+                // half pages, reply) and its delegate mark
+                // (keyboardSelectedEventId) and eligibility (replyEligible),
+                // over this plain ListView. Only the stepping is the view's
+                // own: this list is oldest-first and not rotated.
+                property string selectedEventId: ""
+                readonly property string keyboardSelectedEventId:
+                    activeFocus ? selectedEventId : ""
+                function navigableEventAt(row) {
+                    var item = row >= 0 ? itemAtIndex(row) : null
+                    if (!item || item.height <= 0 || !item.replyEligible)
+                        return ""
+                    return app.thread.model.eventIdAt(row)
+                }
+                function rowForEvent(eventId) {
+                    if (eventId === "")
+                        return -1
+                    for (var row = 0; row < count; ++row)
+                        if (app.thread.model.eventIdAt(row) === eventId)
+                            return row
+                    return -1
+                }
+                // Newest eligible row first (`newest`), else the oldest one
+                // that is on screen.
+                function selectVisibleMessage(newest) {
+                    var first = Math.max(0, indexAt(width / 2, contentY + 1))
+                    var last = indexAt(width / 2, contentY + height - 1)
+                    if (last < 0)
+                        last = count - 1
+                    var candidate = ""
+                    for (var row = first; row <= last; ++row) {
+                        var id = navigableEventAt(row)
+                        if (id === "")
+                            continue
+                        candidate = id
+                        if (!newest)
+                            break
+                    }
+                    selectedEventId = candidate
+                    return candidate !== ""
+                }
+                function stepSelectedMessage(direction) {
+                    var row = rowForEvent(selectedEventId)
+                    if (row < 0)
+                        return selectVisibleMessage(direction > 0)
+                    for (var next = row + direction;
+                         next >= 0 && next < count; next += direction) {
+                        // Off-screen rows are built on demand by the ListView.
+                        positionViewAtIndex(next, ListView.Contain)
+                        var id = navigableEventAt(next)
+                        if (id !== "") {
+                            selectedEventId = id
+                            return true
+                        }
+                    }
+                    if (direction < 0 && app.thread.model.canPaginate)
+                        app.thread.model.requestOlder()
+                    return false
+                }
+                // Enter selection from a shortcut: the latest message
+                // (`latest`) or the one already selected if still on screen.
+                function enterMessageSelection(latest) {
+                    forceActiveFocus()
+                    if (latest) {
+                        positionViewAtEnd()
+                        return selectVisibleMessage(true)
+                    }
+                    var row = rowForEvent(selectedEventId)
+                    if (row >= 0) {
+                        positionViewAtIndex(row, ListView.Contain)
+                        return true
+                    }
+                    return selectVisibleMessage(true)
+                }
+                function runNavigationAction(action) {
+                    switch (action) {
+                    case "timeline.olderMessage": stepSelectedMessage(-1); break
+                    case "timeline.newerMessage": stepSelectedMessage(1); break
+                    case "timeline.halfPageUp":
+                        contentY = Math.max(originY - topMargin,
+                                            contentY - height * 0.5)
+                        break
+                    case "timeline.halfPageDown":
+                        contentY = Math.min(
+                            originY + contentHeight + bottomMargin - height,
+                            contentY + height * 0.5)
+                        break
+                    case "timeline.reply":
+                        if (navigableEventAt(rowForEvent(selectedEventId)) === "")
+                            return true
+                        app.thread.beginReply(selectedEventId)
+                        panel.focusComposer()
+                        break
+                    default: return false
+                    }
+                    return true
+                }
+                Keys.onShortcutOverride: (event) => {
+                    if (activeFocus && app.shortcuts.messageSelectionActionForKey(
+                            event.key, event.modifiers) !== "")
+                        event.accepted = true
+                }
                 Keys.onPressed: (event) => {
+                    var action = app.shortcuts.messageSelectionActionForKey(
+                        event.key, event.modifiers)
+                    if (action !== "" && runNavigationAction(action)) {
+                        event.accepted = true
+                        return
+                    }
                     var keyAction = app.shortcuts.timelineActionForKey(
                         event.key, event.modifiers)
                     if (keyAction !== "" && runKeyAction(keyAction))
@@ -1645,9 +1757,14 @@ Rectangle {
                                         app.richComposer.toMarkdown(textDocument)
                                     panel.richSyncing = false
                                     panel.updateThreadRichMentionState()
+                                    panel.threadEmojiPopupDismissed = false
+                                    panel.updateThreadEmojiState()
+                                    panel.checkThreadEmojiAutoConvert(
+                                        threadRichInput)
                                 }
                                 onCursorPositionChanged: {
                                     panel.updateThreadRichMentionState()
+                                    panel.updateThreadEmojiState()
                                     threadRichAutocorrect.cursorMoved()
                                     threadRichSpellTimer.restart()
                                 }
@@ -1662,7 +1779,8 @@ Rectangle {
                                     if (event.key === Qt.Key_Escape
                                             && event.modifiers === Qt.NoModifier
                                             && (app.thread.inReply
-                                                || threadMentionPopup.visible))
+                                                || threadMentionPopup.visible
+                                                || threadEmojiPopup.visible))
                                         event.accepted = true
                                     if (app.shortcuts.editorOverrideFor(
                                             event.key, event.modifiers,
@@ -1704,6 +1822,8 @@ Rectangle {
                                             event.accepted = true; return
                                         }
                                     }
+                                    if (panel.handleThreadEmojiKey(event))
+                                        return
                                     if (event.key === Qt.Key_Tab
                                             && event.modifiers === Qt.NoModifier) {
                                         panel.leaveComposerForward(
@@ -1789,9 +1909,14 @@ Rectangle {
                                 panel.updateThreadMentionState()
                                 threadPlainAutocorrect.edited()
                                 threadSpellTimer.restart()
+                                panel.threadEmojiPopupDismissed = false
+                                panel.updateThreadEmojiState()
+                                panel.checkThreadEmojiAutoConvert(
+                                    threadComposerInput)
                             }
                             onCursorPositionChanged: {
                                 panel.updateThreadMentionState()
+                                panel.updateThreadEmojiState()
                                 threadPlainAutocorrect.cursorMoved()
                                 threadSpellTimer.restart()
                             }
@@ -1928,7 +2053,8 @@ Rectangle {
                                 if (event.key === Qt.Key_Escape
                                         && event.modifiers === Qt.NoModifier
                                         && (app.thread.inReply
-                                            || threadMentionPopup.visible))
+                                            || threadMentionPopup.visible
+                                            || threadEmojiPopup.visible))
                                     event.accepted = true
                                 if (app.shortcuts.editorOverrideFor(
                                         event.key, event.modifiers,
@@ -1973,6 +2099,8 @@ Rectangle {
                                 // Editor formatting, before the plain-key
                                 // branches (every editor binding has Ctrl).
                                 // Unrecognised keys are not accepted.
+                                if (panel.handleThreadEmojiKey(event))
+                                    return
                                 if (event.key === Qt.Key_Tab
                                         && event.modifiers === Qt.NoModifier) {
                                     panel.leaveComposerForward(
@@ -2400,6 +2528,82 @@ Rectangle {
         })
     }
 
+    // `:shortcode` completion and the `:alias: ` auto-convert, as in the room
+    // composer and through the same C++ rules (MessageComposer's *ForText /
+    // *Edit functions, which return the edit instead of owning the text) and
+    // the same popup. Works for both editors: plain and rich share the
+    // plain-text coordinates the edit is expressed in.
+    property bool threadEmojiPopupDismissed: false
+    property bool threadEmojiAutoConverting: false
+    EmojiCompletionPopup {
+        id: threadEmojiPopup
+        objectName: "threadEmojiCompletionPopup"
+        onChosen: (entry) => panel.acceptThreadEmoji(entry)
+    }
+    function applyThreadEmojiEdit(editor, edit) {
+        if (!edit || edit.start === undefined)
+            return false
+        panel.threadEmojiAutoConverting = true
+        editor.remove(edit.start, edit.start + edit.length)
+        editor.insert(edit.start, edit.replacement)
+        editor.cursorPosition = edit.cursor
+        panel.threadEmojiAutoConverting = false
+        return true
+    }
+    function acceptThreadEmoji(entry) {
+        var editor = panel.activeThreadEditor()
+        panel.applyThreadEmojiEdit(editor, app.composer.emojiCompletionEdit(
+            editor.getText(0, editor.length), editor.cursorPosition, entry))
+        threadEmojiPopup.close()
+    }
+    function checkThreadEmojiAutoConvert(editor) {
+        if (panel.threadEmojiAutoConverting || panel.richSyncing)
+            return
+        panel.applyThreadEmojiEdit(editor, app.composer.shortcodeAutoConvertEdit(
+            editor.getText(0, editor.length), editor.cursorPosition))
+    }
+    function updateThreadEmojiState() {
+        var editor = panel.activeThreadEditor()
+        if (threadMentionPopup.visible || !editor || !editor.activeFocus
+                || !app.thread.active || panel.threadEmojiPopupDismissed) {
+            threadEmojiPopup.close()
+            return
+        }
+        var comps = app.composer.emojiCompletionsForText(
+            editor.getText(0, editor.length), editor.cursorPosition)
+        if (comps.length > 0) {
+            threadEmojiPopup.completions = comps
+            var flick = panel.richMode ? threadRichFlick : threadInputFlick
+            var p = flick.mapToItem(Overlay.overlay, 0, 0)
+            threadEmojiPopup.anchorInputTop = Qt.point(p.x, p.y)
+            threadEmojiPopup.anchorWidth = flick.width
+            if (!threadEmojiPopup.visible)
+                threadEmojiPopup.open()
+        } else if (threadEmojiPopup.visible) {
+            threadEmojiPopup.close()
+        }
+    }
+    // The popup's navigation keys, first while it is open (as the mention
+    // popup's). True when the key was taken.
+    function handleThreadEmojiKey(event) {
+        if (!threadEmojiPopup.visible)
+            return false
+        switch (event.key) {
+        case Qt.Key_Down: threadEmojiPopup.moveDown(); break
+        case Qt.Key_Up: threadEmojiPopup.moveUp(); break
+        case Qt.Key_Tab:
+        case Qt.Key_Return:
+        case Qt.Key_Enter: threadEmojiPopup.accept(); break
+        case Qt.Key_Escape:
+            panel.threadEmojiPopupDismissed = true
+            threadEmojiPopup.close()
+            break
+        default: return false
+        }
+        event.accepted = true
+        return true
+    }
+
     // Outgoing @-mentions, as in the room composer: current-room members, input
     // keeps focus.
     property int threadMentionTokenStart: -1
@@ -2540,6 +2744,27 @@ Rectangle {
 
     function activeThreadEditor() {
         return panel.richMode ? threadRichInput : threadComposerInput
+    }
+    // The room timeline's `composer.focus`, `timeline.selectLatestMessage`
+    // and `timeline.resumeMessageSelection` while this panel holds the
+    // thread (TimelinePane routes them here).
+    readonly property bool composerFocusable:
+        app.thread.state === ThreadController.Ready
+        && panel.activeThreadEditor().enabled
+    readonly property bool selectionFocusable:
+        app.thread.state === ThreadController.Ready && replyList.visible
+        && replyList.count > 0
+    function focusComposer() {
+        if (!panel.composerFocusable)
+            return false
+        replyList.selectedEventId = ""
+        panel.activeThreadEditor().forceActiveFocus()
+        return true
+    }
+    function focusMessageSelection(latest) {
+        if (!panel.selectionFocusable)
+            return false
+        return replyList.enterMessageSelection(latest)
     }
     function threadSpellEditorText() {
         return panel.richMode ? threadRichInput.getText(0, threadRichInput.length)

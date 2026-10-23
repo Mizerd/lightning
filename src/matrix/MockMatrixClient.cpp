@@ -169,13 +169,26 @@ QList<TimelineEvent> MockMatrixClient::timeline(const QString &roomId) const
     // does (TimelineFocus::Live { hide_threaded_events: true }): a true
     // m.thread reply appears only in its thread (CLAUDE.md §8). The replies
     // stay in m_timelines, which the thread timeline is rebuilt from.
-    if (m_screenshotDemoMode && !isThreadTimelineId(roomId)) {
+    if (m_screenshotDemoMode && !m_threadRepliesInLive
+        && !isThreadTimelineId(roomId)) {
         QList<TimelineEvent> main;
         for (const TimelineEvent &e : m_timelines.value(roomId)) {
             if (e.threadRootId.isEmpty())
                 main.append(e);
         }
         return main;
+    }
+    // Inline thread style: the demo's thread replies are seeded after the
+    // room's own rows; a live timeline interleaves them by time, as the SDK
+    // does with hide_threaded_events = false.
+    if (m_screenshotDemoMode && m_threadRepliesInLive
+        && !isThreadTimelineId(roomId)) {
+        QList<TimelineEvent> all = m_timelines.value(roomId);
+        std::stable_sort(all.begin(), all.end(),
+                         [](const TimelineEvent &a, const TimelineEvent &b) {
+                             return a.timestamp < b.timestamp;
+                         });
+        return all;
     }
     return m_timelines.value(roomId);
 }
@@ -442,9 +455,14 @@ void MockMatrixClient::sendThreadReply(const QString &roomId,
     ev.type              = TimelineEvent::TextMessage;
     ev.status            = TimelineEvent::Sending;
     ev.threadRootId      = threadRootEventId;
+    m_lastThreadSendRoot = threadRootEventId;
+    m_lastThreadSendBody = body;
+    m_lastThreadSendReplyTo.clear();
+    ++m_threadTextSends;
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline()).
-    if (!m_screenshotDemoMode)
+    // The demo shows the main timeline without thread replies (timeline())
+    // unless the inline thread style asked for them.
+    if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
 
@@ -486,14 +504,19 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
     ev.status            = TimelineEvent::Sending;
     ev.threadRootId      = threadRootEventId;
     ev.replyToEventId    = inReplyToEventId;
+    m_lastThreadSendRoot = threadRootEventId;
+    m_lastThreadSendBody = body;
+    m_lastThreadSendReplyTo = inReplyToEventId;
+    ++m_threadTextSends;
     if (auto *target = findEvent(roomId, inReplyToEventId)) {
         ev.replyToSender  = target->senderDisplayName.isEmpty()
                               ? target->sender : target->senderDisplayName;
         ev.replyToPreview = matrix::media::previewSnippet(target->body, matrix::preview::kReplyPreviewMaxChars);
     }
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline()).
-    if (!m_screenshotDemoMode)
+    // The demo shows the main timeline without thread replies (timeline())
+    // unless the inline thread style asked for them.
+    if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
 
@@ -648,8 +671,9 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
     ev.threadRootId      = rootEventId;
     ev.replyToEventId    = replyToEventId;
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline()).
-    if (!m_screenshotDemoMode)
+    // The demo shows the main timeline without thread replies (timeline())
+    // unless the inline thread style asked for them.
+    if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
 

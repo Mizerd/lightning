@@ -61,6 +61,34 @@ Rectangle {
         && messageComposer.activeEditor().enabled
         && !messageComposer.activeEditor().readOnly
 
+    // While the thread panel holds a thread the room timeline and composer
+    // step aside (composerFocusable/timelineFocusable are false), so the
+    // same shortcuts drive the panel's composer and message selection.
+    readonly property bool threadPanelHoldsKeys:
+        app.thread.active && threadPanel.visible
+        && app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
+    readonly property bool composerShortcutAvailable:
+        root.composerFocusable
+        || (root.threadPanelHoldsKeys && threadPanel.composerFocusable)
+    readonly property bool selectionShortcutAvailable:
+        root.timelineFocusable
+        || (root.threadPanelHoldsKeys && threadPanel.selectionFocusable)
+    function focusComposerShortcut() {
+        if (root.threadPanelHoldsKeys)
+            return threadPanel.focusComposer()
+        return root.focusComposerForTyping()
+    }
+    function focusTimelineShortcut() {
+        if (root.threadPanelHoldsKeys)
+            return threadPanel.focusMessageSelection(true)
+        return root.focusTimeline()
+    }
+    function resumeTimelineShortcut() {
+        if (root.threadPanelHoldsKeys)
+            return threadPanel.focusMessageSelection(false)
+        return root.resumeTimeline()
+    }
+
     function focusComposerForTyping() {
         if (!root.composerFocusable)
             return false
@@ -73,6 +101,20 @@ Rectangle {
 
     property string keyboardSelectedEventId: ""
     property string resumeSelectedEventId: ""
+
+    // Inline thread style: narrowing to a thread is how a thread is opened
+    // here, so the composer (which now sends into it) takes the keyboard, as
+    // the thread panel's does when it opens.
+    Connections {
+        target: app.timeline
+        property string lastRoot: ""
+        function onThreadPresentationChanged() {
+            var rootId = app.timeline.threadFilterRootId || ""
+            if (rootId !== "" && rootId !== lastRoot)
+                Qt.callLater(root.focusComposerForTyping)
+            lastRoot = rootId
+        }
+    }
     readonly property bool timelineFocusable:
         app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
         && currentRoom.membership === "joined" && currentRoom.isSpace !== true
@@ -1373,12 +1415,14 @@ Rectangle {
                     readonly property var foldOrder: [
                         "roomInfoButton", "pinnedMessagesButton",
                         "memberPanelButton", "timelineSearchButton",
+                        "threadRepliesToggleButton",
                         "threadsViewButton", "startVoiceCallButton"]
                     // The buttons themselves, so `available` is read from the
                     // one place each rule is written. A property read inside a
                     // binding is tracked; a function call would not be.
                     readonly property var actionButtons: [
                         startVoiceCallButton, pinnedMessagesButton,
+                        threadRepliesToggleButton,
                         threadsViewButton, timelineSearchButton,
                         memberPanelButton, roomInfoButton]
                     // Each button declares `available` (its own gate), `folded`
@@ -1461,6 +1505,32 @@ Rectangle {
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.togglePinnedPanel()
+                    }
+                    // Inline thread style: thread replies in the room
+                        // timeline, or the room without them (roots keep their
+                        // summary card). One switch for every room, a setting.
+                    IconButton {
+                        id: threadRepliesToggleButton
+                        objectName: "threadRepliesToggleButton"
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available:
+                            app.currentRoomId !== "" && app.thread.supported
+                            && app.timeline.threadRepliesInline === true
+                        readonly property bool repliesHidden:
+                            app.settings.hideThreadReplies === true
+                        iconName: repliesHidden ? "visibility_off" : "forum"
+                        active: repliesHidden
+                        property string actionLabel: repliesHidden
+                            ? qsTr("Show thread replies")
+                            : qsTr("Hide thread replies")
+                        Accessible.name: actionLabel
+                        ToolTip.text: actionLabel
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: app.settings.hideThreadReplies = !repliesHidden
                     }
                     IconButton {
                         id: threadsViewButton
@@ -1646,6 +1716,13 @@ Rectangle {
                         AppMenuSeparator {
                             visible: roomHeaderActions.foldedActions.length > 0
                         }
+                        AppMenuItem {
+                            objectName: "overflowThreadReplies"
+                            visible: threadRepliesToggleButton.folded
+                            iconName: threadRepliesToggleButton.iconName
+                            text: threadRepliesToggleButton.actionLabel
+                            onTriggered: threadRepliesToggleButton.clicked()
+                        }
                         // The room's own options, at every width.
                         AppMenuItem {
                             objectName: "roomHeaderChatBackground"
@@ -1674,6 +1751,77 @@ Rectangle {
         }
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
+
+        // Inline thread style: what the timeline is narrowed to, and the way
+        // back to every message. A band of its own, so it covers no row.
+        Rectangle {
+            id: threadFilterBar
+            objectName: "threadFilterBar"
+            readonly property string rootId:
+                app.timeline.threadFilterRootId || ""
+            readonly property bool repliesHidden:
+                app.timeline.hideThreadReplies === true
+            visible: app.timeline.threadRepliesInline === true
+                     && (rootId !== "" || repliesHidden)
+            Layout.fillWidth: true
+            implicitHeight: visible ? filterBarRow.implicitHeight
+                                      + AppTheme.spacingS * 2 : 0
+            color: AppTheme.timelineBackground
+            RowLayout {
+                id: filterBarRow
+                anchors.fill: parent
+                anchors.leftMargin: AppTheme.spacing16
+                anchors.rightMargin: AppTheme.spacing12
+                spacing: AppTheme.spacingS
+                Icon {
+                    name: threadFilterBar.rootId !== "" ? "forum"
+                                                        : "visibility_off"
+                    size: 16
+                    color: threadFilterBar.rootId !== ""
+                           ? AppTheme.userColor(threadFilterBar.rootId)
+                           : AppTheme.textMuted
+                }
+                Label {
+                    objectName: "threadFilterLabel"
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    text: {
+                        if (threadFilterBar.rootId === "")
+                            return qsTr("Thread replies are hidden")
+                        var preview = app.timeline.replyPreviewForEvent(
+                                    threadFilterBar.rootId) || ""
+                        return preview.length > 0
+                               ? qsTr("Thread: %1").arg(preview)
+                               : qsTr("Showing one thread")
+                    }
+                }
+                AppButton {
+                    objectName: "threadFilterClearButton"
+                    // Leaving one thread returns to the room as the reader
+                    // keeps it (replies hidden or not); with no thread open,
+                    // the button is the hide switch itself.
+                    text: threadFilterBar.rootId !== ""
+                          ? qsTr("Back to the room")
+                          : qsTr("Show thread replies")
+                    onClicked: {
+                        if (threadFilterBar.rootId !== "")
+                            app.timeline.clearThreadFilters()
+                        else
+                            app.settings.hideThreadReplies = false
+                    }
+                }
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: AppTheme.headerDivider
+            }
+        }
 
         // The docked "now playing" strip (design-media U1), in a band of its
         // own right under the room header, above the call bars and the
@@ -3871,17 +4019,21 @@ Rectangle {
                     var details = timelineModel.messageDetails(eventId)
                     if (!details.eventId) return
                     var previewText = timelineModel.replyPreviewForEvent(eventId)
+                    // Inline thread style: a reply to a thread message stays in
+                    // its thread (as MessageDelegate.beginReply).
                     app.composer.beginReply(eventId,
                         details.senderName || details.senderId,
                         (previewText || "").substring(0, 80),
-                        timelineModel.mediaKeyForEvent(eventId))
+                        timelineModel.mediaKeyForEvent(eventId),
+                        timelineModel.threadRepliesInline === true
+                            ? (details.threadRootId || "") : "")
                 }
                 property var openThreadForEvent: function(eventId) {
                     if (!eventId || eventId.length === 0) return
                     var details = timelineModel.messageDetails(eventId)
                     var rootId = (details.threadRootId || "").length > 0
                                  ? details.threadRootId : eventId
-                    app.thread.openThread(app.currentRoomId, rootId)
+                    app.showThread(app.currentRoomId, rootId)
                 }
                 property string downloadSurface: "main"
                 property var saveMedia: function(mediaKey, filename, mime, ask) {

@@ -143,6 +143,15 @@ public:
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
+    void setThreadRepliesInLiveTimeline(bool inLive) override
+    { m_threadRepliesInLive = inLive; }
+    bool threadRepliesInLiveTimeline() const { return m_threadRepliesInLive; }
+    // The last SDK-path thread text send (sendThreadReply/sendThreadReplyTo).
+    int threadTextSendsForTest() const { return m_threadTextSends; }
+    QString lastThreadSendRootForTest() const { return m_lastThreadSendRoot; }
+    QString lastThreadSendBodyForTest() const { return m_lastThreadSendBody; }
+    QString lastThreadSendReplyToForTest() const
+    { return m_lastThreadSendReplyTo; }
     // Event context view: opt-in so suites written against the history walk
     // keep their behaviour. The window is a slice of the room's own mock
     // timeline around the event (kContextRadius each side).
@@ -336,6 +345,11 @@ private:
     void seedMockData();
     void seedScreenshotDemoData();     // development-only rich demo scene
     bool m_screenshotDemoMode = false;
+    bool m_threadRepliesInLive = false;
+    int m_threadTextSends = 0;
+    QString m_lastThreadSendRoot;
+    QString m_lastThreadSendBody;
+    QString m_lastThreadSendReplyTo;
 
     // One fictional demo account's complete, deterministic scene.
     struct DemoAccount {

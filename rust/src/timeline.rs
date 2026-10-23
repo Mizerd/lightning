@@ -523,6 +523,11 @@ pub struct TimelineRegistry {
     /// waits for its send to reach the server, so shutdown aborts them all and
     /// no session outlives its sign-out through one.
     thread_auto_subscriptions: Mutex<Vec<tokio::task::AbortHandle>>,
+    /// Thread style "Inline" (Nheko-like): the live room timeline keeps true
+    /// `m.thread` replies (`hide_threaded_events: false`) so they interleave
+    /// with the room's own messages. Read when a live timeline is built; C++
+    /// reopens the room after changing it. Off by default (CLAUDE.md §8).
+    threads_in_live: AtomicBool,
 }
 
 /// One key's attempt history this lifecycle. Identifiers and counters only.
@@ -605,6 +610,24 @@ impl TimelineRegistry {
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
             unthreaded_read_cover: Mutex::new(None),
             thread_auto_subscriptions: Mutex::new(Vec::new()),
+            threads_in_live: AtomicBool::new(false),
+        }
+    }
+
+    /// See `threads_in_live`.
+    pub fn set_threads_in_live(&self, on: bool) {
+        self.threads_in_live.store(on, Ordering::SeqCst);
+    }
+
+    /// See `threads_in_live`.
+    pub fn threads_in_live(&self) -> bool {
+        self.threads_in_live.load(Ordering::SeqCst)
+    }
+
+    /// The live timeline focus for the current thread style.
+    fn live_focus(&self) -> TimelineFocus {
+        TimelineFocus::Live {
+            hide_threaded_events: !self.threads_in_live.load(Ordering::SeqCst),
         }
     }
 
@@ -3026,10 +3049,11 @@ async fn open_room_task(
     //
     // hide_threaded_events keeps thread replies out of the live timeline (they
     // belong in the thread panel), classified by the SDK's m.thread relation.
-    // Thread roots stay in the main timeline.
+    // Thread roots stay in the main timeline. The inline thread style turns it
+    // off so replies interleave (see `threads_in_live`).
     let timeline = match TimelineBuilder::new(&room)
         .event_filter(lightning_event_filter)
-        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .with_focus(registry.live_focus())
         .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
         .build()
         .await

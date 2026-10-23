@@ -563,10 +563,14 @@ void ThreadController::sendPrepared(const QString &body, const QString &html,
     retireComposerDraft();
 }
 
-void ThreadController::sendThreadBody(const QString &body,
+void ThreadController::sendThreadBody(const QString &bodyIn,
                                       const QStringList &mentionIds,
-                                      const QVariantMap &bodySpec)
+                                      const QVariantMap &bodySpecIn)
 {
+    QString body = bodyIn;
+    QVariantMap bodySpec = bodySpecIn;
+    if (m_outgoingEmoji)
+        m_outgoingEmoji(body, bodySpec);
     // Always the SDK thread path (sendThreadReplyTo), never sendTextMessage,
     // so a thread reply cannot land as a room message. An empty in-reply-to
     // is a plain thread reply.

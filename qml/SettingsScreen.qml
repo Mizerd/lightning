@@ -96,6 +96,10 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
+        { title: qsTr("Thread style"),
+          keywords: qsTr("thread threads style panel inline nheko element interleaved"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "threadStyleControl" },
         { title: qsTr("Message spacing"),
           keywords: qsTr("message spacing density compact cozy roomy gap padding"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
@@ -3258,6 +3262,32 @@ Item {
                             font.pixelSize: AppTheme.textMeta
                             text: qsTr("Bubbles applies to direct messages; rooms keep "
                                        + "the Modern rows. Compact tightens every timeline.")
+                        }
+
+                        SettingsGroupLabel { text: qsTr("Thread style") }
+                        SegmentedControl {
+                            storm: true
+                            objectName: "threadStyleControl"
+                            model: [
+                                { label: qsTr("Thread panel"), value: 0 },
+                                { label: qsTr("Inline"), value: 1 },
+                            ]
+                            current: app.settings.threadStyle
+                            onActivated: (value) =>
+                                app.settings.threadStyle = value
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("Thread panel opens replies beside the room, "
+                                       + "like Element. Inline keeps them in the room "
+                                       + "in time order with a thread tag, like Nheko; "
+                                       + "click a tag to show only that thread.")
                         }
 
                         SettingsGroupLabel { text: qsTr("Message spacing") }

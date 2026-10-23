@@ -382,6 +382,17 @@ class SettingsManager : public QObject
     // (today's spacing), 2 Roomy. Out-of-range reads back as Cozy.
     Q_PROPERTY(int messageSpacing READ messageSpacing WRITE setMessageSpacing
                    NOTIFY messageSpacingChanged)
+    // threadStyle: how m.thread replies are presented. 0 Panel (Element-like:
+    // replies live in the thread side panel and are hidden from the room
+    // timeline), 1 Inline (Nheko-like: replies stay interleaved in the room
+    // timeline with a thread tag, and a tag filters the timeline to that
+    // thread). Out-of-range reads back as Panel. Account-scoped.
+    Q_PROPERTY(int threadStyle READ threadStyle WRITE setThreadStyle
+                   NOTIFY threadStyleChanged)
+    // Inline thread style: the room timeline leaves thread replies out (roots
+    // keep their summary card). One switch for every room. Default false.
+    Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
+                   WRITE setHideThreadReplies NOTIFY hideThreadRepliesChanged)
 
     // Smooth scrolling. Separate from reducedMotion so the wheel can land
     // directly without disabling every animation. Default on.
@@ -965,6 +976,12 @@ public:
     static constexpr int kSpacingRoomy = 2;
     int messageSpacing() const;
     void setMessageSpacing(int mode);
+    static constexpr int kThreadStylePanel = 0;
+    static constexpr int kThreadStyleInline = 1;
+    int threadStyle() const;
+    void setThreadStyle(int style);
+    bool hideThreadReplies() const;
+    void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
     bool disableCursorBlink() const;
@@ -1396,6 +1413,8 @@ Q_SIGNALS:
     void underlineLinksChanged();
     void nameColorCorrectionChanged();
     void messageSpacingChanged();
+    void threadStyleChanged();
+    void hideThreadRepliesChanged();
     void smoothScrollingChanged();
     void disableCursorBlinkChanged();
     void hiddenComposerButtonsChanged();

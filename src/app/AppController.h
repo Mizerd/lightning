@@ -799,6 +799,10 @@ private:
     /// and composer. Also on every client attach: a fresh bridge starts
     /// permissive.
     void applyPrivacyPreferences();
+    // Thread style (Settings > Appearance): pushes "inline" to the backend and
+    // the room timeline model; `reopen` rebuilds the open room's live timeline
+    // so the change shows without a room switch.
+    void applyThreadStyle(bool reopen);
     /// Push MSC4153 into the Rust process global; takes effect at the next
     /// sign-in.
     void applyStrictDeviceTrust();
@@ -1197,6 +1201,12 @@ public:
     // (the eventCacheRepaired handler). Never add another automatic caller:
     // it throws away the reader's place. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
+    // Show a thread the way the Thread style setting asks: the side panel
+    // (Element-like), or the room timeline narrowed to that thread (inline,
+    // Nheko-like; the room composer then sends into it). Every "open this
+    // thread" affordance of the room timeline goes through here.
+    Q_INVOKABLE void showThread(const QString &roomId,
+                                const QString &rootEventId);
     // The status strip's dismiss control: withdraws its message now.
     Q_INVOKABLE void dismissStatusError();
     // How long the strip shows a message of `length` characters that nobody

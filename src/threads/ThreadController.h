@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -184,6 +185,12 @@ public:
     // thread path (never as an ordinary room message). An active reply
     // target turns it into a rich reply within the thread and is cleared
     // after dispatch.
+    // The room composer's send-time emoji pass (MessageComposer::
+    // applyOutgoingEmoji), so `:shortcode:`s behave the same in a thread.
+    // Set by AppController; absent, bodies go out as typed.
+    void setOutgoingEmoji(
+        std::function<void(QString &body, QVariantMap &bodySpec)> apply)
+    { m_outgoingEmoji = std::move(apply); }
     Q_INVOKABLE void sendText(const QString &body);
     // "Send as a message" on the unknown-command refusal: the same send
     // with command parsing skipped.
@@ -438,4 +445,5 @@ private:
     int m_navigationBatchTimeoutMs = 8000;
     // Mirrors TimelineModel::paginating() to detect the completion edge.
     bool m_modelPaginating = false;
+    std::function<void(QString &, QVariantMap &)> m_outgoingEmoji;
 };

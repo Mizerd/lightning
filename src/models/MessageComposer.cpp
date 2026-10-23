@@ -318,7 +318,7 @@ bool MessageComposer::takeTextAsCaption(const QString &body,
                                         const QStringList &mentionIds)
 {
     if (!m_sendTextAsCaption || body.isEmpty() || !mentionIds.isEmpty()
-        || !m_threadRootId.isEmpty() || !m_attachments)
+        || !sendThreadRootId().isEmpty() || !m_attachments)
         return false;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
@@ -345,6 +345,14 @@ void MessageComposer::dispatchAttachments()
         // new reply keeps the one it had.
         if (!m_replyingToEventId.isEmpty())
             entries[row].replyToEventId = m_replyingToEventId;
+        // The thread is captured with the reply: a row must not move between
+        // the room and a thread if the filter changes before it is sent.
+        const QString root = sendThreadRootId();
+        if (!root.isEmpty()) {
+            entries[row].threadRootId = root;
+            if (entries[row].replyToEventId == root)
+                entries[row].replyToEventId.clear();
+        }
     }
     pumpAttachments();
 }
@@ -409,7 +417,27 @@ void MessageComposer::dispatchAttachment(int row)
         m_attachments->updateEntry(row);
         return;
     }
-    if (entry.localPath.isEmpty()) {
+    if (!entry.threadRootId.isEmpty()) {
+        // Inline thread style: the SDK thread send path, never the room one
+        // (CLAUDE.md §8). An SVG never reaches here converted or not (below).
+        const QString &root = entry.threadRootId;
+        if (entry.isSvg)
+            opId = 0;
+        else if (entry.localPath.isEmpty())
+            opId = m_client->sendThreadAttachmentBytes(
+                m_roomId, root, sendData, entry.fileName, entry.mime,
+                entry.width, entry.height, entry.replyToEventId);
+        else if (entry.isVideo)
+            opId = m_client->sendThreadVideo(
+                m_roomId, root, entry.localPath, entry.mime, caption,
+                entry.width, entry.height, entry.durationMs, entry.poster,
+                entry.posterWidth, entry.posterHeight, entry.replyToEventId);
+        else
+            opId = m_client->sendThreadAttachment(
+                m_roomId, root, sendPath, entry.mime, caption, entry.width,
+                entry.height, entry.animated, entry.durationMs,
+                entry.replyToEventId);
+    } else if (entry.localPath.isEmpty()) {
         opId = m_client->sendAttachmentBytes(m_roomId, sendData,
                                              entry.fileName, entry.mime,
                                              entry.width, entry.height,
@@ -476,9 +504,17 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
     for (const QVariant &value : waveform)
         amplitudes.append(value.toInt());
     const QString targetRoom = m_roomId;
-    const quint64 opId = m_client->sendVoiceMessage(
-        targetRoom, localPath, mime, static_cast<qint64>(durationMs),
-        amplitudes, m_replyingToEventId);
+    const QString threadRoot = sendThreadRootId();
+    const QString replyTo =
+        m_replyingToEventId == threadRoot ? QString() : m_replyingToEventId;
+    // Inline thread style: into the thread through the SDK, never the room.
+    const quint64 opId = threadRoot.isEmpty()
+        ? m_client->sendVoiceMessage(
+              targetRoom, localPath, mime, static_cast<qint64>(durationMs),
+              amplitudes, m_replyingToEventId)
+        : m_client->sendThreadVoiceMessage(
+              targetRoom, threadRoot, localPath, mime,
+              static_cast<qint64>(durationMs), amplitudes, replyTo);
     if (opId == 0) {
         // Never queued: reclaim the recording now.
         QFile::remove(localPath);
@@ -501,8 +537,29 @@ void MessageComposer::clearReplyTarget()
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
     Q_EMIT replyStateChanged();
+    if (!m_replyThreadRootId.isEmpty()) {
+        m_replyThreadRootId.clear();
+        Q_EMIT threadStateChanged();
+    }
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
         m_draftDebounce.start();
+}
+
+void MessageComposer::setThreadTargetRootId(const QString &rootEventId)
+{
+    if (m_threadTargetRootId == rootEventId)
+        return;
+    m_threadTargetRootId = rootEventId;
+    Q_EMIT threadStateChanged();
+}
+
+QString MessageComposer::sendThreadRootId() const
+{
+    if (!m_threadRootId.isEmpty())
+        return m_threadRootId;
+    if (!m_replyingToEventId.isEmpty() && !m_replyThreadRootId.isEmpty())
+        return m_replyThreadRootId;
+    return m_threadTargetRootId;
 }
 
 void MessageComposer::onAttachmentQueueFinished(quint64 opId,
@@ -827,24 +884,29 @@ void MessageComposer::sendComposed(const QString &body,
     // through. The shortcode map crosses to Rust rather than finished HTML, so
     // markdown still applies; Rust substitutes after markdown, where code spans
     // and URLs are distinguishable.
+    // Shared with the thread composer (applyOutgoingEmoji). The Unicode half
+    // already ran in sendInternal and is idempotent.
+    QString outBody = body;
     QVariantMap bodySpec = bodySpecIn;
-    const QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
-    if (!emoticons.isEmpty()) {
-        if (!bodySpec.contains(QStringLiteral("format"))) {
-            bodySpec.insert(QStringLiteral("format"),
-                            QStringLiteral("markdown"));
-        }
-        bodySpec.insert(QStringLiteral("emoticons"), emoticons);
-    }
+    applyOutgoingEmoji(outBody, bodySpec);
     if (!m_threadRootId.isEmpty()) {
         // Thread replies. The HTTP backend falls back to sendReply.
-        m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), body,
+        m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), outBody,
+                                    mentionIds, bodySpec);
+    } else if (const QString root = sendThreadRootId(); !root.isEmpty()) {
+        // Inline thread style: a reply to a thread message, or anything sent
+        // while the timeline is filtered to a thread, goes into that thread
+        // through the SDK thread path. A reply to the root itself stays a plain
+        // thread reply (the root is the thread's anchor, not a reply target).
+        const QString inReplyTo =
+            m_replyingToEventId == root ? QString() : m_replyingToEventId;
+        m_client->sendThreadReplyTo(m_roomId, root, inReplyTo, outBody,
                                     mentionIds, bodySpec);
     } else if (!m_replyingToEventId.isEmpty()) {
-        m_client->sendReply(m_roomId, m_replyingToEventId, body, mentionIds,
+        m_client->sendReply(m_roomId, m_replyingToEventId, outBody, mentionIds,
                             bodySpec);
     } else {
-        m_client->sendTextMessage(m_roomId, body, mentionIds, bodySpec);
+        m_client->sendTextMessage(m_roomId, outBody, mentionIds, bodySpec);
     }
 }
 
@@ -1116,15 +1178,23 @@ constexpr int kMaxEmojiCompletions = 12;
 
 QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
 {
+    if (!m_editingEventId.isEmpty())
+        return {};
+    return emojiCompletionsForText(m_text, cursorPos);
+}
+
+QVariantList MessageComposer::emojiCompletionsForText(const QString &text,
+                                                      int cursorPos) const
+{
     QVariantList out;
-    if ((!m_emoticonSearch && !m_unicodeEmojiSearch) || !m_editingEventId.isEmpty())
+    if (!m_emoticonSearch && !m_unicodeEmojiSearch)
         return out;
-    const auto token = emojiTokenAt(m_text, cursorPos);
+    const auto token = emojiTokenAt(text, cursorPos);
     if (token.first < 0)
         return out;
     // At least one query character, so typing a colon does not open a popup.
-    const QString prefix = m_text.mid(token.first + 1, token.second - 1);
-    if (prefix.isEmpty() || insideCode(m_text, cursorPos))
+    const QString prefix = text.mid(token.first + 1, token.second - 1);
+    if (prefix.isEmpty() || insideCode(text, cursorPos))
         return out;
     if (m_emoticonSearch)
         out = m_emoticonSearch(prefix, kMaxEmojiCompletions);
@@ -1136,6 +1206,82 @@ QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
             out.append(row);
     }
     return out;
+}
+
+QVariantMap MessageComposer::emojiCompletionEdit(const QString &text,
+                                                int cursorPos,
+                                                const QVariantMap &entry)
+{
+    const auto token = emojiTokenAt(text, cursorPos);
+    const bool unicode =
+        entry.value(QStringLiteral("kind")).toString() == QLatin1String("unicode");
+    const QString value = unicode
+        ? entry.value(QStringLiteral("emoji")).toString()
+        : entry.value(QStringLiteral("shortcode")).toString();
+    if (token.first < 0 || value.isEmpty())
+        return {};
+    // The same replacements acceptEmojiCompletionAt and
+    // acceptUnicodeEmojiCompletionAt make in this composer's own text.
+    const QString replacement = unicode
+        ? value + QStringLiteral(" ")
+        : QLatin1Char(':') + value + QStringLiteral(": ");
+    if (unicode && m_unicodeEmojiUseRecorder)
+        m_unicodeEmojiUseRecorder(value);
+    return QVariantMap{
+        { QStringLiteral("start"), token.first },
+        { QStringLiteral("length"), token.second },
+        { QStringLiteral("replacement"), replacement },
+        { QStringLiteral("cursor"), token.first + replacement.length() },
+    };
+}
+
+QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
+                                                     int cursorPos)
+{
+    if (!m_emojiAutoConvert || !m_unicodeShortcodeResolver)
+        return {};
+    if (cursorPos < 1 || cursorPos > text.size())
+        return {};
+    if (text.at(cursorPos - 1) != QLatin1Char(' '))
+        return {}; // only "...:alias:| " (space just typed) auto-converts live
+    if (insideCode(text, cursorPos))
+        return {};
+    const auto token = completeShortcodeEndingAt(text, cursorPos - 1);
+    if (token.first < 0)
+        return {};
+    const QString code = text.mid(token.first + 1, token.second - 2);
+    // A custom pack shortcode of the same name wins; this flag only auto-
+    // converts Unicode aliases and must not shadow the existing
+    // `:shortcode:`-stays-literal-until-send custom behaviour.
+    if (m_emoticonResolver && !m_emoticonResolver(code).isEmpty())
+        return {};
+    const QString emoji = m_unicodeShortcodeResolver(code);
+    if (emoji.isEmpty())
+        return {};
+    if (m_unicodeEmojiUseRecorder)
+        m_unicodeEmojiUseRecorder(emoji);
+    return QVariantMap{
+        { QStringLiteral("start"), token.first },
+        { QStringLiteral("length"), token.second },
+        { QStringLiteral("replacement"), emoji },
+        // +1: the space stays in place.
+        { QStringLiteral("cursor"), token.first + emoji.length() + 1 },
+    };
+}
+
+void MessageComposer::applyOutgoingEmoji(QString &body,
+                                         QVariantMap &bodySpec) const
+{
+    // The "or send" half of the Unicode auto-convert, for the markdown lane
+    // only (an html body is already what the user saw).
+    if (m_emojiAutoConvert && !bodySpec.contains(QStringLiteral("format")))
+        body = convertUnicodeShortcodesForSend(body);
+    const QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
+    if (emoticons.isEmpty())
+        return;
+    if (!bodySpec.contains(QStringLiteral("format")))
+        bodySpec.insert(QStringLiteral("format"), QStringLiteral("markdown"));
+    bodySpec.insert(QStringLiteral("emoticons"), emoticons);
 }
 
 int MessageComposer::acceptEmojiCompletionAt(int cursorPos,
@@ -1270,7 +1416,8 @@ int MessageComposer::insertMention(const QString &userId,
 void MessageComposer::beginReply(const QString &eventId,
                                   const QString &sender,
                                   const QString &preview,
-                                  const QString &mediaKey)
+                                  const QString &mediaKey,
+                                  const QString &threadRootId)
 {
     m_editingEventId.clear();
     m_editSeedText.clear();
@@ -1282,6 +1429,10 @@ void MessageComposer::beginReply(const QString &eventId,
     m_replyingToPreview = preview;
     m_replyingToMediaKey = mediaKey;
     Q_EMIT replyStateChanged();
+    if (m_replyThreadRootId != threadRootId) {
+        m_replyThreadRootId = threadRootId;
+        Q_EMIT threadStateChanged();
+    }
     // The reply target is part of the draft.
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
         m_draftDebounce.start();
@@ -1297,6 +1448,7 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
+    m_replyThreadRootId.clear();
     Q_EMIT replyStateChanged();
     m_threadRootId.clear();
     m_threadPreview.clear();
@@ -1332,6 +1484,7 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
+    m_replyThreadRootId.clear();
     Q_EMIT replyStateChanged();
     m_threadRootId  = rootEventId;
     m_threadPreview = preview;
@@ -1342,7 +1495,9 @@ void MessageComposer::cancelReplyOrEdit()
 {
     const bool wasReplying = !m_replyingToEventId.isEmpty();
     const bool wasEditing  = !m_editingEventId.isEmpty();
-    const bool wasInThread = !m_threadRootId.isEmpty();
+    const bool wasInThread = !m_threadRootId.isEmpty()
+        || !m_replyThreadRootId.isEmpty();
+    m_replyThreadRootId.clear();
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
@@ -1420,7 +1575,7 @@ void MessageComposer::createPoll(const QString &question,
                                  int maxSelections)
 {
     if (!m_client || m_roomId.isEmpty()) return;
-    m_client->createPoll(m_roomId, m_threadRootId, question, answers,
+    m_client->createPoll(m_roomId, sendThreadRootId(), question, answers,
                          undisclosed, maxSelections);
 }
 

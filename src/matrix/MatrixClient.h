@@ -263,6 +263,12 @@ public:
         Q_UNUSED(rootEventId);
     }
     virtual void closeThread() {}
+    // Thread style "Inline" (Nheko-like): when true, true m.thread replies stay
+    // in the room's live timeline (TimelineFocus::Live with
+    // hide_threaded_events = false) instead of only in their thread. Applies
+    // to the next live timeline the backend builds; the caller reopens the
+    // current room. Default false keeps CLAUDE.md §8's panel behaviour.
+    virtual void setThreadRepliesInLiveTimeline(bool inLive) { Q_UNUSED(inLive); }
     // Manual decryption retry for a room's unable-to-decrypt events against key
     // material that has arrived since. No-op without a crypto machine. Never
     // resets any store.

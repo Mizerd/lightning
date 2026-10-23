@@ -322,8 +322,8 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("composer.focus")]
         }
-        enabled: timelinePane.composerFocusable && !quickSwitcher.visible
-        onActivated: timelinePane.focusComposerForTyping()
+        enabled: timelinePane.composerShortcutAvailable && !quickSwitcher.visible
+        onActivated: timelinePane.focusComposerShortcut()
     }
 
     Shortcut {
@@ -331,8 +331,8 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("timeline.selectLatestMessage")]
         }
-        enabled: timelinePane.timelineFocusable && !quickSwitcher.visible
-        onActivated: timelinePane.focusTimeline()
+        enabled: timelinePane.selectionShortcutAvailable && !quickSwitcher.visible
+        onActivated: timelinePane.focusTimelineShortcut()
     }
 
     Shortcut {
@@ -340,8 +340,8 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("timeline.resumeMessageSelection")]
         }
-        enabled: timelinePane.timelineFocusable && !quickSwitcher.visible
-        onActivated: timelinePane.resumeTimeline()
+        enabled: timelinePane.selectionShortcutAvailable && !quickSwitcher.visible
+        onActivated: timelinePane.resumeTimelineShortcut()
     }
 
     // Global server-side message search (Ctrl+Shift+F).

@@ -113,6 +113,9 @@ public:
         // video waiting for its poster dispatches later). Empty for a plain
         // send. In a thread it is the thread message being replied to.
         QString replyToEventId;
+        // Inline thread style: the thread this row is sent into (SDK thread
+        // path); empty sends to the room.
+        QString threadRootId;
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);

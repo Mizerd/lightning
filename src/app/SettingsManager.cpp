@@ -104,6 +104,7 @@ constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // Presentation-only timeline preferences; the model keeps every event, so
 // changing them never requires a resync.
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
+constexpr auto kHideThreadReplies   = "timeline/hideThreadReplies";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
@@ -112,6 +113,7 @@ constexpr auto kHighContrast        = "ui/highContrast";
 constexpr auto kUnderlineLinks      = "ui/underlineLinks";
 constexpr auto kNameColorCorrection = "ui/nameColorCorrection";
 constexpr auto kMessageSpacing      = "ui/messageSpacing";
+constexpr auto kThreadStyle         = "ui/threadStyle";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
@@ -716,6 +718,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT underlineLinksChanged();
     Q_EMIT nameColorCorrectionChanged();
     Q_EMIT messageSpacingChanged();
+    Q_EMIT threadStyleChanged();
     Q_EMIT smoothScrollingChanged();
     Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
@@ -3901,6 +3904,19 @@ void SettingsManager::setGifPreferredProvider(const QString &id)
     Q_EMIT gifPreferredProviderChanged();
 }
 
+bool SettingsManager::hideThreadReplies() const
+{
+    return m_store->value(kHideThreadReplies, false).toBool();
+}
+
+void SettingsManager::setHideThreadReplies(bool hide)
+{
+    if (hideThreadReplies() == hide)
+        return;
+    m_store->setValue(kHideThreadReplies, hide);
+    Q_EMIT hideThreadRepliesChanged();
+}
+
 bool SettingsManager::showRoomActivity() const
 {
     return m_store->value(kShowRoomActivity, true).toBool();
@@ -4029,6 +4045,26 @@ void SettingsManager::setMessageSpacing(int mode)
         return;
     setAppearanceValue(kMessageSpacing, mode);
     Q_EMIT messageSpacingChanged();
+}
+
+int SettingsManager::threadStyle() const
+{
+    // An unknown value (a newer build's third style) falls back to the
+    // default, never to the nearest end of the range.
+    const int stored =
+        appearanceValue(kThreadStyle, kThreadStylePanel).toInt();
+    return (stored == kThreadStyleInline) ? kThreadStyleInline
+                                          : kThreadStylePanel;
+}
+
+void SettingsManager::setThreadStyle(int style)
+{
+    if (style != kThreadStyleInline)
+        style = kThreadStylePanel;
+    if (threadStyle() == style)
+        return;
+    setAppearanceValue(kThreadStyle, style);
+    Q_EMIT threadStyleChanged();
 }
 
 bool SettingsManager::smoothScrolling() const

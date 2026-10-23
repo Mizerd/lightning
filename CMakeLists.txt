@@ -5091,6 +5091,20 @@ if(BUILD_TESTING)
     set_tests_properties(message-selection-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Thread style: inline (Nheko-like) interleaving, tags, thread filters and
+    # the narrowed composer; thread panel shortcode completion, double-click
+    # reply and selection shortcuts.
+    qt_add_executable(thread-style-qml-test
+        tests/ThreadStyleQmlTest.cpp
+    )
+    lightning_configure_qml_test(thread-style-qml-test)
+    target_include_directories(thread-style-qml-test PRIVATE src)
+    target_compile_definitions(thread-style-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME thread-style-qml COMMAND thread-style-qml-test)
+    set_tests_properties(thread-style-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A finger is not a right button: a touch tap on a room row opens the
     # room without its menu, a long press opens the menu without the room,
     # and no right-button-only TapHandler lets touch in.

@@ -40,6 +40,18 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString threadRootId READ threadRootId NOTIFY threadStateChanged)
     Q_PROPERTY(QString threadPreview READ threadPreview NOTIFY threadStateChanged)
     Q_PROPERTY(bool inThread READ inThread NOTIFY threadStateChanged)
+    // Inline thread style: while the room timeline is filtered to one thread,
+    // everything this composer sends goes into that thread through the SDK
+    // thread path (CLAUDE.md §8), never as an ordinary room send. Persistent
+    // until cleared (unlike the one-shot beginThreadReply), so it survives
+    // every send and reply. Set by AppController from the timeline filter.
+    Q_PROPERTY(QString threadTargetRootId READ threadTargetRootId
+                   WRITE setThreadTargetRootId NOTIFY threadStateChanged)
+    // The thread the NEXT send lands in, or empty for the room: the one-shot
+    // thread reply, else the thread of the message being replied to (inline
+    // style shows thread replies in the room timeline), else the target above.
+    Q_PROPERTY(QString sendThreadRootId READ sendThreadRootId
+                   NOTIFY threadStateChanged)
     // Attachment tray (Rust backend; SDK send queue).
     Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
@@ -105,6 +117,9 @@ public:
     bool isReplying() const { return !m_replyingToEventId.isEmpty(); }
     bool isEditing()  const { return !m_editingEventId.isEmpty(); }
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
+    QString threadTargetRootId() const { return m_threadTargetRootId; }
+    void setThreadTargetRootId(const QString &rootEventId);
+    QString sendThreadRootId() const;
 
     bool canSend() const;
 
@@ -182,6 +197,22 @@ public:
     /// use for recents.
     Q_INVOKABLE int acceptUnicodeEmojiCompletionAt(int cursorPos,
                                                    const QString &emoji);
+    // The same completion and auto-convert over ANY editor's text, for a
+    // composer that keeps its own text (the thread panel). They return the
+    // edit to make rather than making it, as {start, length, replacement,
+    // cursor}, or an empty map: the caller replaces [start, start+length) in
+    // its editor (plain or rich, both share the plain-text coordinates).
+    Q_INVOKABLE QVariantList emojiCompletionsForText(const QString &text,
+                                                     int cursorPos) const;
+    Q_INVOKABLE QVariantMap emojiCompletionEdit(const QString &text,
+                                                int cursorPos,
+                                                const QVariantMap &entry);
+    Q_INVOKABLE QVariantMap shortcodeAutoConvertEdit(const QString &text,
+                                                     int cursorPos);
+    // The send-time emoji pass every send makes: remaining `:alias:` Unicode
+    // shortcodes on the markdown lane, and installed-pack `:shortcode:`s into
+    // bodySpec's emoticon map (MSC2545). Shared with the thread composer.
+    void applyOutgoingEmoji(QString &body, QVariantMap &bodySpec) const;
     /// Supplies the candidates. Set by AppController from the installed packs;
     /// without it completion is never offered.
     void setEmoticonSearch(
@@ -216,10 +247,14 @@ public:
     void setEmojiAutoConvertEnabled(bool enabled);
     bool emojiAutoConvertEnabled() const { return m_emojiAutoConvert; }
     Q_INVOKABLE void clear();
+    // `threadRootId`: the replied-to message's own thread, when it is a thread
+    // reply shown in the room timeline (inline thread style). The reply is then
+    // sent into that thread as an in-thread rich reply.
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
                                 const QString &preview,
-                                const QString &mediaKey = QString());
+                                const QString &mediaKey = QString(),
+                                const QString &threadRootId = QString());
     // sanitizedHtml (optional): the event's sanitized formatted body, used to
     // recover mention refs when the plain body carries display text.
     // `timelineId` names the timeline holding the event: the room id from the
@@ -433,6 +468,9 @@ private:
         return m_editingTimelineId.isEmpty() ? m_roomId : m_editingTimelineId;
     }
     QString m_threadRootId;
+    QString m_threadTargetRootId;
+    // The thread of the message being replied to (see beginReply).
+    QString m_replyThreadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;
     QString m_commandError;
