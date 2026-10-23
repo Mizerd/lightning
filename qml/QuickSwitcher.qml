@@ -530,6 +530,12 @@ Popup {
 
     background: Item {
         id: bgWrap
+        // Forward before specific handlers such as onReturnPressed. Merely
+        // claiming ShortcutOverride does not prevent those from accepting.
+        Item {
+            id: dialogKeySink
+            Keys.onPressed: (event) => switcher.handleDialogKey(event)
+        }
         // One of the design's four shadows (composer pattern).
         MultiEffect {
             source: card
@@ -596,6 +602,7 @@ Popup {
 
             TextField {
                 id: queryField
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherField"
                 Layout.fillWidth: true
                 placeholderText: switcher.commandMode
@@ -710,6 +717,7 @@ Popup {
                 ]
                 delegate: AbstractButton {
                     id: scopeChip
+                    Keys.forwardTo: [dialogKeySink]
                     required property var modelData
                     readonly property bool selected:
                         switcher.commandScope === modelData.value
@@ -785,6 +793,7 @@ Popup {
             }
             AppButton {
                 id: searchMessagesButton
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherSearchMessages"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -808,6 +817,7 @@ Popup {
             }
             AppButton {
                 id: exploreRoomsButton
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherExploreRooms"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -851,6 +861,7 @@ Popup {
             }
             ListView {
                 id: resultList
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherList"
                 anchors.fill: parent
                 clip: true
@@ -877,6 +888,7 @@ Popup {
 
                 delegate: ItemDelegate {
                     id: row
+                    Keys.forwardTo: [dialogKeySink]
                     width: ListView.view.width
                     height: switcher.resultRowHeight
                     highlighted: ListView.isCurrentItem
@@ -981,6 +993,7 @@ Popup {
             }
             ListView {
                 id: commandList
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherCommandList"
                 anchors.fill: parent
                 clip: true
@@ -996,6 +1009,7 @@ Popup {
 
                 delegate: ItemDelegate {
                     id: cmdRow
+                    Keys.forwardTo: [dialogKeySink]
                     width: ListView.view.width
                     height: switcher.commandRowHeight
                     highlighted: ListView.isCurrentItem

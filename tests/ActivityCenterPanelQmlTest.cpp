@@ -154,6 +154,19 @@ ApplicationWindow {
         }
     }
 
+    static QQuickItem *findVisualItem(QQuickItem *item, const QString &name)
+    {
+        if (!item)
+            return nullptr;
+        if (item->objectName() == name)
+            return item;
+        for (QQuickItem *child : item->childItems()) {
+            if (auto *found = findVisualItem(child, name))
+                return found;
+        }
+        return nullptr;
+    }
+
     static QQuickItem *row(const Fixture &f, int i)
     {
         QQuickItem *content = f.list->property("contentItem").value<QQuickItem *>();
@@ -222,6 +235,54 @@ private Q_SLOTS:
         QCOMPARE(f.activity->property("openCalls").toInt(), 0);
         QTest::keyClick(w, Qt::Key_L, Qt::AltModifier);
         QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void reboundKeysPreemptFocusedControls_data()
+    {
+        QTest::addColumn<int>("key");
+        QTest::addColumn<QString>("focusName");
+        QTest::addColumn<bool>("navigate");
+        QTest::newRow("return-list") << int(Qt::Key_Return)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("enter-list") << int(Qt::Key_Enter)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("space-list") << int(Qt::Key_Space)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("return-button") << int(Qt::Key_Return)
+            << QStringLiteral("activityMarkAllSeen") << false;
+        QTest::newRow("return-filter") << int(Qt::Key_Return)
+            << QStringLiteral("activityFilter_mentions") << false;
+        QTest::newRow("page-list") << int(Qt::Key_PageDown)
+            << QStringLiteral("activityList") << true;
+    }
+
+    void reboundKeysPreemptFocusedControls()
+    {
+        QFETCH(int, key);
+        QFETCH(QString, focusName);
+        QFETCH(bool, navigate);
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *focus = findVisualItem(w ? w->contentItem() : nullptr, focusName);
+        QVERIFY(w);
+        QVERIFY(focus);
+        const QString action = navigate ? QStringLiteral("dialog.nextItem")
+                                        : QStringLiteral("dialog.close");
+        const QString sequence = f.shortcuts->sequenceFromKeyEvent(key, Qt::ControlModifier);
+        QCOMPARE(f.shortcuts->setBinding(action, sequence), QString());
+        focus->forceActiveFocus();
+        QVERIFY(focus->hasActiveFocus());
+        QTest::keyClick(w, static_cast<Qt::Key>(key), Qt::ControlModifier);
+        if (navigate) {
+            QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+            QVERIFY(f.panel->property("visible").toBool());
+        } else {
+            QTRY_VERIFY(!f.panel->property("visible").toBool());
+        }
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QCOMPARE(f.activity->property("filter").toString(), QStringLiteral("all"));
         QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
     }
 

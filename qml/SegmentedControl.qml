@@ -14,6 +14,8 @@ RowLayout {
 
     property var model: []
     property var current
+    // Optional enclosing-surface shortcuts, before each segment activates.
+    property list<Item> keyForwardTargets: []
     // Compact variant for tight hosts: smaller type and padding.
     property bool dense: false
     // Fit the row into the host's width instead of overflowing (opt-in; needed
@@ -39,6 +41,7 @@ RowLayout {
         model: root.model
         delegate: AbstractButton {
             id: segment
+            Keys.forwardTo: root.keyForwardTargets
             required property var modelData
             objectName: root.objectName.length > 0
                         ? root.objectName + "_" + String(segValue) : ""

@@ -207,6 +207,7 @@ Dialog {
             Item { Layout.fillWidth: true }
             AppButton {
                 objectName: "activityMarkAllSeen"
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 kind: "ghost"
                 size: "sm"
@@ -216,6 +217,7 @@ Dialog {
                 onClicked: root.activity.markAllSeen()
             }
             IconButton {
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 iconName: "close"
                 size: "sm"
@@ -226,6 +228,7 @@ Dialog {
 
         SegmentedControl {
             objectName: "activityFilter"
+            keyForwardTargets: [dialogKeySink]
             storm: true
             dense: true
             fitWidth: true
@@ -257,6 +260,7 @@ Dialog {
             }
             AppButton {
                 objectName: "activityOpenKeywordSettings"
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 kind: "secondary"
                 size: "sm"
@@ -316,11 +320,18 @@ Dialog {
 
         Item {
             id: listHost
+            // Forward before a focused control's specific handlers and its
+            // built-in key handling; parent bubbling happens too late.
+            Item {
+                id: dialogKeySink
+                Keys.onPressed: (event) => root.handleDialogKey(event)
+            }
             Layout.fillWidth: true
             Layout.fillHeight: true
             ListView {
                 id: listView
                 objectName: "activityList"
+                Keys.forwardTo: [dialogKeySink]
                 anchors.fill: parent
                 clip: true
                 spacing: AppTheme.spacing4
