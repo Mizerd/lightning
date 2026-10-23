@@ -12,6 +12,7 @@
 
 #include <QClipboard>
 #include <QColor>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
 #include <QHash>
@@ -5515,6 +5516,28 @@ private slots:
                      "caret and the row's icon overlap")
                      .arg(caret->x() + caret->width()).arg(contentInset)));
     }
+    // How many distinct pictures the editor's caret region shows over about a
+    // second. A blinking caret shows at least two (drawn, absent); a steady one
+    // shows one. Reads pixels, because the flash time on QStyleHints only says
+    // what was REQUESTED, not that any editor stopped blinking.
+    int distinctCaretFrames(QQuickItem *editor)
+    {
+        const QRectF cursor = editor->property("cursorRectangle").toRectF();
+        const QPoint at = editor->mapToScene(cursor.topLeft()).toPoint();
+        const QRect area(at, QSize(qMax(2, int(cursor.width()) + 2),
+                                   qMax(4, int(cursor.height()))));
+        QSet<QByteArray> seen;
+        QElapsedTimer clock;
+        clock.start();
+        while (clock.elapsed() < 1000) {
+            const QImage frame = m_window->grabWindow().copy(area);
+            seen.insert(QByteArray(reinterpret_cast<const char *>(frame.constBits()),
+                                   frame.sizeInBytes()));
+            QTest::qWait(30);
+        }
+        return seen.size();
+    }
+
     void cursorBlinkPreferenceAppliesImmediatelyAndPersists()
     {
         auto *settings = m_controller->settings();
@@ -5548,6 +5571,19 @@ private slots:
             editor->forceActiveFocus();
             QTRY_VERIFY(editor->hasActiveFocus());
             QCOMPARE(hints->cursorFlashTime(), 0);
+            // The editor itself stopped blinking, not only the hint.
+            QCOMPARE(distinctCaretFrames(editor), 1);
+            // Control: the same editor blinks once a flash time is back.
+            // Without it a steady picture could just be a caret that never
+            // draws, and the assertion above would pass on anything.
+            hints->setCursorFlashTime(200);
+            editor->setProperty("focus", false);
+            editor->forceActiveFocus();
+            QTRY_VERIFY(editor->hasActiveFocus());
+            QVERIFY2(distinctCaretFrames(editor) >= 2,
+                     "the control editor never blinks, so the steadiness "
+                     "assertion above proves nothing");
+            hints->setCursorFlashTime(0);
         }
         openSection(QStringLiteral("appearance"));
         clickItem(check);

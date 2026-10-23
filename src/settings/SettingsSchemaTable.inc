@@ -9,6 +9,7 @@
     { QStringLiteral("clockFormat"), Kind::Int, 0, 2, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("reducedMotion"), Kind::Bool, 0, 0, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(false) },
     { QStringLiteral("smoothScrolling"), Kind::Bool, 0, 0, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(true) },
+    { QStringLiteral("disableCursorBlink"), Kind::Bool, 0, 0, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(false) },
     { QStringLiteral("interfaceZoom"), Kind::Int, 75, 150, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(int(100)) },
     { QStringLiteral("textRendering"), Kind::Int, 0, 1, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("timelineWheelSpeed"), Kind::Int, 0, 2, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(int(1)) },
