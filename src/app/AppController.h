@@ -1668,6 +1668,11 @@ private:
     void refreshMainWindowState();
     // Taskbar flash / Dock bounce while the main window is not in front.
     void alertMainWindow();
+public:
+    // A notification click on Wayland without a daemon token: ask the
+    // compositor for activation the way alert() does (GitHub #49).
+    Q_INVOKABLE void activateMainWindowForNotificationClick();
+private:
     // eventAppended and liveEventObserved: notification + Activity Center.
     void handleLiveEvent(const QString &composedRoomId,
                          const TimelineEvent &event);

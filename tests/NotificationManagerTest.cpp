@@ -130,6 +130,8 @@ private Q_SLOTS:
     void aRoomsSecondMessageUpdatesItsCard();
     void theSnapIdentityIsOneTheHostCanResolve();
     void aClickHandsTheActivationTokenToTheWindow();
+    void markAsReadNeverAsksForActivationOrOpensTheApp();
+    void aClickWithoutATokenSaysSo();
     void theSilentCallCardSuppressesTheDesktopsSound();
     void theSameCallIsNeverBalloonedTwice();
     void dismissingTheCallCardStopsTheRinger();
@@ -2721,6 +2723,62 @@ void NotificationManagerTest::aClickHandsTheActivationTokenToTheWindow()
                                       Q_ARG(QString, QStringLiteral("default"))));
     QCOMPARE(qEnvironmentVariable("XDG_ACTIVATION_TOKEN"),
              QStringLiteral("tok-1"));
+    qunsetenv("XDG_ACTIVATION_TOKEN");
+}
+
+// GitHub #49: "Mark as read" is silent. It must not open the app, hand a token
+// to the window, or leave one that a later click could use.
+void NotificationManagerTest::markAsReadNeverAsksForActivationOrOpensTheApp()
+{
+    qunsetenv("XDG_ACTIVATION_TOKEN");
+    NotificationManager manager;
+    manager.setAssumeWaylandForTest(true);
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    manager.recordPayloadForTest(
+        21, messagePayload(QStringLiteral("!room:example.org"),
+                           QStringLiteral("$e:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActivationToken",
+                                      Q_ARG(quint32, 21u),
+                                      Q_ARG(QString, QStringLiteral("tok-r"))));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 21u),
+                                      Q_ARG(QString, QStringLiteral("mark-read"))));
+    QCOMPARE(opened.count(), 0);
+    QVERIFY(qEnvironmentVariable("XDG_ACTIVATION_TOKEN").isEmpty());
+    // A daemon that double-delivers a default for the answered card.
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 21u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QCOMPARE(opened.count(), 0);
+    QVERIFY(qEnvironmentVariable("XDG_ACTIVATION_TOKEN").isEmpty());
+    QVERIFY(!manager.lastClickHadActivationToken());
+}
+
+// Without a daemon token the window must know, so a Wayland click can fall
+// back to a serial-less activation request (GitHub #49).
+void NotificationManagerTest::aClickWithoutATokenSaysSo()
+{
+    qunsetenv("XDG_ACTIVATION_TOKEN");
+    NotificationManager manager;
+    manager.setAssumeWaylandForTest(true);
+    manager.recordPayloadForTest(
+        31, messagePayload(QStringLiteral("!room:example.org"),
+                           QStringLiteral("$e:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 31u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QVERIFY(!manager.lastClickHadActivationToken());
+    manager.recordPayloadForTest(
+        32, messagePayload(QStringLiteral("!room:example.org"),
+                           QStringLiteral("$f:x")));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActivationToken",
+                                      Q_ARG(quint32, 32u),
+                                      Q_ARG(QString, QStringLiteral("tok-2"))));
+    QVERIFY(QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 32u),
+                                      Q_ARG(QString, QStringLiteral("default"))));
+    QVERIFY(manager.lastClickHadActivationToken());
+    QVERIFY(!manager.lastClickHadActivationToken());
     qunsetenv("XDG_ACTIVATION_TOKEN");
 }
 

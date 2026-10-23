@@ -3268,6 +3268,7 @@ void NotificationManager::onActivationToken(quint32 id, const QString &token)
 void NotificationManager::applyActivationToken(quint32 id)
 {
     const QString token = m_activationTokens.take(id);
+    m_lastClickHadToken = !token.isEmpty();
     if (token.isEmpty())
         return;
     // As for a second launch (main.cpp): Qt's Wayland shell integration reads

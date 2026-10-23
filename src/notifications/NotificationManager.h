@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <QElapsedTimer>
 #include <QHash>
 #include <QPointer>
@@ -35,6 +37,10 @@ class NotificationManager : public QObject
 {
     Q_OBJECT
 public:
+    /// Whether the last click that opened the app carried a daemon-supplied
+    /// xdg-activation token. Consumed by the read.
+    bool lastClickHadActivationToken() { return std::exchange(m_lastClickHadToken, false); }
+
     // SettingsManager's notificationPreview values.
     enum PreviewMode { SenderAndMessage = 0, SenderOnly = 1, Private = 2 };
     Q_ENUM(PreviewMode)
@@ -877,6 +883,7 @@ private:
     QVariantMap payloadFor(quint32 id) const;
     // Activation tokens by notification id, until the action they precede.
     QHash<quint32, QString> m_activationTokens;
+    bool m_lastClickHadToken = false;
     bool m_assumeWayland = false;
 
     QElapsedTimer m_clock;

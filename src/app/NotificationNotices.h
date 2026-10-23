@@ -412,6 +412,28 @@ inline bool mainWindowCountsAsActive(bool windowActive, bool minimized,
     return windowActive && !minimized && !hidden;
 }
 
+/// Whether QWindow::alert() may be used for a taskbar flash on this platform.
+/// Never on Wayland: Qt's backend implements the alert state by requesting an
+/// xdg-activation token and activating the surface, so "flash the taskbar"
+/// becomes a real raise and focus steal (GitHub #49). There is no flash there.
+inline bool windowAlertAllowed(const QString &platformName)
+{
+    return !platformName.startsWith(QLatin1String("wayland"),
+                                    Qt::CaseInsensitive);
+}
+
+/// Whether a notification CLICK should ask the compositor for activation with
+/// alert() because no daemon token is available. On Wayland the window's own
+/// requestActivate() carries a stale input serial and is refused; alert()
+/// requests a token without one. Only ever for a deliberate click.
+inline bool clickNeedsAlertActivation(const QString &platformName,
+                                      bool daemonTokenApplied)
+{
+    return !daemonTokenApplied
+        && platformName.startsWith(QLatin1String("wayland"),
+                                   Qt::CaseInsensitive);
+}
+
 /// "Mark as read" on a Space, with Home's filter (RoomListModel::
 /// markAllRoomsRead): never a room the user marked unread to come back to,
 /// never an invite, a Space, or a room with nothing unread (a receipt there

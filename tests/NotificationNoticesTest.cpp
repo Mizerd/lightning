@@ -269,6 +269,21 @@ private Q_SLOTS:
         QVERIFY(!mainWindowCountsAsActive(true, false, /*hidden=*/true));
     }
 
+    void waylandNeverGetsAnAlertThatBecomesAnActivation()
+    {
+        using notices::clickNeedsAlertActivation;
+        using notices::windowAlertAllowed;
+        QVERIFY(!windowAlertAllowed(QStringLiteral("wayland")));
+        QVERIFY(!windowAlertAllowed(QStringLiteral("wayland-egl")));
+        QVERIFY(windowAlertAllowed(QStringLiteral("xcb")));
+        QVERIFY(windowAlertAllowed(QStringLiteral("windows")));
+        QVERIFY(windowAlertAllowed(QStringLiteral("cocoa")));
+        // A click with no daemon token falls back to alert() on Wayland only.
+        QVERIFY(clickNeedsAlertActivation(QStringLiteral("wayland"), false));
+        QVERIFY(!clickNeedsAlertActivation(QStringLiteral("wayland"), true));
+        QVERIFY(!clickNeedsAlertActivation(QStringLiteral("xcb"), false));
+    }
+
     void theTrayNamesTheAccountWithoutItsAddress()
     {
         using notices::trayAccountLabel;

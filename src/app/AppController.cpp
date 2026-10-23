@@ -5698,7 +5698,24 @@ void AppController::alertMainWindow()
         || (focusBelongsToMainWindow(window, QGuiApplication::focusWindow())
             && window->visibility() != QWindow::Minimized))
         return;
+    // Not on Wayland: Qt turns alert() into an xdg-activation request there,
+    // so every message would raise and focus the window (GitHub #49).
+    if (!notices::windowAlertAllowed(QGuiApplication::platformName()))
+        return;
     window->alert(0);
+}
+
+void AppController::activateMainWindowForNotificationClick()
+{
+    // A deliberate click only. Without the daemon's ActivationToken, Wayland
+    // refuses requestActivate() (stale input serial); alert() asks for a
+    // token with no serial and so can bring the window forward.
+    if (!notices::clickNeedsAlertActivation(QGuiApplication::platformName(),
+                                            m_notifications
+                                                && m_notifications->lastClickHadActivationToken()))
+        return;
+    if (QQuickWindow *window = mainWindow())
+        window->alert(0);
 }
 
 void AppController::noteRtcSessionForRing(const QString &roomId)

@@ -325,6 +325,7 @@ ApplicationWindow {
         target: app
         function onNotificationOpenRequested(roomId, eventId, threadRootId) {
             window.raiseIntoView()
+            app.activateMainWindowForNotificationClick()
             if (roomId === "")
                 return
             app.showMain()
