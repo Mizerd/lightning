@@ -5,6 +5,8 @@ import MatrixClient
 
 Item {
     id: root
+    // Compact list setting: no preview line (invites keep theirs).
+    readonly property bool compactRows: app.settings.compactRoomList
     implicitHeight: content.implicitHeight + AppTheme.spacing6 * 2
     Accessible.role: Accessible.ListItem
     Accessible.name: {
@@ -220,10 +222,12 @@ Item {
             spacing: 2
 
             RowLayout {
+                id: nameRow
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
                 Label {
                     id: nameLabel
+                    objectName: "roomNameLabel"
                     text: model.name
                     textFormat: Text.PlainText
                     // Read rows dim; unread and selected keep full ink. A muted
@@ -241,6 +245,8 @@ Item {
                     // left is mirrored with the layout.
                     horizontalAlignment: Text.AlignLeft
                     Layout.fillWidth: true
+                    // A bridge chip can never squeeze the name to nothing.
+                    Layout.minimumWidth: Math.min(implicitWidth, 72)
                     // A name cut to fit the row stays readable (C06 F05).
                     ToolTip.visible: nameHover.hovered && nameLabel.truncated
                     ToolTip.delay: 600
@@ -257,10 +263,16 @@ Item {
                     objectName: "roomNetworkTagLoader"
                     readonly property string label: model.networkLabel || ""
                     readonly property bool tagSelected: selected
-                    active: label !== ""
+                    active: label !== "" && app.settings.showBridgeBadges
                     visible: active
+                    // The name always wins the row: the chip may take at most
+                    // a third of it and elides inside that.
+                    Layout.maximumWidth: Math.max(0, nameRow.width / 3)
+                    Layout.alignment: Qt.AlignVCenter
                     sourceComponent: Label {
                         objectName: "roomNetworkTag"
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
                         text: networkTagLoader.label
                         textFormat: Text.PlainText
                         color: networkTagLoader.tagSelected
@@ -316,11 +328,16 @@ Item {
             }
 
             RowLayout {
+                id: previewRow
+                // Compact list: one line per row. The unread indicators move
+                // up to the name line; invites keep their own lines.
+                visible: !root.compactRows || model.membership === "invited"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
 
                 Label {
                     objectName: "roomPreviewLabel"
+                    visible: !root.compactRows
                     text: model.lastMessagePreview
                     color: selected ? AppTheme.roomSelectedPreview : AppTheme.roomPreview
                     opacity: selected ? 0.9 : 1.0
@@ -341,82 +358,91 @@ Item {
                     Layout.fillWidth: true
                 }
 
-                // The count pill sits on the preview line (as Element does), so
-                // the timestamp does not shift as counts change. An unread room
-                // with no count still says so: servers often report 0 for a
-                // genuinely unread room (counts follow push rules), so show a
-                // dot.
-                Rectangle {
-                    id: roomUnreadDot
-                    objectName: "roomUnreadDot"
-                    visible: root.isUnread && !root.hasCountBadge && !root.muted
-                             && !root.threadOnly
-                    implicitWidth: 8
-                    implicitHeight: 8
-                    radius: 4
-                    Layout.alignment: Qt.AlignVCenter
-                    // Muted rooms keep the dot in muted ink; otherwise the
-                    // theme's unread colour, in a ring that reads on every
-                    // row state.
-                    color: root.muted ? root.metaInk : AppTheme.unreadDot
-                    border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
-                    border.color: AppTheme.unreadDotRing
-                }
-                ThreadUnreadBadge {
-                    kind: root.threadOnly ? model.threadUnreadKind : 0
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Label {
-                    objectName: "roomUnreadBadge"
-                    visible: root.hasCountBadge
-                    // A mention carries "@", not colour alone (WCAG 1.4.1);
-                    // the accessible name stays the number.
-                    text: model.highlightCount > 0 ? "@" + model.highlightCount
-                                                   : model.unreadCount
-                    Accessible.name: String(model.highlightCount > 0 ? model.highlightCount
-                                                                     : model.unreadCount)
-                    // Mentions keep their colour even when muted; a muted plain
-                    // count becomes an outline pill in muted ink.
-                    color: model.highlightCount > 0 ? AppTheme.mentionBadgeInk
-                         : root.muted ? root.metaInk
-                                      : AppTheme.unreadCountInk
-                    background: Rectangle {
-                        // A count's fill is one its number reads on
-                        // (unreadCountFill); a mention's is roomMentionBadge.
-                        color: model.highlightCount > 0 ? AppTheme.roomMentionBadge
-                             : root.muted ? "transparent"
-                                          : AppTheme.unreadCountFill
-                        border.width: root.muted && model.highlightCount === 0
-                                      ? 1 : 0
-                        border.color: AppTheme.chipNeutralBorder
-                        radius: AppTheme.radiusPill
+                RowLayout {
+                    id: unreadIndicators
+                    objectName: "roomUnreadIndicators"
+                    spacing: AppTheme.spacing6
+                    // The count pill sits on the preview line (as Element
+                    // does); a compact list has no such line, so it joins the
+                    // name line.
+                    parent: root.compactRows ? nameRow : previewRow
+                    // The count pill sits on the preview line (as Element does), so
+                    // the timestamp does not shift as counts change. An unread room
+                    // with no count still says so: servers often report 0 for a
+                    // genuinely unread room (counts follow push rules), so show a
+                    // dot.
+                    Rectangle {
+                        id: roomUnreadDot
+                        objectName: "roomUnreadDot"
+                        visible: root.isUnread && !root.hasCountBadge && !root.muted
+                                 && !root.threadOnly
+                        implicitWidth: 8
+                        implicitHeight: 8
+                        radius: 4
+                        Layout.alignment: Qt.AlignVCenter
+                        // Muted rooms keep the dot in muted ink; otherwise the
+                        // theme's unread colour, in a ring that reads on every
+                        // row state.
+                        color: root.muted ? root.metaInk : AppTheme.unreadDot
+                        border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
+                        border.color: AppTheme.unreadDotRing
                     }
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: AppTheme.spacing6
-                    rightPadding: AppTheme.spacing6
-                    font.pixelSize: AppTheme.textMicro
-                    font.weight: AppTheme.weightBold
-                    // A single digit renders as a circle.
-                    Layout.preferredHeight: 18
-                    Layout.minimumWidth: 18
-                }
+                    ThreadUnreadBadge {
+                        kind: root.threadOnly ? model.threadUnreadKind : 0
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Label {
+                        objectName: "roomUnreadBadge"
+                        visible: root.hasCountBadge
+                        // A mention carries "@", not colour alone (WCAG 1.4.1);
+                        // the accessible name stays the number.
+                        text: model.highlightCount > 0 ? "@" + model.highlightCount
+                                                       : model.unreadCount
+                        Accessible.name: String(model.highlightCount > 0 ? model.highlightCount
+                                                                         : model.unreadCount)
+                        // Mentions keep their colour even when muted; a muted plain
+                        // count becomes an outline pill in muted ink.
+                        color: model.highlightCount > 0 ? AppTheme.mentionBadgeInk
+                             : root.muted ? root.metaInk
+                                          : AppTheme.unreadCountInk
+                        background: Rectangle {
+                            // A count's fill is one its number reads on
+                            // (unreadCountFill); a mention's is roomMentionBadge.
+                            color: model.highlightCount > 0 ? AppTheme.roomMentionBadge
+                                 : root.muted ? "transparent"
+                                              : AppTheme.unreadCountFill
+                            border.width: root.muted && model.highlightCount === 0
+                                          ? 1 : 0
+                            border.color: AppTheme.chipNeutralBorder
+                            radius: AppTheme.radiusPill
+                        }
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: AppTheme.spacing6
+                        rightPadding: AppTheme.spacing6
+                        font.pixelSize: AppTheme.textMicro
+                        font.weight: AppTheme.weightBold
+                        // A single digit renders as a circle.
+                        Layout.preferredHeight: 18
+                        Layout.minimumWidth: 18
+                    }
 
-                // Marked-unread dot, shown only without a numeric badge, in the
-                // unreadBadge colour, inline next to where the pill would be.
-                // Never beside the ordinary dot: a room that is both unread and
-                // marked would draw two.
-                Rectangle {
-                    objectName: "roomMarkedUnreadDot"
-                    visible: model.markedUnread && !root.hasCountBadge
-                             && !roomUnreadDot.visible
-                    Layout.preferredWidth: 8
-                    Layout.preferredHeight: 8
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: 4
-                    color: root.muted ? root.metaInk : AppTheme.unreadDot
-                    border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
-                    border.color: AppTheme.unreadDotRing
+                    // Marked-unread dot, shown only without a numeric badge, in the
+                    // unreadBadge colour, inline next to where the pill would be.
+                    // Never beside the ordinary dot: a room that is both unread and
+                    // marked would draw two.
+                    Rectangle {
+                        objectName: "roomMarkedUnreadDot"
+                        visible: model.markedUnread && !root.hasCountBadge
+                                 && !roomUnreadDot.visible
+                        Layout.preferredWidth: 8
+                        Layout.preferredHeight: 8
+                        Layout.alignment: Qt.AlignVCenter
+                        radius: 4
+                        color: root.muted ? root.metaInk : AppTheme.unreadDot
+                        border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
+                        border.color: AppTheme.unreadDotRing
+                    }
                 }
             }
 

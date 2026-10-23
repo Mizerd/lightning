@@ -623,6 +623,7 @@ Rectangle {
                        : [ { label: qsTr("All"), value: 0 },
                            { label: qsTr("People"), value: 1 },
                            { label: qsTr("Rooms"), value: 2 },
+                           { label: qsTr("Favourites"), value: 4 },
                            { label: qsTr("Unreads"), value: 3 } ]
                 // Reads the setting it writes, not the model: one direction,
                 // chips -> setting -> model.

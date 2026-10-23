@@ -165,6 +165,14 @@ Item {
 
     // The Classic row, instantiated by a ListView from model roles exactly as
     // the room list gives them.
+    // Fixture knobs for the next buildClassicRow: the room's name, its bridge
+    // label, the two room-list settings and the list width.
+    QString fxName = QStringLiteral("Room");
+    QString fxNetworkLabel;
+    bool fxBadges = true;
+    bool fxCompact = false;
+    int fxWidth = 300;
+
     struct ClassicRow {
         QStringList warnings;
         std::unique_ptr<QObject> appStub;
@@ -188,10 +196,12 @@ Item {
                         h.warnings << e.toString();
                 });
         QQmlComponent stub(h.engine.get());
-        stub.setData(QByteArrayLiteral(R"(
+        stub.setData(QStringLiteral(R"(
 import QtQuick
 QtObject {
     property QtObject settings: QtObject {
+        property bool showBridgeBadges: %1
+        property bool compactRoomList: %2
         signal roomNotificationModeChanged(string roomId)
         property string clockTimeFormat: "HH:mm"
         function roomNotificationMode(id) { return 0 }
@@ -199,7 +209,7 @@ QtObject {
     property QtObject discovery: QtObject { function cancelKnock(id) {} }
     function textFontWithEmoji(f) { return f }
 }
-)"),
+)").arg(fxBadges ? QStringLiteral("true") : QStringLiteral("false"), fxCompact ? QStringLiteral("true") : QStringLiteral("false")).toUtf8(),
                      QUrl(QStringLiteral("qrc:/classicrow-appstub.qml")));
         if (!stub.errors().isEmpty()) {
             qWarning("%s", qPrintable(stub.errorString()));
@@ -213,28 +223,29 @@ QtObject {
 import QtQuick
 import MatrixClient
 Item {
-    width: 300
+    width: %9
     height: 200
     ListView {
         objectName: "list"
         anchors.fill: parent
         model: ListModel {
-            ListElement { roomId: "!r:x"; name: "Room"; membership: "%4"
+            ListElement { roomId: "!r:x"; name: "%7"; membership: "%4"
                           hasUnread: true; markedUnread: false
                           unreadCount: %1; highlightCount: %2
                           threadUnreadKind: %3; isDirect: %5
                           lastMessagePreview: "hello"; lastActivity: 0
                           avatarUrl: ""; encrypted: false; isSpace: false
                           invitePending: false; inviter: "%6"; isFavourite: false
-                          identityColorKey: "!r:x"; network: ""; networkLabel: ""
+                          identityColorKey: "!r:x"; network: ""; networkLabel: "%8"
                           category: "conversation"; memberCount: 3 }
         }
-        delegate: RoomDelegate { width: 300 }
+        delegate: RoomDelegate { width: %9 }
     }
 }
 )").arg(unread).arg(highlight).arg(kind)
          .arg(membership, direct ? QStringLiteral("true") : QStringLiteral("false"),
-              inviter);
+              inviter)
+         .arg(fxName, fxNetworkLabel).arg(fxWidth);
         component.setData(source.toUtf8(),
                           QUrl(QStringLiteral("qrc:/classicrow.qml")));
         if (!component.errors().isEmpty()) {
@@ -979,6 +990,59 @@ private Q_SLOTS:
             for (const QString &w : h.warnings)
                 QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
         }
+    }
+
+    // The bridge chip never hides the room name (a "Google Messages (RCS)"
+    // chip once covered a whole name at the default list width).
+    void aBridgeChipNeverHidesTheRoomName()
+    {
+        ClassicRow h;
+        fxName = QStringLiteral("Family group chat");
+        fxNetworkLabel = QStringLiteral("Google Messages (RCS)");
+        fxWidth = 260;
+        QVERIFY(buildClassicRow(h, 0, 0, 0));
+        auto *chip = h.row->findChild<QQuickItem *>(QStringLiteral("roomNetworkTag"));
+        auto *name = h.row->findChild<QQuickItem *>(QStringLiteral("roomNameLabel"));
+        QVERIFY(chip && chip->isVisible());
+        QVERIFY(name);
+        const QRectF c = chip->mapRectToItem(h.row, QRectF(0, 0, chip->width(), chip->height()));
+        const QRectF n = name->mapRectToItem(h.row, QRectF(0, 0, name->width(), name->height()));
+        QVERIFY2(n.width() >= 72, qPrintable(QStringLiteral("name width %1").arg(n.width())));
+        QVERIFY2(n.right() <= c.left() + 0.5, "the chip overlaps the name");
+        QVERIFY2(c.width() <= (n.width() + c.width()) / 2 + 0.5,
+                 "the chip took more than half of the name line");
+    }
+
+    void theBridgeBadgeSettingHidesTheChip()
+    {
+        fxNetworkLabel = QStringLiteral("WhatsApp");
+        fxBadges = false;
+        ClassicRow off;
+        QVERIFY(buildClassicRow(off, 0, 0, 0));
+        auto *chip = off.row->findChild<QQuickItem *>(QStringLiteral("roomNetworkTag"));
+        QVERIFY(!chip || !chip->isVisible());
+        fxBadges = true;
+        ClassicRow on;
+        QVERIFY(buildClassicRow(on, 0, 0, 0));
+        chip = on.row->findChild<QQuickItem *>(QStringLiteral("roomNetworkTag"));
+        QVERIFY(chip && chip->isVisible());
+    }
+
+    void aCompactRowIsOneLineAndKeepsItsUnreadPill()
+    {
+        ClassicRow full;
+        QVERIFY(buildClassicRow(full, 4, 0, 0));
+        const qreal fullHeight = full.row->implicitHeight();
+        fxCompact = true;
+        ClassicRow compact;
+        QVERIFY(buildClassicRow(compact, 4, 0, 0));
+        auto *preview = compact.row->findChild<QQuickItem *>(QStringLiteral("roomPreviewLabel"));
+        QVERIFY(!preview || !preview->isVisible());
+        QVERIFY2(compact.row->implicitHeight() < fullHeight - 8,
+                 qPrintable(QStringLiteral("compact %1 vs full %2")
+                                .arg(compact.row->implicitHeight()).arg(fullHeight)));
+        auto *badge = compact.row->findChild<QQuickItem *>(QStringLiteral("roomUnreadBadge"));
+        QVERIFY(badge && badge->isVisible());
     }
 
     void aClassicRowWithAPlainCountKeepsItsPill()

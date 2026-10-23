@@ -400,6 +400,10 @@ class SettingsManager : public QObject
                    NOTIFY smoothScrollingChanged)
     // Device-global accessibility preference. False leaves Qt's platform
     // cursor timing in charge; true requests a steady cursor in every input.
+    Q_PROPERTY(bool showBridgeBadges READ showBridgeBadges
+                   WRITE setShowBridgeBadges NOTIFY showBridgeBadgesChanged)
+    Q_PROPERTY(bool compactRoomList READ compactRoomList
+                   WRITE setCompactRoomList NOTIFY compactRoomListChanged)
     Q_PROPERTY(bool disableCursorBlink READ disableCursorBlink
                    WRITE setDisableCursorBlink NOTIFY disableCursorBlinkChanged)
     // Composer buttons the user has hidden, by key: "formatting", "emoji",
@@ -984,6 +988,10 @@ public:
     void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
+    bool showBridgeBadges() const;
+    void setShowBridgeBadges(bool show);
+    bool compactRoomList() const;
+    void setCompactRoomList(bool compact);
     bool disableCursorBlink() const;
     void setDisableCursorBlink(bool disabled);
     QStringList hiddenComposerButtons() const;
@@ -1416,6 +1424,8 @@ Q_SIGNALS:
     void threadStyleChanged();
     void hideThreadRepliesChanged();
     void smoothScrollingChanged();
+    void showBridgeBadgesChanged();
+    void compactRoomListChanged();
     void disableCursorBlinkChanged();
     void hiddenComposerButtonsChanged();
     void microphoneGainChanged();

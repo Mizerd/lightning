@@ -36,6 +36,7 @@ Item {
         case 1:  return qsTr("People")
         case 2:  return qsTr("Rooms")
         case 3:  return qsTr("Unread")
+        case 4:  return qsTr("Favourites")
         default: return qsTr("Conversations")
         }
     }
@@ -254,6 +255,8 @@ Item {
                         return qsTr("No direct messages");
                     if (app.roomList.filterMode === 3)
                         return qsTr("Nothing unread");
+                    if (app.roomList.filterMode === 4)
+                        return qsTr("No favourites yet");
                     return roomListEmptyState.inSpace ? qsTr("This Space is empty") : qsTr("No conversations yet");
                 }
             }
@@ -285,6 +288,8 @@ Item {
                         return roomListEmptyState.inSpace ? qsTr("No direct messages with people in " + "this Space. All of them are under “All rooms”.") : qsTr("Direct messages appear here.");
                     if (app.roomList.filterMode === 3)
                         return qsTr("Rooms with unread messages " + "appear here.");
+                    if (app.roomList.filterMode === 4)
+                        return qsTr("Favourite a room from its menu to pin it here.");
                     return roomListEmptyState.inSpace ? qsTr("Rooms added to this Space will " + "show up here.") : qsTr("Start a direct message, or find " + "a room to join.");
                 }
             }

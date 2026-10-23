@@ -474,6 +474,9 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
         case 2: // Rooms
             if (r.isDirect) return false;
             break;
+        case 4: // Favourites
+            if (!r.isFavourite) return false;
+            break;
         case 3: // Unreads
             // The shared rule, plus a muted room the user marked unread (its
             // row draws that grey dot): a room unread only in a thread has no
@@ -495,7 +498,7 @@ void RoomListModel::setFilterMode(int mode)
 {
     // As in SettingsManager: an unknown value falls back to All rather than the
     // nearest edge.
-    const int clamped = (mode < 0 || mode > 3) ? 0 : mode;
+    const int clamped = (mode < 0 || mode > 4) ? 0 : mode;
     if (clamped == m_filterMode)
         return;
     m_filterMode = clamped;

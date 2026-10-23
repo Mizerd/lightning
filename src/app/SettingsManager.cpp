@@ -116,6 +116,8 @@ constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kThreadStyle         = "ui/threadStyle";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
+constexpr auto kShowBridgeBadges    = "ui/showBridgeBadges";
+constexpr auto kCompactRoomList     = "ui/compactRoomList";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
@@ -1885,14 +1887,14 @@ void SettingsManager::setMessageLayout(int layout)
 
 int SettingsManager::roomFilterMode() const
 {
-    // 0 All, 1 People, 2 Rooms, 3 Unreads (RoomListModel::filterMode).
+    // 0 All, 1 People, 2 Rooms, 3 Unreads, 4 Favourites (RoomListModel::filterMode).
     const int stored = appearanceValue(kRoomFilterMode, 0).toInt();
-    return (stored < 0 || stored > 3) ? 0 : stored;
+    return (stored < 0 || stored > 4) ? 0 : stored;
 }
 
 void SettingsManager::setRoomFilterMode(int mode)
 {
-    if (mode < 0 || mode > 3)
+    if (mode < 0 || mode > 4)
         mode = 0;
     if (roomFilterMode() == mode)
         return;
@@ -4079,6 +4081,32 @@ void SettingsManager::setSmoothScrolling(bool v)
         return;
     setAppearanceValue(kSmoothScrolling, v);
     Q_EMIT smoothScrollingChanged();
+}
+
+bool SettingsManager::showBridgeBadges() const
+{
+    return m_store->value(kShowBridgeBadges, true).toBool();
+}
+
+void SettingsManager::setShowBridgeBadges(bool show)
+{
+    if (showBridgeBadges() == show)
+        return;
+    m_store->setValue(kShowBridgeBadges, show);
+    Q_EMIT showBridgeBadgesChanged();
+}
+
+bool SettingsManager::compactRoomList() const
+{
+    return m_store->value(kCompactRoomList, false).toBool();
+}
+
+void SettingsManager::setCompactRoomList(bool compact)
+{
+    if (compactRoomList() == compact)
+        return;
+    m_store->setValue(kCompactRoomList, compact);
+    Q_EMIT compactRoomListChanged();
 }
 
 bool SettingsManager::disableCursorBlink() const

@@ -1212,9 +1212,17 @@ void SettingsSessionTest::interfaceZoomAndRoomFilterPersistAndClamp()
         // Out-of-range falls back to All instead of persisting junk.
         settings.setRoomFilterMode(9);
         QCOMPARE(settings.roomFilterMode(), 0);
+        settings.setRoomFilterMode(4);   // Favourites
+        QCOMPARE(settings.roomFilterMode(), 4);
         settings.setRoomFilterMode(3);
+        QVERIFY(settings.showBridgeBadges());
+        QVERIFY(!settings.compactRoomList());
+        settings.setShowBridgeBadges(false);
+        settings.setCompactRoomList(true);
     }
     SettingsManager reopened;
+    QVERIFY(!reopened.showBridgeBadges());
+    QVERIFY(reopened.compactRoomList());
     QCOMPARE(reopened.interfaceZoom(), 110);
     QCOMPARE(reopened.roomFilterMode(), 3);
 }

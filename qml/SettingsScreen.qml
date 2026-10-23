@@ -241,6 +241,14 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
           control: "spaceBannersVisible",
           anchor: "spaceBannersVisibleCheck" },
+        { title: qsTr("Show bridge badges in the room list"),
+          keywords: qsTr("bridge network badge chip tag whatsapp rcs sms telegram room list hide"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          anchor: "showBridgeBadgesCheck" },
+        { title: qsTr("Compact room list"),
+          keywords: qsTr("room list compact one line preview last message hide dense"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          anchor: "compactRoomListCheck" },
         { title: qsTr("Conversation list width"),
           keywords: qsTr("room list width panel size sidebar"),
           section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
@@ -4635,6 +4643,24 @@ Item {
                                 }
                                 // These settings could otherwise only be
                                 // changed from the banners themselves.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showBridgeBadgesCheck"
+                                    text: qsTr("Show bridge badges in the room list")
+                                    checked: app.settings.showBridgeBadges
+                                    onToggled: app.settings.showBridgeBadges = checked
+                                    Accessible.description: qsTr(
+                                        "Show the network name, such as WhatsApp, beside bridged rooms")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "compactRoomListCheck"
+                                    text: qsTr("Compact room list (hide message previews)")
+                                    checked: app.settings.compactRoomList
+                                    onToggled: app.settings.compactRoomList = checked
+                                    Accessible.description: qsTr(
+                                        "One line per room, without the last message")
+                                }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spaceBannersVisibleCheck"

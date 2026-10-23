@@ -138,6 +138,7 @@ private Q_SLOTS:
     void selectedSpaceDisappearingReturnsHome();
     void searchFiltersNameAndAliasAndFindsInvites();
     void filterModeSplitsPeopleRoomsUnreads();
+    void favouritesFilterListsOnlyFavourites();
     void identityColorKeyPolicyForDms();
     void invitesStayOnTopAndEverythingElseIsOneActivityFeed();
     void aNewerRoomOutranksAnOlderDirectMessage();
@@ -672,6 +673,22 @@ void RoomStateModelTest::aDirectMessageIsNeverScopedByTheSelectedSpace()
 
 // Filter chips: People/Rooms split on m.direct; Unreads keeps unread rooms,
 // the pinned (open) room and, like every mode, invites.
+void RoomStateModelTest::favouritesFilterListsOnlyFavourites()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto fav = room(QStringLiteral("!fav:example.org"));
+    fav.isFavourite = true;
+    client.mirror = { fav, room(QStringLiteral("!other:example.org")) };
+    model.setClient(&client);
+    model.setFilterMode(4);
+    QCOMPARE(model.filterMode(), 4);
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(), fav.id);
+    model.setFilterMode(0);
+    QCOMPARE(model.rowCount(), 2);
+}
+
 void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()
 {
     FakeClient client;
