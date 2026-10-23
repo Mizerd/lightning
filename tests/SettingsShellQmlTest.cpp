@@ -5526,6 +5526,9 @@ private slots:
         const QPoint at = editor->mapToScene(cursor.topLeft()).toPoint();
         const QRect area(at, QSize(qMax(2, int(cursor.width()) + 2),
                                    qMax(4, int(cursor.height()))));
+        // Let focus, the focus ring and layout settle first: a frame that
+        // changes once for those reasons is not a blink (seen under load).
+        QTest::qWait(500);
         QSet<QByteArray> seen;
         QElapsedTimer clock;
         clock.start();
