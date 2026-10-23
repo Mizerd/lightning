@@ -3745,13 +3745,21 @@ Rectangle {
                     root.stopAutoscroll()
                     timeline.noteReaderTookControl()
                 }
-                function beginNavigationLanding(row, pixelOffset, highlight) {
+                function beginNavigationLanding(row, pixelOffset, highlight,
+                                                knownStableId) {
                     // Hold the target by stable id, not row number: a
                     // pagination batch during the wait renumbers source rows.
                     // Resolved back to a row on each attempt via
                     // rowForStableId().
-                    navigationPendingId = app.timeline
-                                          ? app.timeline.stableIdAt(row) : ""
+                    // `knownStableId` is the target's id read in the turn the
+                    // controller located it: a history page or live event
+                    // landing before this call renumbers rows, and reading the
+                    // id from `row` then names a different, older message.
+                    navigationPendingId = knownStableId
+                                          ? knownStableId
+                                          : (app.timeline
+                                             ? app.timeline.stableIdAt(row)
+                                             : "")
                     // Fallback for a model that cannot give a stable id.
                     navigationPendingRow = row
                     navigationPendingOffset = pixelOffset
@@ -5570,6 +5578,9 @@ Rectangle {
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
                         root.stopAutoscroll()
+                        // Read now: `row` is only valid in this turn.
+                        var locatedId = app.timeline
+                                        ? app.timeline.stableIdAt(row) : ""
                         Qt.callLater(function() {
                             // The target may be older than the paced-out rows
                             // or behind the row window.
@@ -5578,7 +5589,8 @@ Rectangle {
                             // turn was a silent no-op for targets not yet
                             // exposed.
                             timeline.beginNavigationLanding(row, pixelOffset,
-                                                            highlight)
+                                                            highlight,
+                                                            locatedId)
                         })
                     }
                     function onRestoreLatestRequested() {

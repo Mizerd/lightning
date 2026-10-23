@@ -10715,6 +10715,79 @@ private Q_SLOTS:
                  "to `parked` could not be distinguished from doing nothing");
     }
 
+    // A jump names a model ROW, and the landing starts one event-loop turn
+    // later. A history page arriving in between renumbers every row, so
+    // reading the id from the row at landing time named an older message: "the
+    // link jumps to a random message way up". The id is read when the
+    // controller locates the target.
+    void aLocatedTargetKeepsItsIdWhenRowsShiftBeforeTheLanding()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QCoreApplication::processEvents();
+
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        const QString roomId = controller.currentRoomId();
+        QList<TimelineEvent> shifted;
+        const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-80000);
+        for (int i = 0; i < 25; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$older%1").arg(i);
+            e.itemId = QStringLiteral("uid-older%1").arg(i);
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.body = QStringLiteral("older %1").arg(i);
+            e.timestamp = base.addSecs(i * 30);
+            shifted.append(e);
+        }
+        const QDateTime base2 = QDateTime::currentDateTimeUtc().addSecs(-40000);
+        for (int i = 0; i < 900; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$win%1").arg(i);
+            e.itemId = QStringLiteral("uid-win%1").arg(i);
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("window probe %1").arg(i);
+            e.timestamp = base2.addSecs(i * 30);
+            shifted.append(e);
+        }
+        const int row = controller.timeline()->rowForStableId(
+            QStringLiteral("$win50"));
+        QVERIFY(row >= 0);
+        // Located: the controller names row `row` for $win50 ...
+        QVERIFY(QMetaObject::invokeMethod(
+            controller.pagination(), "targetLocated",
+            Q_ARG(int, row), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
+        // ... and before the deferred landing runs, rows are prepended.
+        mock->resetTimelineForTest(roomId, shifted, 0);
+        QVERIFY(controller.timeline()->rowForStableId(
+                    QStringLiteral("$win50")) != row);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("diagNavigationLandings").toInt() > 0
+                || timeline->property("diagNavigationUnresolved").toInt() > 0,
+            10000);
+        QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
+        // The reader is on the message the controller named, not on the one
+        // that now sits at its old row.
+        QQmlExpression onScreen(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = r >= 0 ? itemAtViewRow(r) : null;"
+                           " if (!it) return false;"
+                           " var top = it.y - contentY;"
+                           " return top >= 0 && top < height; })"
+                           "('$win50')"));
+        QVERIFY2(onScreen.evaluate().toBool(),
+                 "the jump landed away from the located message");
+    }
+
     // A landing whose view keeps changing shape gives up after a bounded
     // number of retries instead of waiting forever.
     void aLandingWhoseViewNeverStopsChangingGivesUpInsteadOfWaitingForever()
