@@ -1,4 +1,5 @@
 #include <QtTest/QtTest>
+#include <QClipboard>
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -9,6 +10,7 @@
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
+#include "app/ForwardController.h"
 #include "app/SettingsManager.h"
 #include "app/ShortcutRegistry.h"
 #include "auth/AuthManager.h"
@@ -787,6 +789,76 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_R);
         QTRY_VERIFY(editor->property("text").toString().contains(QStringLiteral("jkr")));
         QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
+    }
+
+    // GitHub #51: the context menu's actions on the selected message, by key.
+    // Each goes through the row's own delegate, so the hotkey and the menu
+    // cannot disagree about eligibility or skip the delete confirmation.
+    void selectedMessageActionsRunFromTheKeyboard()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        auto *pane = item("timelinePane");
+        const QString selected =
+            pane->property("keyboardSelectedEventId").toString();
+        QVERIFY(!selected.isEmpty());
+        auto *model = m_controller->timeline();
+        const QString text = model->visibleTextForEvent(selected);
+        const QString link = model->messagePermalink(selected);
+        QVERIFY2(!text.isEmpty() && !link.isEmpty(),
+                 "the selected row has nothing to copy, so the copies below "
+                 "would pass vacuously");
+        QGuiApplication::clipboard()->clear();
+
+        // C copies the message link, Ctrl+C its text.
+        QTest::keyClick(m_window, Qt::Key_C);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), link);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), text);
+        QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
+
+        // F starts forwarding that message.
+        QVERIFY(!m_controller->forward()->active());
+        QTest::keyClick(m_window, Qt::Key_F);
+        QTRY_VERIFY(m_controller->forward()->active());
+        QCOMPARE(m_controller->forward()->sourceEventId(), selected);
+        m_controller->forward()->cancel();
+
+        // Delete asks first and removes nothing by itself.
+        // Walk to one of our own messages: another member's is not ours to
+        // delete without a moderator grant.
+        for (int i = 0; i < 40; ++i) {
+            const QString cur =
+                pane->property("keyboardSelectedEventId").toString();
+            if (model->canRedactEvent(cur, false))
+                break;
+            QTest::keyClick(m_window, Qt::Key_K);
+            QTRY_VERIFY(pane->property("keyboardSelectedEventId").toString()
+                        != cur);
+        }
+        const bool redactable = model->canRedactEvent(
+            pane->property("keyboardSelectedEventId").toString(), false);
+        QTest::keyClick(m_window, Qt::Key_Delete);
+        QVERIFY2(redactable,
+                 "the selected message is not deletable, so the confirmation "
+                 "path was not exercised");
+        // The dialog is a Popup created under the row's delegate: found by
+        // walking the visual tree and each item's QObject children.
+        const auto findDialog = [&]() -> QObject * {
+            QList<QQuickItem *> stack{ m_window->contentItem() };
+            while (!stack.isEmpty()) {
+                QQuickItem *it = stack.takeLast();
+                if (auto *d = it->findChild<QObject *>(
+                        QStringLiteral("messageDestructiveConfirmDialog")))
+                    return d;
+                stack.append(it->childItems());
+            }
+            return nullptr;
+        };
+        QTRY_VERIFY(findDialog() != nullptr);
+        QTRY_VERIFY(findDialog()->property("visible").toBool());
     }
 
     void enteringSelectionCancelsQueuedAndDelayedComposerFocus()

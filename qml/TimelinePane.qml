@@ -3442,9 +3442,26 @@ Rectangle {
                             root.focusComposerForTyping()
                         }
                         break
+                    case "timeline.forwardMessage":
+                    case "timeline.deleteMessage":
+                    case "timeline.copyMessageText":
+                    case "timeline.copyMessageLink":
+                        return runSelectedMessageAction(action)
                     default: return false
                     }
                     return true
+                }
+                // The selected row's own delegate runs the action, so the
+                // hotkeys and the context menu cannot disagree (eligibility,
+                // the delete confirm).
+                function runSelectedMessageAction(action) {
+                    stopEntrySelection()
+                    var row = viewRowForStableId(root.keyboardSelectedEventId)
+                    if (row < 0 || navigableEventAt(row) === "")
+                        return false
+                    var item = itemAtViewRow(row)
+                    return !!item && !!item.runSelectionAction
+                           && item.runSelectionAction(action)
                 }
                 // Every jump/search/permalink path calls this before addressing
                 // a row by id. It must restore the live edge: releaseAll()

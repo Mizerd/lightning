@@ -88,7 +88,8 @@ QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
     // validationError() and conflictNote(), which once disagreed.
     if (context == MessageSelectionContext
         && (portable == QStringLiteral("R") || portable == QStringLiteral("T")
-            || portable == QStringLiteral("E")))
+            || portable == QStringLiteral("E")
+            || portable == QStringLiteral("Ctrl+C")))
         return {};
     return owner;
 }
@@ -260,6 +261,20 @@ void ShortcutRegistry::buildTables()
           QStringLiteral("D"), MessageSelectionContext },
         { QStringLiteral("timeline.reply"), roomCat,
           tr("Reply to the selected message"), QStringLiteral("R"),
+          MessageSelectionContext },
+        // The context menu's other actions, on the selected message. Not D:
+        // that is half-page down. Delete confirms exactly as the menu does.
+        { QStringLiteral("timeline.forwardMessage"), roomCat,
+          tr("Forward the selected message"), QStringLiteral("F"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.deleteMessage"), roomCat,
+          tr("Delete the selected message"), QStringLiteral("Delete"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.copyMessageText"), roomCat,
+          tr("Copy the selected message's text"), QStringLiteral("Ctrl+C"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.copyMessageLink"), roomCat,
+          tr("Copy the selected message's link"), QStringLiteral("C"),
           MessageSelectionContext },
         { QStringLiteral("timeline.pageUp"), roomCat,
           tr("Scroll the conversation up by a page"), QStringLiteral("PgUp"),

@@ -28,10 +28,11 @@ class ContextMenuContractTest : public QObject
         if (start < 0) return {};
         // The Delete item's action is the menu's last row. It goes through the
         // timeline model's redactEvent (app.composer is the room composer and
-        // cannot see thread items) inside the confirmation's closure. Each
+        // cannot see thread items) inside the confirmation's closure, which
+        // deleteThisMessage() holds so the selection hotkey shares it. Each
         // QVERIFY below names this marker so a missing block reports clearly.
         const int end = delegate.indexOf(
-            QStringLiteral("root.timelineModel.redactEvent(id)"),
+            QStringLiteral("onTriggered: root.deleteThisMessage()"),
             start);
         if (end < start) return {};
         return delegate.mid(start, end - start);

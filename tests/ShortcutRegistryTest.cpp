@@ -71,6 +71,16 @@ private Q_SLOTS:
                  QStringLiteral("timeline.halfPageDown"));
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_R, Qt::NoModifier),
                  QStringLiteral("timeline.reply"));
+        // GitHub #51: the menu's actions. D stays half-page down, so delete
+        // is on Delete.
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_F, Qt::NoModifier),
+                 QStringLiteral("timeline.forwardMessage"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_Delete, Qt::NoModifier),
+                 QStringLiteral("timeline.deleteMessage"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_C, Qt::NoModifier),
+                 QStringLiteral("timeline.copyMessageLink"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_C, Qt::ControlModifier),
+                 QStringLiteral("timeline.copyMessageText"));
         QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::NoModifier).isEmpty());
         QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
                  QStringLiteral("timeline.pageUp"));
@@ -97,11 +107,14 @@ private Q_SLOTS:
                 == ShortcutRegistry::MessageSelectionContext)
                 selection.append(id);
         }
-        QCOMPARE(selection.size(), 5);
+        QCOMPARE(selection.size(), 9);
         for (const QString &id : selection) {
             const QString seq = registry.sequenceFor(id);
             QCOMPARE(bySequence.value(seq).size(), 1);
-            QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
+            // Bare keys, except Copy text: Ctrl+C is what every user expects
+            // (GitHub #51), and only the timeline's own Keys handler sees it.
+            if (id != QStringLiteral("timeline.copyMessageText"))
+                QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
             QVERIFY(roleFor(registry, id, ShortcutRegistry::ShadowNoteRole).isEmpty());
         }
         const QString resume =
@@ -291,7 +304,8 @@ private Q_SLOTS:
             if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
                     == ShortcutRegistry::MessageSelectionContext
                 && (seq == QStringLiteral("R") || seq == QStringLiteral("T")
-                    || seq == QStringLiteral("E")))
+                    || seq == QStringLiteral("E")
+                    || seq == QStringLiteral("Ctrl+C")))
                 continue;
             QVERIFY2(!registry.isReserved(seq),
                      qPrintable(QStringLiteral("default %1 is reserved for %2")
@@ -383,7 +397,7 @@ private Q_SLOTS:
                                     .arg(id, seq)));
         }
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
-        QCOMPARE(selectionRows, 5);
+        QCOMPARE(selectionRows, 9);
     }
 
     // The named additions ship on exactly these ids and keys: the rule sweeps

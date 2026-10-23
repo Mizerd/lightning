@@ -4172,6 +4172,98 @@ Item {
         return moreMenuItem
     }
 
+    // Forward this row. One path for the context menu and the selection
+    // hotkey, so both refuse exactly the same rows.
+    function forwardEligible() {
+        var isMediaRow = model.isImage === true || model.isVideo === true
+            || model.isAudio === true || model.isSticker === true
+            || model.isFile === true
+        return model.redacted !== true && model.isLocalEcho !== true
+            && model.undecryptable !== true
+            && model.isVirtual !== true && model.isPoll !== true
+            && (isMediaRow ? model.mediaSourceAvailable === true
+                           : (model.body || "").length > 0)
+            // Forwarding sends the row's one media key, which on a gallery
+            // is its first attachment; not offered until a whole gallery can
+            // be forwarded.
+            && !root.isGallery
+    }
+    function beginForward() {
+        if (!forwardEligible() || root.menuEventId === "")
+            return
+        app.forward.begin(
+            root.timelineModel.realRoomIdForEvent(root.menuEventId),
+            root.menuEventId,
+            {
+                redacted: model.redacted === true,
+                isLocalEcho: model.isLocalEcho === true,
+                undecryptable: model.undecryptable === true,
+                isVirtual: model.isVirtual === true,
+                isImage: model.isImage === true,
+                isVideo: model.isVideo === true,
+                isAudio: model.isAudio === true,
+                isSticker: model.isSticker === true,
+                isFile: model.isFile === true,
+                // Refused by ForwardController (B124).
+                isLocation: model.isLocation === true,
+                mediaIsVoice: model.mediaIsVoice === true,
+                senderDisplayName: model.senderDisplayName || "",
+                body: model.body || "",
+                mediaKey: model.mediaKey || "",
+                mediaFilename: model.mediaFilename || "",
+                mediaMimetype: model.mediaMimetype || "",
+                mediaWidth: model.mediaWidth || 0,
+                mediaHeight: model.mediaHeight || 0
+            })
+    }
+    // Delete (own message) or Remove (a moderator's), after the same confirm
+    // the menu shows. One path for the menu and the selection hotkey.
+    function deleteThisMessage() {
+        var id = root.menuEventId
+        if (id === "" || !root.timelineModel.canRedactEvent(
+                id, root.canRedactOthers))
+            return
+        if (model.isOwn === true) {
+            root.confirmDestructive(
+                qsTr("Delete message?"),
+                qsTr("This removes the message for everyone in the "
+                     + "room. It cannot be undone."),
+                qsTr("Delete"),
+                function() { root.timelineModel.redactEvent(id) })
+            return
+        }
+        root.confirmDestructive(
+            qsTr("Remove message?"),
+            qsTr("This removes %1's message for everyone in the "
+                 + "room. It cannot be undone.")
+                .arg(model.senderDisplayName || model.sender || ""),
+            qsTr("Remove"),
+            function() { root.timelineModel.redactEvent(id) })
+    }
+    function copyMessageText() {
+        if (root.copyableText)
+            root.copyToClipboard(
+                root.timelineModel.visibleTextForEvent(root.menuEventId))
+    }
+    function copyMessageLink() {
+        if (root.menuEventId !== "")
+            root.copyToClipboard(
+                root.timelineModel.messagePermalink(root.menuEventId))
+    }
+    // The keyboard-selected row's hotkeys (TimelinePane.runNavigationAction):
+    // the same actions as the context menu, never a second implementation.
+    function runSelectionAction(action) {
+        if (model.isVirtual === true || !model.eventId)
+            return false
+        root.menuEventId = model.eventId
+        switch (action) {
+        case "timeline.forwardMessage": beginForward(); return true
+        case "timeline.deleteMessage": deleteThisMessage(); return true
+        case "timeline.copyMessageText": copyMessageText(); return true
+        case "timeline.copyMessageLink": copyMessageLink(); return true
+        }
+        return false
+    }
     // Destructive items (Delete, Remove edits, End poll) confirm first: each is
     // irreversible on Matrix. Created lazily, like the details dialog.
     property var confirmDialogItem: null
@@ -4442,16 +4534,14 @@ Item {
                 text: qsTr("Copy text")
                 accel: "Ctrl+C"
                 enabled: root.copyableText
-                onTriggered: root.copyToClipboard(
-                    root.timelineModel.visibleTextForEvent(root.menuEventId))
+                onTriggered: root.copyMessageText()
             }
             AppMenuItem {
                 iconName: "link"
                 text: qsTr("Copy message link")
                 enabled: root.timelineModel.messagePermalink(
                              root.menuEventId).length > 0
-                onTriggered: root.copyToClipboard(
-                    root.timelineModel.messagePermalink(root.menuEventId))
+                onTriggered: root.copyMessageLink()
             }
             // Open image first: it is what the left click does. No "Copy image
             // address": an authenticated-media mxc URL is not shareable and
@@ -4762,30 +4852,7 @@ Item {
                     && !root.isGallery
                 enabled: eligible && root.menuEventId !== ""
                 visible: eligible
-                onTriggered: app.forward.begin(
-                    root.timelineModel.realRoomIdForEvent(root.menuEventId),
-                    root.menuEventId,
-                    {
-                        redacted: model.redacted === true,
-                        isLocalEcho: model.isLocalEcho === true,
-                        undecryptable: model.undecryptable === true,
-                        isVirtual: model.isVirtual === true,
-                        isImage: model.isImage === true,
-                        isVideo: model.isVideo === true,
-                        isAudio: model.isAudio === true,
-                        isSticker: model.isSticker === true,
-                        isFile: model.isFile === true,
-                        // Refused by ForwardController (B124).
-                        isLocation: model.isLocation === true,
-                        mediaIsVoice: model.mediaIsVoice === true,
-                        senderDisplayName: model.senderDisplayName || "",
-                        body: model.body || "",
-                        mediaKey: model.mediaKey || "",
-                        mediaFilename: model.mediaFilename || "",
-                        mediaMimetype: model.mediaMimetype || "",
-                        mediaWidth: model.mediaWidth || 0,
-                        mediaHeight: model.mediaHeight || 0
-                    })
+                onTriggered: root.beginForward()
             }
             // Report to the homeserver admin (/v3 event report). Not offered on
             // own messages.
@@ -4813,25 +4880,7 @@ Item {
                 enabled: root.timelineModel.canRedactEvent(
                              root.menuEventId, root.canRedactOthers)
                 visible: enabled
-                onTriggered: {
-                    var id = root.menuEventId
-                    if (model.isOwn === true) {
-                        root.confirmDestructive(
-                            qsTr("Delete message?"),
-                            qsTr("This removes the message for everyone in the "
-                                 + "room. It cannot be undone."),
-                            qsTr("Delete"),
-                            function() { root.timelineModel.redactEvent(id) })
-                        return
-                    }
-                    root.confirmDestructive(
-                        qsTr("Remove message?"),
-                        qsTr("This removes %1's message for everyone in the "
-                             + "room. It cannot be undone.")
-                            .arg(model.senderDisplayName || model.sender || ""),
-                        qsTr("Remove"),
-                        function() { root.timelineModel.redactEvent(id) })
-                }
+                onTriggered: root.deleteThisMessage()
             }
         }
     }
