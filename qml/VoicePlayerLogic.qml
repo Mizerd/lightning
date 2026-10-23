@@ -102,8 +102,13 @@ QtObject {
             app.showMain()
         app.openRoom(roomId)
         if (threadRootId.length > 0 && threadRootId !== eventId) {
+            // The panel, or (inline thread style) the room timeline narrowed
+            // to the thread with the message located in it.
             Qt.callLater(function() {
-                app.thread.openThread(roomId, threadRootId)
+                app.showThread(roomId, threadRootId)
+                if (app.timeline.threadRepliesInline === true
+                        && eventId.length > 0)
+                    app.pagination.jumpToEvent(eventId)
             })
         } else if (eventId.length > 0) {
             Qt.callLater(function() { app.pagination.jumpToEvent(eventId) })

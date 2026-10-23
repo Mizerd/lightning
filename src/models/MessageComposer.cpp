@@ -642,6 +642,8 @@ void MessageComposer::setRoomId(const QString &r)
     // Cancel typing on the previous room and any pending reply/edit.
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
+    // A thread target names a thread of the room being left; never carry it.
+    setThreadTargetRootId(QString());
     // cancelReplyOrEdit may have re-armed the debounce.
     m_draftDebounce.stop();
     // Queued attachments belong to their room; dispatched ones continue in the

@@ -380,6 +380,7 @@ void MockMatrixClient::ackAfter(int ms, const QString &roomId,
 
 void MockMatrixClient::sendTextMessage(const QString &roomId, const QString &body)
 {
+    ++m_roomTextSends;
     if (!m_timelines.contains(roomId)) {
         Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId));
         return;
@@ -775,8 +776,26 @@ quint64 MockMatrixClient::sendAttachment(const QString &roomId,
     Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
     Q_UNUSED(durationMs);
     m_lastAttachmentCaption = caption;
+    ++m_roomAttachmentCalls;
     return appendRoomAttachment(roomId, QFileInfo(localPath).fileName(), mime,
                                 replyToEventId);
+}
+
+quint64 MockMatrixClient::sendThreadVoiceMessage(const QString &roomId,
+                                                 const QString &rootEventId,
+                                                 const QString &localPath,
+                                                 const QString &mime,
+                                                 qint64 durationMs,
+                                                 const QList<int> &waveform,
+                                                 const QString &replyToEventId)
+{
+    Q_UNUSED(durationMs); Q_UNUSED(waveform);
+    const quint64 opId = appendThreadAttachment(
+        roomId, rootEventId, QFileInfo(localPath).fileName(), mime,
+        replyToEventId);
+    if (opId != 0)
+        ++m_threadVoiceCalls;
+    return opId;
 }
 
 quint64 MockMatrixClient::sendAttachmentBytes(const QString &roomId,

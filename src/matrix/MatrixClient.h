@@ -269,6 +269,12 @@ public:
     // to the next live timeline the backend builds; the caller reopens the
     // current room. Default false keeps CLAUDE.md §8's panel behaviour.
     virtual void setThreadRepliesInLiveTimeline(bool inLive) { Q_UNUSED(inLive); }
+    // Whether the automatic read receipt is unthreaded rather than on the
+    // main thread. AppController sets it only while the inline thread style
+    // shows the room with every thread reply visible: narrowed to one thread,
+    // or with replies hidden, an unthreaded receipt would mark replies the
+    // reader never saw as read.
+    virtual void setUnthreadedReadReceipts(bool on) { Q_UNUSED(on); }
     // Manual decryption retry for a room's unable-to-decrypt events against key
     // material that has arrived since. No-op without a crypto machine. Never
     // resets any store.

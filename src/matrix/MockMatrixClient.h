@@ -15,6 +15,13 @@ class SettingsManager;
 class MockMatrixClient : public MatrixClient
 {
     Q_OBJECT
+    // What AppController last asked for (MatrixClient::setUnthreadedReadReceipts).
+    // A property so a test can read it by name.
+    Q_PROPERTY(bool unthreadedReadReceipts MEMBER m_unthreadedReadReceipts)
+    // Send counters, as properties for the same reason.
+    Q_PROPERTY(int roomTextSends MEMBER m_roomTextSends)
+    Q_PROPERTY(int roomAttachmentCalls MEMBER m_roomAttachmentCalls)
+    Q_PROPERTY(int threadVoiceCalls MEMBER m_threadVoiceCalls)
 public:
     explicit MockMatrixClient(QObject *parent = nullptr);
 
@@ -145,6 +152,18 @@ public:
     void closeThread() override;
     void setThreadRepliesInLiveTimeline(bool inLive) override
     { m_threadRepliesInLive = inLive; }
+    void setUnthreadedReadReceipts(bool on) override
+    { m_unthreadedReadReceipts = on; }
+    // Room text sends (sendTextMessage) are counted (roomTextSends), so a
+    // test can prove a thread send never fell back to one.
+    // Thread voice messages (the SDK thread path), with their root.
+    quint64 sendThreadVoiceMessage(const QString &roomId,
+                                   const QString &rootEventId,
+                                   const QString &localPath,
+                                   const QString &mime, qint64 durationMs,
+                                   const QList<int> &waveform,
+                                   const QString &replyToEventId) override;
+
     bool threadRepliesInLiveTimeline() const { return m_threadRepliesInLive; }
     // The last SDK-path thread text send (sendThreadReply/sendThreadReplyTo).
     int threadTextSendsForTest() const { return m_threadTextSends; }
@@ -346,6 +365,10 @@ private:
     void seedScreenshotDemoData();     // development-only rich demo scene
     bool m_screenshotDemoMode = false;
     bool m_threadRepliesInLive = false;
+    bool m_unthreadedReadReceipts = false;
+    int m_roomTextSends = 0;
+    int m_roomAttachmentCalls = 0;
+    int m_threadVoiceCalls = 0;
     int m_threadTextSends = 0;
     QString m_lastThreadSendRoot;
     QString m_lastThreadSendBody;

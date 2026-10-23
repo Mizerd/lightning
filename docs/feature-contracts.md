@@ -748,13 +748,20 @@ backend capability checks and honest live-test status.
     stickers all go through the SDK THREAD send paths
     (`sendThreadReplyTo`, `sendThread*`), never a room send. A reply to a
     thread reply shown inline goes into its thread as an in-thread reply.
-  * The automatic read receipt is UNTHREADED in inline mode (the newest row
-    read may be a threaded event, which a main-thread receipt cannot name,
-    and the reader saw those replies); panel mode keeps `ReceiptThread::Main`.
+  * The automatic read receipt covers only what the reader can see. Inline
+    with the room shown whole it is UNTHREADED (the newest row may be a
+    threaded event, which a main-thread receipt cannot name, and the reader
+    saw those replies). Narrowed to one thread there is NO automatic receipt
+    (`latestReadableEventId` is empty). With thread replies hidden it targets
+    the newest non-thread row on `ReceiptThread::Main`, so hidden replies stay
+    unread. Panel mode keeps `ReceiptThread::Main`. AppController pushes the
+    choice (`setUnthreadedReadReceipts`, FFI `mx_rust_set_unthreaded_receipts`).
+    Found in review: the first version sent an unthreaded receipt at hidden
+    rows in both filtered views.
   * An undecryptable thread reply is an ordinary UTD row with a tag inline;
     the one-line "waiting for keys" notice is panel mode only.
-  * The thread panel stays usable in inline mode (notifications still open
-    it). Live homeserver/Element interop of inline mode: NOT TESTED.
+  * The thread panel stays usable in inline mode; a notification or the
+    voice player's "back to the message" narrows the timeline instead. Live homeserver/Element interop of inline mode: NOT TESTED.
 - **Thread panel parity (2026-10-23).** The panel composer has the room
   composer's `:shortcode` completion popup and `:alias: ` auto-convert
   through the SAME C++ rules (`MessageComposer::emojiCompletionsForText`,

@@ -577,6 +577,9 @@ char *mx_rust_timeline_reload_at_live(void *client, const char *room_id);
  * (inline, Nheko-like; hide_threaded_events = false) for the NEXT live
  * timeline built, and makes the automatic receipt unthreaded. */
 char *mx_rust_timeline_set_threads_in_live(void *client, int on);
+/* on != 0: the automatic read receipt is unthreaded. C++ sets it only while
+ * the inline thread style shows the room with every thread reply visible. */
+char *mx_rust_set_unthreaded_receipts(void *client, int on);
 char *mx_rust_timeline_close(void *client);
 char *mx_rust_timeline_paginate_back(void *client,
                                      const char *room_id,

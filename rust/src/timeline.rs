@@ -528,6 +528,12 @@ pub struct TimelineRegistry {
     /// with the room's own messages. Read when a live timeline is built; C++
     /// reopens the room after changing it. Off by default (CLAUDE.md §8).
     threads_in_live: AtomicBool,
+    /// Whether the AUTOMATIC read receipt is unthreaded (see
+    /// `automatic_receipt` in lib.rs). Set by C++: only while the inline
+    /// thread style shows the room with every thread reply visible. Narrowed
+    /// to one thread, or with thread replies hidden, an unthreaded receipt
+    /// would mark replies the reader never saw as read.
+    unthreaded_receipts: AtomicBool,
 }
 
 /// One key's attempt history this lifecycle. Identifiers and counters only.
@@ -611,6 +617,7 @@ impl TimelineRegistry {
             unthreaded_read_cover: Mutex::new(None),
             thread_auto_subscriptions: Mutex::new(Vec::new()),
             threads_in_live: AtomicBool::new(false),
+            unthreaded_receipts: AtomicBool::new(false),
         }
     }
 
@@ -619,9 +626,14 @@ impl TimelineRegistry {
         self.threads_in_live.store(on, Ordering::SeqCst);
     }
 
-    /// See `threads_in_live`.
-    pub fn threads_in_live(&self) -> bool {
-        self.threads_in_live.load(Ordering::SeqCst)
+    /// See `unthreaded_receipts`.
+    pub fn set_unthreaded_receipts(&self, on: bool) {
+        self.unthreaded_receipts.store(on, Ordering::SeqCst);
+    }
+
+    /// See `unthreaded_receipts`.
+    pub fn unthreaded_receipts(&self) -> bool {
+        self.unthreaded_receipts.load(Ordering::SeqCst)
     }
 
     /// The live timeline focus for the current thread style.

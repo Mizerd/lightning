@@ -5,6 +5,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QFile>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -394,6 +395,7 @@ ApplicationWindow {
         QTRY_VERIFY(editor->hasActiveFocus());
 
         const int before = timeline()->events().size();
+        const int roomSendsBefore = mock()->property("roomTextSends").toInt();
         type(QStringLiteral("into the thread"));
         QTest::keyClick(m_window, Qt::Key_Return);
         QTRY_COMPARE(timeline()->events().size(), before + 1);
@@ -419,6 +421,8 @@ ApplicationWindow {
         const TimelineEvent reply = timeline()->events().last();
         QCOMPARE(reply.threadRootId, root);
         QCOMPARE(reply.replyToEventId, replies.first());
+        // Neither went out as a room message (§8: no room-send fallback).
+        QCOMPARE(mock()->property("roomTextSends").toInt(), roomSendsBefore);
 
         // Back to the room: a plain message goes to the room again.
         timeline()->setProperty("threadFilterRootId", QString());
@@ -429,6 +433,88 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_Return);
         QTRY_COMPARE(timeline()->events().size(), before + 3);
         QCOMPARE(timeline()->events().last().threadRootId, QString());
+        QCOMPARE(mock()->property("roomTextSends").toInt(), roomSendsBefore + 1);
+    }
+
+    void narrowedComposerSendsAttachmentsAndVoiceIntoTheThread()
+    {
+        setThreadStyle(1);
+        openDevRoom();
+        const QString root = threadRoot();
+        click(tagOn(root));
+        QTRY_COMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
+                     root);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString notes = dir.filePath(QStringLiteral("notes.txt"));
+        {
+            QFile f(notes);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("thread notes");
+        }
+        const int threadBefore = mock()->threadAttachmentCallsForTest();
+        const int roomBefore = mock()->property("roomAttachmentCalls").toInt();
+        m_controller->composer()->addAttachment(QUrl::fromLocalFile(notes));
+        QTRY_VERIFY(m_controller->composer()->hasAttachments());
+        m_controller->composer()->send();
+        QTRY_COMPARE(mock()->threadAttachmentCallsForTest(), threadBefore + 1);
+        QCOMPARE(mock()->property("roomAttachmentCalls").toInt(), roomBefore);
+
+        const QString voice = dir.filePath(QStringLiteral("voice.ogg"));
+        {
+            QFile f(voice);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(QByteArray(512, 'v'));
+        }
+        m_controller->composer()->sendVoiceMessage(
+            voice, QStringLiteral("audio/ogg"), 1500,
+            QVariantList{ 10, 40, 20 });
+        QTRY_COMPARE(mock()->property("threadVoiceCalls").toInt(), 1);
+        QCOMPARE(mock()->property("roomAttachmentCalls").toInt(), roomBefore);
+        QCOMPARE(timeline()->events().last().threadRootId, root);
+    }
+
+    // The automatic receipt may only cover what the reader can see. Inline and
+    // whole: unthreaded at the newest row. Narrowed to a thread: none at all.
+    // Thread replies hidden: a visible (non-thread) row, on the main thread.
+    void automaticReceiptNeverCoversHiddenThreadReplies()
+    {
+        setThreadStyle(1);
+        openDevRoom();
+        const QString root = threadRoot();
+        const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
+        // Make a thread reply the newest event of the room.
+        click(tagOn(root));
+        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
+        auto *editor = item("composerInput");
+        QTRY_VERIFY(editor->hasActiveFocus());
+        type(QStringLiteral("newest is a reply"));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(timeline()->events().last().body,
+                     QStringLiteral("newest is a reply"));
+        const QString newestReply = timeline()->events().last().eventId;
+        QCOMPARE(timeline()->events().last().threadRootId, root);
+        QTRY_VERIFY(!newestReply.startsWith(QLatin1String("local:")));
+
+        // Narrowed: nothing may be read for the room from this view.
+        QCOMPARE(timeline()->latestReadableEventId(), QString());
+        QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
+
+        // Whole room, replies shown: everything is on screen.
+        timeline()->setProperty("threadFilterRootId", QString());
+        QTRY_COMPARE(timeline()->latestReadableEventId(), newestReply);
+        QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(true));
+
+        // Replies hidden: the newest VISIBLE row, as a main-thread receipt.
+        QVERIFY(m_controller->settings()->setProperty("hideThreadReplies", true));
+        QTRY_COMPARE(timeline()->latestReadableEventId(), later);
+        QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
+        QVERIFY(m_controller->settings()->setProperty("hideThreadReplies", false));
+        QTRY_COMPARE(mock()->property("unthreadedReadReceipts"), QVariant(true));
+
+        // The thread panel style never sends an unthreaded receipt.
+        setThreadStyle(0);
+        QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
     }
 
     // ── Thread panel (Element-like) parity ──────────────────────────────

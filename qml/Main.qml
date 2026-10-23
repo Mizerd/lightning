@@ -331,6 +331,17 @@ ApplicationWindow {
             app.showMain()
             app.currentRoomId = roomId
             var inThread = threadRootId && threadRootId.length > 0
+            // Inline thread style: the reply is a row of the room timeline.
+            // Narrow the timeline to its thread and jump to it there.
+            if (inThread && app.timeline.threadRepliesInline === true) {
+                app.showThread(roomId, threadRootId)
+                if (eventId && eventId.length > 0) {
+                    Qt.callLater(function() {
+                        app.pagination.jumpToEvent(eventId)
+                    })
+                }
+                return
+            }
             // The thread panel lands on the notified reply once the thread is
             // Ready (bounded thread pagination, highlighted), instead of
             // wherever the panel was last left.

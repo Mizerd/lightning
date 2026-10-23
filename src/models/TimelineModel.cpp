@@ -2686,12 +2686,22 @@ QString TimelineModel::latestReadableEventId(qint64 *timestampMs) const
 {
     if (timestampMs)
         *timestampMs = 0;
+    // Inline thread style, narrowed to one thread: no receipt from this view.
+    // Every row it can name either is a thread reply or would cover hidden
+    // room messages and other threads' replies with an unthreaded receipt.
+    if (m_threadRepliesInline && !m_threadFilterRootId.isEmpty())
+        return {};
+    // Thread replies hidden: only a row the reader can see, and the receipt is
+    // then a main-thread one (AppController), so the hidden replies stay
+    // unread.
+    const bool skipThreadReplies = m_threadRepliesInline && m_hideThreadReplies;
     // Scan back for the newest event with a real remote id. The last row is
     // often virtual (read marker, date divider) or a local echo. Same approach
     // as RoomListModel::markRoomRead.
     for (int i = static_cast<int>(m_events.size()) - 1; i >= 0; --i) {
         const auto &e = m_events.at(i);
         if (e.isVirtual()) continue;                          // date divider / marker
+        if (skipThreadReplies && !e.threadRootId.isEmpty()) continue;
         if (e.eventId.isEmpty()) continue;                    // no remote id yet
         if (e.eventId.startsWith(QLatin1String("local:"))) continue; // unsent echo
         if (e.status == TimelineEvent::Failed) continue;      // failed outgoing

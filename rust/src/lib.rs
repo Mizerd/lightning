@@ -2943,15 +2943,18 @@ fn receipts_for_mode(event_id: OwnedEventId, mode: i32) -> Receipts {
 ///    second after a room opened. It moves on `mx_rust_set_fully_read_marker`,
 ///    which C++ calls when the user leaves the room.
 ///  * Modes 1 and 2 send `m.read.private` (see `receipts_for_mode`).
-///  * The inline thread style (`threads_in_live`) is the exception: its live
-///    timeline SHOWS thread replies interleaved, so the newest row read may be
-///    a threaded event, which a main-thread receipt cannot name. The reader
-///    saw those replies, so it sends an UNTHREADED receipt, as matrix-sdk-ui
-///    does for a live focus that keeps threaded events.
+///  * The inline thread style is the exception, and only while the room is
+///    shown WHOLE (`unthreaded_receipts`, set by C++): its live timeline shows
+///    thread replies interleaved, so the newest row read may be a threaded
+///    event, which a main-thread receipt cannot name. The reader saw those
+///    replies, so it sends an UNTHREADED receipt, as matrix-sdk-ui does for a
+///    live focus that keeps threaded events. Narrowed to one thread C++ sends
+///    no automatic receipt; with thread replies hidden it targets a
+///    main-timeline row and this stays Main, so nothing unseen is marked.
 fn automatic_receipt(
     event_id: OwnedEventId,
     mode: i32,
-    threads_in_live: bool,
+    unthreaded: bool,
 ) -> (
     matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType,
     matrix_sdk::ruma::events::receipt::ReceiptThread,
@@ -2965,7 +2968,7 @@ fn automatic_receipt(
         1 | 2 => ReceiptType::ReadPrivate,
         _ => ReceiptType::Read,
     };
-    let thread = if threads_in_live {
+    let thread = if unthreaded {
         ReceiptThread::Unthreaded
     } else {
         ReceiptThread::Main
@@ -2985,7 +2988,7 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let event_id = unsafe { cstr_arg(event_id) }?;
         let mode = bridge.receipt_privacy.load(Ordering::SeqCst);
-        let threads_in_live = bridge.timelines.threads_in_live();
+        let unthreaded = bridge.timelines.unthreaded_receipts();
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
             .ok_or_else(|| "no active Matrix session".to_owned())?;
         let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
@@ -3008,7 +3011,7 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
             // receipt itself may sit on a reaction after it.
             let answered = event_id.to_string();
             let event_id = in_room_receipt_target(&room, event_id).await;
-            let (receipt_type, thread, event_id) = automatic_receipt(event_id, mode, threads_in_live);
+            let (receipt_type, thread, event_id) = automatic_receipt(event_id, mode, unthreaded);
             // Not retried: the serial lock is held across this call, and the next
             // receipt supersedes this one anyway.
             // Both answers name the event, so C++ can tell this receipt's
@@ -6460,6 +6463,20 @@ pub unsafe extern "C" fn mx_rust_timeline_set_threads_in_live(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         bridge.timelines.set_threads_in_live(on != 0);
+        Ok(String::new())
+    })
+}
+
+/// Whether the automatic read receipt is unthreaded (`on` != 0): only while
+/// the inline thread style shows the room with every thread reply visible.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_unthreaded_receipts(
+    ptr: *mut c_void,
+    on: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.timelines.set_unthreaded_receipts(on != 0);
         Ok(String::new())
     })
 }

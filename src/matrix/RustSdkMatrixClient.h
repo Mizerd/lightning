@@ -349,6 +349,7 @@ public:
     void setFullyReadMarker(const QString &roomId, const QString &eventId) override;
     void setReadReceiptPrivacy(int mode) override;
     void setThreadRepliesInLiveTimeline(bool inLive) override;
+    void setUnthreadedReadReceipts(bool on) override;
     /// MSC4153 "invisible crypto", process-wide. Static because Rust reads it
     /// when a client is built (matrix-sdk has no runtime setter), so it must be
     /// set before sign-in.
@@ -1467,6 +1468,7 @@ private:
     // Thread style "Inline": carried onto every fresh handle like the receipt
     // privacy, because the Rust flag starts off.
     bool m_threadsInLive = false;
+    bool m_unthreadedReceipts = false;
     // "Index all rooms" holds (IndexAllHold bits), re-applied to every new
     // handle: a call or a scroll in progress outlives an account switch.
     unsigned m_indexAllHold = 0;

@@ -803,6 +803,9 @@ private:
     // the room timeline model; `reopen` rebuilds the open room's live timeline
     // so the change shows without a room switch.
     void applyThreadStyle(bool reopen);
+    // Pushes whether the automatic receipt is unthreaded (inline style, room
+    // shown whole) or main-thread to the backend.
+    void applyReceiptThreading();
     /// Push MSC4153 into the Rust process global; takes effect at the next
     /// sign-in.
     void applyStrictDeviceTrust();

@@ -722,6 +722,8 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
                                                    m_readReceiptPrivacy));
     if (m_threadsInLive)
         takeRustString(mx_rust_timeline_set_threads_in_live(m_rustHandle, 1));
+    if (m_unthreadedReceipts)
+        takeRustString(mx_rust_set_unthreaded_receipts(m_rustHandle, 1));
     // A fresh handle starts unheld; carry a call or scroll already under way.
     if (m_indexAllHold != 0)
         takeRustString(mx_rust_search_index_all_hold(m_rustHandle,
@@ -4173,6 +4175,17 @@ void RustSdkMatrixClient::setThreadRepliesInLiveTimeline(bool inLive)
         mx_rust_timeline_set_threads_in_live(m_rustHandle, inLive ? 1 : 0));
     if (!result.isEmpty())
         qCWarning(lcRust) << "thread style command rejected";
+}
+
+void RustSdkMatrixClient::setUnthreadedReadReceipts(bool on)
+{
+    m_unthreadedReceipts = on;
+    if (!m_rustHandle)
+        return;
+    const QString result = takeRustString(
+        mx_rust_set_unthreaded_receipts(m_rustHandle, on ? 1 : 0));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "receipt thread command rejected";
 }
 
 void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)

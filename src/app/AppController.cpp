@@ -366,6 +366,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // The model's toggle (room header, filter bar) is the setting.
                 m_settings->setHideThreadReplies(
                     m_timeline->hideThreadReplies());
+                applyReceiptThreading();
             });
     m_timeline->setHideThreadReplies(m_settings->hideThreadReplies());
     connect(m_settings.get(), &SettingsManager::hideThreadRepliesChanged, this,
@@ -3880,6 +3881,19 @@ void AppController::showThread(const QString &roomId,
     m_thread->openThread(roomId, rootEventId);
 }
 
+void AppController::applyReceiptThreading()
+{
+    // Unthreaded only while the room is shown whole with its thread replies:
+    // that is the one view in which the reader saw everything a receipt at the
+    // newest row covers (TimelineModel::latestReadableEventId picks the row).
+    if (!m_client || !m_timeline)
+        return;
+    m_client->setUnthreadedReadReceipts(
+        m_timeline->threadRepliesInline()
+        && m_timeline->threadFilterRootId().isEmpty()
+        && !m_timeline->hideThreadReplies());
+}
+
 void AppController::applyThreadStyle(bool reopen)
 {
     const bool inlineThreads =
@@ -3891,6 +3905,7 @@ void AppController::applyThreadStyle(bool reopen)
         m_client->setThreadRepliesInLiveTimeline(inlineThreads);
     if (m_timeline)
         m_timeline->setThreadRepliesInline(inlineThreads);
+    applyReceiptThreading();
     if (!reopen || !changed || !m_client || m_currentRoomId.isEmpty())
         return;
 #ifdef ENABLE_RUST_SDK_BACKEND
