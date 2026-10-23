@@ -52,6 +52,60 @@ class ShortcutRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void dialogBindingsAreScopedAndHaveNoFalseCopyConflict()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_K, Qt::ControlModifier),
+                 QStringLiteral("dialog.previousItem"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_C, Qt::ControlModifier),
+                 QStringLiteral("dialog.close"));
+        QVERIFY(registry.dialogActionForKey(Qt::Key_C, Qt::ControlModifier, true).isEmpty());
+        QVERIFY(roleFor(registry, QStringLiteral("dialog.close"),
+                        ShortcutRegistry::ConflictsWithRole).isEmpty());
+        QCOMPARE(registry.conflictCount(), 0);
+        QCOMPARE(registry.validationError(QStringLiteral("dialog.close"),
+                                          QStringLiteral("Ctrl+C")), QString());
+        QVERIFY(!registry.validationError(QStringLiteral("app.quit"),
+                                           QStringLiteral("Ctrl+C")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("Ctrl+C")).isEmpty());
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.nextItem"),
+                                     QStringLiteral("Ctrl+U")), QString());
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.previousItem"),
+                                           QStringLiteral("Ctrl+U")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("Ctrl+X, Ctrl+Y")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.close"),
+                                           QStringLiteral("Esc")).isEmpty());
+    }
+
+    void dialogRebindingsPersistAndLeaveOtherContextsAlone()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.nextItem"),
+                                     QStringLiteral("Ctrl+N")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.close"),
+                                     QStringLiteral("Alt+L")), QString());
+        ShortcutRegistry restored(&settings);
+        QVERIFY(restored.dialogActionForKey(Qt::Key_J, Qt::ControlModifier).isEmpty());
+        QCOMPARE(restored.dialogActionForKey(Qt::Key_N, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(restored.dialogActionForKey(Qt::Key_L, Qt::AltModifier, false),
+                 QStringLiteral("dialog.close"));
+        QVERIFY(restored.editorActionForKey(Qt::Key_N, Qt::ControlModifier).isEmpty());
+        QCOMPARE(restored.messageSelectionActionForKey(Qt::Key_K, Qt::NoModifier),
+                 QStringLiteral("timeline.olderMessage"));
+        QCOMPARE(restored.sequenceFor(QStringLiteral("nav.quickSwitcher")),
+                 QStringLiteral("Ctrl+K"));
+    }
+
     void messageSelectionDefaultsAndLookupAreSeparateFromComposerPaging()
     {
         SettingsManager settings;
@@ -298,6 +352,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            const QString id = registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // Dialog dismissal yields to native selected-text Copy.
+            if (id == QStringLiteral("dialog.close"))
+                continue;
             // The message menu's letters exist only while that menu owns
             // focus, so a selection action (a timeline Keys handler) may hold
             // one; every other context may not.
@@ -633,9 +691,13 @@ private Q_SLOTS:
         shared.sort();
         QCOMPARE(shared,
                  QStringList({ QStringLiteral("Ctrl+B"),
+                               QStringLiteral("Ctrl+C"),
+                               QStringLiteral("Ctrl+K"),
                                QStringLiteral("Ctrl+Shift+G"),
                                QStringLiteral("Ctrl+U") }));
         QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+U")).size(), 2);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+C")).size(), 2);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+K")).size(), 2);
     }
 
     // GitHub #38: PgUp/PgDn, Ctrl+Up/Down and Ctrl+G / Ctrl+Shift+G are

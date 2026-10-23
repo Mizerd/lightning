@@ -78,7 +78,8 @@ bool isFocusOrNavigationKey(const QKeySequence &seq)
 } // namespace
 
 QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
-                                                ActionContext context) const
+                                                ActionContext context,
+                                                const QString &actionId) const
 {
     const QString owner = reservedOwner(portable);
     if (owner.isEmpty())
@@ -91,11 +92,20 @@ QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
             || portable == QStringLiteral("E")
             || portable == QStringLiteral("Ctrl+C")))
         return {};
+    // Dialog dismissal yields to native Copy of selected query text.
+    if (context == DialogContext
+        && actionId == QStringLiteral("dialog.close")
+        && portable == QStringLiteral("Ctrl+C"))
+        return {};
     return owner;
 }
 
 bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
 {
+    // Modal popup handlers cannot run on the main room surface.
+    if (a == DialogContext || b == DialogContext)
+        return a == b;
+
     // Selection claims ShortcutOverride only in the focused timeline, leaving
     // Global/Editor bindings available elsewhere (a shadow, not a clash).
     // Shared Timeline actions run in that same timeline, so they still
@@ -145,6 +155,7 @@ void ShortcutRegistry::buildTables()
     const QString composeCat = tr("Message formatting");
     const QString callCat = tr("Calls");
     const QString mediaCat = tr("Media");
+    const QString dialogCat = tr("Dialogs");
 
     // Every row must be wired to a QML `Shortcut`: a registry entry whose QML
     // site was never migrated is a shortcut that reports a key and does
@@ -202,6 +213,16 @@ void ShortcutRegistry::buildTables()
           GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
+        { QStringLiteral("dialog.previousItem"), dialogCat,
+          tr("Select the previous item in Activity or the quick switcher"),
+          QStringLiteral("Ctrl+K"), DialogContext },
+        { QStringLiteral("dialog.nextItem"), dialogCat,
+          tr("Select the next item in Activity or the quick switcher"),
+          QStringLiteral("Ctrl+J"), DialogContext },
+        { QStringLiteral("dialog.close"), dialogCat,
+          tr("Close Activity or the quick switcher"),
+          QStringLiteral("Ctrl+C"), DialogContext },
+
         { QStringLiteral("shell.toggleRoomList"), viewCat,
           tr("Show or hide the conversation list"), QStringLiteral("Ctrl+B"),
           GlobalContext },
@@ -612,6 +633,21 @@ QString ShortcutRegistry::messageSelectionActionForKey(int key, int modifiers) c
     return {};
 }
 
+QString ShortcutRegistry::dialogActionForKey(int key, int modifiers,
+                                            bool copyingSelectedText) const
+{
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    if (copyingSelectedText)
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == DialogContext && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return {};
+}
+
 QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
                                             bool hasSelection) const
 {
@@ -676,6 +712,10 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     // A Timeline action is delivered by a Keys handler, so a key that types
     // nothing (PgUp, PgDn, F-keys) may stay bare.
     const bool selectionOnly = action->context == MessageSelectionContext;
+    const bool dialogOnly = action->context == DialogContext;
+    if (dialogOnly && seq.count() != 1)
+        return tr("Use a single key combination for dialog navigation.");
+
     if (selectionOnly && seq.count() != 1)
         return tr("Use a single key combination for message selection.");
     const bool bareOk = selectionOnly
@@ -686,6 +726,9 @@ QString ShortcutRegistry::validationError(const QString &actionId,
                       "Any other bare key is a character you type in the "
                       "message box.");
         }
+        if (dialogOnly)
+            return tr("Use Ctrl, Alt or Super. Dialog shortcuts must leave "
+                      "ordinary typing and navigation keys available.");
         return action->context == GlobalContext
                    ? tr("Use Ctrl, Alt or Super. A shortcut without one of "
                         "those is taken before any text field sees the key, "
@@ -702,7 +745,7 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             .arg(portable);
     }
 
-    const QString owner = blockingReservedOwner(portable, action->context);
+    const QString owner = blockingReservedOwner(portable, action->context, actionId);
     if (!owner.isEmpty()) {
         return tr("%1 is already used for %2. Two shortcuts on one key make "
                   "Qt fire neither of them.")
@@ -791,7 +834,7 @@ QString ShortcutRegistry::conflictNote(int row) const
     const QString mine = m_resolved.at(row);
     if (mine.isEmpty())
         return {};
-    const QString owner = blockingReservedOwner(mine, a.context);
+    const QString owner = blockingReservedOwner(mine, a.context, a.id);
     if (!owner.isEmpty())
         return tr("Also used for %1 — neither will work.").arg(owner);
     for (int i = 0; i < m_actions.size(); ++i) {
@@ -814,6 +857,9 @@ QString ShortcutRegistry::shadowNote(int row) const
     if (row < 0 || row >= m_actions.size())
         return {};
     const Action &a = m_actions.at(row);
+    if (a.context == DialogContext)
+        return tr("Only while Activity or the quick switcher is open. "
+                  "Copying selected text takes priority over closing.");
     const QString mine = m_resolved.at(row);
     if (mine.isEmpty())
         return {};
@@ -826,7 +872,11 @@ QString ShortcutRegistry::shadowNote(int row) const
             continue;
         if (m_resolved.at(i) != mine)
             continue;
-        if (a.context == MessageSelectionContext)
+        if (other.context == DialogContext)
+            notes.append(tr("While Activity or the quick switcher is open, "
+                            "“%1” runs instead.")
+                             .arg(other.description));
+        else if (a.context == MessageSelectionContext)
             notes.append(tr("While the timeline has focus this runs instead of “%1”.")
                              .arg(other.description));
         else if (other.context == MessageSelectionContext)

@@ -18,13 +18,20 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QTemporaryDir>
+#include "app/SettingsManager.h"
+#include "app/ShortcutRegistry.h"
 
 class ActivityCenterPanelQmlTest : public QObject
 {
     Q_OBJECT
 
 private:
+    QTemporaryDir m_configHome;
     struct Fixture {
+        std::unique_ptr<SettingsManager> settings;
+        std::unique_ptr<ShortcutRegistry> shortcuts;
         std::unique_ptr<QQmlApplicationEngine> engine;
         QObject *window = nullptr;
         QObject *panel = nullptr;
@@ -36,7 +43,11 @@ private:
 
     bool make(Fixture &f, bool openPanel = true)
     {
+        QSettings().clear();
+        f.settings = std::make_unique<SettingsManager>();
+        f.shortcuts = std::make_unique<ShortcutRegistry>(f.settings.get());
         f.engine = std::make_unique<QQmlApplicationEngine>();
+        f.engine->rootContext()->setContextProperty("testShortcuts", f.shortcuts.get());
         connect(f.engine.get(), &QQmlEngine::warnings, this,
                 [&f](const QList<QQmlError> &errors) {
                     for (const auto &e : errors)
@@ -49,6 +60,7 @@ private:
         appComp.setData(R"QML(
 import QtQuick
 QtObject {
+    property var shortcuts: testShortcuts
     property string settingsSection: ""
     property var settings: QtObject { property string clockTimeFormat: "hh:mm" }
     property var stickers: QtObject {
@@ -102,6 +114,11 @@ import QtQuick.Controls
 import MatrixClient
 ApplicationWindow {
     visible: true
+    property int mainActionCalls: 0
+    Shortcut {
+        sequence: "Ctrl+J"
+        onActivated: mainActionCalls += 1
+    }
     width: 900
     height: 800
     TextField { objectName: "composer"; focus: true; text: "draft" }
@@ -153,6 +170,61 @@ ApplicationWindow {
     }
 
 private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("activity-keyboard-test"));
+    }
+
+    void dialogKeysNavigateCloseAndStayInsideTheModal()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QCOMPARE(f.window->property("mainActionCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Tab);
+        QVERIFY(!f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QVERIFY(f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_C, Qt::ControlModifier);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.window->property("mainActionCalls").toInt(), 1);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void dialogKeysUseLiveRebindingsAndHandleAnEmptyList()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QCOMPARE(f.shortcuts->setBinding(QStringLiteral("dialog.nextItem"),
+                                         QStringLiteral("Ctrl+N")), QString());
+        QCOMPARE(f.shortcuts->setBinding(QStringLiteral("dialog.close"),
+                                         QStringLiteral("Alt+L")), QString());
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_N, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(f.activity, "clear"));
+        QTest::keyClick(w, Qt::Key_N, Qt::ControlModifier);
+        QCOMPARE(f.list->property("count").toInt(), 0);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_L, Qt::AltModifier);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void openingFromTheKeyboardFocusesTheList()
     {
         Fixture f;

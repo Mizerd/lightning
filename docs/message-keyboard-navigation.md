@@ -63,6 +63,30 @@ composer caret behavior remain available. Escape keeps its contextual
 dismissal and back-navigation behavior; use Ctrl+Shift+W to resume selection
 without cancelling a reply or leaving the room.
 
+## Activity and the quick switcher
+
+The Activity Center is a modal dialog; the quick switcher is a modal
+popup. Both use these actions, listed under **Dialogs** in Settings →
+Keyboard shortcuts:
+
+| Default | Action ID | Behavior |
+| --- | --- | --- |
+| Ctrl+K | `dialog.previousItem` | Select the previous list item. |
+| Ctrl+J | `dialog.nextItem` | Select the next list item. |
+| Ctrl+C | `dialog.close` | Close the open dialog. |
+
+Activity focuses its list on opening. In the switcher, selection moves
+while the query keeps focus, including in command mode. The shortcuts
+scroll the selected row into view and stop at the ends of the list.
+They apply only inside these surfaces; main-window and timeline
+bindings can reuse the same combinations.
+
+Copying selected query text takes priority over closing: Ctrl+C copies
+while text is selected, and closes when nothing is selected. A rebound
+close action such as Alt+L closes directly. Arrows, Enter, Tab and Escape
+keep their existing behavior. Use a single combination with Ctrl, Alt
+or Super for these actions; plain letters stay available for searching.
+
 ## Cursor blinking
 
 Settings → Appearance → Motion and time offers **Disable cursor
@@ -84,6 +108,9 @@ disableCursorBlink=true
 
 [shortcuts]
 composer.focus=Ctrl+L
+dialog.previousItem=Ctrl+K
+dialog.nextItem=Ctrl+J
+dialog.close=Ctrl+C
 timeline.selectLatestMessage=Ctrl+Shift+Space
 timeline.resumeMessageSelection=Ctrl+Shift+W
 timeline.olderMessage=K

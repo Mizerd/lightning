@@ -37,6 +37,29 @@ Dialog {
         open()
     }
 
+    function dialogAction(event) {
+        return root.opened && app.shortcuts
+            ? app.shortcuts.dialogActionForKey(event.key, event.modifiers, false) : ""
+    }
+    function handleDialogKey(event) {
+        const action = root.dialogAction(event)
+        if (action === "dialog.close") {
+            root.close()
+        } else if (action === "dialog.previousItem" || action === "dialog.nextItem") {
+            if (listView.count > 0) {
+                const delta = action === "dialog.previousItem" ? -1 : 1
+                listView.currentIndex = Math.max(0, Math.min(listView.count - 1,
+                    listView.currentIndex < 0 ? 0 : listView.currentIndex + delta))
+                listView.positionViewAtIndex(listView.currentIndex, ListView.Contain)
+            }
+            listView.forceActiveFocus(Qt.ShortcutFocusReason)
+        } else {
+            return false
+        }
+        event.accepted = true
+        return true
+    }
+
     function openEntry(entryId) {
         if (!root.activity)
             return
@@ -157,6 +180,11 @@ Dialog {
 
     contentItem: ColumnLayout {
         id: panelColumn
+        Keys.onShortcutOverride: (event) => {
+            if (root.dialogAction(event) !== "")
+                event.accepted = true
+        }
+        Keys.onPressed: (event) => root.handleDialogKey(event)
         spacing: AppTheme.spacing12
 
         RowLayout {

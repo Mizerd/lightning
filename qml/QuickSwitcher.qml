@@ -439,6 +439,27 @@ Popup {
     }
     // The visible list's selection moves through this one door so every key
     // (arrows, Tab wrap-around, paging) also scrolls the row into view.
+    function dialogAction(event) {
+        return switcher.opened && app.shortcuts
+            ? app.shortcuts.dialogActionForKey(event.key, event.modifiers,
+                queryField.activeFocus && queryField.selectedText.length > 0
+                    && event.matches(StandardKey.Copy)) : ""
+    }
+    function handleDialogKey(event) {
+        const action = switcher.dialogAction(event)
+        if (action === "dialog.close") {
+            switcher.close()
+        } else if (action === "dialog.previousItem" || action === "dialog.nextItem") {
+            const delta = action === "dialog.previousItem" ? -1 : 1
+            const current = switcher.activeList().currentIndex
+            switcher.selectRow(current < 0 ? 0 : current + delta)
+        } else {
+            return false
+        }
+        event.accepted = true
+        return true
+    }
+
     function activeList() { return switcher.commandMode ? commandList : resultList }
     function activeCount() {
         return switcher.commandMode ? switcher.commandRows.length
@@ -532,6 +553,11 @@ Popup {
     }
 
     contentItem: ColumnLayout {
+        Keys.onShortcutOverride: (event) => {
+            if (switcher.dialogAction(event) !== "")
+                event.accepted = true
+        }
+        Keys.onPressed: (event) => switcher.handleDialogKey(event)
         spacing: 0
 
         // Header: leading glyph, query field, ESC keycap
@@ -595,7 +621,13 @@ Popup {
                     app.quickSwitcher.query = text
                     resultList.currentIndex = app.quickSwitcher.count > 0 ? 0 : -1
                 }
+                Keys.onShortcutOverride: (event) => {
+                    if (switcher.dialogAction(event) !== "")
+                        event.accepted = true
+                }
                 Keys.onPressed: (event) => {
+                    if (switcher.handleDialogKey(event))
+                        return
                     if (switcher.commandMode && event.key === Qt.Key_Backspace
                         && queryField.text.length === 0) {
                         switcher.commandMode = false

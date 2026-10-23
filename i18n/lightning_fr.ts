@@ -24398,6 +24398,38 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>ShortcutRegistry</name>
     <message>
+        <source>Dialogs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the previous item in Activity or the quick switcher</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the next item in Activity or the quick switcher</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close Activity or the quick switcher</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a single key combination for dialog navigation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only while Activity or the quick switcher is open. Copying selected text takes priority over closing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>While Activity or the quick switcher is open, “%1” runs instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
         <source>Focus the message box</source>
         <translation>Placer le focus sur la zone de message</translation>
