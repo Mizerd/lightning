@@ -6,12 +6,31 @@
       qt = pkgs.qt6;
       # The same dictionaries the package bundles (see package.nix).
       spellDictionaries = pkgs.callPackage ./spell-dictionaries.nix { };
+      developer = pkgs.writeShellApplication {
+        name = "lightning-dev";
+        runtimeInputs = with pkgs; [
+          cmake
+          ninja
+          cargo
+          ccache
+          coreutils
+          (if stdenv.hostPlatform.isLinux then util-linux else flock)
+        ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.mold ];
+        text = builtins.readFile ../scripts/develop.sh;
+      };
     in
     {
       devShells.default = pkgs.mkShell {
         name = "lightning-dev";
 
+        # Defaults for incremental local builds; entering the shell does no
+        # fetching, configuration or compilation. The helper starts that work.
+        CARGO_BUILD_JOBS = "8";
+        CMAKE_BUILD_PARALLEL_LEVEL = "8";
+        CARGO_PROFILE_DEV_DEBUG = "1";
+
         nativeBuildInputs = with pkgs; [
+          developer
           cmake
           ninja
           pkg-config
@@ -94,6 +113,9 @@
           export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice.out}/lib/gstreamer-1.0''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
 
           echo "Lightning dev shell — Qt ${qt.qtbase.version}"
+          echo "Local Rust build:       lightning-dev configure; lightning-dev build"
+          echo "Run existing build:     lightning-dev run [extra application args]"
+          echo "Build directory:        LIGHTNING_BUILD_DIR (default: build-nixos)"
           echo "Configure (mock/http):  cmake -S . -B build -G Ninja"
           echo "Configure (+rust):      cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON"
           echo "Build:                  cmake --build build"
