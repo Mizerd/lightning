@@ -14,18 +14,23 @@ Item {
     property var timelineView:
         TableView.view ? TableView.view : ListView.view
 
-    Rectangle {
-        objectName: "keyboardMessageSelection"
+    // Instantiated only on the one selected row: every loaded row exists, and
+    // a per-row Rectangle is a scene item in each of them for a single mark.
+    Loader {
+        objectName: "keyboardMessageSelectionLoader"
         anchors.fill: parent
-        color: "transparent"
-        radius: AppTheme.scaled(6)
-        border.width: AppTheme.scaled(2)
-        border.color: AppTheme.accent
-        visible: root.timelineView
+        z: 2
+        active: root.timelineView
             && root.timelineView.keyboardSelectedEventId !== undefined
             && root.timelineView.keyboardSelectedEventId !== ""
             && root.timelineView.keyboardSelectedEventId === model.eventId
-        z: 2
+        sourceComponent: Rectangle {
+            objectName: "keyboardMessageSelection"
+            color: "transparent"
+            radius: AppTheme.scaled(6)
+            border.width: AppTheme.scaled(2)
+            border.color: AppTheme.accent
+        }
     }
 
     // Multi-message selection: while selecting, a tap toggles the row instead

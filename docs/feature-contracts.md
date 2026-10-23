@@ -2792,3 +2792,21 @@ live, and the server answers presence. Research and design: vault note
   chosen `composer/mode=rich` from a stale one, every profile is moved to
   Markdown once (`composer/markdownDefaultMigrated`); a rich-text choice made
   afterwards persists.
+
+### Message keyboard navigation (PR #50)
+
+- The timeline has a keyboard selection, separate from the per-row focus Tab
+  and the arrows give. Defaults are bare keys dispatched by the focused
+  timeline only (`MessageSelectionContext`): K older, J newer, U / D half a
+  page, R reply; Ctrl+Shift+Space selects the latest (through the timeline's
+  jump-to-latest bookkeeping) and Ctrl+Shift+W resumes the selection.
+  Ctrl+L focuses the composer and hides the selection. Bare keys can shadow no
+  global or composer binding; Tab, F6, Return, arrows, Backspace, Escape and
+  Space are refused for these actions. Full text and rationale:
+  `docs/message-keyboard-navigation.md`.
+- **Disable cursor blinking** (Settings > Appearance): `ui/disableCursorBlink`,
+  device-global, export-only (never synced), applied through
+  `QStyleHints::setCursorFlashTime(0)`.
+- NOT TESTED: a screen reader announcing the selection. The selection is a
+  drawn outline on a timeline that keeps keyboard focus, so assistive
+  technology is not told which message is selected (open item).

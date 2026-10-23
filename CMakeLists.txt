@@ -5085,6 +5085,8 @@ if(BUILD_TESTING)
     )
     lightning_configure_qml_test(message-selection-qml-test)
     target_include_directories(message-selection-qml-test PRIVATE src)
+    target_compile_definitions(message-selection-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME message-selection-qml COMMAND message-selection-qml-test)
     set_tests_properties(message-selection-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

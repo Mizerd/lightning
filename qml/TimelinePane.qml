@@ -3172,15 +3172,11 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     noteReaderTookControl()
-                    app.timelineView.showLatestWindow(windowMinRows)
-                    rowColumn.forceLayout()
-                    stickToBottom = true
-                    viewAnchorId = ""
-                    viewAnchorLastY = 0
-                    // Retire any saved historical anchor immediately. This
-                    // explicit jump has no wheel gesture to save its state.
-                    app.pagination.saveFollowingLatest(app.currentRoomId)
-                    positionViewAtLatest()
+                    // The timeline's own jump-to-latest bookkeeping: live edge
+                    // exposed, follow-latest saved, anchor baseline retired,
+                    // receipts re-evaluated. Bounded, so a distant jump does
+                    // not instantiate the whole skipped backlog.
+                    settleAtLatest(true)
                     selectNewestVisibleMessage()
                     // Allow a cleared presentation window to expose row zero,
                     // but never overwrite a subsequent step/page command.
@@ -4711,13 +4707,26 @@ Rectangle {
                     settleAtLatest()
                 }
                 // Follow-latest bookkeeping shared by both paths.
-                function settleAtLatest() {
+                // `bounded` (keyboard entry to message selection) replaces a
+                // distant historical window with a bare live one instead of
+                // inserting the skipped range just to discard it. Only while
+                // the view is settled and no page is in flight; otherwise it
+                // is the ordinary release.
+                function settleAtLatest(bounded) {
                     // The live edge must be exposed first: under an active
                     // window wheelMinY() is the window's newest row, not the
                     // newest message. This is also the fallback when the
                     // history trim refuses, so it cannot rely on the trim's
                     // reset.
-                    releasePendingRows()
+                    if (bounded === true && presentationReady
+                            && !(app.pagination && app.pagination.busy)
+                            && app.timelineView
+                            && app.timelineView.showLatestWindow) {
+                        app.timelineView.showLatestWindow(windowMinRows)
+                        rowColumn.forceLayout()
+                    } else {
+                        releasePendingRows()
+                    }
                     stickToBottom = true
                     // Positioning row zero can re-seed the position frame, so a
                     // surviving anchor baseline would measure across two

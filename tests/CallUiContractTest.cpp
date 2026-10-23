@@ -5090,9 +5090,13 @@ Item {
         QVERIFY2(all.contains(QStringLiteral("timelineActionForKey(")),
                  "no view resolves timeline keys, so the TimelineContext "
                  "rows below cannot be wired");
+        QVERIFY2(all.contains(QStringLiteral("messageSelectionActionForKey(")),
+                 "no view resolves message-selection keys, so the "
+                 "MessageSelectionContext rows below cannot be wired");
 
         QStringList unwired;
         int timelineRows = 0;
+        int selectionRows = 0;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
             // EditorContext rows are routed by the composer through
@@ -5103,6 +5107,15 @@ Item {
                 continue;
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // MessageSelectionContext rows are resolved by
+            // messageSelectionActionForKey() and run from the timeline's
+            // runNavigationAction() switch: wired when it has a case.
+            if (context == ShortcutRegistry::MessageSelectionContext) {
+                ++selectionRows;
+                if (!all.contains(QStringLiteral("case \"%1\":").arg(id)))
+                    unwired.append(id);
+                continue;
+            }
             // TimelineContext rows are resolved by timelineActionForKey() in
             // a view's Keys handler, so the row is wired when that handler
             // has a case for it.
@@ -5118,6 +5131,8 @@ Item {
         // Count control: the timeline branch must have seen the four
         // paging rows, or it is checking nothing.
         QVERIFY2(timelineRows >= 4, "no TimelineContext rows were checked");
+        QVERIFY2(selectionRows >= 5,
+                 "no MessageSelectionContext rows were checked");
         QVERIFY2(unwired.isEmpty(),
                  qPrintable(QStringLiteral(
                                 "these registry rows report a key and do "

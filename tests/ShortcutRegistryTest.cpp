@@ -58,15 +58,62 @@ private Q_SLOTS:
         ShortcutRegistry registry(&settings);
         QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.selectLatestMessage")),
                  QStringLiteral("Ctrl+Shift+Space"));
+        // Not an Alt+letter: Option+letter types characters on Mac layouts.
         QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.resumeMessageSelection")),
-                 QStringLiteral("Alt+L"));
-        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::ControlModifier),
+                 QStringLiteral("Ctrl+Shift+W"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::NoModifier),
                  QStringLiteral("timeline.olderMessage"));
-        QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::ControlModifier).isEmpty());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_J, Qt::NoModifier),
+                 QStringLiteral("timeline.newerMessage"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_U, Qt::NoModifier),
+                 QStringLiteral("timeline.halfPageUp"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_D, Qt::NoModifier),
+                 QStringLiteral("timeline.halfPageDown"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_R, Qt::NoModifier),
+                 QStringLiteral("timeline.reply"));
+        QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::NoModifier).isEmpty());
         QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
                  QStringLiteral("timeline.pageUp"));
         QVERIFY(registry.messageSelectionActionForKey(Qt::Key_PageUp, Qt::NoModifier).isEmpty());
         QCOMPARE(registry.conflictCount(), 0);
+    }
+
+    // H1: the defaults must not take a key anything else owns while the
+    // timeline (which any click focuses) has focus: the quick switcher's
+    // Ctrl+K and the people panel's Ctrl+U in particular.
+    void noSelectionDefaultTakesAKeyAnotherContextHolds()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QHash<QString, QStringList> bySequence;
+        QStringList selection;
+        for (int row = 0; row < registry.rowCount(); ++row) {
+            const QModelIndex idx = registry.index(row);
+            const QString seq =
+                registry.data(idx, ShortcutRegistry::CurrentSequenceRole).toString();
+            const QString id = registry.data(idx, ShortcutRegistry::IdRole).toString();
+            bySequence[seq].append(id);
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                == ShortcutRegistry::MessageSelectionContext)
+                selection.append(id);
+        }
+        QCOMPARE(selection.size(), 5);
+        for (const QString &id : selection) {
+            const QString seq = registry.sequenceFor(id);
+            QCOMPARE(bySequence.value(seq).size(), 1);
+            QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
+            QVERIFY(roleFor(registry, id, ShortcutRegistry::ShadowNoteRole).isEmpty());
+        }
+        const QString resume =
+            registry.sequenceFor(QStringLiteral("timeline.resumeMessageSelection"));
+        QVERIFY(!resume.contains(QStringLiteral("Alt")));
+        QCOMPARE(bySequence.value(resume).size(), 1);
+        // The PR's old defaults, for the record: Ctrl+K is the quick switcher
+        // and Ctrl+U the people panel. Neither default may be one again.
+        QVERIFY(registry.sequenceFor(QStringLiteral("timeline.olderMessage"))
+                != QStringLiteral("Ctrl+K"));
+        QVERIFY(registry.sequenceFor(QStringLiteral("timeline.halfPageUp"))
+                != QStringLiteral("Ctrl+U"));
     }
 
     void plainMessageKeysAreSafeOnlyInTheSelectionContext()
@@ -74,15 +121,15 @@ private Q_SLOTS:
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
-                                     QStringLiteral("K")), QString());
+                                     QStringLiteral("H")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
                                      QStringLiteral("Shift+J")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.reply"),
-                                     QStringLiteral("R")), QString());
-        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_R, Qt::NoModifier),
+                                     QStringLiteral("T")), QString());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_T, Qt::NoModifier),
                  QStringLiteral("timeline.reply"));
-        QVERIFY(registry.timelineActionForKey(Qt::Key_R, Qt::NoModifier).isEmpty());
-        QVERIFY(registry.editorActionForKey(Qt::Key_R, Qt::NoModifier).isEmpty());
+        QVERIFY(registry.timelineActionForKey(Qt::Key_T, Qt::NoModifier).isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_T, Qt::NoModifier).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
                                            QStringLiteral("K")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("nav.quickSwitcher"),
@@ -94,34 +141,78 @@ private Q_SLOTS:
         QVERIFY(!registry.validationError(QStringLiteral("timeline.reply"),
                                            QStringLiteral("Ctrl+X, Ctrl+Y")).isEmpty());
         registry.reload();
-        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_K, Qt::NoModifier),
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_H, Qt::NoModifier),
                  QStringLiteral("timeline.olderMessage"));
     }
 
-    void selectionKeysShadowGlobalActionsButConflictWithSharedTimelineKeys()
+    // M3: keys that move focus or navigate cannot be selection keys.
+    void selectionRefusesFocusAndNavigationKeys()
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
-        for (const QString &id : {
-                 QStringLiteral("composer.underline"),
-                 QStringLiteral("room.togglePeople") }) {
-            const QString note = roleFor(
-                registry, id, ShortcutRegistry::ShadowNoteRole);
-            QVERIFY2(note.contains(QStringLiteral("timeline")),
-                     qPrintable(id + QStringLiteral(": ") + note));
-            QVERIFY2(note.contains(QStringLiteral("selected")),
-                     qPrintable(id + QStringLiteral(": ") + note));
+        for (const char *key : { "Tab", "Backtab", "Shift+Tab", "F6", "Shift+F6",
+                                 "Return", "Enter", "Up", "Down", "Left", "Right",
+                                 "Shift+Up", "Backspace", "Esc", "Space",
+                                 "Shift+Space" }) {
+            const QString seq = QString::fromLatin1(key);
+            const QString error = registry.validationError(
+                QStringLiteral("timeline.olderMessage"), seq);
+            QVERIFY2(!error.isEmpty(), key);
+            QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"), seq),
+                     error);
+            QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.olderMessage")),
+                     QStringLiteral("K"));
         }
-        QVERIFY(roleFor(registry, QStringLiteral("timeline.olderMessage"),
-                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
-        QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),
-                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
+        // With a command modifier the key is an ordinary chord again.
+        QVERIFY(registry.validationError(QStringLiteral("timeline.olderMessage"),
+                                         QStringLiteral("Ctrl+Tab")).isEmpty());
+        // The same bare keys stay refused for every other context too.
+        QVERIFY(!registry.validationError(QStringLiteral("room.find"),
+                                          QStringLiteral("Tab")).isEmpty());
+    }
+
+    // M2: validationError() and conflictNote() share one exemption for the
+    // message menu's letters, so a selection action on R is neither refused
+    // nor reported as a conflict, while a global one on R is still refused.
+    void selectionOnMenuLetterIsNotReportedAsAConflict()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("T")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
+                                     QStringLiteral("E")), QString());
+        // R is already timeline.reply's default; it must not count either.
+        QCOMPARE(registry.sequenceFor(QStringLiteral("timeline.reply")),
+                 QStringLiteral("R"));
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(roleFor(registry, QStringLiteral("timeline.reply"),
+                        ShortcutRegistry::ConflictsWithRole).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("room.find"),
+                                          QStringLiteral("R")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
+                                          QStringLiteral("R")).isEmpty());
+    }
+
+    void selectionKeysConflictWithSharedTimelineKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
         QVERIFY(!registry.validationError(QStringLiteral("timeline.olderMessage"),
                                            QStringLiteral("PgUp")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
-                                           QStringLiteral("Ctrl+K")).isEmpty());
+                                           QStringLiteral("K")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
+                                           QStringLiteral("Ctrl+Up")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.newerMessage"),
-                                           QStringLiteral("Ctrl+K")).isEmpty());
+                                           QStringLiteral("Ctrl+Up")).isEmpty());
+        // A selection key shadows a Global one in the focused timeline only:
+        // allowed, and said so.
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
+                                     QStringLiteral("Ctrl+K")), QString());
+        QVERIFY(roleFor(registry, QStringLiteral("nav.quickSwitcher"),
+                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("timeline")));
+        QCOMPARE(registry.conflictCount(), 0);
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
                                      QStringLiteral("Ctrl+N")), QString());
         QVERIFY(registry.messageSelectionActionForKey(Qt::Key_K, Qt::ControlModifier).isEmpty());
@@ -194,6 +285,14 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            // The message menu's letters exist only while that menu owns
+            // focus, so a selection action (a timeline Keys handler) may hold
+            // one; every other context may not.
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                    == ShortcutRegistry::MessageSelectionContext
+                && (seq == QStringLiteral("R") || seq == QStringLiteral("T")
+                    || seq == QStringLiteral("E")))
+                continue;
             QVERIFY2(!registry.isReserved(seq),
                      qPrintable(QStringLiteral("default %1 is reserved for %2")
                                     .arg(seq, registry.reservedOwner(seq))));
@@ -240,6 +339,7 @@ private Q_SLOTS:
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
         int checkedRows = 0;
+        int selectionRows = 0;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
             const QString id =
@@ -247,6 +347,17 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            // A selection action is a Keys handler on the focused timeline,
+            // so a bare key is exactly what it is for; it must still be
+            // storable (no navigation key) and a single chord.
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                    == ShortcutRegistry::MessageSelectionContext) {
+                ++checkedRows;
+                ++selectionRows;
+                QVERIFY2(registry.validationError(id, seq).isEmpty(),
+                         qPrintable(id + QStringLiteral(" ships ") + seq));
+                continue;
+            }
             // A Timeline action is a Keys handler, not a Shortcut, so the
             // non-text keys (PgUp, PgDn) are legal bare.
             if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
@@ -272,6 +383,7 @@ private Q_SLOTS:
                                     .arg(id, seq)));
         }
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
+        QCOMPARE(selectionRows, 5);
     }
 
     // The named additions ship on exactly these ids and keys: the rule sweeps
@@ -478,8 +590,11 @@ private Q_SLOTS:
         }
     }
 
-    // Pin intentional shadows, including selection's timeline-only Ctrl+K
-    // and Ctrl+U. conflictCount() cannot identify an accidental legal share.
+    // Exactly three sequences appear on more than one row (Ctrl+B and Ctrl+U,
+    // both designed cross-context pairs, and the GIF picker / find-previous
+    // share). conflictCount() cannot see a further, accidental one, since
+    // cross-context pairs are legal. Message selection uses bare keys and
+    // takes no part in any of them.
     void theOnlyCrossContextSharesAreTheDesignedOnes()
     {
         SettingsManager settings;
@@ -504,11 +619,9 @@ private Q_SLOTS:
         shared.sort();
         QCOMPARE(shared,
                  QStringList({ QStringLiteral("Ctrl+B"),
-                               QStringLiteral("Ctrl+K"),
                                QStringLiteral("Ctrl+Shift+G"),
                                QStringLiteral("Ctrl+U") }));
-        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+U")).size(), 3);
-        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+K")).size(), 2);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+U")).size(), 2);
     }
 
     // GitHub #38: PgUp/PgDn, Ctrl+Up/Down and Ctrl+G / Ctrl+Shift+G are

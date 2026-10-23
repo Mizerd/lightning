@@ -43,15 +43,62 @@ bool isNonTextKey(const QKeySequence &seq)
            || (key >= Qt::Key_F1 && key <= Qt::Key_F35);
 }
 
+/// Keys the timeline and the focus chain own. Bare (or Shift-only) they are
+/// refused for message selection: Tab/Backtab and F6 move focus, Return/Enter
+/// and Space activate or page, the arrows move between rows, Backspace and
+/// Escape go back. Binding one would swallow it from every other use.
+bool isFocusOrNavigationKey(const QKeySequence &seq)
+{
+    if (seq.count() <= 0)
+        return false;
+    const QKeyCombination combo = seq[0];
+    const Qt::KeyboardModifiers mods = combo.keyboardModifiers();
+    if (mods.testFlag(Qt::ControlModifier) || mods.testFlag(Qt::AltModifier)
+        || mods.testFlag(Qt::MetaModifier))
+        return false;
+    switch (combo.key()) {
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab:
+    case Qt::Key_F6:
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+    case Qt::Key_Backspace:
+    case Qt::Key_Escape:
+    case Qt::Key_Space:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
+
+QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
+                                                ActionContext context) const
+{
+    const QString owner = reservedOwner(portable);
+    if (owner.isEmpty())
+        return {};
+    // A menu's letter accelerator only exists while that menu owns focus; it
+    // cannot collide with the timeline's Keys handler. One helper for
+    // validationError() and conflictNote(), which once disagreed.
+    if (context == MessageSelectionContext
+        && (portable == QStringLiteral("R") || portable == QStringLiteral("T")
+            || portable == QStringLiteral("E")))
+        return {};
+    return owner;
+}
 
 bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
 {
     // Selection claims ShortcutOverride only in the focused timeline, leaving
-    // Global/Editor bindings available elsewhere. Shared Timeline actions run
-    // in that same timeline, so they still conflict with selection actions.
-    if (a == MessageSelectionContext || b == MessageSelectionContext)
-        return a == b || a == TimelineContext || b == TimelineContext;
+    // Global/Editor bindings available elsewhere (a shadow, not a clash).
+    // Shared Timeline actions run in that same timeline, so they still
+    // conflict with selection actions: the rule below already says so.
     // Global vs Editor is a designed shadow. A Timeline action has no such
     // arrangement: a Global Shortcut would take its key first, and an Editor
     // format would claim it in the same box.
@@ -190,23 +237,29 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("timeline.selectLatestMessage"), roomCat,
           tr("Select the latest message"), QStringLiteral("Ctrl+Shift+Space"),
           GlobalContext },
+        // Not Alt+<letter>: Option+letter types characters on Mac layouts
+        // (German '@'), and Ctrl+Alt is AltGr on Windows. Every other
+        // Ctrl+Shift+letter is taken; W is free.
         { QStringLiteral("timeline.resumeMessageSelection"), roomCat,
-          tr("Resume message selection in the current view"), QStringLiteral("Alt+L"),
-          GlobalContext },
+          tr("Resume message selection in the current view"),
+          QStringLiteral("Ctrl+Shift+W"), GlobalContext },
+        // Bare keys, nvim style. Safe only because the timeline's Keys
+        // handler dispatches them while the timeline itself has focus, so no
+        // text field is involved and no Global/Editor binding is shadowed.
         { QStringLiteral("timeline.olderMessage"), roomCat,
-          tr("Select the older message"), QStringLiteral("Ctrl+K"),
+          tr("Select the older message"), QStringLiteral("K"),
           MessageSelectionContext },
         { QStringLiteral("timeline.newerMessage"), roomCat,
-          tr("Select the newer message"), QStringLiteral("Ctrl+J"),
+          tr("Select the newer message"), QStringLiteral("J"),
           MessageSelectionContext },
         { QStringLiteral("timeline.halfPageUp"), roomCat,
-          tr("Scroll up half a page without changing selection"), QStringLiteral("Ctrl+U"),
-          MessageSelectionContext },
+          tr("Scroll up half a page without changing selection"),
+          QStringLiteral("U"), MessageSelectionContext },
         { QStringLiteral("timeline.halfPageDown"), roomCat,
-          tr("Scroll down half a page without changing selection"), QStringLiteral("Ctrl+D"),
-          MessageSelectionContext },
+          tr("Scroll down half a page without changing selection"),
+          QStringLiteral("D"), MessageSelectionContext },
         { QStringLiteral("timeline.reply"), roomCat,
-          tr("Reply to the selected message"), QStringLiteral("Ctrl+R"),
+          tr("Reply to the selected message"), QStringLiteral("R"),
           MessageSelectionContext },
         { QStringLiteral("timeline.pageUp"), roomCat,
           tr("Scroll the conversation up by a page"), QStringLiteral("PgUp"),
@@ -628,13 +681,14 @@ QString ShortcutRegistry::validationError(const QString &actionId,
                         "happen.");
     }
 
-    const QString owner = reservedOwner(portable);
-    // A menu's letter accelerator only exists while that menu owns focus;
-    // it cannot collide with the timeline's Keys handler.
-    const bool menuLetter = portable == QStringLiteral("R")
-                            || portable == QStringLiteral("T")
-                            || portable == QStringLiteral("E");
-    if (!owner.isEmpty() && !(selectionOnly && menuLetter)) {
+    if (selectionOnly && isFocusOrNavigationKey(seq)) {
+        return tr("%1 moves focus or navigates the conversation, so it "
+                  "cannot be used to select messages.")
+            .arg(portable);
+    }
+
+    const QString owner = blockingReservedOwner(portable, action->context);
+    if (!owner.isEmpty()) {
         return tr("%1 is already used for %2. Two shortcuts on one key make "
                   "Qt fire neither of them.")
             .arg(portable, owner);
@@ -722,7 +776,7 @@ QString ShortcutRegistry::conflictNote(int row) const
     const QString mine = m_resolved.at(row);
     if (mine.isEmpty())
         return {};
-    const QString owner = reservedOwner(mine);
+    const QString owner = blockingReservedOwner(mine, a.context);
     if (!owner.isEmpty())
         return tr("Also used for %1 — neither will work.").arg(owner);
     for (int i = 0; i < m_actions.size(); ++i) {

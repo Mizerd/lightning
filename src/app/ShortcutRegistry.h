@@ -193,6 +193,10 @@ private:
     QString storedOverride(const QString &actionId) const;
     QString currentSequence(const Action &action) const;
     QString conflictNote(int row) const;
+    /// reservedOwner(), minus the hard-coded keys that cannot collide with an
+    /// action of `context`. The one place that decides it.
+    QString blockingReservedOwner(const QString &portable,
+                                  ActionContext context) const;
     QString shadowNote(int row) const;
     void recomputeSummary();
     void announceAll();

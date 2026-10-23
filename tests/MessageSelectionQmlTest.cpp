@@ -5,6 +5,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QFile>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -31,6 +32,24 @@ class MessageSelectionQmlTest : public QObject
     QQuickItem *item(const char *name) const
     {
         return m_window->findChild<QQuickItem *>(QString::fromLatin1(name));
+    }
+
+    // Visual-tree search: an item a Loader creates is parented visually, not
+    // always as a QObject child, so findChildren() could miss it.
+    static void collectItems(QQuickItem *root, const QString &name,
+                             QList<QQuickItem *> &out)
+    {
+        if (root->objectName() == name)
+            out.append(root);
+        for (QQuickItem *child : root->childItems())
+            collectItems(child, name, out);
+    }
+
+    QList<QQuickItem *> itemsNamed(const QString &name) const
+    {
+        QList<QQuickItem *> out;
+        collectItems(m_window->contentItem(), name, out);
+        return out;
     }
 
     QObject *switcher() const
@@ -160,7 +179,7 @@ ApplicationWindow {
         const QString draft = m_controller->composer()->text();
         QTRY_VERIFY(editor->hasActiveFocus());
         QVERIFY(item("timelinePane")->property("timelineFocusable").toBool());
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         QCOMPARE(m_controller->composer()->text(), draft);
         QVERIFY(!item("timelinePane")->property("keyboardSelectedEventId")
@@ -203,11 +222,11 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         const auto selected = item("timelinePane")->property("keyboardSelectedEventId").toString();
         QVERIFY(!selected.isEmpty());
         QVERIFY(selected != event.eventId);
-        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_J);
         QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(), selected);
     }
 
@@ -241,7 +260,7 @@ ApplicationWindow {
         auto *view = item("timelineListView");
         auto *pane = item("timelinePane");
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         QVariant row, value;
         QVERIFY(QMetaObject::invokeMethod(view, "viewRowForStableId",
             Q_RETURN_ARG(QVariant, row), Q_ARG(QVariant, QVariant(events.at(1).eventId))));
@@ -255,12 +274,12 @@ ApplicationWindow {
         card->setHeight(view->height() * 3);
         QTest::qWait(100);
         QVERIFY(view->setProperty("contentY", card->y() + view->height() * 0.5));
-        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_U);
         const qreal before = view->property("contentY").toReal();
         QVERIFY(before > card->y());
         QVERIFY(before + view->height() < card->y() + card->height());
         QVERIFY(view->property("selectionDetached").toBool());
-        QTest::keyClick(m_window, older ? Qt::Key_K : Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, older ? Qt::Key_K : Qt::Key_J);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(),
                  older ? events.first().eventId : events.last().eventId);
         QVERIFY(older ? view->property("contentY").toReal() > before
@@ -272,7 +291,7 @@ ApplicationWindow {
         openJoinedRoom();
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         const auto selected = item("timelinePane")->property("keyboardSelectedEventId").toString();
         const int row = m_controller->timeline()->rowForStableId(selected);
         QVERIFY(row >= 0);
@@ -280,7 +299,7 @@ ApplicationWindow {
         event.redacted = true;
         auto *mock = m_controller->findChild<MockMatrixClient *>();
         Q_EMIT mock->eventChangedAt(m_controller->currentRoomId(), row, event);
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QVERIFY(!m_controller->composer()->isReplying());
     }
 
@@ -289,7 +308,7 @@ ApplicationWindow {
         openJoinedRoom();
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         auto *view = item("timelineListView");
         QVariant value;
         QVERIFY(QMetaObject::invokeMethod(view, "itemAtViewRow",
@@ -299,11 +318,11 @@ ApplicationWindow {
         row->forceActiveFocus(Qt::TabFocusReason);
         QVERIFY(row->hasActiveFocus());
         QVERIFY(!view->hasActiveFocus());
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QVERIFY(!m_controller->composer()->isReplying());
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QVERIFY(m_controller->composer()->isReplying());
     }
 
@@ -332,7 +351,7 @@ ApplicationWindow {
         connect(proxy, &QAbstractItemModel::modelReset, &observer, sample);
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
-        QTest::qWait(100);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         QCOMPARE(proxy->windowSkip(), 0);
         QVERIFY2(peak <= 320, qPrintable(QStringLiteral("Peak exposed rows: %1").arg(peak)));
         QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(),
@@ -346,7 +365,7 @@ ApplicationWindow {
         QVERIFY(proxy);
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         auto *view = item("timelineListView");
         proxy->setWindow(5, 10);
         QTest::qWait(30);
@@ -357,7 +376,7 @@ ApplicationWindow {
         const auto selected = item("timelinePane")->property("keyboardSelectedEventId");
         // No event-loop pause: a held key must not rely on the settle timer.
         for (int i = 0; i < 8; ++i)
-            QTest::keyClick(m_window, Qt::Key_D, Qt::ControlModifier);
+            QTest::keyClick(m_window, Qt::Key_D);
         QCOMPARE(proxy->windowSkip(), 0);
         QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId"), selected);
     }
@@ -369,7 +388,7 @@ ApplicationWindow {
         QVERIFY(proxy);
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         auto *view = item("timelineListView");
         proxy->setWindow(5, 10);
         QTest::qWait(30);
@@ -383,7 +402,7 @@ ApplicationWindow {
         const int sourceRow = m_controller->timeline()->rowForStableId(selected.toString());
         QVERIFY(sourceRow >= 0);
         const auto expected = m_controller->timeline()->events().at(sourceRow + 1).eventId;
-        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_J);
         QCOMPARE(proxy->windowSkip(), 0);
         QCOMPARE(item("timelinePane")->property("keyboardSelectedEventId").toString(), expected);
     }
@@ -402,7 +421,7 @@ ApplicationWindow {
         QVERIFY(mock);
         Q_EMIT mock->eventRemovedAt(m_controller->currentRoomId(), row);
         QTRY_COMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QVERIFY(!m_controller->composer()->isReplying());
     }
 
@@ -423,10 +442,10 @@ ApplicationWindow {
         auto *pane = item("timelinePane");
         auto *view = item("timelineListView");
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         const QString latest = pane->property("keyboardSelectedEventId").toString();
         for (int step = 0; step < 5; ++step)
-            QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+            QTest::keyClick(m_window, Qt::Key_K);
         const QString history = pane->property("keyboardSelectedEventId").toString();
         QVERIFY(!history.isEmpty());
         QVERIFY(history != latest);
@@ -439,7 +458,7 @@ ApplicationWindow {
         QTRY_VERIFY(editor->property("text").toString().contains("historical draft"));
         const QString draft = m_controller->composer()->text();
         const qreal y = view->property("contentY").toReal();
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(view->hasActiveFocus());
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), history);
         QCOMPARE(view->property("contentY").toReal(), y);
@@ -460,20 +479,20 @@ ApplicationWindow {
         auto *pane = item("timelinePane");
         auto *view = item("timelineListView");
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::qWait(50);
-        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
+        QTest::keyClick(m_window, Qt::Key_K);
         const QString history = pane->property("keyboardSelectedEventId").toString();
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QCOMPARE(m_controller->composer()->replyingToEventId(), history);
         QTest::keyClick(m_window, Qt::Key_N, Qt::ControlModifier | Qt::AltModifier);
         QTRY_VERIFY(view->hasActiveFocus());
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), history);
         QCOMPARE(m_controller->composer()->replyingToEventId(), history);
-        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_K);
         const QString nextReply = pane->property("keyboardSelectedEventId").toString();
         QVERIFY(nextReply != history);
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QCOMPARE(m_controller->composer()->replyingToEventId(), nextReply);
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
@@ -493,7 +512,7 @@ ApplicationWindow {
                                      + view->height() * 0.5))));
         QTest::qWait(100);
         const qreal y = view->property("contentY").toReal();
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(view->hasActiveFocus());
         QCOMPARE(view->property("contentY").toReal(), y);
         QVERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
@@ -506,7 +525,7 @@ ApplicationWindow {
                        Qt::ControlModifier | Qt::ShiftModifier);
         auto *pane = item("timelinePane");
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         const QString selected = pane->property("keyboardSelectedEventId").toString();
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), selected);
@@ -515,7 +534,7 @@ ApplicationWindow {
         Q_EMIT mock->eventRemovedAt(m_controller->currentRoomId(),
                                     m_controller->timeline()->rowForStableId(selected));
         QTRY_COMPARE(pane->property("resumeSelectedEventId").toString(), QString());
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         QVERIFY(pane->property("keyboardSelectedEventId").toString() != selected);
     }
@@ -529,15 +548,15 @@ ApplicationWindow {
         auto *pane = item("timelinePane");
         const QString initial = pane->property("keyboardSelectedEventId").toString();
         QVERIFY(!initial.isEmpty());
-        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_K);
         QTRY_VERIFY(pane->property("keyboardSelectedEventId").toString() != initial);
         QVERIFY(!switcher()->property("visible").toBool());
         const QString older = pane->property("keyboardSelectedEventId").toString();
         QVERIFY(m_controller->timeline()->rowForStableId(older)
                 < m_controller->timeline()->rowForStableId(initial));
-        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_J);
         QTRY_COMPARE(pane->property("keyboardSelectedEventId").toString(), initial);
-        QTest::keyClick(m_window, Qt::Key_R, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_R);
         QTRY_COMPARE(m_controller->composer()->replyingToEventId(), initial);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
     }
@@ -560,10 +579,10 @@ ApplicationWindow {
         }
         QTest::qWait(50); // Drain the bounded row-window exposure callback.
         const qreal before = view->property("contentY").toReal();
-        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_K);
         QVERIFY(pane->property("keyboardSelectedEventId").toString() != selected);
         QCOMPARE(view->property("contentY").toReal(), before);
-        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_J);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
         QCOMPARE(view->property("contentY").toReal(), before);
     }
@@ -582,11 +601,11 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         auto *pane = item("timelinePane");
         auto *view = item("timelineListView");
         const QString before = pane->property("keyboardSelectedEventId").toString();
-        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_U);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), before);
         const qreal pageY = view->property("contentY").toReal();
         QTest::qWait(300);
@@ -610,7 +629,7 @@ ApplicationWindow {
                 break;
         }
         QVERIFY(!edge.isEmpty());
-        QTest::keyClick(m_window, older ? Qt::Key_K : Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, older ? Qt::Key_K : Qt::Key_J);
         const QString selected = pane->property("keyboardSelectedEventId").toString();
         QCOMPARE(selected, edge);
         QVERIFY(!selected.isEmpty());
@@ -652,7 +671,7 @@ ApplicationWindow {
         auto *view = item("timelineListView");
         auto *pane = item("timelinePane");
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         const QString selected = pane->property("keyboardSelectedEventId").toString();
         QVariant row;
         QVERIFY(QMetaObject::invokeMethod(view, "viewRowForStableId",
@@ -667,10 +686,10 @@ ApplicationWindow {
         message->setHeight(view->height() * heightInViewports);
         QTest::qWait(100);
         QVERIFY(QMetaObject::invokeMethod(view, "enterMessageNavigation"));
-        QTest::qWait(50);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         for (int page = 0; page < pagesWithinMessage; ++page) {
             const qreal before = view->property("contentY").toReal();
-            QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+            QTest::keyClick(m_window, Qt::Key_U);
             QVERIFY2(view->property("contentY").toReal() > before + 1,
                      "Selecting a tall row must not undo an upward half-page");
             QTest::qWait(100);
@@ -678,16 +697,16 @@ ApplicationWindow {
             QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
         }
         const qreal before = view->property("contentY").toReal();
-        QTest::keyClick(m_window, Qt::Key_D, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_D);
         QVERIFY(view->property("contentY").toReal() < before - 1);
         // Continue beyond the media row into older messages, rather than only
         // proving that the viewport can move within the same selection.
         for (int page = 0; page < 6; ++page) {
-            QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+            QTest::keyClick(m_window, Qt::Key_U);
             QTest::qWait(30);
         }
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
-        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_K);
         QVERIFY(pane->property("keyboardSelectedEventId").toString() != selected);
     }
 
@@ -699,7 +718,7 @@ ApplicationWindow {
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         const bool panel = m_controller->settings()->memberPanelOpen();
         const qreal before = item("timelineListView")->property("contentY").toReal();
-        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_U);
         QTRY_VERIFY(item("timelineListView")->property("contentY").toReal() > before);
         QCOMPARE(m_controller->settings()->memberPanelOpen(), panel);
     }
@@ -712,8 +731,8 @@ ApplicationWindow {
                                       QStringLiteral("Ctrl+N")), QString());
         QCOMPARE(registry->messageSelectionActionForKey(Qt::Key_N, Qt::ControlModifier),
                  QStringLiteral("timeline.olderMessage"));
-        QVERIFY(registry->messageSelectionActionForKey(Qt::Key_K,
-                                               Qt::ControlModifier).isEmpty());
+        QVERIFY(registry->messageSelectionActionForKey(
+                    Qt::Key_K, Qt::NoModifier).isEmpty());
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
@@ -784,7 +803,7 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         m_controller->requestComposerFocus(m_controller->currentRoomId());
-        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         QTest::qWait(350);
         QVERIFY(item("timelineListView")->hasActiveFocus());
@@ -812,8 +831,8 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(view->hasActiveFocus());
-        QTest::qWait(50);
-        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
+        QTest::keyClick(m_window, Qt::Key_U);
         QTRY_VERIFY(!view->property("stickToBottom").toBool());
         // First save a genuine historical viewport, with no pending scroll
         // timer left to incidentally save a subsequent latest jump.
@@ -915,6 +934,66 @@ ApplicationWindow {
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
     }
 
+    // L1: only the selected row instantiates a selection outline.
+    void onlyTheSelectedRowInstantiatesTheSelectionOutline()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
+        const auto loaders = itemsNamed(QStringLiteral("keyboardMessageSelectionLoader"));
+        QVERIFY2(loaders.size() > 2, "too few rows to tell one outline from many");
+        int active = 0;
+        for (QQuickItem *loader : loaders)
+            active += loader->property("active").toBool() ? 1 : 0;
+        QCOMPARE(active, 1);
+        QCOMPARE(itemsNamed(QStringLiteral("keyboardMessageSelection")).size(), 1);
+        QTest::keyClick(m_window, Qt::Key_K);
+        QTRY_COMPARE(itemsNamed(QStringLiteral("keyboardMessageSelection")).size(), 1);
+    }
+
+    // M4: keyboard entry is the timeline's own jump to latest, not a copy of
+    // part of it. A copy skipped the busy/ready guards and the read-receipt
+    // re-evaluation; nothing observable distinguishes them in the mock, so
+    // the shape of the code is asserted.
+    void enteringSelectionRoutesThroughSettleAtLatest()
+    {
+        QFile file(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString qml = QString::fromUtf8(file.readAll());
+        auto body = [&](const QString &signature) {
+            const int start = qml.indexOf(signature);
+            if (start < 0)
+                return QString();
+            const int brace = qml.indexOf(QLatin1Char('{'), start);
+            int depth = 0;
+            for (int i = brace; i < qml.size(); ++i) {
+                if (qml.at(i) == QLatin1Char('{'))
+                    ++depth;
+                else if (qml.at(i) == QLatin1Char('}') && --depth == 0)
+                    return qml.mid(brace, i - brace);
+            }
+            return QString();
+        };
+        const QString enter = body(QStringLiteral("function enterMessageNavigation()"));
+        QVERIFY(!enter.isEmpty());
+        QVERIFY(enter.contains(QStringLiteral("settleAtLatest(true)")));
+        QVERIFY2(!enter.contains(QStringLiteral("showLatestWindow")),
+                 "entry sets the row window itself again");
+        QVERIFY2(!enter.contains(QStringLiteral("saveFollowingLatest")),
+                 "entry duplicates the follow-latest bookkeeping");
+        const QString settle = body(QStringLiteral("function settleAtLatest(bounded)"));
+        QVERIFY(!settle.isEmpty());
+        QVERIFY(settle.contains(QStringLiteral("readReceipts.reevaluate()")));
+        const int window = settle.indexOf(QStringLiteral("showLatestWindow"));
+        QVERIFY(window >= 0);
+        const QString guard = settle.left(window);
+        QVERIFY(guard.contains(QStringLiteral("presentationReady")));
+        QVERIFY(guard.contains(QStringLiteral("pagination.busy")));
+        QVERIFY(settle.contains(QStringLiteral("releasePendingRows()")));
+    }
+
     void shortcutCaptureAcceptsPlainTimelineKeysWithoutWarning()
     {
         QQmlComponent component(m_engine);
@@ -939,13 +1018,13 @@ ShortcutRow {
             QStringLiteral("shortcutCaptureError_nav.quickSwitcher")));
         QVERIFY(row->setProperty("actionId", QStringLiteral("timeline.olderMessage")));
         QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
-        QTest::keyClick(m_window, Qt::Key_K);
+        QTest::keyClick(m_window, Qt::Key_H);
         QTRY_VERIFY(!row->property("capturing").toBool());
         QVERIFY(row->property("captureError").toString().isEmpty());
         QTRY_VERIFY(!row->findChild<QQuickItem *>(
             QStringLiteral("shortcutCaptureError_timeline.olderMessage")));
         QCOMPARE(m_controller->shortcuts()->sequenceFor(
-                     QStringLiteral("timeline.olderMessage")), QStringLiteral("K"));
+                     QStringLiteral("timeline.olderMessage")), QStringLiteral("H"));
     }
 
 };
