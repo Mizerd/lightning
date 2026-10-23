@@ -156,6 +156,11 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::CurrentSequenceRole).toString();
             const QString id = registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // Modal handlers do not run on the room surface. Ctrl+C may
+            // therefore close a dialog and copy a selected timeline message.
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                == ShortcutRegistry::DialogContext)
+                continue;
             bySequence[seq].append(id);
             if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
                 == ShortcutRegistry::MessageSelectionContext)
@@ -169,7 +174,11 @@ private Q_SLOTS:
             // (GitHub #51), and only the timeline's own Keys handler sees it.
             if (id != QStringLiteral("timeline.copyMessageText"))
                 QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
-            QVERIFY(roleFor(registry, id, ShortcutRegistry::ShadowNoteRole).isEmpty());
+            const QString shadow = roleFor(registry, id, ShortcutRegistry::ShadowNoteRole);
+            if (id == QStringLiteral("timeline.copyMessageText"))
+                QVERIFY(!shadow.isEmpty()); // modal Close explains its Copy override
+            else
+                QVERIFY(shadow.isEmpty());
         }
         const QString resume =
             registry.sequenceFor(QStringLiteral("timeline.resumeMessageSelection"));
