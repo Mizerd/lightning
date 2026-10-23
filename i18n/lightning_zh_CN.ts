@@ -826,7 +826,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+7983"/>
+        <location filename="../src/app/AppController.cpp" line="+7996"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1621,7 +1621,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AudioPlayerCard</name>
     <message>
-        <location filename="../qml/AudioPlayerCard.qml" line="+287"/>
+        <location filename="../qml/AudioPlayerCard.qml" line="+289"/>
         <location line="+35"/>
         <source>Audio cover artwork</source>
         <translation>音频封面</translation>
@@ -10524,7 +10524,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+707"/>
+        <location filename="../qml/MainScreen.qml" line="+734"/>
         <source>Signing out…</source>
         <translation>正在退出登录…</translation>
     </message>
@@ -11339,7 +11339,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+803"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+818"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation>添加链接</translation>
@@ -11675,7 +11675,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3395"/>
+        <location line="-3410"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -11695,7 +11695,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+3110"/>
+        <location line="+3125"/>
         <location line="+1"/>
         <source>More</source>
         <translation>更多</translation>
@@ -11807,7 +11807,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1261"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1286"/>
         <source>Today</source>
         <translation>今天</translation>
     </message>
@@ -11914,12 +11914,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>安全设置</translation>
     </message>
     <message>
-        <location line="-2182"/>
+        <location line="-2188"/>
         <source>Link</source>
         <translation>链接</translation>
     </message>
     <message>
-        <location line="+2271"/>
+        <location line="+2277"/>
         <source>Show the link preview again</source>
         <translation>再次显示链接预览</translation>
     </message>
@@ -12259,7 +12259,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-4204"/>
+        <location line="-4210"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -12275,24 +12275,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+653"/>
+        <location line="+659"/>
         <source>Sticker</source>
         <translation>贴纸</translation>
     </message>
     <message>
-        <location line="-650"/>
+        <location line="-656"/>
         <source>Voice message</source>
         <translation>语音消息</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+647"/>
+        <location line="+653"/>
         <source>Audio</source>
         <translation>音频</translation>
     </message>
     <message>
-        <location line="-645"/>
-        <location line="+643"/>
+        <location line="-651"/>
+        <location line="+649"/>
         <location line="+3914"/>
         <location line="+440"/>
         <location line="+586"/>
@@ -12300,20 +12300,20 @@ Signing out and signing in again is the only fix.</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5583"/>
+        <location line="-5589"/>
         <location line="+66"/>
-        <location line="+576"/>
+        <location line="+582"/>
         <location line="+4515"/>
         <source>Image</source>
         <translation>图片</translation>
     </message>
     <message>
-        <location line="-5155"/>
+        <location line="-5161"/>
         <source>Attachment</source>
         <translation>附件</translation>
     </message>
     <message numerus="yes">
-        <location line="+623"/>
+        <location line="+629"/>
         <source>%n image(s)</source>
         <translation>
             <numerusform>%n 张图片</numerusform>
@@ -12621,9 +12621,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-6022"/>
+        <location line="-6028"/>
         <location line="+70"/>
-        <location line="+579"/>
+        <location line="+585"/>
         <location line="+4513"/>
         <location line="+1186"/>
         <location line="+92"/>
@@ -12637,8 +12637,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-6452"/>
-        <location line="+645"/>
+        <location line="-6458"/>
+        <location line="+651"/>
         <location line="+4623"/>
         <location line="+1367"/>
         <location line="+4"/>
@@ -19227,36 +19227,36 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+4"/>
         <location line="+3"/>
-        <location line="+1310"/>
+        <location line="+1315"/>
         <location line="+857"/>
-        <location line="+5058"/>
+        <location line="+5067"/>
         <source>Account</source>
         <translation>账号</translation>
     </message>
     <message>
-        <location line="-7233"/>
+        <location line="-7247"/>
         <source>account profile</source>
         <translation>账号 个人资料 profile account</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+8193"/>
+        <location line="+8207"/>
         <source>Homeserver</source>
         <translation>主服务器</translation>
     </message>
     <message>
-        <location line="-8193"/>
+        <location line="-8207"/>
         <source>homeserver server url</source>
         <translation>主服务器 服务器 地址 server homeserver url</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8228"/>
+        <location line="+8242"/>
         <source>Start minimized</source>
         <translation>启动时最小化</translation>
     </message>
     <message>
-        <location line="-8228"/>
+        <location line="-8242"/>
         <source>startup minimized</source>
         <translation>启动 最小化 minimized startup</translation>
     </message>
@@ -19267,13 +19267,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+734"/>
+        <location line="+739"/>
         <location line="+1708"/>
         <source>Theme</source>
         <translation>主题</translation>
     </message>
     <message>
-        <location line="-2441"/>
+        <location line="-2446"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>主题 配色 浅色 深色 theme light dark moss indigo teal graphite midnight nordic purple warm</translation>
     </message>
@@ -19286,22 +19286,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+1229"/>
+        <location line="+1234"/>
         <location line="+882"/>
         <location line="+238"/>
         <source>Appearance</source>
         <translation>外观</translation>
     </message>
     <message>
-        <location line="-2421"/>
-        <location line="+1971"/>
+        <location line="-2426"/>
+        <location line="+1976"/>
         <location line="+1034"/>
         <location line="+55"/>
         <source>Match system light/dark</source>
         <translation>跟随系统浅色/深色</translation>
     </message>
     <message>
-        <location line="-3059"/>
+        <location line="-3064"/>
         <source>match system auto theme</source>
         <translation>跟随系统 自动 主题 system auto theme match</translation>
     </message>
@@ -19312,69 +19312,69 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3139"/>
+        <location line="+3144"/>
         <source>Message layout</source>
         <translation>消息布局</translation>
     </message>
     <message>
-        <location line="-3138"/>
+        <location line="-3143"/>
         <source>message layout modern bubbles compact</source>
         <translation>消息 布局 现代 气泡 紧凑 layout message modern bubbles compact</translation>
     </message>
     <message>
         <location line="+42"/>
-        <location line="+3137"/>
+        <location line="+3142"/>
         <source>Text size</source>
         <translation>文字大小</translation>
     </message>
     <message>
-        <location line="-3137"/>
+        <location line="-3142"/>
         <source>text size font scale</source>
         <translation>文字大小 字号 缩放 font size text scale</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3247"/>
+        <location line="+3252"/>
         <location line="+20"/>
         <source>Interface zoom</source>
         <translation>界面缩放</translation>
     </message>
     <message>
-        <location line="-3266"/>
+        <location line="-3271"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>界面 缩放 放大 尺寸 ui zoom interface scale size bigger</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3329"/>
+        <location line="+3334"/>
         <location line="+28"/>
         <source>Text rendering</source>
         <translation>文字渲染</translation>
     </message>
     <message>
-        <location line="-3356"/>
+        <location line="-3361"/>
         <source>text rendering anti-aliasing antialiasing aliasing smooth hinting font native blurry fuzzy sharp subpixel fontconfig</source>
         <translation>文字渲染 抗锯齿 平滑 微调 hinting 字体 原生 模糊 清晰 子像素 fontconfig</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3369"/>
+        <location line="+3374"/>
         <source>Font</source>
         <translation>字体</translation>
     </message>
     <message>
-        <location line="-3369"/>
+        <location line="-3374"/>
         <source>font family typeface</source>
         <translation>字体 字型 typeface font family</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3519"/>
+        <location line="+3524"/>
         <source>Code font</source>
         <translation>代码字体</translation>
     </message>
     <message>
-        <location line="-3518"/>
+        <location line="-3523"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>代码字体等宽单色固定宽度字体</translation>
     </message>
@@ -19386,30 +19386,30 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3585"/>
+        <location line="+3590"/>
         <source>Your own fonts</source>
         <translation>您自己的字体</translation>
     </message>
     <message>
-        <location line="-3584"/>
+        <location line="-3589"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>导入字体文件 ttf otf 安装自定义字体</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+669"/>
+        <location line="+674"/>
         <location line="+3435"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location line="-4104"/>
+        <location line="-4109"/>
         <source>language locale</source>
         <translation>语言 地区 locale language</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1906"/>
+        <location line="+1911"/>
         <location line="+1963"/>
         <location line="+30"/>
         <location line="+12"/>
@@ -19417,7 +19417,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>显示房间动态</translation>
     </message>
     <message>
-        <location line="-3910"/>
+        <location line="-3915"/>
         <source>room activity membership joins leaves profile</source>
         <translation>房间 动态 成员 加入 离开 资料 room activity joins leaves membership profile</translation>
     </message>
@@ -19432,48 +19432,48 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-19"/>
-        <location line="+3945"/>
+        <location line="+3950"/>
         <source>Mouse-wheel speed</source>
         <translation>鼠标滚轮速度</translation>
     </message>
     <message>
-        <location line="-3944"/>
+        <location line="-3949"/>
         <source>wheel speed scroll timeline</source>
         <translation>滚轮 速度 滚动 时间线 scroll wheel speed timeline</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1928"/>
+        <location line="+1933"/>
         <location line="+1957"/>
         <source>Joins, leaves and invites</source>
         <translation>加入、离开和邀请</translation>
     </message>
     <message>
-        <location line="-3884"/>
+        <location line="-3889"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>会员加入 离开邀请 踢禁活动 隐藏</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1932"/>
+        <location line="+1937"/>
         <location line="+1960"/>
         <source>Display name and avatar changes</source>
         <translation>显示名称和头像更改</translation>
     </message>
     <message>
-        <location line="-3891"/>
+        <location line="-3896"/>
         <source>profile change display name avatar activity hide</source>
         <translation>个人资料更改显示名称头像活动隐藏</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1935"/>
+        <location line="+1940"/>
         <location line="+2287"/>
         <source>Reduce motion</source>
         <translation>减少运动</translation>
     </message>
     <message>
-        <location line="-4221"/>
+        <location line="-4226"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>简化运动动画 无障碍前庭</translation>
     </message>
@@ -19481,6 +19481,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <location line="+8"/>
         <location line="+20"/>
+        <location line="+5"/>
         <location line="+6"/>
         <source>Appearance · Motion and time</source>
         <translation>外观·动作与时间</translation>
@@ -19488,47 +19489,47 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-9"/>
         <location line="+1915"/>
-        <location line="+2290"/>
+        <location line="+2299"/>
         <source>Smooth scrolling</source>
         <translation>平滑滚动</translation>
     </message>
     <message>
-        <location line="-4204"/>
+        <location line="-4213"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>平滑滚动滚轮滑动动画即时跳跃鼠标</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4283"/>
+        <location line="+4292"/>
         <source>Clock</source>
         <translation>时钟</translation>
     </message>
     <message>
-        <location line="-4282"/>
+        <location line="-4291"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>时钟 24 小时时间格式 am pm 时间戳</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+1912"/>
-        <location line="+2417"/>
+        <location line="+2426"/>
         <location line="+12"/>
         <source>Show Space banners</source>
         <translation>显示空间横幅</translation>
     </message>
     <message>
-        <location line="-4340"/>
+        <location line="-4349"/>
         <source>space banner header image hide show</source>
         <translation>空间横幅标题图像隐藏显示</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4357"/>
+        <location line="+4366"/>
         <source>Conversation list width</source>
         <translation>对话列表宽度</translation>
     </message>
     <message>
-        <location line="-4356"/>
+        <location line="-4365"/>
         <source>room list width panel size sidebar</source>
         <translation>房间列表宽度面板尺寸侧边栏</translation>
     </message>
@@ -19544,24 +19545,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4375"/>
+        <location line="+4384"/>
         <source>Side panel width</source>
         <translation>侧板宽度</translation>
     </message>
     <message>
-        <location line="-4374"/>
+        <location line="-4383"/>
         <source>side panel width members threads size</source>
         <translation>侧板宽度构件螺纹尺寸</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1898"/>
-        <location line="+2491"/>
+        <location line="+2500"/>
         <source>Enter starts a new line</source>
         <translation>Enter 开始新行</translation>
     </message>
     <message>
-        <location line="-4388"/>
+        <location line="-4397"/>
         <source>enter newline send composer message box return</source>
         <translation>输入换行符 发送作曲家消息框 返回</translation>
     </message>
@@ -19581,46 +19582,46 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-41"/>
         <location line="+1901"/>
-        <location line="+2832"/>
+        <location line="+2841"/>
         <source>Send text with an attachment as its caption</source>
         <translation>发送带有附件作为标题的文本</translation>
     </message>
     <message>
-        <location line="-4732"/>
+        <location line="-4741"/>
         <source>caption attachment upload text description</source>
         <translation>标题附件上传文字说明</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+4769"/>
+        <location line="+4778"/>
         <source>Message box buttons</source>
         <translation>编辑框按钮</translation>
     </message>
     <message>
-        <location line="-4768"/>
+        <location line="-4777"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation>编辑框 按钮 显示 隐藏 表情 GIF 贴纸 语音 麦克风 格式 定时 稍后发送 精简 简化</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+4385"/>
+        <location line="+4394"/>
         <source>Check spelling as you type</source>
         <translation>输入时检查拼写</translation>
     </message>
     <message>
-        <location line="-4384"/>
+        <location line="-4393"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation>拼写 拼写检查 字典 错别字 下划线 语言</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4395"/>
+        <location line="+4404"/>
         <location line="+14"/>
         <source>Spelling language</source>
         <translation>拼写语言</translation>
     </message>
     <message>
-        <location line="-4408"/>
+        <location line="-4417"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation>拼写 语言 字典 自动 系统</translation>
     </message>
@@ -19631,23 +19632,23 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+1073"/>
         <location line="+887"/>
-        <location line="+2855"/>
+        <location line="+2864"/>
         <source>Keyboard shortcuts</source>
         <translation>键盘快捷键</translation>
     </message>
     <message>
-        <location line="-4824"/>
+        <location line="-4833"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>键盘快捷键 快捷键 按键绑定 重新绑定热键</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+4996"/>
+        <location line="+5005"/>
         <source>Reset all shortcuts</source>
         <translation>重置所有快捷键</translation>
     </message>
     <message>
-        <location line="-4995"/>
+        <location line="-5004"/>
         <source>reset shortcuts default keys</source>
         <translation>重置快捷键默认键</translation>
     </message>
@@ -19692,13 +19693,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+24"/>
         <location line="+439"/>
         <location line="+1250"/>
-        <location line="+4625"/>
+        <location line="+4634"/>
         <location line="+220"/>
         <source>Desktop notifications</source>
         <translation>桌面通知</translation>
     </message>
     <message>
-        <location line="-6533"/>
+        <location line="-6542"/>
         <source>notifications desktop enable</source>
         <translation>通知 桌面 启用 desktop notifications enable</translation>
     </message>
@@ -19711,19 +19712,19 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+973"/>
         <location line="+897"/>
-        <location line="+4410"/>
+        <location line="+4419"/>
         <source>Notifications</source>
         <translation>通知</translation>
     </message>
     <message>
-        <location line="-6461"/>
+        <location line="-6470"/>
         <location line="+1911"/>
-        <location line="+2448"/>
+        <location line="+2457"/>
         <source>Keep the room list still while I use it</source>
         <translation>使用时保持房间列表不动</translation>
     </message>
     <message>
-        <location line="-4358"/>
+        <location line="-4367"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
         <translation>房间列表 顺序 排序 重新排列 跳动 移动 保持 固定 冻结 稳定 最近 活动 对话列表 侧边栏 频道 新消息</translation>
     </message>
@@ -19742,23 +19743,23 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+22"/>
         <location line="+1899"/>
-        <location line="+2847"/>
+        <location line="+2856"/>
         <source>Convert :shortcode: to emoji</source>
         <translation>将 :短代码: 转换为表情</translation>
     </message>
     <message>
-        <location line="-4745"/>
+        <location line="-4754"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
         <translation>表情 短代码 冒号 转换 自动转换 点赞 笑脸 slack discord</translation>
     </message>
     <message>
         <location line="+126"/>
-        <location line="+6315"/>
+        <location line="+6324"/>
         <source>Notification preview</source>
         <translation>通知预览</translation>
     </message>
     <message>
-        <location line="-6314"/>
+        <location line="-6323"/>
         <source>notification preview privacy sender message</source>
         <translation>通知 预览 隐私 发送者 消息 preview notification privacy message sender</translation>
     </message>
@@ -19774,23 +19775,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6378"/>
+        <location line="+6387"/>
         <source>Notification sound</source>
         <translation>通知提示音</translation>
     </message>
     <message>
-        <location line="-6377"/>
+        <location line="-6386"/>
         <source>notification sound mute</source>
         <translation>通知 声音 提示音 静音 sound notification mute</translation>
     </message>
     <message>
         <location line="+45"/>
-        <location line="+4926"/>
+        <location line="+4935"/>
         <source>Only exchange messages with verified devices</source>
         <translation>仅与已验证的设备交换消息</translation>
     </message>
     <message>
-        <location line="-4925"/>
+        <location line="-4934"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation>隐形 加密 交叉签名 已验证 设备 信任 不安全 排除 加密 msc4153</translation>
     </message>
@@ -19801,12 +19802,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5993"/>
+        <location line="+6002"/>
         <source>Keep downloaded media on this device</source>
         <translation>在此设备上保留已下载的媒体</translation>
     </message>
     <message>
-        <location line="-5992"/>
+        <location line="-6001"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
         <translation>媒体缓存 视频 图片 文件 下载 离线 存储 磁盘 保留 清除</translation>
     </message>
@@ -19817,12 +19818,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+4954"/>
+        <location line="+4963"/>
         <source>Read receipts</source>
         <translation>已读回执</translation>
     </message>
     <message>
-        <location line="-4953"/>
+        <location line="-4962"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation>已读 回执 私密 已看 对勾 蓝色 隐私</translation>
     </message>
@@ -19834,23 +19835,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+5005"/>
+        <location line="+5014"/>
         <source>Let others see when I am typing</source>
         <translation>让其他人看到我正在输入</translation>
     </message>
     <message>
-        <location line="-5004"/>
+        <location line="-5013"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation>输入提示 通知 编辑中 指示 隐私</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+5052"/>
+        <location line="+5061"/>
         <source>Share my online status</source>
         <translation>共享我的在线状态</translation>
     </message>
     <message>
-        <location line="-5051"/>
+        <location line="-5060"/>
         <source>presence online idle offline status share</source>
         <translation>在线状态 在线 离开 离线 共享 presence status online idle offline share</translation>
     </message>
@@ -19862,12 +19863,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+358"/>
-        <location line="+4715"/>
+        <location line="+4724"/>
         <source>Ignored users</source>
         <translation>已忽略的用户</translation>
     </message>
     <message>
-        <location line="-5072"/>
+        <location line="-5081"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>忽略 屏蔽 拉黑 用户 隐藏 block ignore ignored user person hide mute</translation>
     </message>
@@ -19905,20 +19906,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+802"/>
         <location line="+863"/>
-        <location line="+6497"/>
+        <location line="+6506"/>
         <location line="+574"/>
         <source>Sessions</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location line="-8808"/>
+        <location line="-8817"/>
         <location line="+1556"/>
-        <location line="+3978"/>
+        <location line="+3987"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>在未加密房间中自动加载预览</translation>
     </message>
     <message>
-        <location line="-5533"/>
+        <location line="-5542"/>
         <source>link preview privacy</source>
         <translation>链接 预览 隐私 preview link privacy</translation>
     </message>
@@ -19931,12 +19932,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-7"/>
-        <location line="+5542"/>
+        <location line="+5551"/>
         <source>Load previews in encrypted rooms</source>
         <translation>在加密房间中加载预览</translation>
     </message>
     <message>
-        <location line="-5541"/>
+        <location line="-5550"/>
         <source>link preview encrypted</source>
         <translation>链接 预览 加密 preview link encrypted</translation>
     </message>
@@ -19948,12 +19949,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5708"/>
+        <location line="+5717"/>
         <source>GIF safe search</source>
         <translation>GIF 安全搜索</translation>
     </message>
     <message>
-        <location line="-5707"/>
+        <location line="-5716"/>
         <source>gif safe search rating</source>
         <translation>GIF 安全搜索 分级 safe search gif rating</translation>
     </message>
@@ -19966,36 +19967,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+5732"/>
+        <location line="+5741"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>首选 GIF 提供方</translation>
     </message>
     <message>
-        <location line="-5738"/>
+        <location line="-5747"/>
         <source>gif provider giphy klipy</source>
         <translation>GIF 提供方 服务商 provider gif giphy klipy</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5775"/>
+        <location line="+5784"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>保存最近使用的 GIF</translation>
     </message>
     <message>
-        <location line="-5777"/>
+        <location line="-5786"/>
         <source>gif recents store</source>
         <translation>GIF 最近使用 保存 recents gif store</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7843"/>
+        <location line="+7852"/>
         <source>Security status</source>
         <translation>安全状态</translation>
     </message>
     <message>
-        <location line="-7842"/>
+        <location line="-7851"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>加密 状态 交叉签名 备份 encryption e2ee status cross-signing backup</translation>
     </message>
@@ -20003,18 +20004,18 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+836"/>
         <location line="+858"/>
-        <location line="+3075"/>
+        <location line="+3084"/>
         <source>Privacy &amp; security</source>
         <translation>隐私与安全</translation>
     </message>
     <message>
-        <location line="-4767"/>
-        <location line="+9322"/>
+        <location line="-4776"/>
+        <location line="+9331"/>
         <source>Recovery key or passphrase</source>
         <translation>恢复密钥或密码短语</translation>
     </message>
     <message>
-        <location line="-9321"/>
+        <location line="-9330"/>
         <source>recovery key passphrase backup restore</source>
         <translation>恢复密钥 密码短语 备份 恢复 recovery passphrase key backup restore</translation>
     </message>
@@ -20028,23 +20029,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-11"/>
-        <location line="+9333"/>
+        <location line="+9342"/>
         <source>Import room keys</source>
         <translation>导入房间密钥</translation>
     </message>
     <message>
-        <location line="-9332"/>
+        <location line="-9341"/>
         <source>import room keys export</source>
         <translation>导入 房间密钥 导出 import keys room export</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9557"/>
+        <location line="+9566"/>
         <source>Danger Zone</source>
         <translation>危险区域</translation>
     </message>
     <message>
-        <location line="-9556"/>
+        <location line="-9565"/>
         <source>reset danger local session</source>
         <translation>重置 危险 本地 会话 danger reset local session</translation>
     </message>
@@ -20055,34 +20056,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9079"/>
+        <location line="+9088"/>
         <source>Current session</source>
         <translation>当前会话</translation>
     </message>
     <message>
-        <location line="-9078"/>
+        <location line="-9087"/>
         <source>device id session status</source>
         <translation>设备 ID 会话 状态 session device id status</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8196"/>
+        <location line="+8205"/>
         <source>Sign in another device</source>
         <translation>登录另一台设备</translation>
     </message>
     <message>
-        <location line="-8195"/>
+        <location line="-8204"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation>二维码 扫描 登录 另一台设备 手机 链接 msc4108</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+9129"/>
+        <location line="+9138"/>
         <source>Verify this session</source>
         <translation>验证此会话</translation>
     </message>
     <message>
-        <location line="-9128"/>
+        <location line="-9137"/>
         <source>verify verification sas cross-signing</source>
         <translation>验证 交叉签名 verification verify sas cross-signing</translation>
     </message>
@@ -20107,12 +20108,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+771"/>
         <location line="+905"/>
-        <location line="+7923"/>
+        <location line="+7932"/>
         <source>Labs</source>
         <translation>实验室</translation>
     </message>
     <message>
-        <location line="-9607"/>
+        <location line="-9616"/>
         <source>Sync mode</source>
         <translation>同步模式</translation>
     </message>
@@ -20133,12 +20134,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+9733"/>
+        <location line="+9742"/>
         <source>Refresh current room</source>
         <translation>刷新当前房间</translation>
     </message>
     <message>
-        <location line="-9732"/>
+        <location line="-9741"/>
         <source>refresh reload timeline</source>
         <translation>刷新 重新加载 时间线 reload refresh timeline</translation>
     </message>
@@ -20148,12 +20149,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+760"/>
         <location line="+943"/>
         <location line="+11"/>
-        <location line="+8038"/>
+        <location line="+8047"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location line="-9753"/>
+        <location line="-9762"/>
         <source>about version license</source>
         <translation>关于 版本 许可证 version about license</translation>
     </message>
@@ -20192,14 +20193,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+56"/>
-        <location line="+6415"/>
+        <location line="+6424"/>
         <location line="+205"/>
         <location line="+1322"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-7768"/>
+        <location line="-7777"/>
         <source>Needs attention</source>
         <translation>需要注意</translation>
     </message>
@@ -20210,12 +20211,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4211"/>
+        <location line="+4220"/>
         <source>Clear index</source>
         <translation>清除索引</translation>
     </message>
     <message>
-        <location line="-4200"/>
+        <location line="-4209"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation>在 Lightning 再次为历史记录建立索引之前，历史搜索将无法使用；Lightning 会自行完成此操作。不会删除任何消息——索引只是 Lightning 为搜索而建立的副本。</translation>
     </message>
@@ -20231,14 +20232,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+5917"/>
+        <location line="+5926"/>
         <location line="+404"/>
         <location line="+1963"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location line="-8274"/>
+        <location line="-8283"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>从此设备删除你保存的所有服务商 GIF？从聊天中保存的 GIF 不受影响。此操作无法撤销。</translation>
     </message>
@@ -20358,7 +20359,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>同时缩放消息和列表文字，以及空间栏，使其嵌套层级在任何大小下都清晰可读。其他界面元素保持大小不变——下方的界面缩放会缩放整个窗口。</translation>
     </message>
     <message>
-        <location line="+1658"/>
+        <location line="+1667"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
         <translation>输入“:thumbsup:”之类的短代码时，一旦完整就会立即转换为表情。自定义表情包的短代码不受影响。</translation>
     </message>
@@ -20393,8 +20394,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>发送选项</translation>
     </message>
     <message>
-        <location line="-4221"/>
-        <location line="+4486"/>
+        <location line="-4230"/>
+        <location line="+4495"/>
         <source>Device trust</source>
         <translation>设备信任</translation>
     </message>
@@ -20778,12 +20779,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>重置只会删除此账号在 Lightning 本地的 Rust SDK 存储（也可以从终端执行：lightning-matrix --reset-crypto-store）。它不会影响服务器上的消息或 Element 的数据。之后你需要重新登录。</translation>
     </message>
     <message>
-        <location line="-7600"/>
+        <location line="-7609"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
     <message>
-        <location line="-2479"/>
+        <location line="-2484"/>
         <source>Change password</source>
         <translation>更改密码</translation>
     </message>
@@ -20794,29 +20795,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+54"/>
-        <location line="+3777"/>
+        <location line="+3782"/>
         <source>Spaces rail depth</source>
         <translation>空间栏深度</translation>
     </message>
     <message>
-        <location line="-3776"/>
+        <location line="-3781"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation>空间栏 深度 空格 侧边栏 嵌套 区域 经典 旧式 平面 色调 缩进</translation>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+1935"/>
+        <location line="+1940"/>
         <location line="+1966"/>
         <source>Collapse media and link embeds</source>
         <translation>折叠媒体和链接嵌入</translation>
     </message>
     <message>
-        <location line="-3900"/>
+        <location line="-3905"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation>嵌入 折叠 收起 紧凑 单行 杂乱 精简 媒体 图片 图像 GIF 贴纸 视频 音频 语音 文件 附件 链接预览 展开 箭头</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+149"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation>麦克风 输入 输入设备 语音 通话 音频 声音</translation>
     </message>
@@ -20850,13 +20851,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6728"/>
+        <location line="+6737"/>
         <location line="+24"/>
         <source>Media playback volume</source>
         <translation>媒体播放音量</translation>
     </message>
     <message>
-        <location line="-6751"/>
+        <location line="-6760"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation>音量 声音 音频 视频 语音消息 播放 音量级别 媒体 大声</translation>
     </message>
@@ -20874,12 +20875,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <location line="+478"/>
-        <location line="+6293"/>
+        <location line="+6302"/>
         <source>Call sounds</source>
         <translation>通话提示音</translation>
     </message>
     <message>
-        <location line="-6770"/>
+        <location line="-6779"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation>通话 提示音 加入 离开 静音 拒听 取消静音 屏幕共享 举手 声音 提示 效果</translation>
     </message>
@@ -20891,13 +20892,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3"/>
-        <location line="+6869"/>
+        <location line="+6878"/>
         <location line="+28"/>
         <source>Ringer volume</source>
         <translation>铃声音量</translation>
     </message>
     <message>
-        <location line="-6896"/>
+        <location line="-6905"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation>铃声 铃音 响铃 音量 来电 大声</translation>
     </message>
@@ -20923,24 +20924,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+136"/>
-        <location line="+5553"/>
+        <location line="+5562"/>
         <source>Show images and videos from links inline</source>
         <translation>在行内显示链接中的图片和视频</translation>
     </message>
     <message>
-        <location line="-5552"/>
+        <location line="-5561"/>
         <source>link preview image video embed inline media player viewer</source>
         <translation>链接预览 图片 视频 嵌入 行内 媒体播放器 查看器</translation>
     </message>
     <message>
         <location line="+862"/>
         <location line="+902"/>
-        <location line="+4681"/>
+        <location line="+4690"/>
         <source>Sound &amp; video</source>
         <translation>声音和视频</translation>
     </message>
     <message>
-        <location line="-4947"/>
+        <location line="-4956"/>
         <location line="+1896"/>
         <source>Regions</source>
         <translation>区域</translation>
@@ -20966,12 +20967,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>更多主题</translation>
     </message>
     <message>
-        <location line="-2666"/>
+        <location line="-2671"/>
         <source>Custom theme</source>
         <translation>自定义主题</translation>
     </message>
     <message>
-        <location line="+2826"/>
+        <location line="+2831"/>
         <source>Build your own theme</source>
         <translation>打造你自己的主题</translation>
     </message>
@@ -21203,7 +21204,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>启动时进入托盘</translation>
     </message>
     <message>
-        <location line="-3887"/>
+        <location line="-3892"/>
         <source>Chat background</source>
         <translation>聊天背景</translation>
     </message>
@@ -21213,7 +21214,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>景深</translation>
     </message>
     <message>
-        <location line="+293"/>
+        <location line="+298"/>
         <source>Notification sound style and volume</source>
         <translation>通知音效风格和音量</translation>
     </message>
@@ -21224,12 +21225,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+6180"/>
+        <location line="+6189"/>
         <source>Always ask where to save files</source>
         <translation>每次都询问保存文件的位置</translation>
     </message>
     <message>
-        <location line="-6179"/>
+        <location line="-6188"/>
         <source>download downloads save folder location directory ask where file</source>
         <translation>下载 下载内容 保存 文件夹 位置 目录 询问 文件</translation>
     </message>
@@ -21241,13 +21242,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+114"/>
-        <location line="+6432"/>
+        <location line="+6441"/>
         <location line="+3214"/>
         <source>Microphone noise suppression</source>
         <translation>麦克风降噪</translation>
     </message>
     <message>
-        <location line="-9645"/>
+        <location line="-9654"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
         <translation>降噪 消除 麦克风 背景 webrtc rnnoise deepfilternet 去噪</translation>
     </message>
@@ -21334,12 +21335,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+3933"/>
+        <location line="+3942"/>
         <source>Choose image…</source>
         <translation>选择图片…</translation>
     </message>
     <message>
-        <location line="-3926"/>
+        <location line="-3935"/>
         <source>Reset to Lightning default</source>
         <translation>恢复为 Lightning 默认图标</translation>
     </message>
@@ -21390,7 +21391,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>缩短或删除界面动画</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+20"/>
         <source>Glide the view when you turn the mouse wheel. Turning this off moves the same distance instantly.</source>
         <translation>转动鼠标滚轮时滑动视图。关闭此功能会立即移动相同的距离。</translation>
     </message>
@@ -21440,8 +21441,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>侧面板宽度：%1 px</translation>
     </message>
     <message>
-        <location line="-3785"/>
-        <location line="+3808"/>
+        <location line="-3794"/>
+        <location line="+3817"/>
         <source>Message box</source>
         <translation>留言框</translation>
     </message>
@@ -21781,8 +21782,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>私密</translation>
     </message>
     <message>
-        <location line="-2399"/>
-        <location line="+2420"/>
+        <location line="-2408"/>
+        <location line="+2429"/>
         <source>Off</source>
         <translation>关闭</translation>
     </message>
@@ -21812,8 +21813,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>在通话中从你的麦克风中滤除背景噪声。同一时间只运行一种方法，更改会应用于正在进行的通话。</translation>
     </message>
     <message>
-        <location line="-9858"/>
-        <location line="+6524"/>
+        <location line="-9867"/>
+        <location line="+6533"/>
         <source>Ring for incoming voice calls</source>
         <translation>来电时响铃</translation>
     </message>
@@ -21865,7 +21866,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-4347"/>
+        <location line="-4356"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>启用后，Lightning 遵循系统方案：浅色模式下的 Moss Light，深色模式下的 Indigo Night。</translation>
     </message>
@@ -21902,7 +21903,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>频道将您所在的每个空间列为文件夹，其下方包含房间。没有空间的房间和您的直接消息都集中在房间中。</translation>
     </message>
     <message>
-        <location line="+2900"/>
+        <location line="+2909"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>您的家庭服务器加载预览，因此链接的站点看到的是您的服务器而不是您。如果您的服务器不能（许多服务器都关闭了预览），那么 Lightning 会直接加载它，这可能会泄露您的 IP 地址和对发件人选择的站点的请求时间。询问您的家庭服务器还会告诉它预览了哪个链接，否则在加密房间中它不会知道哪个链接。不执行 JavaScript。默认情况下，两个开关均处于关闭状态；将它们保留下来并使用每条消息链接卡上的“显示”按钮一次决定一个。</translation>
     </message>
@@ -22004,14 +22005,14 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>没有横幅</translation>
     </message>
     <message>
-        <location line="-4361"/>
-        <location line="+4085"/>
+        <location line="-4370"/>
+        <location line="+4094"/>
         <location line="+295"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location line="-8060"/>
+        <location line="-8074"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
         <translation>聊天背景 壁纸 图片 图像 照片 背景 房间 对话 自己 设置 自定义 他人 共享 隐藏</translation>
     </message>
@@ -22053,7 +22054,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>外观 · 空间栏和房间列表</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+103"/>
         <location line="+5"/>
         <location line="+6"/>
         <location line="+15"/>
@@ -22092,12 +22093,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+36"/>
-        <location line="+5502"/>
+        <location line="+5511"/>
         <source>Index encrypted rooms</source>
         <translation>为加密房间建立索引</translation>
     </message>
     <message>
-        <location line="-3815"/>
+        <location line="-3824"/>
         <source>background</source>
         <translation>背景</translation>
     </message>
@@ -22179,46 +22180,46 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>使用此主题</translation>
     </message>
     <message>
-        <location line="+1511"/>
+        <location line="+1520"/>
         <source>Banners and panel widths</source>
         <translation>横幅和面板宽度</translation>
     </message>
     <message>
-        <location line="-3688"/>
+        <location line="-3697"/>
         <source>Receipts and typing</source>
         <translation>回执和输入提示</translation>
     </message>
     <message>
-        <location line="-762"/>
-        <location line="+3159"/>
+        <location line="-767"/>
+        <location line="+3164"/>
         <source>Message spacing</source>
         <translation>消息间距</translation>
     </message>
     <message>
-        <location line="-3158"/>
+        <location line="-3163"/>
         <source>message spacing density compact cozy roomy gap padding</source>
         <translation>消息 间距 密度 紧凑 舒适 宽松 间隔 内边距</translation>
     </message>
     <message>
         <location line="+97"/>
-        <location line="+4257"/>
+        <location line="+4271"/>
         <location line="+10"/>
         <source>Animated images</source>
         <translation>动画图片</translation>
     </message>
     <message>
-        <location line="-4266"/>
+        <location line="-4280"/>
         <source>gif gifs autoplay animated animation avatar avatars banner sticker stickers emoji webp background play hover pause stop focus cpu battery resources</source>
         <translation>gif 动图 自动播放 动画 头像 横幅 贴纸 表情 webp 背景 播放 悬停 暂停 停止 焦点 cpu 电量 资源</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+4142"/>
+        <location line="+4147"/>
         <source>Increase contrast</source>
         <translation>增加对比度</translation>
     </message>
     <message>
-        <location line="-4141"/>
+        <location line="-4146"/>
         <source>high contrast accessibility borders text readable vision</source>
         <translation>高对比度 无障碍 边框 文字 可读 视力</translation>
     </message>
@@ -22231,28 +22232,28 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="-8"/>
-        <location line="+4150"/>
+        <location line="+4155"/>
         <source>Always underline links</source>
         <translation>始终为链接加下划线</translation>
     </message>
     <message>
-        <location line="-4149"/>
+        <location line="-4154"/>
         <source>underline links mentions accessibility colour blind</source>
         <translation>下划线 链接 提及 无障碍 色盲</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4158"/>
+        <location line="+4163"/>
         <source>Name colour readability</source>
         <translation>名称颜色可读性</translation>
     </message>
     <message>
-        <location line="-4157"/>
+        <location line="-4162"/>
         <source>name color colour contrast sender readable strong weak off</source>
         <translation>名称 颜色 对比度 发送者 可读 强 弱 关闭</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+60"/>
         <source>Emoji and sticker packs</source>
         <translation>表情和贴纸包</translation>
     </message>
@@ -22268,34 +22269,34 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+22"/>
-        <location line="+4483"/>
+        <location line="+4492"/>
         <source>Also check</source>
         <translation>同时检查</translation>
     </message>
     <message>
-        <location line="-4482"/>
+        <location line="-4491"/>
         <source>spell spelling languages several multiple second extra dictionary bilingual</source>
         <translation>拼写 语言 多个 第二 额外 词典 双语</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4606"/>
+        <location line="+4615"/>
         <source>Correct obvious typos as you type</source>
         <translation>输入时自动更正明显的拼写错误</translation>
     </message>
     <message>
-        <location line="-4605"/>
+        <location line="-4614"/>
         <source>autocorrect auto correct autocorrection typo fix replace capital</source>
         <translation>自动更正 纠正 拼写错误 修正 替换 大写</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4626"/>
+        <location line="+4635"/>
         <source>Personal dictionary</source>
         <translation>个人词典</translation>
     </message>
     <message>
-        <location line="-4625"/>
+        <location line="-4634"/>
         <source>spell spelling dictionary personal words added learned remove</source>
         <translation>拼写 词典 个人 单词 已添加 已学习 移除</translation>
     </message>
@@ -22316,12 +22317,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6771"/>
+        <location line="+6780"/>
         <source>Large album art</source>
         <translation>大专辑封面</translation>
     </message>
     <message>
-        <location line="-6770"/>
+        <location line="-6779"/>
         <source>album art cover artwork audio file music big large square compact</source>
         <translation>专辑封面 封面 图片 音频 文件 音乐 大 方形 紧凑</translation>
     </message>
@@ -22332,24 +22333,24 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+165"/>
-        <location line="+5631"/>
+        <location line="+5640"/>
         <location line="+3"/>
         <source>Preload videos and audio</source>
         <translation>预加载视频和音频</translation>
     </message>
     <message>
-        <location line="-5633"/>
+        <location line="-5642"/>
         <source>video audio voice preload prefetch download size megabytes data disk instant play</source>
         <translation>视频 音频 语音 预加载 预取 下载 大小 兆字节 数据 磁盘 即时播放</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5710"/>
+        <location line="+5719"/>
         <source>Photo details when sending</source>
         <translation>发送时的照片详情</translation>
     </message>
     <message>
-        <location line="-5709"/>
+        <location line="-5718"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
         <translation>照片 图片 exif gps 位置 元数据 去除 移除 隐私 上传 相机</translation>
     </message>
@@ -22375,12 +22376,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+8"/>
-        <location line="+9697"/>
+        <location line="+9706"/>
         <source>Music activity</source>
         <translation>音乐动态</translation>
     </message>
     <message>
-        <location line="-9696"/>
+        <location line="-9705"/>
         <source>listening music spotify song status presence activity</source>
         <translation>正在听 音乐 spotify 歌曲 状态 在线状态 动态</translation>
     </message>
@@ -22638,7 +22639,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>发送者名称会被调亮或调暗，直到能在背景上清晰辨认：“强”的目标是 4.5:1，“弱”为 3:1，“关闭”则完全保持你选择的颜色。</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+82"/>
         <source>Whether GIFs, stickers and animated avatars play on their own, only under the pointer, or not at all</source>
         <translation>GIF、贴纸和动态头像是自动播放、仅在指针下播放，还是完全不播放</translation>
     </message>
@@ -22902,13 +22903,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>否</translation>
     </message>
     <message>
-        <location line="-7860"/>
-        <location line="+7860"/>
+        <location line="-7869"/>
+        <location line="+7869"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location line="-8122"/>
+        <location line="-8131"/>
         <source>Mute all notifications</source>
         <translation>静音所有通知</translation>
     </message>
@@ -22984,12 +22985,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+154"/>
-        <location line="+9691"/>
+        <location line="+9700"/>
         <source>Game activity</source>
         <translation>游戏动态</translation>
     </message>
     <message>
-        <location line="-9690"/>
+        <location line="-9699"/>
         <source>playing game status steam presence activity</source>
         <translation>正在玩 游戏 状态 steam 在线 动态 活动</translation>
     </message>
@@ -23049,7 +23050,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="-3698"/>
-        <location line="+4849"/>
+        <location line="+4858"/>
         <source>Use call keys from any window</source>
         <translation>在任意窗口使用通话按键</translation>
     </message>
@@ -23444,15 +23445,15 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>此会话</translation>
     </message>
     <message>
-        <location line="-8797"/>
-        <location line="+8701"/>
+        <location line="-8806"/>
+        <location line="+8710"/>
         <location line="+109"/>
         <source>Verified</source>
         <translation>已验证</translation>
     </message>
     <message>
-        <location line="-8809"/>
-        <location line="+8811"/>
+        <location line="-8818"/>
+        <location line="+8820"/>
         <source>Not verified</source>
         <translation>未验证</translation>
     </message>
@@ -23688,16 +23689,20 @@ Note: importing keys does not verify this session.</source>
         <translation>许可证：GPL-3.0-or-later</translation>
     </message>
     <message>
+        <location line="-10248"/>
+        <location line="+4208"/>
         <source>Disable cursor blinking</source>
-        <translation type="unfinished"></translation>
+        <translation>停用光标闪烁</translation>
     </message>
     <message>
+        <location line="-4207"/>
         <source>text cursor caret blink steady accessibility</source>
-        <translation type="unfinished"></translation>
+        <translation>文本光标 插入点 闪烁 不闪 无障碍</translation>
     </message>
     <message>
+        <location line="+4210"/>
         <source>Keep text cursors steady in all text inputs. When off, follow the system cursor setting.</source>
-        <translation type="unfinished"></translation>
+        <translation>在所有文本输入框中保持文本光标不闪烁。关闭时遵循系统的光标设置。</translation>
     </message>
 </context>
 <context>
@@ -24201,51 +24206,62 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+383"/>
         <source>Focus the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>聚焦消息输入框</translation>
     </message>
     <message>
+        <location line="-145"/>
         <source>Select the latest message</source>
-        <translation type="unfinished"></translation>
+        <translation>选择最新消息</translation>
     </message>
     <message>
+        <location line="+6"/>
         <source>Resume message selection in the current view</source>
-        <translation type="unfinished"></translation>
+        <translation>在当前视图中恢复消息选择</translation>
     </message>
     <message>
+        <location line="+6"/>
         <source>Select the older message</source>
-        <translation type="unfinished"></translation>
+        <translation>选择较早的消息</translation>
     </message>
     <message>
+        <location line="+3"/>
         <source>Select the newer message</source>
-        <translation type="unfinished"></translation>
+        <translation>选择较新的消息</translation>
     </message>
     <message>
+        <location line="+3"/>
         <source>Scroll up half a page without changing selection</source>
-        <translation type="unfinished"></translation>
+        <translation>向上滚动半页且不改变选择</translation>
     </message>
     <message>
+        <location line="+3"/>
         <source>Scroll down half a page without changing selection</source>
-        <translation type="unfinished"></translation>
+        <translation>向下滚动半页且不改变选择</translation>
     </message>
     <message>
+        <location line="+3"/>
         <source>Reply to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>回复所选消息</translation>
     </message>
     <message>
+        <location line="+403"/>
         <source>Use a single key combination for message selection.</source>
-        <translation type="unfinished"></translation>
+        <translation>消息选择请使用单个组合键。</translation>
     </message>
     <message>
+        <location line="+150"/>
         <source>While the timeline has focus this runs instead of “%1”.</source>
-        <translation type="unfinished"></translation>
+        <translation>时间线拥有焦点时，将执行此操作而不是“%1”。</translation>
     </message>
     <message>
+        <location line="+3"/>
         <source>While the timeline has focus, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>时间线拥有焦点时，将改为执行“%1”。</translation>
     </message>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+87"/>
+        <location line="-679"/>
         <source>Application</source>
         <translation>应用</translation>
     </message>
@@ -24380,7 +24396,7 @@ Note: importing keys does not verify this session.</source>
         <translation>转到上一个查找结果</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+34"/>
         <source>Scroll the conversation up by a page</source>
         <translation>向上翻一页对话</translation>
     </message>
@@ -24480,7 +24496,7 @@ Note: importing keys does not verify this session.</source>
         <translation>附加文件</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+10"/>
         <source>Bold</source>
         <translation>粗体</translation>
     </message>
@@ -24575,18 +24591,18 @@ Note: importing keys does not verify this session.</source>
         <translation>跳转到最新消息</translation>
     </message>
     <message>
-        <location line="+210"/>
-        <location line="+66"/>
+        <location line="+223"/>
+        <location line="+76"/>
         <source>Unknown action.</source>
         <translation>未知的行动。</translation>
     </message>
     <message>
-        <location line="-62"/>
+        <location line="-72"/>
         <source>That is not a key combination Lightning can store.</source>
         <translation>这不是 Lightning 可以存储的组合键。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+17"/>
         <source>Use Ctrl, Alt or Super, or PgUp, PgDn or an F-key. Any other bare key is a character you type in the message box.</source>
         <translation>请使用 Ctrl、Alt 或 Super，或 PgUp、PgDn 或 F 键。其他单独的按键都是你在消息框中输入的字符。</translation>
     </message>
@@ -24599,6 +24615,11 @@ Note: importing keys does not verify this session.</source>
         <location line="+4"/>
         <source>Use Ctrl, Alt or Super. Without one, typing the character in the message box is all that would happen.</source>
         <translation>使用 Ctrl、Alt 或 Super。如果没有的话，只会在消息框中键入字符。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>%1 moves focus or navigates the conversation, so it cannot be used to select messages.</source>
+        <translation>%1 用于移动焦点或在对话中导航，因此不能用于选择消息。</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -24621,7 +24642,7 @@ Note: importing keys does not verify this session.</source>
         <translation>也用于“%1”——两者都不起作用。</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+34"/>
         <source>With text selected in the message box this runs instead of “%1”; with nothing selected, “%1” runs.</source>
         <translation>选中消息框中的文字时，此操作将代替“%1”运行；未选中任何文字时，则运行“%1”。</translation>
     </message>
@@ -24631,7 +24652,7 @@ Note: importing keys does not verify this session.</source>
         <translation>消息框中有文字被选中时，将改为运行“%1”。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>While the message box has focus this runs instead of “%1”.</source>
         <translation>虽然消息框具有焦点，但它运行而不是“%1”。</translation>
     </message>
@@ -28443,7 +28464,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+679"/>
+        <location filename="../qml/TimelinePane.qml" line="+755"/>
         <source>Seen by 1 person</source>
         <translation>1 人已读</translation>
     </message>
@@ -28462,12 +28483,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+386"/>
-        <location line="+5851"/>
+        <location line="+6067"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5850"/>
+        <location filename="../qml/TimelinePane.qml" line="-6066"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -28542,12 +28563,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4209"/>
+        <location line="+4425"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-4193"/>
+        <location line="-4409"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>更多房间操作</translation>
@@ -28748,7 +28769,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+3210"/>
+        <location line="+3426"/>
         <location line="+500"/>
         <source>Loading older messages…</source>
         <translation>正在加载更早的消息…</translation>
@@ -29179,13 +29200,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-6492"/>
+        <location line="-6708"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+5637"/>
+        <location line="+5853"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
