@@ -2029,6 +2029,14 @@ Rectangle {
                 z: -1
             }
             TapHandler { onTapped: railAccountMenu.open() }
+            AccountWheelSwitch {
+                objectName: "railAccountWheel"
+                accounts: app.accounts ? app.accounts.accounts : []
+                activeUserId: app.accounts ? (app.accounts.activeUserId || "") : ""
+                busy: app.accountSwitching
+                      || !!(app.auth && app.auth.logoutPending)
+                onSwitchRequested: (userId) => app.switchToAccount(userId)
+            }
             // Off the rail: the user id is the widest tooltip and would cover
             // the cog.
             Item {

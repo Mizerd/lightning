@@ -114,6 +114,14 @@ RowLayout {
         }
         HoverHandler { id: accountHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: accountMenu.open() }
+        AccountWheelSwitch {
+            objectName: "hiddenRailAccountWheel"
+            accounts: app.accounts ? app.accounts.accounts : []
+            activeUserId: app.accounts ? (app.accounts.activeUserId || "") : ""
+            busy: app.accountSwitching
+                  || !!(app.auth && app.auth.logoutPending)
+            onSwitchRequested: (userId) => app.switchToAccount(userId)
+        }
         ToolTip.visible: accountHover.hovered
         ToolTip.text: app.accounts ? (app.accounts.activeUserId || "") : ""
         ToolTip.delay: 500

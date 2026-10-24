@@ -1094,6 +1094,7 @@ set(APP_QML_FILES
     qml/SettingsNeedsBadge.qml
     qml/SettingsHint.qml
     qml/SettingsCheckBox.qml
+    qml/AccountWheelSwitch.qml
     qml/SettingsNavGroupLabel.qml
     qml/SettingsNavOutline.qml
     qml/LogExportCard.qml
@@ -6836,6 +6837,17 @@ if(BUILD_TESTING)
     target_link_libraries(base-controls-keyboard-qml-test PRIVATE Qt6::Test)
     add_test(NAME base-controls-keyboard-qml COMMAND base-controls-keyboard-qml-test)
     set_tests_properties(base-controls-keyboard-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Mouse wheel over the account tile cycles the accounts (GitHub #54).
+    qt_add_executable(account-wheel-switch-qml-test
+        tests/AccountWheelSwitchQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(account-wheel-switch-qml-test)
+    target_link_libraries(account-wheel-switch-qml-test PRIVATE Qt6::Test)
+    add_test(NAME account-wheel-switch-qml COMMAND account-wheel-switch-qml-test)
+    set_tests_properties(account-wheel-switch-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Button styles, offscreen pixel checks: A bare with hover tint, B the
