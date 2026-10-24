@@ -29640,6 +29640,30 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <source>Drop files to attach</source>
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Teil von %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Teil eines Space, dem du nicht beigetreten bist</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Space beitreten</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Verwerfen</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Dem Space beitreten, zu dem dieser Raum gehört</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Diesen Hinweis für diesen Raum verwerfen</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

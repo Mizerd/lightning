@@ -29523,6 +29523,30 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <source>Drop files to attach</source>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Bagian dari %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Bagian dari space yang belum Anda ikuti</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Gabung ke space</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Tutup</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Gabung ke space tempat ruang ini berada</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Tutup pemberitahuan ini untuk ruang ini</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

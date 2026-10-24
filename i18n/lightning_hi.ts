@@ -29640,6 +29640,30 @@ Note: importing keys does not verify this session.</source>
         <source>Drop files to attach</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>%1 का हिस्सा</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>ऐसे स्पेस का हिस्सा जिसमें आप शामिल नहीं हुए हैं</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>स्पेस में शामिल हों</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>खारिज करें</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>उस स्पेस में शामिल हों जिसका यह रूम हिस्सा है</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>इस रूम के लिए यह सूचना खारिज करें</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

@@ -84,6 +84,10 @@ class RoomInfoController : public QObject
     // setJoinRule, the restricted pair via setRestrictedJoinRule.
     Q_PROPERTY(QString joinRule READ joinRule NOTIFY membersChanged)
     Q_PROPERTY(QString canonicalAlias READ canonicalAlias NOTIFY membersChanged)
+    /// The open room's canonical parent Space as {spaceId, via, joined,
+    /// name}, or an empty map when it has none. Drives the "Join space" row.
+    Q_PROPERTY(QVariantMap canonicalSpaceParent READ canonicalSpaceParent
+                   NOTIFY membersChanged)
     // Room access, from the member snapshot; "" = unknown.
     // historyVisibility: invited | joined | shared | world_readable.
     // guestAccess: can_join | forbidden. restrictedAllowedRooms: room ids whose
@@ -173,6 +177,7 @@ public:
     qlonglong usersDefaultPowerLevel() const { return m_usersDefaultPowerLevel; }
     QString joinRule() const { return m_joinRule; }
     QString canonicalAlias() const { return m_canonicalAlias; }
+    QVariantMap canonicalSpaceParent() const { return m_canonicalSpaceParent; }
     QVariantMap powerLevels() const { return m_powerLevels; }
     QString roomVersion() const { return m_roomVersion; }
     bool canUpgradeRoom() const { return m_canUpgradeRoom; }
@@ -480,6 +485,7 @@ private:
     qlonglong m_usersDefaultPowerLevel = 0;
     QString m_joinRule;
     QString m_canonicalAlias;
+    QVariantMap m_canonicalSpaceParent;
     QString m_historyVisibility;
     QString m_guestAccess;
     QStringList m_altAliases;

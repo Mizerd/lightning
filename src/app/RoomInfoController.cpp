@@ -156,6 +156,7 @@ void RoomInfoController::clearSnapshot()
     clearPermissions();
     m_joinRule.clear();
     m_canonicalAlias.clear();
+    m_canonicalSpaceParent.clear();
     // Empty is the unknown state; zeros would claim a real, very permissive
     // configuration.
     m_powerLevels.clear();
@@ -325,6 +326,16 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_joinRule = snapshot.value(QStringLiteral("joinRule")).toString();
     m_canonicalAlias =
         snapshot.value(QStringLiteral("canonicalAlias")).toString();
+    {
+        // Rust names the field space_id; the QML-facing key is spaceId.
+        QVariantMap parent =
+            snapshot.value(QStringLiteral("canonicalSpaceParent")).toMap();
+        if (parent.contains(QStringLiteral("space_id"))) {
+            parent.insert(QStringLiteral("spaceId"),
+                          parent.take(QStringLiteral("space_id")));
+        }
+        m_canonicalSpaceParent = parent;
+    }
     // Absent keys read as "" / empty / false, so a backend that omits them
     // offers nothing rather than claiming a configuration.
     m_historyVisibility =

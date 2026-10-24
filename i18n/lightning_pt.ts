@@ -29640,6 +29640,30 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <source>Drop files to attach</source>
         <translation>Largue ficheiros para os anexar</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Parte de %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Parte de um espaço em que você não entrou</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Entrar no espaço</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Dispensar</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Entrar no espaço a que esta sala pertence</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Dispensar este aviso para esta sala</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

@@ -29757,6 +29757,30 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <source>Drop files to attach</source>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Erdvės %1 dalis</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Erdvės, prie kurios nesate prisijungę, dalis</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Prisijungti prie erdvės</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Paslėpti</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Prisijungti prie erdvės, kuriai priklauso šis kambarys</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Paslėpti šį pranešimą šiam kambariui</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

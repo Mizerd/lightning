@@ -12848,6 +12848,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         snapshot.insert(
             QStringLiteral("canonicalAlias"),
             event.value(QStringLiteral("canonical_alias")).toString());
+        // The canonical parent Space, or an empty map.
+        snapshot.insert(
+            QStringLiteral("canonicalSpaceParent"),
+            event.value(QStringLiteral("canonical_space_parent"))
+                .toObject().toVariantMap());
         // Room access: history visibility, guest access, alt aliases, the
         // restricted allow list, and two power gates not among the own_can_*
         // flags.

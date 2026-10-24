@@ -30099,6 +30099,30 @@ Note: importing keys does not verify this session.</source>
         <source>Drop files to attach</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>جزء من %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>جزء من مساحة لم تنضم إليها</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>انضم إلى المساحة</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>تجاهل</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>انضم إلى المساحة التي تنتمي إليها هذه الغرفة</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>تجاهل هذا الإشعار لهذه الغرفة</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

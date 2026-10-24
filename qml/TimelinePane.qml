@@ -2065,6 +2065,104 @@ Rectangle {
             }
         }
 
+        // "Part of <Space> - Join space". The open room names a canonical
+        // parent Space (m.space.parent) the user has not joined, e.g. they
+        // followed a link to the room alone. Dismissal is remembered per room
+        // for the session. Fails closed: the roster controller may still point
+        // at another room.
+        Rectangle {
+            id: spaceParentBanner
+            objectName: "spaceParentBanner"
+            property var dismissedRooms: ({})
+            // Metadata is needed even when the info panel has never opened.
+            function followRoom() {
+                if (app.currentRoomId !== "" && app.roomInfo.supported)
+                    app.roomInfo.roomId = app.currentRoomId
+            }
+            Component.onCompleted: followRoom()
+            Connections {
+                target: app
+                function onCurrentRoomIdChanged() { spaceParentBanner.followRoom() }
+            }
+            readonly property var parentSpace: app.roomInfo
+                ? app.roomInfo.canonicalSpaceParent : ({})
+            readonly property string spaceId:
+                parentSpace && parentSpace.spaceId ? parentSpace.spaceId : ""
+            readonly property string spaceName:
+                parentSpace && parentSpace.name ? parentSpace.name : ""
+            function dismiss() {
+                var next = Object.assign({}, dismissedRooms)
+                next[app.currentRoomId] = true
+                dismissedRooms = next
+            }
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing16
+            Layout.rightMargin: AppTheme.spacing16
+            Layout.topMargin: visible ? AppTheme.spacing8 : 0
+            visible: app.roomInfo
+                     && app.roomInfo.supported
+                     && app.roomInfo.roomId === app.currentRoomId
+                     && spaceId.length > 0
+                     && parentSpace.joined !== true
+                     && dismissedRooms[app.currentRoomId] !== true
+            implicitHeight: visible ? spaceParentRow.implicitHeight
+                                      + AppTheme.spacing8 * 2 : 0
+            radius: AppTheme.radiusLg
+            color: AppTheme.chipInfoFill
+            border.color: AppTheme.chipInfoBorder
+            border.width: 1
+
+            RowLayout {
+                id: spaceParentRow
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing8
+                spacing: AppTheme.spacingS
+
+                Icon {
+                    Layout.alignment: Qt.AlignVCenter
+                    name: "info"
+                    size: 18
+                    color: AppTheme.chipInfoInk
+                }
+                Text {
+                    objectName: "spaceParentBannerText"
+                    Layout.fillWidth: true
+                    // A Space's name is remote text: plain, never markup.
+                    textFormat: Text.PlainText
+                    text: spaceParentBanner.spaceName.length > 0
+                          ? qsTr("Part of %1").arg(spaceParentBanner.spaceName)
+                          : qsTr("Part of a space you have not joined")
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    font.weight: AppTheme.weightMedium
+                    font.family: AppTheme.uiFont
+                    elide: Text.ElideRight
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                AppButton {
+                    objectName: "spaceParentJoinButton"
+                    text: qsTr("Join space")
+                    kind: "primary"
+                    enabled: !app.discovery.busy
+                    onClicked: app.discovery.join(
+                                   spaceParentBanner.spaceId,
+                                   spaceParentBanner.parentSpace.via || [],
+                                   true)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Join the space this room belongs to")
+                }
+                AppButton {
+                    objectName: "spaceParentDismissButton"
+                    text: qsTr("Dismiss")
+                    kind: "secondary"
+                    onClicked: spaceParentBanner.dismiss()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Dismiss this notice for this room")
+                }
+            }
+        }
+
         // Find bar, a floating card with a fixed compact height so opening or
         // focusing it never reflows anything else. A Layout child rather than
         // an overlay: the timeline's onHeightChanged already preserves the

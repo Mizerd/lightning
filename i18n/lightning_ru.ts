@@ -29757,6 +29757,30 @@ Note: importing keys does not verify this session.</source>
         <source>Drop files to attach</source>
         <translation>Перетащите файлы, чтобы прикрепить</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Часть пространства %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Часть пространства, к которому вы не присоединились</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Присоединиться к пространству</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Скрыть</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Присоединиться к пространству, в которое входит эта комната</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Скрыть это уведомление для этой комнаты</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

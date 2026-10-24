@@ -29640,6 +29640,30 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <source>Drop files to attach</source>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>Fait partie de %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>Fait partie d'un espace que vous n'avez pas rejoint</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>Rejoindre l'espace</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Ignorer</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>Rejoindre l'espace auquel appartient ce salon</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>Ignorer cet avis pour ce salon</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

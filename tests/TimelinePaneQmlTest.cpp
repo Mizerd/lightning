@@ -11055,9 +11055,102 @@ private Q_SLOTS:
         }
     }
 
-    // When nothing in the room matches, the find bar says so in the room's own
-    // terms and offers the wider search with the same keyword; a click closes
-    // the find bar and hands the keyword up. Hidden while there are matches.
+    // The parent offer loads its own metadata, preserves routing and plain
+    // text, and remembers dismissal for each room separately.
+    void canonicalParentIsOfferedWithoutOpeningTheInfoPanel()
+    {
+        struct ParentClient : MockMatrixClient {
+            QVariantMap parentSpace{
+                {QStringLiteral("space_id"), QStringLiteral("!parent:example.org")},
+                {QStringLiteral("name"), QStringLiteral("<b>Team</b>")},
+                {QStringLiteral("via"), QStringList{QStringLiteral("example.org")}},
+                {QStringLiteral("joined"), false}};
+            quint64 nextOp = 0;
+            QString joinedTarget;
+            QStringList joinedVia;
+            bool supportsRoomManagement() const override { return true; }
+            bool supportsRoomDiscovery() const override { return true; }
+            quint64 requestRoomMembers(const QString &roomId) override
+            {
+                const quint64 op = ++nextOp;
+                const QVariantMap snapshot{
+                    {QStringLiteral("ok"), true},
+                    {QStringLiteral("canonicalSpaceParent"), parentSpace}};
+                QMetaObject::invokeMethod(this, [this, op, roomId, snapshot] {
+                    Q_EMIT roomMembersReceived(op, roomId, snapshot);
+                }, Qt::QueuedConnection);
+                return op;
+            }
+            quint64 joinRoomByIdOrAlias(const QString &target,
+                                       const QStringList &via) override
+            {
+                joinedTarget = target;
+                joinedVia = via;
+                return ++nextOp;
+            }
+        } managed;
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, 0).isEmpty());
+        auto *original = controller.findChild<MockMatrixClient *>();
+        QVERIFY(original);
+        const auto restore = qScopeGuard([&] {
+            controller.roomInfo()->setClient(original);
+            controller.discovery()->setClient(original);
+        });
+        controller.roomInfo()->setClient(&managed);
+        controller.discovery()->setClient(&managed);
+        const QString general = QStringLiteral("!general:mock.local");
+        const QString dm = QStringLiteral("!dm-bob:mock.local");
+        controller.setCurrentRoomId(general);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *root = qobject_cast<QQuickItem *>(engine.rootObjects().first());
+        QVERIFY(root);
+        auto *banner = root->findChild<QQuickItem *>(QStringLiteral("spaceParentBanner"));
+        QVERIFY(banner);
+        QTRY_COMPARE(controller.roomInfo()->roomId(), general);
+        QTRY_VERIFY(banner->isVisible());
+        QVERIFY(!root->property("infoOpen").toBool());
+        auto *label = root->findChild<QQuickItem *>(QStringLiteral("spaceParentBannerText"));
+        QVERIFY(label);
+        QCOMPARE(label->property("text").toString(), QStringLiteral("Part of <b>Team</b>"));
+        QCOMPARE(label->property("textFormat").toInt(), int(Qt::PlainText));
+
+        managed.parentSpace.insert(QStringLiteral("joined"), true);
+        controller.roomInfo()->refreshMembers();
+        QTRY_VERIFY(!banner->isVisible());
+        managed.parentSpace.insert(QStringLiteral("joined"), false);
+        controller.setCurrentRoomId(dm);
+        QTRY_VERIFY(banner->isVisible());
+        auto *dismiss = root->findChild<QQuickItem *>(QStringLiteral("spaceParentDismissButton"));
+        QVERIFY(dismiss);
+        QVERIFY(QMetaObject::invokeMethod(dismiss, "clicked"));
+        QTRY_VERIFY(!banner->isVisible());
+        controller.setCurrentRoomId(general);
+        QTRY_VERIFY(banner->isVisible());
+        controller.setCurrentRoomId(dm);
+        QTRY_VERIFY(!banner->isVisible());
+        controller.setCurrentRoomId(general);
+        QTRY_VERIFY(banner->isVisible());
+
+        auto *join = root->findChild<QQuickItem *>(QStringLiteral("spaceParentJoinButton"));
+        QVERIFY(join);
+        QVERIFY(QMetaObject::invokeMethod(join, "clicked"));
+        QCOMPARE(managed.joinedTarget, QStringLiteral("!parent:example.org"));
+        QCOMPARE(managed.joinedVia, QStringList{QStringLiteral("example.org")});
+        QVERIFY(!join->isEnabled());
+        managed.parentSpace.clear();
+        controller.roomInfo()->refreshMembers();
+        QTRY_VERIFY(!banner->isVisible());
+        QVERIFY(controller.roomInfo()->canonicalSpaceParent().isEmpty());
+    }
+
+    // When nothing in the room matches, the find bar offers the wider search
+    // with the same keyword; a click closes it and hands the keyword up.
     void findBarOffersAllRoomsWhenNothingMatches()
     {
         AppController controller(AppController::MockBackend);

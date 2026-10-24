@@ -29620,6 +29620,30 @@ Note: importing keys does not verify this session.</source>
         <source>Drop files to attach</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>

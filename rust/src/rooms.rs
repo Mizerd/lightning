@@ -3048,6 +3048,7 @@ async fn members_snapshot_json(
             .canonical_alias()
             .map(|a| a.to_string())
             .unwrap_or_default();
+        let canonical_space_parent = canonical_space_parent_json(&room.client(), room).await;
         // The restricted allow list as room ids, so a configuration another client
         // wrote can be shown and edited without loss; unknown allow-rule kinds are
         // carried as an opaque marker the editor must preserve (see
@@ -3158,10 +3159,44 @@ async fn members_snapshot_json(
             "power_levels": power_levels_json,
             "join_rule": join_rule,
             "canonical_alias": canonical_alias,
+            "canonical_space_parent": canonical_space_parent,
             "access": access_json,
             "members": rows,
         })
     }
+}
+
+/// The room's canonical `m.space.parent` (MSC1772) as bridge JSON, or null.
+/// Only a parent that carries `via` and `canonical: true` counts: an empty
+/// content is how a parent link is removed. `joined` is the SDK's own state
+/// for that Space, so the UI can offer to join one the user has not.
+pub(crate) async fn canonical_space_parent_json(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+) -> serde_json::Value {
+    use matrix_sdk::ruma::events::space::parent::SpaceParentEventContent;
+    let Ok(events) = room.get_state_events_static::<SpaceParentEventContent>().await else {
+        return serde_json::Value::Null;
+    };
+    for raw in events {
+        let Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(event))) = raw.deserialize()
+        else {
+            continue;
+        };
+        if event.content.canonical != true || event.content.via.is_empty() {
+            continue;
+        }
+        let space = client.get_room(&event.state_key);
+        let joined = space.as_ref().is_some_and(|s| s.state() == RoomState::Joined);
+        let name = space.as_ref().and_then(|s| s.name()).unwrap_or_default();
+        return json!({
+            "space_id": event.state_key.as_str(),
+            "via": event.content.via.iter().map(|v| v.to_string()).collect::<Vec<_>>(),
+            "joined": joined,
+            "name": name,
+        });
+    }
+    serde_json::Value::Null
 }
 
 // ---------------------------------------------------------------------------
@@ -7891,6 +7926,118 @@ mod member_freshness_tests {
 
     fn row<'a>(snapshot: &'a serde_json::Value, user: &str) -> Option<&'a serde_json::Value> {
         snapshot["members"].as_array()?.iter().find(|m| m["user_id"] == user)
+    }
+
+    fn invite_outcomes(bridge: &crate::RustClient, op_id: u64) -> Vec<serde_json::Value> {
+        let started = std::time::Instant::now();
+        loop {
+            let mut rows = Vec::new();
+            let mut done = false;
+            for raw in bridge.events.lock().unwrap().iter() {
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else { continue };
+                if value["op_id"] != json!(op_id) {
+                    continue;
+                }
+                match value["type"].as_str() {
+                    Some("room_invite_result") => rows.push(value),
+                    Some("room_invite_done") => done = true,
+                    _ => {}
+                }
+            }
+            if done {
+                return rows;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no answer");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// Inviting into a Space is the same `/invite` as into a room: a joined
+    /// Space (its `m.room.create` carries `type: m.space`) must reach it.
+    #[test]
+    fn inviting_into_a_space_sends_the_invite() {
+        let space = room_id!("!space:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            server.mock_invite_user_by_id().ok().mock_once().mount().await;
+            let me = client.user_id().unwrap().to_string();
+            let create = json!({
+                "type": "m.room.create", "state_key": "", "sender": me,
+                "event_id": "$c0", "origin_server_ts": 1_700_000_000_000u64,
+                "content": { "creator": me, "room_version": "10", "type": "m.space" },
+            });
+            sync(&client, space, "pos-1", vec![create, member(&me, "join", "Me", "$m0")], vec![])
+                .await;
+            (server, client)
+        });
+        let dir = std::env::temp_dir().join(format!("lightning-space-invite-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+        assert!(client.get_room(space).unwrap().is_space());
+
+        invite_users(&bridge, space.to_string(), json!(["@bob:example.org"]).to_string(), 7)
+            .expect("a joined Space accepts an invite");
+        let rows = invite_outcomes(&bridge, 7);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["ok"], json!(true), "{}", rows[0]);
+        drop(bridge);
+        drop(server);
+        drop(rt);
+    }
+
+    /// The canonical parent Space is read from the room's own state: only a
+    /// parent that is `canonical` and carries `via` counts, and `joined`
+    /// follows the SDK's state for that Space.
+    #[test]
+    fn the_canonical_space_parent_is_read_from_room_state() {
+        let room = room_id!("!child:example.org");
+        let canon = room_id!("!canon:example.org");
+        let other = room_id!("!other:example.org");
+        let removed = room_id!("!removed:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            client.event_cache().subscribe().expect("event cache");
+            let me = client.user_id().unwrap().to_string();
+            let parent = |space: &RoomId, id: &str, content: serde_json::Value| json!({
+                "type": "m.space.parent", "state_key": space.as_str(), "sender": me,
+                "event_id": id, "origin_server_ts": 1_700_000_000_000u64, "content": content,
+            });
+            sync(
+                &client,
+                room,
+                "pos-1",
+                vec![
+                    parent(other, "$p0", json!({ "via": ["example.org"] })),
+                    parent(removed, "$p1", json!({})),
+                    parent(canon, "$p2", json!({ "via": ["example.org"], "canonical": true })),
+                ],
+                vec![],
+            )
+            .await;
+            (server, client)
+        });
+        let joined_room = client.get_room(room).unwrap();
+        let found = rt.block_on(canonical_space_parent_json(&client, &joined_room));
+        assert_eq!(found["space_id"], json!(canon.as_str()), "{found}");
+        assert_eq!(found["via"], json!(["example.org"]));
+        assert_eq!(found["joined"], json!(false), "the Space is not one we are in");
+
+        // Once we are in that Space the same answer says so.
+        rt.block_on(sync(&client, canon, "pos-2", vec![], vec![]));
+        let found = rt.block_on(canonical_space_parent_json(&client, &joined_room));
+        assert_eq!(found["joined"], json!(true), "{found}");
+
+        // A room with no canonical parent has none.
+        rt.block_on(sync(&client, other, "pos-3", vec![], vec![]));
+        let none = rt.block_on(canonical_space_parent_json(&client, &client.get_room(other).unwrap()));
+        assert!(none.is_null());
+        drop(server);
+        drop(rt);
     }
 
     #[test]

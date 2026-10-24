@@ -29523,6 +29523,30 @@ Note: importing keys does not verify this session.</source>
         <source>Drop files to attach</source>
         <translation>拖放文件以添加附件</translation>
     </message>
+    <message>
+        <source>Part of %1</source>
+        <translation>属于 %1</translation>
+    </message>
+    <message>
+        <source>Part of a space you have not joined</source>
+        <translation>属于一个你尚未加入的空间</translation>
+    </message>
+    <message>
+        <source>Join space</source>
+        <translation>加入空间</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>忽略</translation>
+    </message>
+    <message>
+        <source>Join the space this room belongs to</source>
+        <translation>加入此房间所属的空间</translation>
+    </message>
+    <message>
+        <source>Dismiss this notice for this room</source>
+        <translation>对此房间忽略此通知</translation>
+    </message>
 </context>
 <context>
     <name>TopicText</name>
