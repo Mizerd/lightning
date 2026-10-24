@@ -25,6 +25,7 @@
 #include <QFile>
 #include <QMediaPlayer>
 #include <QProcess>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -371,6 +372,51 @@ private Q_SLOTS:
 
     // A second Lightning (another profile) on the same bus takes the spec's
     // per-instance name rather than failing or stealing the first one's.
+    // Under Flatpak the sandbox grants org.mpris.MediaPlayer2.<FLATPAK_ID> and
+    // nothing named "lightning": the server must register that name, and the
+    // second profile's instance fallback must keep the same prefix.
+    void aFlatpakRegistersItsAppIdName()
+    {
+        const QString id = QStringLiteral("org.lightning_matrix.Lightning");
+        const QString want = QStringLiteral("org.mpris.MediaPlayer2.") + id;
+        const QByteArray before = qgetenv("FLATPAK_ID");
+        const bool had = qEnvironmentVariableIsSet("FLATPAK_ID");
+        qputenv("FLATPAK_ID", id.toUtf8());
+        const auto restore = qScopeGuard([&] {
+            if (had) qputenv("FLATPAK_ID", before);
+            else qunsetenv("FLATPAK_ID");
+        });
+        QCOMPARE(MprisServer::baseServiceName(), want);
+
+        VoicePlaybackController first;
+        installSources(&first);
+        MprisServer one(&first);
+        useTestBus(one);
+        first.play(QStringLiteral("$a"), QStringLiteral("!r:x"),
+                   QStringLiteral("mk-fp-one"), voiceMeta());
+        QTRY_VERIFY_WITH_TIMEOUT(one.registeredServiceName() == want, 5000);
+        QVERIFY2(!hasOwner(kService), "the plain name must stay unused");
+
+        QDBusConnection second = QDBusConnection::connectToBus(
+            m_address, QStringLiteral("mpris-second-fp"));
+        QVERIFY(second.isConnected());
+        VoicePlaybackController other;
+        installSources(&other);
+        MprisServer two(&other);
+        useTestBus(two);
+        two.setBusConnectionName(QStringLiteral("mpris-second-fp"));
+        other.play(QStringLiteral("$b"), QStringLiteral("!r:x"),
+                   QStringLiteral("mk-fp-two"), voiceMeta());
+        QTRY_VERIFY_WITH_TIMEOUT(!two.registeredServiceName().isEmpty(), 5000);
+        QVERIFY2(two.registeredServiceName().startsWith(
+                     want + QStringLiteral(".instance")),
+                 qPrintable(two.registeredServiceName()));
+        other.stop();
+        first.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(!hasOwner(want), 3000);
+        QDBusConnection::disconnectFromBus(QStringLiteral("mpris-second-fp"));
+    }
+
     void aSecondInstanceTakesAnInstanceName()
     {
         VoicePlaybackController first;

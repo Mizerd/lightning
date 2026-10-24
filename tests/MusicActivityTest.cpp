@@ -170,6 +170,7 @@ private Q_SLOTS:
     void windowsCaptionsAreParsedLikeSpotifyNamesThem();
     void windowsCaptionSourcePollsOnlyWhileStarted();
     void qmlCopyIsPlainTextAndSendsNoArt();
+    void aFlatpakListensOnlyWhenItWasGrantedSpotify();
 
     // Policy (fake source, real PresenceManager).
     void labsIsOffByDefault();
@@ -426,6 +427,35 @@ public:
     bool isEmpty() const override { return false; }
 };
 }   // namespace
+
+void MusicActivityTest::aFlatpakListensOnlyWhenItWasGrantedSpotify()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto write = [&](const char *name, const QByteArray &body) {
+        const QString path = dir.filePath(QLatin1String(name));
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly))
+            return QString();
+        f.write(body);
+        return path;
+    };
+    // The stock Flatpak policy: nothing for MPRIS, so the feature is off.
+    QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("none",
+        "[Application]\nname=org.lightning_matrix.Lightning\n\n"
+        "[Session Bus Policy]\norg.freedesktop.secrets=talk\n")));
+    // A user override, or the old manifest, grants the one name.
+    QVERIFY(musicdetect::flatpakGrantsSpotifyMpris(write("talk",
+        "[Session Bus Policy]\norg.freedesktop.secrets=talk\n"
+        "org.mpris.MediaPlayer2.spotify=talk\n")));
+    // The same text in another group, or at a lower level, does not count.
+    QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("other",
+        "[Context]\norg.mpris.MediaPlayer2.spotify=talk\n")));
+    QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("see",
+        "[Session Bus Policy]\norg.mpris.MediaPlayer2.spotify=see\n")));
+    QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(
+        dir.filePath(QStringLiteral("missing"))));
+}
 
 void MusicActivityTest::theLineIsInTheSendersLanguage()
 {

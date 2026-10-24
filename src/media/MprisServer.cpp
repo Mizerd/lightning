@@ -24,6 +24,12 @@ Q_LOGGING_CATEGORY(lcMpris, "matrix.media.mpris")
 
 QString MprisServer::baseServiceName()
 {
+    // A Flatpak may own exactly org.mpris.MediaPlayer2.<app id> (and that name
+    // plus a suffix) without any finish-arg, and the sandbox sets FLATPAK_ID.
+    // Outside it the plain name is kept, so existing setups do not move.
+    const QString flatpakId = qEnvironmentVariable("FLATPAK_ID").trimmed();
+    if (!flatpakId.isEmpty())
+        return QStringLiteral("org.mpris.MediaPlayer2.") + flatpakId;
     return QStringLiteral("org.mpris.MediaPlayer2.lightning");
 }
 

@@ -47,7 +47,9 @@ public:
                          QObject *parent = nullptr);
     ~MprisServer() override;
 
-    // "org.mpris.MediaPlayer2.lightning".
+    // "org.mpris.MediaPlayer2.lightning", or under Flatpak (FLATPAK_ID set)
+    // "org.mpris.MediaPlayer2.<FLATPAK_ID>", the one name the sandbox grants.
+    // The per-instance fallback keeps whichever prefix this returns.
     static QString baseServiceName();
     // The object path every MPRIS player is reached at.
     static QString objectPath();

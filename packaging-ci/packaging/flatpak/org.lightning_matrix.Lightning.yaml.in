@@ -20,14 +20,11 @@ finish-args:
   # libsecret token storage (Secret Service) and desktop notifications.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
-  # Labs "Listening to": read what the Spotify desktop app plays, over its
-  # MPRIS interface. Exactly that one name; no other player is visible.
-  - --talk-name=org.mpris.MediaPlayer2.spotify
-  # MPRIS for the voice/audio player (media keys, desktop "now playing"),
-  # only while a clip is loaded; a second profile takes the spec's
-  # per-instance name (src/media/MprisServer).
-  - --own-name=org.mpris.MediaPlayer2.lightning
-  - --own-name=org.mpris.MediaPlayer2.lightning.*
+  # MPRIS needs no finish-arg: Flatpak lets the app own
+  # org.mpris.MediaPlayer2.$FLATPAK_ID (and that name plus a suffix) on its
+  # own, which is what src/media/MprisServer registers here. Labs "Listening
+  # to" is unavailable unless the user grants Spotify's name themselves
+  # (flatpak override --talk-name=org.mpris.MediaPlayer2.spotify).
   # Portal-negotiated screen-share streams are read over the PipeWire socket.
   # Only this narrow path, never --filesystem=host: the portal decides what
   # may be captured.

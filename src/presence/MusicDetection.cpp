@@ -1,6 +1,7 @@
 #include "presence/MusicDetection.h"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QSet>
 #include <QtGlobal>
 
@@ -165,6 +166,32 @@ QString statusTextFor(const NowPlaying &np)
     return cleanField(line, kLineMax);
 }
 
+bool flatpakGrantsSpotifyMpris(const QString &infoPath)
+{
+    QFile file(infoPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    bool inPolicy = false;
+    while (!file.atEnd()) {
+        const QString line = QString::fromUtf8(file.readLine()).trimmed();
+        if (line.startsWith(QLatin1Char('['))) {
+            inPolicy = line == QLatin1String("[Session Bus Policy]");
+            continue;
+        }
+        if (!inPolicy)
+            continue;
+        const qsizetype eq = line.indexOf(QLatin1Char('='));
+        if (eq < 0)
+            continue;
+        const QString name = line.left(eq).trimmed();
+        const QString level = line.mid(eq + 1).trimmed();
+        if (name == QLatin1String("org.mpris.MediaPlayer2.spotify")
+            && (level == QLatin1String("talk") || level == QLatin1String("own")))
+            return true;
+    }
+    return false;
+}
+
 bool detectionSupported()
 {
 #if defined(Q_OS_WIN)
@@ -174,6 +201,8 @@ bool detectionSupported()
 #elif defined(HAVE_QT_DBUS)
     // Strict confinement mediates the session bus and no plug grants talking
     // to an unconfined MPRIS player.
+    if (!qEnvironmentVariableIsEmpty("FLATPAK_ID"))
+        return flatpakGrantsSpotifyMpris(QStringLiteral("/.flatpak-info"));
     return qEnvironmentVariableIsEmpty("SNAP");
 #else
     return false;

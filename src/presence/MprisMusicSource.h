@@ -22,7 +22,8 @@ class QDBusServiceWatcher;
 // (PropertiesChanged, owner changes), with a slow safety poll because players
 // do not all emit reliably; the poll is skipped while the name has no owner.
 //
-// In the Flatpak this needs `--talk-name=org.mpris.MediaPlayer2.spotify`;
+// In the Flatpak this needs `--talk-name=org.mpris.MediaPlayer2.spotify`, which
+// the manifest does NOT carry (Flathub review): a user may grant it themselves;
 // without it the proxy hides the name and the source simply sees nothing.
 class MprisMusicSource : public MusicSource
 {

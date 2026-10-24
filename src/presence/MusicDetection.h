@@ -67,7 +67,15 @@ QString statusTextFor(const NowPlaying &np);
 QString artistLine(const NowPlaying &np);
 
 // False where this build has no way to see the player: macOS, a Linux build
-// without QtDBus, and the Snap (strict confinement grants no MPRIS access).
+// without QtDBus, the Snap (strict confinement grants no MPRIS access) and a
+// Flatpak that was not given the Spotify talk permission.
 bool detectionSupported();
+
+// True when the Flatpak instance info at `infoPath` (normally /.flatpak-info)
+// lists a Session Bus Policy of talk or own for Spotify's MPRIS name, the one
+// permission "Listening to" needs. The default Flatpak grants none, so the
+// feature is simply unavailable there until the user allows it
+// (flatpak override --talk-name=org.mpris.MediaPlayer2.spotify).
+bool flatpakGrantsSpotifyMpris(const QString &infoPath);
 
 }   // namespace musicdetect

@@ -802,27 +802,21 @@ check(not any(arg.startswith("--filesystem=host") for arg in _flatpak_args),
       "the Flatpak does not fall back to --filesystem=host")
 check("--filesystem=xdg-run/pipewire-0" in _flatpak_args,
       "the PipeWire socket is an actual finish-arg, not just a comment")
-# Labs "Listening to" reads Spotify's MPRIS name and nothing broader: a
-# wildcard would expose every player's metadata to the sandbox.
-check("--talk-name=org.mpris.MediaPlayer2.spotify" in _flatpak_args,
-      "the Flatpak can talk to Spotify's MPRIS name")
-check(not any(arg.startswith("--talk-name=org.mpris.MediaPlayer2.")
-              and arg != "--talk-name=org.mpris.MediaPlayer2.spotify"
-              for arg in _flatpak_args),
-      "the Flatpak talks to no MPRIS player but Spotify")
-# MPRIS (src/media/MprisServer): the sandbox must let the app OWN its player
-# name, and the per-instance form a second profile takes, or the media keys
-# silently do nothing in the Flatpak.
-check("--own-name=org.mpris.MediaPlayer2.lightning" in _flatpak_args
-      and "--own-name=org.mpris.MediaPlayer2.lightning.*" in _flatpak_args,
-      "the Flatpak may own the MPRIS player names")
+# MPRIS needs NO bus finish-arg in the Flatpak (Flathub review of 0.10.2): the
+# sandbox grants org.mpris.MediaPlayer2.$FLATPAK_ID by itself, which is the
+# name src/media/MprisServer registers under FLATPAK_ID. Neither manifest may
+# carry an MPRIS talk/own line, or flathub-update-pr re-adds what review
+# removed. Labs "Listening to" stays unavailable unless the user overrides.
 with open(os.path.join(HERE, "..", "..", "org.lightning_matrix.Lightning.yaml"),
           encoding="utf-8") as handle:
     _root_flatpak_args = [line.strip()[2:].strip() for line in handle
                           if line.strip().startswith("- --")]
-check("--own-name=org.mpris.MediaPlayer2.lightning" in _root_flatpak_args
-      and "--own-name=org.mpris.MediaPlayer2.lightning.*" in _root_flatpak_args,
-      "the root (Flathub) manifest may own the MPRIS player names too")
+check(not any("org.mpris.MediaPlayer2" in arg for arg in _flatpak_args),
+      "the packaging Flatpak manifest has no MPRIS bus finish-arg")
+check(not any("org.mpris.MediaPlayer2" in arg for arg in _root_flatpak_args),
+      "the root (Flathub) manifest has no MPRIS bus finish-arg")
+check(len(_flatpak_args) >= 5 and len(_root_flatpak_args) >= 5,
+      "both Flatpak manifests still list their other finish-args")
 
 # Windows bundles like the AppImage, and the builder image must also carry
 # GStreamer, or CMake silently configures the engine out.
