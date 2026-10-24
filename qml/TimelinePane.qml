@@ -2841,8 +2841,29 @@ Rectangle {
                 // Whether the view held rows when the last reset was announced
                 // (see onModelAboutToBeReset).
                 property bool presentationResetHadRows: false
+                // True from a reset whose saved viewport is historical until
+                // that restore has landed (or failed, or the reader took
+                // over). The model reset pins to the newest row, so opening
+                // the gate before this clears would present the latest
+                // messages for a frame or more before the saved spot.
+                property bool restoreHoldsGate: false
+                function releaseRestoreHold() {
+                    if (!restoreHoldsGate)
+                        return
+                    restoreHoldsGate = false
+                    restoreHoldGuard.stop()
+                    if (!presentationReady)
+                        presentationGuard.restart()
+                    recomputePresentationReady()
+                }
+                Timer {
+                    id: restoreHoldGuard
+                    interval: 8000
+                    onTriggered: timeline.releaseRestoreHold()
+                }
                 function recomputePresentationReady() {
-                    if (presentationReady || presentationResetPending)
+                    if (presentationReady || presentationResetPending
+                            || restoreHoldsGate)
                         return
                     if (app.currentRoomId === "") {
                         presentationReady = true
@@ -2869,6 +2890,8 @@ Rectangle {
                     id: presentationGuard
                     interval: 2500
                     onTriggered: {
+                        if (timeline.restoreHoldsGate)
+                            return
                         if (!timeline.presentationReady) {
                             timeline.presentationReady = true
                             if (timeline.stickToBottom)
@@ -3745,6 +3768,7 @@ Rectangle {
                 // teleport the reader back to where the room opened.
                 function noteReaderTookControl() {
                     readerControlledSinceReset = true
+                    releaseRestoreHold()
                     if (app.pagination)
                         app.pagination.cancelNavigation()
                     abandonNavigationLanding()
@@ -3830,6 +3854,7 @@ Rectangle {
                         }
                         navigationPendingRow = -1
                         navigationPendingId = ""
+                        releaseRestoreHold()
                         ++diagNavigationUnresolved
                         // Report instead of returning silently. Counts and view
                         // shape only, never an event id; the geometry fields
@@ -3873,6 +3898,7 @@ Rectangle {
                     // divider push that message under the bottom edge.
                     stickToBottom = atBottomEdge()
                     ++diagNavigationLandings
+                    releaseRestoreHold()
                     saveRoomPosition()
                     // The landing placed the reader on current geometry; rows
                     // released for it are not a displacement to hold.
@@ -5590,6 +5616,7 @@ Rectangle {
                         // still land.
                         if (!highlight && timeline.readerControlledSinceReset) {
                             ++timeline.diagNavigationAbandoned
+                            timeline.releaseRestoreHold()
                             return
                         }
                         // Reply navigation takes control immediately.
@@ -5611,6 +5638,7 @@ Rectangle {
                         })
                     }
                     function onRestoreLatestRequested() {
+                        timeline.releaseRestoreHold()
                         timeline.cancelWheelMotion()
                         root.stopAutoscroll()
                         timeline.stickToBottom = true
@@ -5749,6 +5777,13 @@ Rectangle {
                         timeline.presentationGeometryStale =
                                 timeline.presentationResetHadRows
                         presentationGuard.restart()
+                        timeline.restoreHoldsGate =
+                                app.pagination.hasHistoricalScrollAnchor(
+                                    app.currentRoomId)
+                        if (timeline.restoreHoldsGate)
+                            restoreHoldGuard.restart()
+                        else
+                            restoreHoldGuard.stop()
                         Qt.callLater(function() {
                             app.pagination.restoreScrollAnchor(app.currentRoomId)
                         })

@@ -380,6 +380,13 @@ void PaginationController::cancelNavigation()
     clearNavigation(/*clearMessage=*/false);
 }
 
+bool PaginationController::hasHistoricalScrollAnchor(const QString &roomId) const
+{
+    const auto it = m_scrollAnchors.constFind(roomId);
+    return it != m_scrollAnchors.cend() && !it->followingLatest
+        && !it->eventId.isEmpty();
+}
+
 void PaginationController::restoreScrollAnchor(const QString &roomId)
 {
     if (roomId.isEmpty() || roomId != m_roomId)

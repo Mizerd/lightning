@@ -974,6 +974,105 @@ ApplicationWindow {
         }
     }
 
+    // GitHub #51: a manual return to a room saved mid-history must not show
+    // the newest rows before the saved spot. The model reset pins to the
+    // newest row, so the gate must stay closed until the restore has landed.
+    void historicalReturnNeverPresentsTheLatestRows()
+    {
+        openJoinedRoom();
+        const QString roomA = m_controller->currentRoomId();
+        auto *view = item("timelineListView");
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(view);
+        QVERIFY(mock);
+        const QString target = QStringLiteral("$older-target");
+        openSwitcher();
+        int otherRow = -1;
+        for (int row = 0; row < m_controller->quickSwitcher()->rowCount(); ++row) {
+            const auto result = m_controller->quickSwitcher()->resultAt(row);
+            if (result.value(QStringLiteral("roomId")).toString() != roomA
+                    && !result.value(QStringLiteral("isSpace")).toBool()
+                    && !result.value(QStringLiteral("isInvite")).toBool()) {
+                otherRow = row;
+                break;
+            }
+        }
+        QVERIFY(otherRow >= 0);
+        const QString roomB = m_controller->quickSwitcher()->resultAt(otherRow)
+                                  .value(QStringLiteral("roomId")).toString();
+        QVERIFY(item("quickSwitcherList")->setProperty("currentIndex", otherRow));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(m_controller->currentRoomId(), roomB);
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        QTest::qWait(350);
+        // While away, make room A tall (the gate's "fills the viewport" test
+        // then passes at once) and leave the saved target a page of history
+        // away, behind a slow pagination, so only the restore can keep the
+        // latest rows from being presented.
+        QList<TimelineEvent> tall;
+        for (int i = 0; i < 80; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$tall-%1").arg(i);
+            e.sender = QStringLiteral("@peer:example.org");
+            e.body = QStringLiteral("Filler message number %1").arg(i);
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(i);
+            tall.append(e);
+        }
+        mock->resetTimelineForTest(roomA, tall, 3);
+        TimelineEvent older;
+        older.eventId = target;
+        older.sender = QStringLiteral("@peer:example.org");
+        older.body = QStringLiteral("The message the reader was looking at");
+        older.timestamp = QDateTime::currentDateTimeUtc().addSecs(-7200);
+        mock->setPaginationChunkForTest({older});
+        mock->setPaginationDelayForTest(400);
+        // Leaving saved the live-edge position; save a historical one.
+        m_controller->pagination()->saveScrollAnchor(roomA, target, 0, false);
+        QVERIFY(m_controller->pagination()->hasHistoricalScrollAnchor(roomA));
+
+        // Record the viewport at every instant the gate presents rows.
+        int presentations = 0;
+        int presentedAtLatest = 0;
+        int presentedFollowing = 0;
+        QTimer probe;
+        probe.setInterval(0);
+        QObject::connect(&probe, &QTimer::timeout, view, [&]() {
+            if (m_controller->currentRoomId() != roomA
+                    || !view->property("presentationReady").toBool())
+                return;
+            ++presentations;
+            bool atLatest = false;
+            QMetaObject::invokeMethod(view, "atBottomEdge",
+                                      Q_RETURN_ARG(bool, atLatest));
+            if (atLatest)
+                ++presentedAtLatest;
+            if (view->property("stickToBottom").toBool())
+                ++presentedFollowing;
+            probe.stop();
+        });
+        // The gate is open while room B is shown; start probing at the switch.
+        openSwitcher();
+        int returnRow = -1;
+        for (int row = 0; row < m_controller->quickSwitcher()->rowCount(); ++row) {
+            if (m_controller->quickSwitcher()->resultAt(row)
+                    .value(QStringLiteral("roomId")).toString() == roomA) {
+                returnRow = row;
+                break;
+            }
+        }
+        QVERIFY(returnRow >= 0);
+        QVERIFY(item("quickSwitcherList")->setProperty("currentIndex", returnRow));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        probe.start();
+        QTRY_COMPARE(m_controller->currentRoomId(), roomA);
+        QTRY_VERIFY_WITH_TIMEOUT(presentations >= 1, 10000);
+        QTRY_VERIFY(!view->property("stickToBottom").toBool());
+        QVERIFY(m_controller->timeline()->rowForStableId(target) >= 0);
+        QCOMPARE(presentedAtLatest, 0);
+        QCOMPARE(presentedFollowing, 0);
+        QVERIFY(!view->property("restoreHoldsGate").toBool());
+    }
+
     void roomChangesClearRememberedSelection()
     {
         openJoinedRoom();

@@ -209,6 +209,10 @@ public:
                                       qreal pixelOffset,
                                       bool followingLatest);
     Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
+    // True when restoreScrollAnchor() will put the reader in history rather
+    // than at the live edge, so the pane can keep its presentation gate
+    // closed until that restore has landed.
+    Q_INVOKABLE bool hasHistoricalScrollAnchor(const QString &roomId) const;
     Q_INVOKABLE void saveFollowingLatest(const QString &roomId);
     // Retire an in-flight navigation because the reader took over the view. A
     // restore from restoreScrollAnchor() can spend up to kMaxNavigationBatches
