@@ -10,12 +10,17 @@
 
   perSystem =
     { pkgs, ... }:
+    let
+      lightningPkgs = pkgs.extend (import ./overlay.nix);
+    in
     {
       packages = rec {
-        lightning-matrix-client = pkgs.qt6.callPackage ./package.nix { };
+        inherit (lightningPkgs) lightning-matrix-client lightning-matrix-client-debug;
         default = lightning-matrix-client;
       };
     };
+
+  flake.overlays.default = import ./overlay.nix;
 
   flake.homeManagerModules = rec {
     lightning-matrix-client = import ./hm-module.nix inputs;
