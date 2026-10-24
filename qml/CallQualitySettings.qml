@@ -147,7 +147,7 @@ ColumnLayout {
         font.pixelSize: AppTheme.textBody
         font.weight: AppTheme.weightStrong
     }
-    CheckBox {
+    SettingsCheckBox {
         objectName: "autoGainControlCheck"
         palette.windowText: AppTheme.stormText
         text: qsTr("Automatic gain control")
@@ -158,7 +158,7 @@ ColumnLayout {
         text: qsTr("Lifts a quiet microphone and evens out loud and soft "
                    + "speech. Turn it off if you set your level by hand.")
     }
-    CheckBox {
+    SettingsCheckBox {
         objectName: "echoCancellationCheck"
         palette.windowText: AppTheme.stormText
         text: qsTr("Echo cancellation")

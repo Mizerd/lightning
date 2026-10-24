@@ -1093,6 +1093,7 @@ set(APP_QML_FILES
     qml/SettingsPercentBox.qml
     qml/SettingsNeedsBadge.qml
     qml/SettingsHint.qml
+    qml/SettingsCheckBox.qml
     qml/SettingsNavGroupLabel.qml
     qml/SettingsNavOutline.qml
     qml/LogExportCard.qml

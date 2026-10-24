@@ -402,7 +402,7 @@ ColumnLayout {
                         app.audioTester.startMicrophoneTest(micTest.playBack);
                 }
             }
-            CheckBox {
+            SettingsCheckBox {
                 objectName: "microphoneTestPlayBack"
                 palette.windowText: AppTheme.stormText
                 text: qsTr("Hear yourself")
@@ -508,7 +508,7 @@ ColumnLayout {
     }
 
     // The floating call window.
-    CheckBox {
+    SettingsCheckBox {
         objectName: "callPictureInPictureCheck"
         palette.windowText: AppTheme.stormText
         text: qsTr("Float the call when Lightning is minimised")

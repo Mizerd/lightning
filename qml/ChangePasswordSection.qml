@@ -209,7 +209,7 @@ ColumnLayout {
             text: qsTr("Passwords don't match")
             Accessible.name: text
         }
-        CheckBox {
+        SettingsCheckBox {
             id: signOutOthers
             objectName: "signOutOtherDevicesCheck"
             palette.windowText: AppTheme.stormText

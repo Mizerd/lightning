@@ -53,7 +53,7 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textBody
                 font.weight: AppTheme.weightStrong
             }
-            CheckBox {
+            SettingsCheckBox {
                 objectName: "developerToolsSwitch"
                 palette.windowText: AppTheme.stormText
                 text: qsTr("Developer tools")

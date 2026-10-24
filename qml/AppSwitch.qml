@@ -1,7 +1,7 @@
 import QtQuick
 import MatrixClient
 
-// Lightning switch: a 36×20 pill track and a 16px white thumb with 150ms
+// Lightning switch: a 40×24 pill track (scaled) and a white thumb 4px smaller than it with 150ms
 // travel (respecting reducedMotion). A bare control that never mutates its
 // own state: the owner binds `checked` and flips it from toggled(), so
 // declarative bindings are never broken by an internal write. Whole-row
@@ -18,8 +18,13 @@ Item {
     readonly property bool _hot: root.enabled
                                  && (hoverHandler.hovered || tapHandler.pressed)
 
-    implicitWidth: 36
-    implicitHeight: 20
+    implicitWidth: AppTheme.scaled(40)
+    implicitHeight: AppTheme.scaled(24)
+    // The pointer target is never shorter than a Settings control row: the
+    // taps and the hover cursor reach this far above and below the pill.
+    readonly property real hitHeight: Math.max(height,
+                                               AppTheme.settingsControlMinHeight)
+    readonly property real _thumb: height - 4
     activeFocusOnTab: true
     // Focus came from a click and no key has been pressed since.
     property bool _mouseFocus: false
@@ -61,6 +66,7 @@ Item {
     TapHandler {
         id: tapHandler
         enabled: root.enabled
+        margin: (root.hitHeight - root.height) / 2
         onTapped: {
             // A click gives the switch keyboard focus, like a native checkbox,
             // so Space right afterwards toggles it. The ring stays a keyboard
@@ -73,6 +79,7 @@ Item {
     HoverHandler {
         id: hoverHandler
         enabled: root.enabled
+        margin: (root.hitHeight - root.height) / 2
         cursorShape: Qt.PointingHandCursor
     }
 
@@ -100,10 +107,10 @@ Item {
         // Thumb: the sanctioned white 16px circle; boltInk on the bolt fill so
         // the checked knob stays readable on every theme's accent.
         Rectangle {
-            width: 16; height: 16; radius: 8
+            width: root._thumb; height: root._thumb; radius: root._thumb / 2
             color: root.checked ? AppTheme.boltInk : "#FFFFFF"
             y: 2
-            x: root.checked ? 18 : 2
+            x: root.checked ? root.width - root._thumb - 2 : 2
             // A slight grow on press, the only "give" a 20px control has room
             // for.
             scale: tapHandler.pressed && root.enabled ? 1.12 : 1.0

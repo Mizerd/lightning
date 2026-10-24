@@ -2544,6 +2544,89 @@ private slots:
     // The rail-depth segmented control's ink lines up with its label's ink
     // (a segment's first glyph is inset by its padding), compared on live
     // delegates so padding changes do not matter.
+    // Settings option controls are sized for reading and for the pointer:
+    // option text at the body size, every checkbox, switch and combo at least
+    // AppTheme.settingsControlMinHeight tall. Walks the live items of each
+    // section; counts what it measured so an empty walk cannot pass.
+    static void collectControls(QQuickItem *parent, QList<QQuickItem *> &out)
+    {
+        if (!parent || !parent->isVisible())
+            return;
+        const QByteArray cls = parent->metaObject()->className();
+        const auto *mo = parent->metaObject();
+        if (mo->inherits(&QQuickItem::staticMetaObject)
+            && (cls.startsWith("AppSwitch")
+                || cls.startsWith("QQuickCheckBox")
+                || cls.startsWith("QQuickComboBox")
+                || cls.startsWith("AppComboBox")))
+            out.append(parent);
+        const auto children = parent->childItems();
+        for (QQuickItem *child : children)
+            collectControls(child, out);
+    }
+
+    static qreal fontPx(const QFont &f)
+    {
+        return f.pixelSize() > 0 ? f.pixelSize() : f.pointSizeF() * 96.0 / 72.0;
+    }
+
+    void settingsOptionControlsMeetBodySizeAndHitSize()
+    {
+        const qreal body = QQmlExpression(
+            qmlContext(m_window), m_window,
+            QStringLiteral("AppTheme.settingsOptionSize")).evaluate().toReal();
+        const qreal minHit = QQmlExpression(
+            qmlContext(m_window), m_window,
+            QStringLiteral("AppTheme.settingsControlMinHeight")).evaluate().toReal();
+        const qreal bodyRef = QQmlExpression(
+            qmlContext(m_window), m_window,
+            QStringLiteral("AppTheme.scaled(AppTheme.textBody)")).evaluate().toReal();
+        QVERIFY2(body >= bodyRef && minHit >= 28,
+                 "the settings tokens are missing or below the reading size");
+        int measured = 0;
+        QStringList bad;
+        const QStringList sections = {QStringLiteral("account"),
+            QStringLiteral("appearance"), QStringLiteral("notifications"),
+            QStringLiteral("privacy"), QStringLiteral("sound"),
+            QStringLiteral("shortcuts")};
+        for (const QString &section : sections) {
+            m_controller->showSettingsSection(section);
+            QCoreApplication::processEvents();
+            QCoreApplication::processEvents();
+            auto *root = item("settingsScreenRoot");
+            QVERIFY(root);
+            QList<QQuickItem *> controls;
+            collectControls(root, controls);
+            for (QQuickItem *c : std::as_const(controls)) {
+                if (c->width() <= 0 || c->height() <= 0)
+                    continue;
+                ++measured;
+                const QByteArray cls = c->metaObject()->className();
+                const QString id = QStringLiteral("%1/%2 %3")
+                    .arg(section, QString::fromLatin1(cls), c->objectName());
+                const bool isSwitch = cls.startsWith("AppSwitch");
+                qreal hit = c->height();
+                if (isSwitch) {
+                    const auto hp = c->property("hitHeight");
+                    if (hp.isValid())
+                        hit = hp.toReal();
+                } else {
+                    // The label and the indicator share the row.
+                    const QFont f = c->property("font").value<QFont>();
+                    if (fontPx(f) + 0.5 < body)
+                        bad << QStringLiteral("%1 font %2px < %3px")
+                                   .arg(id).arg(fontPx(f)).arg(body);
+                }
+                if (hit + 0.5 < minHit)
+                    bad << QStringLiteral("%1 hit height %2 < %3")
+                               .arg(id).arg(hit).arg(minHit);
+            }
+        }
+        qWarning().noquote() << "measured" << measured << bad.size();
+        QVERIFY2(measured >= 20, qPrintable(QStringLiteral("only %1 controls measured").arg(measured)));
+        QVERIFY2(bad.isEmpty(), qPrintable(bad.join(QLatin1Char('\n'))));
+    }
+
     void theRailDepthControlLinesUpWithItsOwnLabel()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));

@@ -170,8 +170,9 @@ ComboBox {
         event.accepted = true
     }
 
-    implicitHeight: AppTheme.buttonHeight
-    font.pixelSize: AppTheme.textBody
+    implicitHeight: Math.max(AppTheme.buttonHeight,
+                             AppTheme.settingsControlMinHeight)
+    font.pixelSize: AppTheme.settingsOptionSize
     hoverEnabled: true
 
     contentItem: Label {

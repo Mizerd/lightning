@@ -81,7 +81,7 @@ ColumnLayout {
                            + "is saved in your account, so other apps that "
                            + "support it follow it.")
             }
-            CheckBox {
+            SettingsCheckBox {
                 id: inviteCheck
                 objectName: "inviteAvatarsCheck"
                 palette.windowText: AppTheme.stormText

@@ -2138,7 +2138,13 @@ QtObject {
     readonly property int textMicro:     10
     // Settings option descriptions and hints: one step above textMeta, which
     // read too small beside the 14px option labels (GitHub chat, 2026-10-22).
-    readonly property int settingsHintSize: 13
+    readonly property int settingsHintSize: scaled(13)
+    // Settings option labels, checkboxes and combo text: the same reading size
+    // as the rest of the app (scaled textBody), not the unscaled base.
+    readonly property int settingsOptionSize: scaled(textBody)
+    // A Settings control's row is never shorter than this, so a checkbox,
+    // switch or combo is a comfortable pointer target at every text scale.
+    readonly property int settingsControlMinHeight: scaled(buttonHeight)
 
     // Weights. font.weight takes an int in Qt 6.
     readonly property int weightBody:    400

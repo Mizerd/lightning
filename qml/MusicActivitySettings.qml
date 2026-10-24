@@ -23,7 +23,7 @@ ColumnLayout {
     // The server answers presence at all (supported, not refused).
     readonly property bool presenceWorks: !!app.presence && app.presence.active
 
-    CheckBox {
+    SettingsCheckBox {
         objectName: "musicActivityCheck"
         palette.windowText: AppTheme.stormText
         text: qsTr("Show what I'm listening to on Spotify")

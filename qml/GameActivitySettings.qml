@@ -130,7 +130,7 @@ ColumnLayout {
         }
     }
 
-    CheckBox {
+    SettingsCheckBox {
         objectName: "gameActivityCheck"
         palette.windowText: AppTheme.stormText
         text: qsTr("Show the game I'm playing")

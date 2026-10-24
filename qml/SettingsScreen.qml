@@ -1383,7 +1383,7 @@ Item {
                 color: navRow.highlighted ? AppTheme.stormText
                                           : AppTheme.settingsNavText
                 font.family: AppTheme.menuFont
-                font.pixelSize: AppTheme.textBody
+                font.pixelSize: AppTheme.settingsOptionSize
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
                 elide: Label.ElideRight
             }
@@ -1791,7 +1791,7 @@ Item {
             width: 280
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextSecondary
-            font.pixelSize: AppTheme.textBody
+            font.pixelSize: AppTheme.settingsOptionSize
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             // Says what is and is not lost: the index is a derived copy.
@@ -1813,7 +1813,7 @@ Item {
             width: 280
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextSecondary
-            font.pixelSize: AppTheme.textBody
+            font.pixelSize: AppTheme.settingsOptionSize
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             text: gifClearConfirm.kind === "favorites"
@@ -1840,7 +1840,7 @@ Item {
             width: 280
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextSecondary
-            font.pixelSize: AppTheme.textBody
+            font.pixelSize: AppTheme.settingsOptionSize
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             text: qsTr("Delete every image you saved out of a chat from this "
@@ -1862,7 +1862,7 @@ Item {
             width: 280
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextSecondary
-            font.pixelSize: AppTheme.textBody
+            font.pixelSize: AppTheme.settingsOptionSize
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             text: qsTr("People will see your Matrix ID instead. You can set a "
@@ -2103,7 +2103,7 @@ Item {
                                                 resultRow.modelData.title,
                                                 root.settingsSearchQuery)
                                             color: AppTheme.stormText
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             font.weight: AppTheme.weightStrong
                                             elide: Label.ElideRight
                                         }
@@ -2643,7 +2643,7 @@ Item {
                             text: qsTr("Theme, colours and gradients, chat background, "
                                        + "layout, text and fonts — per account.")
                             color: AppTheme.settingsText
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
@@ -2866,7 +2866,7 @@ Item {
                                                 text: themeCard.modelData.name
                                                 textFormat: Text.PlainText
                                                 color: AppTheme.stormText
-                                                font.pixelSize: AppTheme.textBody
+                                                font.pixelSize: AppTheme.settingsOptionSize
                                                 font.weight: AppTheme.weightStrong
                                                 elide: Label.ElideRight
                                                 Layout.fillWidth: true
@@ -3071,7 +3071,7 @@ Item {
                                                 : qsTr("Your theme")
                                         textFormat: Text.PlainText
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Label {
@@ -3273,7 +3273,7 @@ Item {
                                 Label {
                                     text: qsTr("Match system light/dark")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                             }
                             background: Item {}
@@ -3716,7 +3716,7 @@ Item {
                                             Label {
                                                 text: fontRow.modelData
                                                 font.family: fontRow.modelData
-                                                font.pixelSize: AppTheme.textBody
+                                                font.pixelSize: AppTheme.settingsOptionSize
                                                 font.weight: AppTheme.weightStrong
                                                 color: AppTheme.stormText
                                             }
@@ -3724,7 +3724,7 @@ Item {
                                             Label {
                                                 text: qsTr("Messages, rooms and settings")
                                                 font.family: fontRow.modelData
-                                                font.pixelSize: AppTheme.textBody
+                                                font.pixelSize: AppTheme.settingsOptionSize
                                                 color: AppTheme.stormTextMuted
                                             }
                                         }
@@ -3765,7 +3765,7 @@ Item {
                                 Label {
                                     text: qsTr("Interface font")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -3821,7 +3821,7 @@ Item {
                                 Label {
                                     text: qsTr("Code font")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -3891,7 +3891,7 @@ Item {
                                 Label {
                                     text: qsTr("Your own fonts")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 Label {
@@ -3922,7 +3922,7 @@ Item {
                                             color: importedRow.modelData.available
                                                    ? AppTheme.stormText
                                                    : AppTheme.stormTextMuted
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             // Show family names; the stored file name
                                             // is a hash.
                                             text: importedRow.modelData.available
@@ -4017,7 +4017,7 @@ Item {
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showSpacesRailCheck"
                                     text: qsTr("Show the Spaces rail (Ctrl+Shift+B)")
@@ -4026,7 +4026,7 @@ Item {
                                     Accessible.description: qsTr(
                                         "Show the narrow strip of Spaces down the far edge")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showRoomListCheck"
                                     text: qsTr("Show the room list (Ctrl+B)")
@@ -4115,7 +4115,7 @@ Item {
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "closeToTrayCheck"
                                     text: Qt.platform.os === "osx" ? qsTr("Show Lightning in the menu bar")
@@ -4133,7 +4133,7 @@ Item {
                                         ? qsTr("Notifications need the menu bar icon")
                                         : ""
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "startInTrayCheck"
                                     text: Qt.platform.os === "osx" ? qsTr("Start hidden in the menu bar")
@@ -4174,10 +4174,10 @@ Item {
                                 Label {
                                     text: qsTr("Timeline")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showRoomActivityCheck"
                                     text: qsTr("Show room activity")
@@ -4200,7 +4200,7 @@ Item {
                                 }
                                 // The two halves of "room activity", indented
                                 // and disabled with the master.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showMembershipEventsCheck"
                                     Layout.leftMargin: AppTheme.spacing16
@@ -4212,7 +4212,7 @@ Item {
                                         "Show membership changes in timelines")
                                     SettingsNeedsBadge { needs: qsTr("Show room activity") }
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showProfileChangeEventsCheck"
                                     Layout.leftMargin: AppTheme.spacing16
@@ -4227,7 +4227,7 @@ Item {
                                 // In the Timeline card rather than Privacy: it
                                 // changes nothing fetched or sent, only
                                 // density.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "collapseEmbedsCheck"
                                     Layout.topMargin: AppTheme.spacing8
@@ -4263,7 +4263,7 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Mouse-wheel speed")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 AppComboBox {
                                     storm: true
@@ -4321,7 +4321,7 @@ Item {
                                 Label {
                                     text: qsTr("Application icon")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 RowLayout {
@@ -4414,7 +4414,7 @@ Item {
                                 Label {
                                     text: qsTr("Language")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 AppComboBox {
                                     id: languageCombo
@@ -4487,10 +4487,10 @@ Item {
                                     objectName: "accessibilityHeading"
                                     text: qsTr("Accessibility")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "highContrastCheck"
                                     text: qsTr("Increase contrast")
@@ -4503,7 +4503,7 @@ Item {
                                     text: qsTr("Pulls secondary text toward the main text "
                                                + "colour and strengthens borders, on any theme.")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "underlineLinksCheck"
                                     text: qsTr("Always underline links")
@@ -4521,7 +4521,7 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Name colour readability")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 SegmentedControl {
                                     storm: true
@@ -4554,10 +4554,10 @@ Item {
                                 Label {
                                     text: qsTr("Motion and time")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "reducedMotionCheck"
                                     text: qsTr("Reduce motion")
@@ -4566,7 +4566,7 @@ Item {
                                     Accessible.description: qsTr(
                                         "Shorten or remove interface animations")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "disableCursorBlinkCheck"
                                     text: qsTr("Disable cursor blinking")
@@ -4577,7 +4577,7 @@ Item {
                                 }
                                 // Separate from Reduce motion, which is an
                                 // accessibility setting over every animation.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "smoothScrollingCheck"
                                     text: qsTr("Smooth scrolling")
@@ -4612,7 +4612,7 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Animated images")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 AppComboBox {
                                     storm: true
@@ -4666,7 +4666,7 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Clock")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 AppComboBox {
                                     id: clockFormatCombo
@@ -4707,12 +4707,12 @@ Item {
                                 Label {
                                     text: qsTr("Banners and panel widths")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 // These settings could otherwise only be
                                 // changed from the banners themselves.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showBridgeBadgesCheck"
                                     text: qsTr("Show bridge badges in the room list")
@@ -4721,7 +4721,7 @@ Item {
                                     Accessible.description: qsTr(
                                         "Show the network name, such as WhatsApp, beside bridged rooms")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "compactRoomListCheck"
                                     text: qsTr("Compact room list (hide message previews)")
@@ -4730,14 +4730,14 @@ Item {
                                     Accessible.description: qsTr(
                                         "One line per room, without the last message")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spaceBannersVisibleCheck"
                                     text: qsTr("Show Space banners")
                                     checked: app.settings.spaceBannersVisible
                                     onToggled: app.settings.spaceBannersVisible = checked
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spaceBannerExpandedCheck"
                                     Layout.leftMargin: AppTheme.spacing16
@@ -4752,7 +4752,7 @@ Item {
                                     text: qsTr("Conversation list width: %1 px")
                                         .arg(app.settings.roomListWidth)
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 SettingsSlider {
                                     objectName: "roomListWidthSlider"
@@ -4768,7 +4768,7 @@ Item {
                                     onMoved: app.settings.roomListWidth = Math.round(value)
                                     Accessible.name: qsTr("Conversation list width")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "keepRoomListOrderStillCheck"
                                     Layout.topMargin: AppTheme.spacing8
@@ -4795,7 +4795,7 @@ Item {
                                     text: qsTr("Side panel width: %1 px")
                                         .arg(app.settings.sidePanelWidth)
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 SettingsSlider {
                                     objectName: "sidePanelWidthSlider"
@@ -4817,10 +4817,10 @@ Item {
                                 Label {
                                     text: qsTr("Message box")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "enterInsertsNewlineCheck"
                                     text: qsTr("Enter starts a new line")
@@ -4843,7 +4843,7 @@ Item {
                                 // Spell checking: an app preference independent
                                 // of the UI language. Uses the OS engine; says
                                 // so when it has no dictionary.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spellCheckEnabledCheck"
                                     Layout.topMargin: AppTheme.spacing8
@@ -4863,7 +4863,7 @@ Item {
                                     Label {
                                         text: qsTr("Spelling language")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                     }
                                     AppComboBox {
                                         id: spellLanguageCombo
@@ -4955,7 +4955,7 @@ Item {
                                     Label {
                                         text: qsTr("Also check")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                     }
                                     AppComboBox {
                                         id: spellExtraCombo
@@ -5076,7 +5076,7 @@ Item {
                                 // except on macOS where the default follows
                                 // the system's "Correct spelling
                                 // automatically".
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "autocorrectCheck"
                                     Layout.topMargin: AppTheme.spacing4
@@ -5106,7 +5106,7 @@ Item {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Personal dictionary")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 Label {
                                     objectName: "personalDictionaryEmpty"
@@ -5152,7 +5152,7 @@ Item {
                                             textFormat: Text.PlainText
                                             text: wordRow.modelData
                                             color: AppTheme.stormText
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             elide: Label.ElideRight
                                         }
                                         IconButton {
@@ -5168,7 +5168,7 @@ Item {
                                         }
                                     }
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "sendTextAsCaptionCheck"
                                     Layout.topMargin: AppTheme.spacing8
@@ -5192,7 +5192,7 @@ Item {
                                                + "show the attachment without the "
                                                + "text.")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "emojiShortcodeAutoConvertCheck"
                                     Layout.topMargin: AppTheme.spacing8
@@ -5229,7 +5229,7 @@ Item {
                                     // Must not out-rank the card's "Message
                                     // box" heading.
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 Label {
@@ -5257,7 +5257,7 @@ Item {
                                         { key: "sendOptions",
                                           label: qsTr("Send options") },
                                     ]
-                                    CheckBox {
+                                    SettingsCheckBox {
                                         required property var modelData
                                         palette.windowText: AppTheme.stormText
                                         objectName: "composerButtonCheck_"
@@ -5333,7 +5333,7 @@ Item {
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "globalShortcutsCheck"
                                     text: qsTr("Use call keys from any window")
@@ -5422,7 +5422,7 @@ Item {
                                     Label {
                                         text: shortcutCategoryCard.modelData
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Repeater {
@@ -5514,7 +5514,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("Network privacy, encryption health, and recovery.")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
@@ -5534,7 +5534,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "strictDeviceTrustCheck"
                                     Layout.fillWidth: true
                                     palette.windowText: AppTheme.stormText
@@ -5619,7 +5619,7 @@ Item {
                                 Label {
                                     text: qsTr("Read receipts")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -5660,7 +5660,7 @@ Item {
                                                + "shown to you.")
                                 }
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "sendTypingCheck"
                                     palette.windowText: AppTheme.stormText
                                     Rectangle {
@@ -5714,7 +5714,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "sharePresenceCheck"
                                     Rectangle {
@@ -5888,7 +5888,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: qsTr("Nobody is ignored. Ignore a "
                                                + "person from their profile "
                                                + "to hide their messages "
@@ -5917,7 +5917,7 @@ Item {
                                                    ? AppTheme.stormTextMuted
                                                    : AppTheme.stormText
                                             font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             elide: Label.ElideRight
                                             // The full id for a long one on
                                             // hover; the button's accessible
@@ -6098,7 +6098,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     textFormat: Text.PlainText
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: {
                                         var s = app.messageSearch
                                         var st = s.indexAllState
@@ -6229,7 +6229,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     id: autoPreviewCheck
                                     objectName: "autoPreviewCheck"
@@ -6243,7 +6243,7 @@ Item {
                                                + "Lightning fetches the link itself and the "
                                                + "site sees your IP address.")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "encryptedPreviewCheck"
                                     text: qsTr("Load previews in encrypted rooms")
@@ -6258,7 +6258,7 @@ Item {
                                 // A link that is itself a picture or a video.
                                 // Only for previews the switches above allow;
                                 // a video downloads only when Play is pressed.
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "inlineLinkMediaCheck"
                                     text: qsTr("Show images and videos from links inline")
@@ -6333,12 +6333,12 @@ Item {
                                 Label {
                                     text: qsTr("Media")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing4
                                 }
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "videoPrefetchCheck"
                                     // The one switch over speculative
@@ -6372,7 +6372,7 @@ Item {
                                         objectName: "videoPrefetchLimitLabel"
                                         text: qsTr("Up to %1 MB").arg(app.settings.videoPrefetchMaxMb)
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                     }
                                     RowLayout {
                                         Layout.fillWidth: true
@@ -6422,7 +6422,7 @@ Item {
                                         Label {
                                             text: qsTr("MB")
                                             color: AppTheme.stormTextSecondary
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                         }
                                     }
                                 }
@@ -6503,7 +6503,7 @@ Item {
                                              ? qsTr("configured") : qsTr("no API key"))
                                 }
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Store recently used GIFs")
                                     checked: app.settings.storeRecentGifs
@@ -6557,7 +6557,7 @@ Item {
                                 Label {
                                     text: qsTr("Images saved from chats")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing4
                                 }
@@ -6592,7 +6592,7 @@ Item {
                                 Label {
                                     text: qsTr("Hidden images")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing4
                                 }
@@ -6629,11 +6629,11 @@ Item {
                                 Label {
                                     text: qsTr("Media kept on this device")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing4
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "keepMediaOnDeviceCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Keep downloaded media on this device")
@@ -6794,7 +6794,7 @@ Item {
                                 Label {
                                     text: qsTr("Downloads")
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                     Layout.topMargin: AppTheme.spacing8
                                 }
@@ -6833,7 +6833,7 @@ Item {
                                         onClicked: app.downloads.resetFolder()
                                     }
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "alwaysAskWhereToSaveCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Always ask where to save files")
@@ -6886,7 +6886,7 @@ Item {
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "notificationsEnabledCheck"
                                     text: qsTr("Desktop notifications")
@@ -6897,7 +6897,7 @@ Item {
                                 Label {
                                     text: qsTr("Notification preview")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -6945,7 +6945,7 @@ Item {
                                 Label {
                                     text: qsTr("In encrypted rooms")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -6970,7 +6970,7 @@ Item {
                                 Label {
                                     text: qsTr("Notification sound")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -7004,7 +7004,7 @@ Item {
                                 Label {
                                     text: qsTr("Notification sound style")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppComboBox {
@@ -7029,7 +7029,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("Notification volume")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightMedium
                                     }
                                     SettingsPercentBox {
@@ -7092,7 +7092,7 @@ Item {
                                 // Call devices live under "Sound & video"; the
                                 // ring toggle stays here, gated on desktop
                                 // notifications.
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "ringForCallsCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Ring for incoming voice calls")
@@ -7208,7 +7208,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("Microphone noise suppression")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                         elide: Text.ElideRight
                                     }
@@ -7240,7 +7240,7 @@ Item {
                         Label {
                             text: qsTr("Media playback")
                             color: AppTheme.stormText
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             font.weight: AppTheme.weightBold
                         }
                         SettingsCard {
@@ -7265,7 +7265,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("Media playback volume")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightMedium
                                     }
                                     SettingsPercentBox {
@@ -7305,7 +7305,7 @@ Item {
                                 // Docked strip or floating card for the voice
                                 // and audio player; the player's own pop-out
                                 // and dock buttons write the same setting.
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "voicePlayerDockedCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Show the audio player as a strip under the header")
@@ -7313,7 +7313,7 @@ Item {
                                     onToggled: app.settings.voicePlayerDocked = checked
                                     Accessible.description: qsTr("When off, the player for voice messages and audio files floats over the window, and you can move and resize it.")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "largeAlbumArtCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Large album art")
@@ -7329,7 +7329,7 @@ Item {
                         Label {
                             text: qsTr("Call sounds")
                             color: AppTheme.stormText
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             font.weight: AppTheme.weightBold
                         }
                         SettingsCard {
@@ -7337,7 +7337,7 @@ Item {
                                 width: parent.width
                                 spacing: 4
 
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "callSoundsEnabledCheck"
                                     palette.windowText: AppTheme.stormText
                                     text: qsTr("Play sounds during calls")
@@ -7350,7 +7350,7 @@ Item {
                                              + "do, and when you mute or "
                                              + "share your screen.")
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "callSoundsPresenceCheck"
                                     Layout.leftMargin: AppTheme.spacing24
                                     palette.windowText: AppTheme.stormText
@@ -7361,7 +7361,7 @@ Item {
                                         app.settings.callSoundsPresence = checked
                                     SettingsNeedsBadge { needs: qsTr("Play sounds during calls") }
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "callSoundsControlsCheck"
                                     Layout.leftMargin: AppTheme.spacing24
                                     palette.windowText: AppTheme.stormText
@@ -7372,7 +7372,7 @@ Item {
                                         app.settings.callSoundsControls = checked
                                     SettingsNeedsBadge { needs: qsTr("Play sounds during calls") }
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     objectName: "callSoundsShareAndHandCheck"
                                     Layout.leftMargin: AppTheme.spacing24
                                     palette.windowText: AppTheme.stormText
@@ -7392,7 +7392,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("Call sound volume")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightMedium
                                     }
                                     SettingsPercentBox {
@@ -7432,7 +7432,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("Ringer volume")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightMedium
                                     }
                                     SettingsPercentBox {
@@ -7674,7 +7674,7 @@ Item {
                                     Label {
                                         text: qsTr("Display name")
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     RowLayout {
@@ -7803,7 +7803,7 @@ Item {
                                     Label {
                                         text: qsTr("Name colour")
                                         color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Label {
@@ -8009,7 +8009,7 @@ Item {
                                     Label {
                                         text: qsTr("Profile picture")
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     RowLayout {
@@ -8109,7 +8109,7 @@ Item {
                                     Label {
                                         text: qsTr("About you")
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Label {
@@ -8265,7 +8265,7 @@ Item {
                                 Label {
                                     text: qsTr("Profile banner")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 Rectangle {
@@ -8451,7 +8451,7 @@ Item {
                                 Label {
                                     text: qsTr("Homeserver")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
                                 AppTextField {
@@ -8481,10 +8481,10 @@ Item {
                                 Label {
                                     text: qsTr("Startup")
                                     color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
                                 }
-                                CheckBox {
+                                SettingsCheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "startMinimizedCheck"
                                     text: qsTr("Start minimized")
@@ -8579,7 +8579,7 @@ Item {
                                     Label {
                                         text: qsTr("Security status")
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Item { Layout.fillWidth: true }
@@ -8587,7 +8587,7 @@ Item {
                                         objectName: "cryptoHealthRefresh"
                                         text: qsTr("Refresh")
                                         color: AppTheme.stormLink
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.underline: true
                                         MouseArea {
                                             anchors.fill: parent
@@ -8636,7 +8636,7 @@ Item {
                                                : app.cryptoBootstrap.needsRecoveryKey
                                                  ? AppTheme.bolt
                                                  : AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         text: app.cryptoBootstrap.statusMessage
                                         textFormat: Text.PlainText
                                         Accessible.role: Accessible.StaticText
@@ -8803,7 +8803,7 @@ Item {
                                                   ? qsTr("Hide recovery diagnostics")
                                                   : qsTr("Recovery diagnostics")
                                             color: AppTheme.stormLink
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                         }
                                         Icon {
                                             name: "expand_more"
@@ -8846,7 +8846,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         text: qsTr("Own identity: %1").arg(
                                             app.cryptoBootstrap.ownIdentity === "verified"
                                                 ? qsTr("verified")
@@ -8857,7 +8857,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         text: qsTr("Cross-signing private keys: %1").arg(
                                             app.cryptoBootstrap.crossSigningSecrets === "complete"
                                                 ? qsTr("present")
@@ -8868,7 +8868,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         text: {
                                             var s = app.cryptoBootstrap.requestState
                                             var label = s === "requested"
@@ -8893,7 +8893,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         visible: app.cryptoBootstrap.requestAttempts > 0
                                         text: qsTr("Verified sessions available: %1")
                                             .arg(app.cryptoBootstrap.eligibleDevices)
@@ -8901,7 +8901,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         text: qsTr("Backup key usable: %1").arg(
                                             app.cryptoHealth.keyBackupUsable
                                                 ? qsTr("yes") : qsTr("no"))
@@ -8909,7 +8909,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         color: AppTheme.stormTextMuted
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         visible: app.cryptoBootstrap.keysReceived > 0
                                         text: qsTr("Room keys imported: %1")
                                             .arg(app.cryptoBootstrap.keysReceived)
@@ -8944,7 +8944,7 @@ Item {
                             text: qsTr("This account's Matrix sessions and device "
                                        + "verification.")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
@@ -9030,7 +9030,7 @@ Item {
                                             text: modelData.label
                                             textFormat: Text.PlainText
                                             color: AppTheme.stormText
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                         }
                                         StatusChip {
                                             storm: true
@@ -9078,7 +9078,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: {
                                         var h = app.cryptoHealth
                                         if (h.keyBackupAvailable === CryptoHealthModel.Unknown)
@@ -9115,7 +9115,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: app.backup.error
                                 }
                                 // One-time recovery key display. Cleared on
@@ -9139,7 +9139,7 @@ Item {
                                             lineHeight: AppTheme.lineHeightBody
                                             lineHeightMode: Text.ProportionalHeight
                                             color: AppTheme.stormText
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             font.weight: AppTheme.weightStrong
                                             text: qsTr("Your new recovery key. Write it down now: Lightning does not keep it, and it will not be shown again once you leave this card.")
                                         }
@@ -9151,7 +9151,7 @@ Item {
                                             wrapMode: TextEdit.Wrap
                                             color: AppTheme.stormText
                                             font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             text: app.backup.recoveryKey
                                         }
                                         RowLayout {
@@ -9176,7 +9176,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: backupCard.pendingConfirm === "reset_key"
                                           ? qsTr("Resetting creates a NEW recovery key and the old one stops working — anything currently recoverable only with the old key is gone. Press again to confirm.")
                                           : backupCard.pendingConfirm === "disable_and_delete"
@@ -9515,7 +9515,7 @@ Item {
                                         text: app.sessionDevicesLoading
                                               ? qsTr("Loading…") : qsTr("Refresh")
                                         color: AppTheme.stormLink
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         font.underline: !app.sessionDevicesLoading
                                         MouseArea {
                                             anchors.fill: parent
@@ -9532,7 +9532,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: qsTr("The session list could not be loaded.")
                                 }
                                 Label {
@@ -9544,7 +9544,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: qsTr("Press Refresh to load this account's sessions.")
                                 }
                                 // Filter over the same snapshot, no refetch.
@@ -9572,7 +9572,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: app.sessionDeviceRenameError
                                 }
                                 Repeater {
@@ -9647,7 +9647,7 @@ Item {
                                                               : modelData.deviceId
                                                         textFormat: Text.PlainText
                                                         color: AppTheme.stormText
-                                                        font.pixelSize: AppTheme.textBody
+                                                        font.pixelSize: AppTheme.settingsOptionSize
                                                         font.weight: AppTheme.weightStrong
                                                         elide: Label.ElideRight
                                                         Layout.fillWidth: true
@@ -9788,7 +9788,7 @@ Item {
                                     color: sessionsListCard.actionNoticeError
                                            ? AppTheme.stormDanger
                                            : AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: sessionsListCard.actionNotice
                                     Accessible.name: text
                                 }
@@ -9811,7 +9811,7 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.textBody
+                                    font.pixelSize: AppTheme.settingsOptionSize
                                     text: qsTr("Signing out a session may require "
                                                + "your account password. "
                                                + "Verification below always "
@@ -10379,7 +10379,7 @@ Item {
                                         width: 380
                                         wrapMode: Text.WordWrap
                                         color: AppTheme.stormTextSecondary
-                                        font.pixelSize: AppTheme.textBody
+                                        font.pixelSize: AppTheme.settingsOptionSize
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
                                         text: qsTr(
@@ -10411,7 +10411,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("Experimental features, and diagnostics.")
                             color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textBody
+                            font.pixelSize: AppTheme.settingsOptionSize
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
@@ -10598,7 +10598,7 @@ Item {
                                         Label {
                                             text: qsTr("Lightning %1").arg(app.appVersion)
                                             color: AppTheme.stormText
-                                            font.pixelSize: AppTheme.textBody
+                                            font.pixelSize: AppTheme.settingsOptionSize
                                             font.weight: AppTheme.weightStrong
                                         }
                                         Label {
