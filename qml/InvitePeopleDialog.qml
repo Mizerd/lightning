@@ -73,7 +73,14 @@ Dialog {
 
     // True when the invitee is already joined/invited per the loaded member
     // snapshot (best-effort; the server decides).
+    // Only the roster of the room being invited TO counts. app.roomInfo
+    // follows the OPEN room, so inviting into a Space from the rail used to be
+    // checked against whatever room happened to be open: someone in that room
+    // was refused as "already a member" of the Space, and someone already in
+    // the Space was let through.
     function membershipOf(userId) {
+        if (!app.roomInfo || app.roomInfo.roomId !== root.roomId)
+            return ""
         var members = app.roomInfo.members
         for (var i = 0; i < members.length; ++i) {
             if (members[i].userId === userId)

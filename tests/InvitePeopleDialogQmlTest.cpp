@@ -12,12 +12,14 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
 #include "app/ConversationController.h"
 #include "auth/AuthManager.h"
+#include "matrix/MockMatrixClient.h"
 
 namespace {
 
@@ -187,6 +189,65 @@ private slots:
         QTRY_VERIFY(!item("inviteChip_1"));
         QCOMPARE(submit->property("text").toString(), QStringLiteral("Invite"));
 
+        QMetaObject::invokeMethod(m_dialog, "close");
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+    }
+
+    // The roster check must read the room being invited TO. Inviting into a
+    // Space from the rail while another room is open used to consult the open
+    // room's members, refusing its members as "already in" the Space.
+    void theAlreadyMemberCheckReadsTheRoomBeingInvitedTo()
+    {
+        // This scene contains only the dialog, so populate the roster that
+        // TimelinePane/RoomInfoPanel normally loads. The mock backend does
+        // not advertise room management or provide normalized memberships.
+        struct RosterClient : MockMatrixClient {
+            bool supportsRoomManagement() const override { return true; }
+            quint64 requestRoomMembers(const QString &) override { return 1; }
+        } roster;
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *info = m_controller->roomInfo();
+        auto *original = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(original);
+        const auto restore = qScopeGuard([&] {
+            info->setClient(original);
+            info->setRoomId(QString());
+        });
+        info->setClient(&roster);
+        info->setRoomId(QStringLiteral("!general:mock.local"));
+        Q_EMIT roster.roomMembersReceived(1, info->roomId(), QVariantMap{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("members"), QVariantList{QVariantMap{
+                {QStringLiteral("userId"), QStringLiteral("@bob:mock.local")},
+                {QStringLiteral("membership"), QStringLiteral("joined")}}}}});
+        QTRY_COMPARE(info->roomId(), QStringLiteral("!general:mock.local"));
+        QTRY_VERIFY(!info->members().isEmpty());
+        bool bobIsMember = false;
+        for (const QVariant &row : info->members())
+            bobIsMember |= row.toMap().value(QStringLiteral("userId")).toString()
+                           == QStringLiteral("@bob:mock.local")
+                           && row.toMap().value(QStringLiteral("membership")).toString()
+                              == QStringLiteral("joined");
+        QVERIFY2(bobIsMember, "fixture: bob must be joined in the open room");
+
+        // A different target (a Space): bob is not known to be in it.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_dialog, "openFor",
+            Q_ARG(QVariant, QVariant(QStringLiteral("!space:mock.local")))));
+        QTRY_VERIFY(m_dialog->property("visible").toBool());
+        selectUser(QStringLiteral("@bob:mock.local"), QStringLiteral("Bob"));
+        QVERIFY2(item("inviteChip_0"),
+                 "the open room's roster must not veto an invite to another room");
+        QMetaObject::invokeMethod(m_dialog, "close");
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+
+        // The room's own roster still does.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_dialog, "openFor",
+            Q_ARG(QVariant, QVariant(QStringLiteral("!general:mock.local")))));
+        QTRY_VERIFY(m_dialog->property("visible").toBool());
+        selectUser(QStringLiteral("@bob:mock.local"), QStringLiteral("Bob"));
+        QVERIFY(!item("inviteChip_0"));
         QMetaObject::invokeMethod(m_dialog, "close");
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }
