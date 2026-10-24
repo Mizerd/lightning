@@ -63,6 +63,66 @@ composer caret behavior remain available. Escape keeps its contextual
 dismissal and back-navigation behavior; use Ctrl+Shift+W to resume selection
 without cancelling a reply or leaving the room.
 
+## Activity, the quick switcher and Settings
+
+The Activity Center is a modal dialog; the quick switcher is a modal
+popup. Settings is an in-shell screen. All three use these actions,
+listed under **Dialogs** in Settings → Keyboard shortcuts:
+
+| Default | Action ID | Behavior |
+| --- | --- | --- |
+| Ctrl+K | `dialog.previousItem` | Select the previous item or Settings section. |
+| Ctrl+J | `dialog.nextItem` | Select the next item or Settings section. |
+| Ctrl+C | `dialog.close` | Dismiss the current surface or Settings layer. |
+
+Activity focuses its list on opening. In the switcher, selection moves
+while the query keeps focus, including in command mode. The shortcuts
+scroll the selected row into view and stop at the ends of the list.
+They apply only inside these surfaces; main-window and timeline
+bindings can reuse the same combinations.
+
+Copying selected query text takes priority over closing: Ctrl+C copies
+while text is selected, and closes when nothing is selected. A rebound
+close action such as Alt+L closes directly. Arrows, Enter, Tab and Escape
+keep their existing behavior. Use a single combination with Ctrl, Alt
+or Super for these actions; plain letters stay available for searching.
+
+In Settings, previous/next follow the visible sidebar sections and stop
+at either end. Search filtering hides sections from this navigation.
+Tab and Shift+Tab still move between individual controls. The close action
+uses the existing Escape behavior: clear the search, close an inline
+picker, leave a content editor, then return to the room. Selected-text
+Copy, shortcut capture and nested popups keep their own key handling.
+
+Settings also offers six unbound actions under **Settings navigation**:
+`settings.previousPage`, `settings.nextPage`,
+`settings.previousSubsection`, `settings.nextSubsection`,
+`settings.halfPageUp` and `settings.halfPageDown`. Subsection
+navigation immediately reveals the heading's controls and focuses its
+sidebar link, without requiring Space or Enter. It skips headings whose
+controls are hidden, opens a collapsed outline, and stops at either end.
+A search query is cleared to reveal the current page before jumping.
+
+For example, to use Tab for pages and Ctrl+J/K for subsections:
+
+```ini
+[shortcuts]
+settings.nextPage=Tab
+settings.previousPage=Shift+Tab
+settings.nextSubsection=Ctrl+J
+settings.previousSubsection=Ctrl+K
+settings.halfPageUp=Ctrl+U
+settings.halfPageDown=Ctrl+D
+```
+
+These Settings-only overrides take priority over shared dialog navigation.
+Tab/Shift+Tab replace ordinary focus traversal only when explicitly bound
+to page actions; resetting them restores the normal Tab behavior. The
+Activity and quick-switcher bindings remain independent. Half-page actions
+scroll the controls viewport immediately without moving focus or switching
+pages. Page Up/Down retain their existing full-page behavior. Ctrl+, focuses
+the Settings search field (`app.openSettings`).
+
 ## Cursor blinking
 
 Settings → Appearance → Motion and time offers **Disable cursor
@@ -84,6 +144,9 @@ disableCursorBlink=true
 
 [shortcuts]
 composer.focus=Ctrl+L
+dialog.previousItem=Ctrl+K
+dialog.nextItem=Ctrl+J
+dialog.close=Ctrl+C
 timeline.selectLatestMessage=Ctrl+Shift+Space
 timeline.resumeMessageSelection=Ctrl+Shift+W
 timeline.olderMessage=K

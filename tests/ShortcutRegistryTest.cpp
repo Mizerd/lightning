@@ -52,6 +52,60 @@ class ShortcutRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void dialogBindingsAreScopedAndHaveNoFalseCopyConflict()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_K, Qt::ControlModifier),
+                 QStringLiteral("dialog.previousItem"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_C, Qt::ControlModifier),
+                 QStringLiteral("dialog.close"));
+        QVERIFY(registry.dialogActionForKey(Qt::Key_C, Qt::ControlModifier, true).isEmpty());
+        QVERIFY(roleFor(registry, QStringLiteral("dialog.close"),
+                        ShortcutRegistry::ConflictsWithRole).isEmpty());
+        QCOMPARE(registry.conflictCount(), 0);
+        QCOMPARE(registry.validationError(QStringLiteral("dialog.close"),
+                                          QStringLiteral("Ctrl+C")), QString());
+        QVERIFY(!registry.validationError(QStringLiteral("app.quit"),
+                                           QStringLiteral("Ctrl+C")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("Ctrl+C")).isEmpty());
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.nextItem"),
+                                     QStringLiteral("Ctrl+U")), QString());
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.previousItem"),
+                                           QStringLiteral("Ctrl+U")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.nextItem"),
+                                           QStringLiteral("Ctrl+X, Ctrl+Y")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.close"),
+                                           QStringLiteral("Esc")).isEmpty());
+    }
+
+    void dialogRebindingsPersistAndLeaveOtherContextsAlone()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.nextItem"),
+                                     QStringLiteral("Ctrl+N")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("dialog.close"),
+                                     QStringLiteral("Alt+L")), QString());
+        ShortcutRegistry restored(&settings);
+        QVERIFY(restored.dialogActionForKey(Qt::Key_J, Qt::ControlModifier).isEmpty());
+        QCOMPARE(restored.dialogActionForKey(Qt::Key_N, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(restored.dialogActionForKey(Qt::Key_L, Qt::AltModifier, false),
+                 QStringLiteral("dialog.close"));
+        QVERIFY(restored.editorActionForKey(Qt::Key_N, Qt::ControlModifier).isEmpty());
+        QCOMPARE(restored.messageSelectionActionForKey(Qt::Key_K, Qt::NoModifier),
+                 QStringLiteral("timeline.olderMessage"));
+        QCOMPARE(restored.sequenceFor(QStringLiteral("nav.quickSwitcher")),
+                 QStringLiteral("Ctrl+K"));
+    }
+
     void messageSelectionDefaultsAndLookupAreSeparateFromComposerPaging()
     {
         SettingsManager settings;
@@ -102,6 +156,11 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::CurrentSequenceRole).toString();
             const QString id = registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // Modal handlers do not run on the room surface. Ctrl+C may
+            // therefore close a dialog and copy a selected timeline message.
+            if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                == ShortcutRegistry::DialogContext)
+                continue;
             bySequence[seq].append(id);
             if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
                 == ShortcutRegistry::MessageSelectionContext)
@@ -115,7 +174,11 @@ private Q_SLOTS:
             // (GitHub #51), and only the timeline's own Keys handler sees it.
             if (id != QStringLiteral("timeline.copyMessageText"))
                 QVERIFY2(!seq.contains(QLatin1Char('+')), qPrintable(id + QStringLiteral(" ") + seq));
-            QVERIFY(roleFor(registry, id, ShortcutRegistry::ShadowNoteRole).isEmpty());
+            const QString shadow = roleFor(registry, id, ShortcutRegistry::ShadowNoteRole);
+            if (id == QStringLiteral("timeline.copyMessageText"))
+                QVERIFY(!shadow.isEmpty()); // modal Close explains its Copy override
+            else
+                QVERIFY(shadow.isEmpty());
         }
         const QString resume =
             registry.sequenceFor(QStringLiteral("timeline.resumeMessageSelection"));
@@ -233,6 +296,39 @@ private Q_SLOTS:
                  QStringLiteral("timeline.olderMessage"));
     }
 
+    void settingsOverridesAllowPageTabsAndKeepDialogKeysSeparate()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QVERIFY(registry.sequenceFor(QStringLiteral("settings.nextPage")).isEmpty());
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.nextPage"), QStringLiteral("Tab")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.previousPage"), QStringLiteral("Shift+Tab")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.nextSubsection"), QStringLiteral("Ctrl+J")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.previousSubsection"), QStringLiteral("Ctrl+K")), QString());
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_Tab, Qt::NoModifier),
+                 QStringLiteral("settings.nextPage"));
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_Backtab, Qt::ShiftModifier),
+                 QStringLiteral("settings.previousPage"));
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("settings.nextSubsection"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextSubsection"), QStringLiteral("Tab")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextPage"), QStringLiteral("J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextPage"), QStringLiteral("Ctrl+J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.close"), QStringLiteral("Ctrl+J")).isEmpty());
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(roleFor(registry, QStringLiteral("settings.nextPage"),
+                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("Tab")));
+        ShortcutRegistry restored(&settings);
+        QCOMPARE(restored.sequenceFor(QStringLiteral("settings.nextPage")), QStringLiteral("Tab"));
+        QCOMPARE(restored.resetToDefault(QStringLiteral("settings.nextPage")), QString());
+        QVERIFY(restored.sequenceFor(QStringLiteral("settings.nextPage")).isEmpty());
+        QCOMPARE(ShortcutRegistry::normalize(QStringLiteral("Shift+Backtab")), QStringLiteral("Shift+Tab"));
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -269,6 +365,10 @@ private Q_SLOTS:
                     .toString();
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
+            if (seq.isEmpty()) {
+                QCOMPARE(ctx, QString::number(int(ShortcutRegistry::SettingsContext)));
+                continue;
+            }
             auto &seen = seenPerContext[ctx];
             // The one designed share: find-previous and the GIF picker hold
             // Ctrl+Shift+G on mutually exclusive QML gates (m_exclusive).
@@ -298,6 +398,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            const QString id = registry.data(idx, ShortcutRegistry::IdRole).toString();
+            // Dialog dismissal yields to native selected-text Copy.
+            if (id == QStringLiteral("dialog.close"))
+                continue;
             // The message menu's letters exist only while that menu owns
             // focus, so a selection action (a timeline Keys handler) may hold
             // one; every other context may not.
@@ -333,6 +437,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            if (seq.isEmpty()
+                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                   == ShortcutRegistry::SettingsContext)
+                continue; // Settings overrides are opt-in.
             QVERIFY2(!seq.isEmpty(),
                      qPrintable(QStringLiteral("%1 has an unparseable default")
                                     .arg(id)));
@@ -361,6 +469,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            if (seq.isEmpty()
+                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                   == ShortcutRegistry::SettingsContext)
+                continue;
             // A selection action is a Keys handler on the focused timeline,
             // so a bare key is exactly what it is for; it must still be
             // storable (no navigation key) and a single chord.
@@ -617,6 +729,8 @@ private Q_SLOTS:
         QHash<QString, QStringList> idsBySequence;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
+            if (registry.data(idx, ShortcutRegistry::CurrentSequenceRole).toString().isEmpty())
+                continue;
             idsBySequence[registry
                               .data(idx,
                                     ShortcutRegistry::CurrentSequenceRole)
@@ -633,9 +747,13 @@ private Q_SLOTS:
         shared.sort();
         QCOMPARE(shared,
                  QStringList({ QStringLiteral("Ctrl+B"),
+                               QStringLiteral("Ctrl+C"),
+                               QStringLiteral("Ctrl+K"),
                                QStringLiteral("Ctrl+Shift+G"),
                                QStringLiteral("Ctrl+U") }));
         QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+U")).size(), 2);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+C")).size(), 2);
+        QCOMPARE(idsBySequence.value(QStringLiteral("Ctrl+K")).size(), 2);
     }
 
     // GitHub #38: PgUp/PgDn, Ctrl+Up/Down and Ctrl+G / Ctrl+Shift+G are

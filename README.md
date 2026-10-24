@@ -57,8 +57,9 @@ The full tour, more screenshots and the known limits are in
 [docs/features.md](docs/features.md).
 
 [Message keyboard navigation](docs/message-keyboard-navigation.md)
-covers compose focus, message selection, independent paging and cursor
-blinking preferences, with a configuration-file example.
+covers compose focus, message selection, independent paging, Activity
+and quick-switcher selection/dismissal, and cursor blinking preferences,
+with a configuration-file example.
 
 ## Install
 

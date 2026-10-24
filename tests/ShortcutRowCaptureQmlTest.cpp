@@ -174,6 +174,25 @@ private Q_SLOTS:
         QCOMPARE(registry->sequenceFor(QStringLiteral("app.quit")),
                  QStringLiteral("Ctrl+Q"));
     }
+    void dialogKeysCanBeCapturedWithoutAConflictWarning()
+    {
+        const QList<QPair<QString, Qt::Key>> actions = {
+            { QStringLiteral("dialog.previousItem"), Qt::Key_K },
+            { QStringLiteral("dialog.nextItem"), Qt::Key_J },
+            { QStringLiteral("dialog.close"), Qt::Key_C },
+        };
+        for (const auto &action : actions) {
+            row->setProperty("actionId", action.first);
+            QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
+            QTest::keyClick(&window, action.second, Qt::ControlModifier);
+            QVERIFY(!row->property("capturing").toBool());
+            QVERIFY(row->property("captureError").toString().isEmpty());
+            QCOMPARE(registry->sequenceFor(action.first),
+                     registry->defaultSequenceFor(action.first));
+        }
+        QCOMPARE(registry->conflictCount(), 0);
+    }
+
     void aClickOnAPressAcceptingItemEndsTheCaptureAndStillReachesIt()
     {
         QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));

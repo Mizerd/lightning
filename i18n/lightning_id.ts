@@ -21575,16 +21575,14 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+68"/>
-        <source>A shortcut needs Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+
+Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Pintasan memerlukan Ctrl, Alt, atau Super: Lightning mengambil kunci sebelum kotak teks mana pun melihatnya, sehingga surat biasa akan menghentikan Anda mengetik surat itu di mana saja.
-
-Kunci pemformatan pesan hanya berlaku ketika kotak pesan memiliki fokus. Di tempat lain, kunci yang sama masih berfungsi seperti biasanya.
-
-Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan tidak dapat ditetapkan.</translation>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24322,6 +24320,38 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ShortcutRegistry</name>
     <message>
+        <source>Dialogs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the previous item or Settings section</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the next item or Settings section</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss Activity, the quick switcher or Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a single key combination for dialog navigation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
         <source>Focus the message box</source>
         <translation>Fokus ke kotak pesan</translation>
@@ -24796,6 +24826,50 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+3"/>
         <source>While the message box has focus, “%1” runs instead.</source>
         <translation>Saat kotak pesan memiliki fokus, “%1” malah dijalankan.</translation>
+    </message>
+    <message>
+        <source>Settings navigation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the previous Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the next Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump to the previous Settings subsection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump to the next Settings subsection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a single key combination for Settings navigation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>In Settings, “%1” runs instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll Settings up half a page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll Settings down half a page</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

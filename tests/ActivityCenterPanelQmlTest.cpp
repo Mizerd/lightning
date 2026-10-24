@@ -18,13 +18,20 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QTemporaryDir>
+#include "app/SettingsManager.h"
+#include "app/ShortcutRegistry.h"
 
 class ActivityCenterPanelQmlTest : public QObject
 {
     Q_OBJECT
 
 private:
+    QTemporaryDir m_configHome;
     struct Fixture {
+        std::unique_ptr<SettingsManager> settings;
+        std::unique_ptr<ShortcutRegistry> shortcuts;
         std::unique_ptr<QQmlApplicationEngine> engine;
         QObject *window = nullptr;
         QObject *panel = nullptr;
@@ -34,9 +41,13 @@ private:
         QStringList warnings;
     };
 
-    bool make(Fixture &f)
+    bool make(Fixture &f, bool openPanel = true)
     {
+        QSettings().clear();
+        f.settings = std::make_unique<SettingsManager>();
+        f.shortcuts = std::make_unique<ShortcutRegistry>(f.settings.get());
         f.engine = std::make_unique<QQmlApplicationEngine>();
+        f.engine->rootContext()->setContextProperty("testShortcuts", f.shortcuts.get());
         connect(f.engine.get(), &QQmlEngine::warnings, this,
                 [&f](const QList<QQmlError> &errors) {
                     for (const auto &e : errors)
@@ -49,6 +60,7 @@ private:
         appComp.setData(R"QML(
 import QtQuick
 QtObject {
+    property var shortcuts: testShortcuts
     property string settingsSection: ""
     property var settings: QtObject { property string clockTimeFormat: "hh:mm" }
     property var stickers: QtObject {
@@ -102,9 +114,20 @@ import QtQuick.Controls
 import MatrixClient
 ApplicationWindow {
     visible: true
+    property int mainActionCalls: 0
+    Shortcut {
+        sequence: "Ctrl+J"
+        onActivated: mainActionCalls += 1
+    }
     width: 900
     height: 800
-    ActivityCenterPanel { objectName: "panel" }
+    TextField { objectName: "composer"; focus: true; text: "draft" }
+    ActivityCenterPanel { id: panel; objectName: "panel" }
+    Shortcut {
+        sequence: "Ctrl+I"
+        enabled: !panel.visible
+        onActivated: panel.openPanel()
+    }
 }
 )QML",
                      QUrl());
@@ -116,7 +139,8 @@ ApplicationWindow {
         f.panel = f.window->findChild<QObject *>(QStringLiteral("panel"));
         if (!f.panel)
             return false;
-        QMetaObject::invokeMethod(f.panel, "openPanel");
+        if (openPanel)
+            QMetaObject::invokeMethod(f.panel, "openPanel");
         settle();
         f.list = f.panel->findChild<QQuickItem *>(QStringLiteral("activityList"));
         return f.list != nullptr;
@@ -128,6 +152,19 @@ ApplicationWindow {
             QCoreApplication::processEvents();
             QTest::qWait(20);
         }
+    }
+
+    static QQuickItem *findVisualItem(QQuickItem *item, const QString &name)
+    {
+        if (!item)
+            return nullptr;
+        if (item->objectName() == name)
+            return item;
+        for (QQuickItem *child : item->childItems()) {
+            if (auto *found = findVisualItem(child, name))
+                return found;
+        }
+        return nullptr;
     }
 
     static QQuickItem *row(const Fixture &f, int i)
@@ -146,6 +183,189 @@ ApplicationWindow {
     }
 
 private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("activity-keyboard-test"));
+    }
+
+    void dialogKeysNavigateCloseAndStayInsideTheModal()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QCOMPARE(f.window->property("mainActionCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Tab);
+        QVERIFY(!f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QVERIFY(f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_C, Qt::ControlModifier);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.window->property("mainActionCalls").toInt(), 1);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void dialogKeysUseLiveRebindingsAndHandleAnEmptyList()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QCOMPARE(f.shortcuts->setBinding(QStringLiteral("dialog.nextItem"),
+                                         QStringLiteral("Ctrl+N")), QString());
+        QCOMPARE(f.shortcuts->setBinding(QStringLiteral("dialog.close"),
+                                         QStringLiteral("Alt+L")), QString());
+        QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_N, Qt::ControlModifier);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(f.activity, "clear"));
+        QTest::keyClick(w, Qt::Key_N, Qt::ControlModifier);
+        QCOMPARE(f.list->property("count").toInt(), 0);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_L, Qt::AltModifier);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void reboundKeysPreemptFocusedControls_data()
+    {
+        QTest::addColumn<int>("key");
+        QTest::addColumn<QString>("focusName");
+        QTest::addColumn<bool>("navigate");
+        QTest::newRow("return-list") << int(Qt::Key_Return)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("enter-list") << int(Qt::Key_Enter)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("space-list") << int(Qt::Key_Space)
+            << QStringLiteral("activityList") << false;
+        QTest::newRow("return-button") << int(Qt::Key_Return)
+            << QStringLiteral("activityMarkAllSeen") << false;
+        QTest::newRow("return-filter") << int(Qt::Key_Return)
+            << QStringLiteral("activityFilter_mentions") << false;
+        QTest::newRow("page-list") << int(Qt::Key_PageDown)
+            << QStringLiteral("activityList") << true;
+    }
+
+    void reboundKeysPreemptFocusedControls()
+    {
+        QFETCH(int, key);
+        QFETCH(QString, focusName);
+        QFETCH(bool, navigate);
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *focus = findVisualItem(w ? w->contentItem() : nullptr, focusName);
+        QVERIFY(w);
+        QVERIFY(focus);
+        const QString action = navigate ? QStringLiteral("dialog.nextItem")
+                                        : QStringLiteral("dialog.close");
+        const QString sequence = f.shortcuts->sequenceFromKeyEvent(key, Qt::ControlModifier);
+        QCOMPARE(f.shortcuts->setBinding(action, sequence), QString());
+        focus->forceActiveFocus();
+        QVERIFY(focus->hasActiveFocus());
+        QTest::keyClick(w, static_cast<Qt::Key>(key), Qt::ControlModifier);
+        if (navigate) {
+            QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+            QVERIFY(f.panel->property("visible").toBool());
+        } else {
+            QTRY_VERIFY(!f.panel->property("visible").toBool());
+        }
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QCOMPARE(f.activity->property("filter").toString(), QStringLiteral("all"));
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void openingFromTheKeyboardFocusesTheList()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QVERIFY(composer->hasActiveFocus());
+
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_Up);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QTest::keyClick(w, Qt::Key_Return);
+        QCOMPARE(f.activity->property("lastOpened").toString(), QStringLiteral("e2"));
+        QCOMPARE(f.activity->property("openCalls").toInt(), 1);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QCOMPARE(composer->property("text").toString(), QStringLiteral("draft"));
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void reopeningReturnsFocusFromControlsToTheCurrentRow()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+
+        // Tab still reaches the dialog's controls; reopening must not leave
+        // arrows on whichever control had focus when the dialog was closed.
+        QTest::keyClick(w, Qt::Key_Tab);
+        QVERIFY(!f.list->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY(composer->hasActiveFocus());
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(w, Qt::Key_Down);
+        QCOMPARE(f.list->property("currentIndex").toInt(), 2);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void anEmptyListCanBeDismissedWithoutOpeningAnEntry()
+    {
+        Fixture f;
+        QVERIFY(make(f, false));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
+        QVERIFY(w);
+        QVERIFY(composer);
+        QVERIFY(QMetaObject::invokeMethod(f.activity, "clear"));
+        QTest::keyClick(w, Qt::Key_I, Qt::ControlModifier);
+        QTRY_VERIFY(f.panel->property("opened").toBool());
+        QVERIFY(f.list->hasActiveFocus());
+        QCOMPARE(f.list->property("count").toInt(), 0);
+        QTest::keyClick(w, Qt::Key_Down);
+        QTest::keyClick(w, Qt::Key_Return);
+        QCOMPARE(f.activity->property("openCalls").toInt(), 0);
+        QVERIFY(f.panel->property("opened").toBool());
+        QTest::keyClick(w, Qt::Key_Escape);
+        QTRY_VERIFY(!f.panel->property("visible").toBool());
+        QVERIFY(composer->hasActiveFocus());
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void returnEnterAndSpaceOpenTheCurrentEntry()
     {
         Fixture f;
@@ -298,6 +518,12 @@ private Q_SLOTS:
         QVERIFY(make(f));
         QVERIFY(f.list->property("contentHeight").toReal()
                 > f.list->height());
+        // The panel now focuses the list on opening. Move focus away first
+        // so this test still exercises a later focus transition.
+        auto *control = f.panel->findChild<QQuickItem *>(QStringLiteral("activityMarkAllSeen"));
+        QVERIFY(control);
+        control->forceActiveFocus();
+        QVERIFY(!f.list->hasActiveFocus());
         // Scroll away from row 0, then give the list focus.
         QMetaObject::invokeMethod(f.list, "positionViewAtEnd");
         settle();

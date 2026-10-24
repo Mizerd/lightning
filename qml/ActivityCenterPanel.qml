@@ -23,6 +23,10 @@ Dialog {
     padding: AppTheme.spacing16
 
     readonly property var activity: app.activity
+    // Opening a modal gives the popup focus, but not its keyboard-driven
+    // list. Do this on every open, including after tabbing to a control;
+    // leave the current row and the model's seen state alone.
+    onOpened: listView.forceActiveFocus(Qt.PopupFocusReason)
 
     // The keyword list is NOT edited here: it used to be a second, local list
     // that only filtered this panel and never notified or pushed. The account's
@@ -31,6 +35,29 @@ Dialog {
     // explicit "Mark all seen".
     function openPanel() {
         open()
+    }
+
+    function dialogAction(event) {
+        return root.opened && app.shortcuts
+            ? app.shortcuts.dialogActionForKey(event.key, event.modifiers, false) : ""
+    }
+    function handleDialogKey(event) {
+        const action = root.dialogAction(event)
+        if (action === "dialog.close") {
+            root.close()
+        } else if (action === "dialog.previousItem" || action === "dialog.nextItem") {
+            if (listView.count > 0) {
+                const delta = action === "dialog.previousItem" ? -1 : 1
+                listView.currentIndex = Math.max(0, Math.min(listView.count - 1,
+                    listView.currentIndex < 0 ? 0 : listView.currentIndex + delta))
+                listView.positionViewAtIndex(listView.currentIndex, ListView.Contain)
+            }
+            listView.forceActiveFocus(Qt.ShortcutFocusReason)
+        } else {
+            return false
+        }
+        event.accepted = true
+        return true
     }
 
     function openEntry(entryId) {
@@ -153,6 +180,11 @@ Dialog {
 
     contentItem: ColumnLayout {
         id: panelColumn
+        Keys.onShortcutOverride: (event) => {
+            if (root.dialogAction(event) !== "")
+                event.accepted = true
+        }
+        Keys.onPressed: (event) => root.handleDialogKey(event)
         spacing: AppTheme.spacing12
 
         RowLayout {
@@ -175,6 +207,7 @@ Dialog {
             Item { Layout.fillWidth: true }
             AppButton {
                 objectName: "activityMarkAllSeen"
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 kind: "ghost"
                 size: "sm"
@@ -184,6 +217,7 @@ Dialog {
                 onClicked: root.activity.markAllSeen()
             }
             IconButton {
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 iconName: "close"
                 size: "sm"
@@ -194,6 +228,7 @@ Dialog {
 
         SegmentedControl {
             objectName: "activityFilter"
+            keyForwardTargets: [dialogKeySink]
             storm: true
             dense: true
             fitWidth: true
@@ -225,6 +260,7 @@ Dialog {
             }
             AppButton {
                 objectName: "activityOpenKeywordSettings"
+                Keys.forwardTo: [dialogKeySink]
                 storm: true
                 kind: "secondary"
                 size: "sm"
@@ -284,11 +320,18 @@ Dialog {
 
         Item {
             id: listHost
+            // Forward before a focused control's specific handlers and its
+            // built-in key handling; parent bubbling happens too late.
+            Item {
+                id: dialogKeySink
+                Keys.onPressed: (event) => root.handleDialogKey(event)
+            }
             Layout.fillWidth: true
             Layout.fillHeight: true
             ListView {
                 id: listView
                 objectName: "activityList"
+                Keys.forwardTo: [dialogKeySink]
                 anchors.fill: parent
                 clip: true
                 spacing: AppTheme.spacing4
@@ -326,7 +369,8 @@ Dialog {
                 onActiveFocusChanged: if (activeFocus && count > 0)
                     positionViewAtIndex(Math.max(0, currentIndex), ListView.Contain)
                 function openCurrent() {
-                    if (listView.currentItem)
+                    if (listView.currentIndex >= 0 && listView.currentIndex < listView.count
+                            && listView.currentItem)
                         root.openEntry(listView.currentItem.entryId)
                 }
                 ScrollBar.vertical: ScrollBar { }

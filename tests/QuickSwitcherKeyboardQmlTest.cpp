@@ -6,6 +6,8 @@
 
 #include <QFile>
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QScopeGuard>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -15,6 +17,7 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "app/ShortcutRegistry.h"
 #include "auth/AccountManager.h"
 
 namespace {
@@ -162,6 +165,137 @@ private slots:
             return false;
         const qreal top = item->y() - list->property("contentY").toReal();
         return top >= -1 && top + item->height() <= list->height() + 1;
+    }
+
+    void configuredKeysNavigateWhileTheQueryKeepsFocus()
+    {
+        QMetaObject::invokeMethod(m_root, "openSwitcher");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        auto *list = resultList();
+        QTRY_VERIFY(list->property("count").toInt() > 2);
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(list->property("currentIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(list->property("currentIndex").toInt(), 0);
+        QVERIFY(field()->hasActiveFocus());
+        QCOMPARE(field()->property("text").toString(), QString());
+        QCOMPARE(m_controller->shortcuts()->setBinding(QStringLiteral("dialog.nextItem"),
+                                                       QStringLiteral("Ctrl+N")), QString());
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(list->property("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_N, Qt::ControlModifier);
+        QCOMPARE(list->property("currentIndex").toInt(), 1);
+        QCOMPARE(m_controller->shortcuts()->resetToDefault(QStringLiteral("dialog.nextItem")), QString());
+        closeSwitcher();
+
+        QMetaObject::invokeMethod(m_root, "openCommand");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        auto *commands = m_root->findChild<QQuickItem *>(QStringLiteral("quickSwitcherCommandList"));
+        QTRY_VERIFY(commands->property("count").toInt() > 2);
+        QVERIFY(switcher()->property("commandMode").toBool());
+        QVERIFY(field()->hasActiveFocus());
+        QCOMPARE(m_controller->shortcuts()->dialogActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        commands->setProperty("currentIndex", -1);
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(commands->property("currentIndex").toInt(), 0);
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(commands->property("currentIndex").toInt(), 1);
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(commands->property("currentIndex").toInt(), 0);
+        QVERIFY(field()->hasActiveFocus());
+        closeSwitcher();
+    }
+
+    void modifiedArrowsAndReturnHonorDialogBindings_data()
+    {
+        QTest::addColumn<bool>("commandMode");
+        QTest::newRow("rooms") << false;
+        QTest::newRow("commands") << true;
+    }
+
+    void modifiedArrowsAndReturnHonorDialogBindings()
+    {
+        QFETCH(bool, commandMode);
+        auto *shortcuts = m_controller->shortcuts();
+        const auto restore = qScopeGuard([&] {
+            shortcuts->resetToDefault(QStringLiteral("dialog.nextItem"));
+            shortcuts->resetToDefault(QStringLiteral("dialog.close"));
+            QMetaObject::invokeMethod(switcher(), "close");
+        });
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("dialog.nextItem"),
+                                      QStringLiteral("Ctrl+Up")), QString());
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("dialog.close"),
+                                      QStringLiteral("Ctrl+Return")), QString());
+        QMetaObject::invokeMethod(m_root, commandMode ? "openCommand" : "openSwitcher");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        auto *list = commandMode
+            ? m_root->findChild<QQuickItem *>(QStringLiteral("quickSwitcherCommandList"))
+            : resultList();
+        QVERIFY(list);
+        QTRY_VERIFY(list->property("count").toInt() > 2);
+        list->setProperty("currentIndex", 0);
+        QTest::keyClick(m_window, Qt::Key_Up, Qt::ControlModifier);
+        QCOMPARE(list->property("currentIndex").toInt(), 1);
+        QVERIFY(field()->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_Return, Qt::ControlModifier);
+        QTRY_VERIFY(!switcher()->property("visible").toBool());
+    }
+
+    void modifiedReturnClosesWithoutRunningTheCommand()
+    {
+        auto *shortcuts = m_controller->shortcuts();
+        const auto restore = qScopeGuard([&] {
+            shortcuts->resetToDefault(QStringLiteral("dialog.close"));
+            QMetaObject::invokeMethod(switcher(), "close");
+        });
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("dialog.close"),
+                                      QStringLiteral("Ctrl+Return")), QString());
+        QMetaObject::invokeMethod(m_root, "openCommand");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        const QVariantList rows = switcher()->property("commandRows").value<QVariantList>();
+        int discoverIndex = -1;
+        for (int i = 0; i < rows.size(); ++i) {
+            if (rows.at(i).toMap().value(QStringLiteral("id")).toString()
+                == QStringLiteral("discover-rooms"))
+                discoverIndex = i;
+        }
+        QVERIFY(discoverIndex >= 0);
+        auto *list = m_root->findChild<QQuickItem *>(QStringLiteral("quickSwitcherCommandList"));
+        QVERIFY(list);
+        list->setProperty("currentIndex", discoverIndex);
+        QSignalSpy discovery(switcher(), SIGNAL(discoverRequested(QString)));
+        QVERIFY(discovery.isValid());
+        QTest::keyClick(m_window, Qt::Key_Return, Qt::ControlModifier);
+        QTRY_VERIFY(!switcher()->property("visible").toBool());
+        QCOMPARE(discovery.count(), 0);
+    }
+
+    void closeCopiesSelectedQueryTextBeforeDismissing()
+    {
+        QMetaObject::invokeMethod(m_root, "openSwitcher");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_G);
+        QCOMPARE(field()->property("text").toString(), QStringLiteral("g"));
+        QTest::keyClick(m_window, Qt::Key_A, Qt::ControlModifier);
+        QCOMPARE(field()->property("selectedText").toString(), QStringLiteral("g"));
+        QGuiApplication::clipboard()->setText(QStringLiteral("before"));
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("g"));
+        QVERIFY(switcher()->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_VERIFY(!switcher()->property("visible").toBool());
+
+        QCOMPARE(m_controller->shortcuts()->setBinding(QStringLiteral("dialog.close"),
+                                                       QStringLiteral("Alt+L")), QString());
+        QMetaObject::invokeMethod(m_root, "openSwitcher");
+        QTRY_VERIFY(switcher()->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QVERIFY(switcher()->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_L, Qt::AltModifier);
+        QTRY_VERIFY(!switcher()->property("visible").toBool());
+        QCOMPARE(m_controller->shortcuts()->resetToDefault(QStringLiteral("dialog.close")), QString());
     }
 
     void tabWrapAroundScrollsTheFirstRowIntoView()

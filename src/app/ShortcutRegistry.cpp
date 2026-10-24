@@ -78,7 +78,8 @@ bool isFocusOrNavigationKey(const QKeySequence &seq)
 } // namespace
 
 QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
-                                                ActionContext context) const
+                                                ActionContext context,
+                                                const QString &actionId) const
 {
     const QString owner = reservedOwner(portable);
     if (owner.isEmpty())
@@ -91,11 +92,22 @@ QString ShortcutRegistry::blockingReservedOwner(const QString &portable,
             || portable == QStringLiteral("E")
             || portable == QStringLiteral("Ctrl+C")))
         return {};
+    // Dialog dismissal yields to native Copy of selected query text.
+    if (context == DialogContext
+        && actionId == QStringLiteral("dialog.close")
+        && portable == QStringLiteral("Ctrl+C"))
+        return {};
     return owner;
 }
 
 bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
 {
+    if (a == SettingsContext || b == SettingsContext)
+        return a == b;
+    // Modal popup handlers cannot run on the main room surface.
+    if (a == DialogContext || b == DialogContext)
+        return a == b;
+
     // Selection claims ShortcutOverride only in the focused timeline, leaving
     // Global/Editor bindings available elsewhere (a shadow, not a clash).
     // Shared Timeline actions run in that same timeline, so they still
@@ -104,6 +116,14 @@ bool ShortcutRegistry::contextsClash(ActionContext a, ActionContext b)
     // arrangement: a Global Shortcut would take its key first, and an Editor
     // format would claim it in the same box.
     return a == b || a == TimelineContext || b == TimelineContext;
+}
+
+bool ShortcutRegistry::actionsClash(const Action &a, const Action &b)
+{
+    // Settings can replace shared previous/next, but Close remains live there.
+    return contextsClash(a.context, b.context)
+        || (a.context == SettingsContext && b.id == QStringLiteral("dialog.close"))
+        || (b.context == SettingsContext && a.id == QStringLiteral("dialog.close"));
 }
 
 bool ShortcutRegistry::exclusive(const QString &a, const QString &b) const
@@ -145,6 +165,8 @@ void ShortcutRegistry::buildTables()
     const QString composeCat = tr("Message formatting");
     const QString callCat = tr("Calls");
     const QString mediaCat = tr("Media");
+    const QString dialogCat = tr("Dialogs");
+    const QString settingsCat = tr("Settings navigation");
 
     // Every row must be wired to a QML `Shortcut`: a registry entry whose QML
     // site was never migrated is a shortcut that reports a key and does
@@ -202,6 +224,31 @@ void ShortcutRegistry::buildTables()
           GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
+        { QStringLiteral("dialog.previousItem"), dialogCat,
+          tr("Select the previous item or Settings section"),
+          QStringLiteral("Ctrl+K"), DialogContext },
+        { QStringLiteral("dialog.nextItem"), dialogCat,
+          tr("Select the next item or Settings section"),
+          QStringLiteral("Ctrl+J"), DialogContext },
+        { QStringLiteral("dialog.close"), dialogCat,
+          tr("Dismiss Activity, the quick switcher or Settings"),
+          QStringLiteral("Ctrl+C"), DialogContext },
+
+        // Opt-in overrides; without them Settings follows dialog.previous/next.
+        { QStringLiteral("settings.previousPage"), settingsCat,
+          tr("Open the previous Settings page"), {}, SettingsContext },
+        { QStringLiteral("settings.nextPage"), settingsCat,
+          tr("Open the next Settings page"), {}, SettingsContext },
+        { QStringLiteral("settings.previousSubsection"), settingsCat,
+          tr("Jump to the previous Settings subsection"), {}, SettingsContext },
+        { QStringLiteral("settings.nextSubsection"), settingsCat,
+          tr("Jump to the next Settings subsection"), {}, SettingsContext },
+
+        { QStringLiteral("settings.halfPageUp"), settingsCat,
+          tr("Scroll Settings up half a page"), {}, SettingsContext },
+        { QStringLiteral("settings.halfPageDown"), settingsCat,
+          tr("Scroll Settings down half a page"), {}, SettingsContext },
+
         { QStringLiteral("shell.toggleRoomList"), viewCat,
           tr("Show or hide the conversation list"), QStringLiteral("Ctrl+B"),
           GlobalContext },
@@ -526,10 +573,12 @@ QString ShortcutRegistry::normalize(const QString &sequence)
     const QString trimmed = sequence.trimmed();
     if (trimmed.isEmpty())
         return {};
-    const QKeySequence seq =
-        QKeySequence::fromString(trimmed, QKeySequence::PortableText);
+    QKeySequence seq = QKeySequence::fromString(trimmed, QKeySequence::PortableText);
     if (seq.isEmpty() || isBareModifier(seq))
         return {};
+    if (seq.count() == 1 && seq[0].key() == Qt::Key_Backtab)
+        seq = QKeySequence(QKeyCombination(seq[0].keyboardModifiers() | Qt::ShiftModifier,
+                                          Qt::Key_Tab));
     return seq.toString(QKeySequence::PortableText);
 }
 
@@ -537,8 +586,12 @@ QString ShortcutRegistry::sequenceFromKeyEvent(int key, int modifiers) const
 {
     // Keypad/GroupSwitch describe which physical key was used; keeping them
     // would bind only the numeric keypad.
-    const auto mods = static_cast<Qt::KeyboardModifiers>(modifiers)
+    auto mods = static_cast<Qt::KeyboardModifiers>(modifiers)
                       & ~Qt::KeypadModifier & ~Qt::GroupSwitchModifier;
+    if (key == Qt::Key_Backtab) {
+        key = Qt::Key_Tab;
+        mods |= Qt::ShiftModifier;
+    }
     const QKeySequence seq(QKeyCombination(mods, static_cast<Qt::Key>(key)));
     if (seq.isEmpty() || isBareModifier(seq))
         return {};
@@ -612,6 +665,36 @@ QString ShortcutRegistry::messageSelectionActionForKey(int key, int modifiers) c
     return {};
 }
 
+QString ShortcutRegistry::dialogActionForKey(int key, int modifiers,
+                                            bool copyingSelectedText) const
+{
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    if (copyingSelectedText)
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == DialogContext && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return {};
+}
+
+QString ShortcutRegistry::settingsActionForKey(int key, int modifiers,
+                                               bool copyingSelectedText) const
+{
+    if (copyingSelectedText)
+        return {};
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    if (seq.isEmpty())
+        return {};
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == SettingsContext && m_resolved.at(i) == seq)
+            return m_actions.at(i).id;
+    }
+    return dialogActionForKey(key, modifiers, false);
+}
+
 QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
                                             bool hasSelection) const
 {
@@ -676,9 +759,21 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     // A Timeline action is delivered by a Keys handler, so a key that types
     // nothing (PgUp, PgDn, F-keys) may stay bare.
     const bool selectionOnly = action->context == MessageSelectionContext;
+    const bool dialogOnly = action->context == DialogContext;
+    const bool settingsOnly = action->context == SettingsContext;
+    const bool settingsPage = actionId == QStringLiteral("settings.previousPage")
+                              || actionId == QStringLiteral("settings.nextPage");
+    const auto combo = seq[0];
+    const bool settingsTab = settingsPage && combo.key() == Qt::Key_Tab
+        && (combo.keyboardModifiers() & ~Qt::ShiftModifier) == Qt::NoModifier;
+    if (settingsOnly && seq.count() != 1)
+        return tr("Use a single key combination for Settings navigation.");
+    if (dialogOnly && seq.count() != 1)
+        return tr("Use a single key combination for dialog navigation.");
+
     if (selectionOnly && seq.count() != 1)
         return tr("Use a single key combination for message selection.");
-    const bool bareOk = selectionOnly
+    const bool bareOk = selectionOnly || settingsTab
                        || (action->context == TimelineContext && isNonTextKey(seq));
     if (!hasCommandModifier(seq) && !bareOk) {
         if (action->context == TimelineContext) {
@@ -686,6 +781,11 @@ QString ShortcutRegistry::validationError(const QString &actionId,
                       "Any other bare key is a character you type in the "
                       "message box.");
         }
+        if (settingsOnly)
+            return tr("Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.");
+        if (dialogOnly)
+            return tr("Use Ctrl, Alt or Super. Dialog shortcuts must leave "
+                      "ordinary typing and navigation keys available.");
         return action->context == GlobalContext
                    ? tr("Use Ctrl, Alt or Super. A shortcut without one of "
                         "those is taken before any text field sees the key, "
@@ -702,7 +802,7 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             .arg(portable);
     }
 
-    const QString owner = blockingReservedOwner(portable, action->context);
+    const QString owner = blockingReservedOwner(portable, action->context, actionId);
     if (!owner.isEmpty()) {
         return tr("%1 is already used for %2. Two shortcuts on one key make "
                   "Qt fire neither of them.")
@@ -715,7 +815,7 @@ QString ShortcutRegistry::validationError(const QString &actionId,
             continue;
         // Cross-context is a shadow, not a conflict; this is what lets
         // Ctrl+B be both Bold and the panel toggle.
-        if (!contextsClash(other.context, action->context))
+        if (!actionsClash(other, *action))
             continue;
         if (exclusive(other.id, actionId))
             continue;
@@ -756,7 +856,8 @@ QString ShortcutRegistry::resetToDefault(const QString &actionId)
     const Action *action = find(actionId);
     if (!m_settings || !action)
         return {};
-    const QString error = validationError(actionId, action->defaultSequence);
+    const QString error = action->defaultSequence.isEmpty()
+        ? QString() : validationError(actionId, action->defaultSequence);
     if (!error.isEmpty())
         return error; // keep the working override rather than make a clash
     m_settings->clearShortcutSequence(actionId);
@@ -791,13 +892,13 @@ QString ShortcutRegistry::conflictNote(int row) const
     const QString mine = m_resolved.at(row);
     if (mine.isEmpty())
         return {};
-    const QString owner = blockingReservedOwner(mine, a.context);
+    const QString owner = blockingReservedOwner(mine, a.context, a.id);
     if (!owner.isEmpty())
         return tr("Also used for %1 — neither will work.").arg(owner);
     for (int i = 0; i < m_actions.size(); ++i) {
         if (i == row)
             continue;
-        if (!contextsClash(m_actions.at(i).context, a.context))
+        if (!actionsClash(m_actions.at(i), a))
             continue;
         if (exclusive(m_actions.at(i).id, a.id))
             continue;
@@ -814,6 +915,11 @@ QString ShortcutRegistry::shadowNote(int row) const
     if (row < 0 || row >= m_actions.size())
         return {};
     const Action &a = m_actions.at(row);
+    if (a.context == SettingsContext)
+        return tr("Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.");
+    if (a.context == DialogContext)
+        return tr("Only in Activity, the quick switcher or Settings. "
+                  "Copying selected text takes priority over closing.");
     const QString mine = m_resolved.at(row);
     if (mine.isEmpty())
         return {};
@@ -822,11 +928,17 @@ QString ShortcutRegistry::shadowNote(int row) const
         if (i == row)
             continue;
         const Action &other = m_actions.at(i);
-        if (contextsClash(other.context, a.context))
+        if (actionsClash(other, a))
             continue;
         if (m_resolved.at(i) != mine)
             continue;
-        if (a.context == MessageSelectionContext)
+        if (other.context == SettingsContext)
+            notes.append(tr("In Settings, “%1” runs instead.").arg(other.description));
+        else if (other.context == DialogContext)
+            notes.append(tr("In Activity, the quick switcher or Settings, "
+                            "“%1” runs instead.")
+                             .arg(other.description));
+        else if (a.context == MessageSelectionContext)
             notes.append(tr("While the timeline has focus this runs instead of “%1”.")
                              .arg(other.description));
         else if (other.context == MessageSelectionContext)

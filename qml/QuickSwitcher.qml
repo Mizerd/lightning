@@ -439,6 +439,27 @@ Popup {
     }
     // The visible list's selection moves through this one door so every key
     // (arrows, Tab wrap-around, paging) also scrolls the row into view.
+    function dialogAction(event) {
+        return switcher.opened && app.shortcuts
+            ? app.shortcuts.dialogActionForKey(event.key, event.modifiers,
+                queryField.activeFocus && queryField.selectedText.length > 0
+                    && event.matches(StandardKey.Copy)) : ""
+    }
+    function handleDialogKey(event) {
+        const action = switcher.dialogAction(event)
+        if (action === "dialog.close") {
+            switcher.close()
+        } else if (action === "dialog.previousItem" || action === "dialog.nextItem") {
+            const delta = action === "dialog.previousItem" ? -1 : 1
+            const current = switcher.activeList().currentIndex
+            switcher.selectRow(current < 0 ? 0 : current + delta)
+        } else {
+            return false
+        }
+        event.accepted = true
+        return true
+    }
+
     function activeList() { return switcher.commandMode ? commandList : resultList }
     function activeCount() {
         return switcher.commandMode ? switcher.commandRows.length
@@ -509,6 +530,12 @@ Popup {
 
     background: Item {
         id: bgWrap
+        // Forward before specific handlers such as onReturnPressed. Merely
+        // claiming ShortcutOverride does not prevent those from accepting.
+        Item {
+            id: dialogKeySink
+            Keys.onPressed: (event) => switcher.handleDialogKey(event)
+        }
         // One of the design's four shadows (composer pattern).
         MultiEffect {
             source: card
@@ -532,6 +559,11 @@ Popup {
     }
 
     contentItem: ColumnLayout {
+        Keys.onShortcutOverride: (event) => {
+            if (switcher.dialogAction(event) !== "")
+                event.accepted = true
+        }
+        Keys.onPressed: (event) => switcher.handleDialogKey(event)
         spacing: 0
 
         // Header: leading glyph, query field, ESC keycap
@@ -570,6 +602,7 @@ Popup {
 
             TextField {
                 id: queryField
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherField"
                 Layout.fillWidth: true
                 placeholderText: switcher.commandMode
@@ -595,7 +628,13 @@ Popup {
                     app.quickSwitcher.query = text
                     resultList.currentIndex = app.quickSwitcher.count > 0 ? 0 : -1
                 }
+                Keys.onShortcutOverride: (event) => {
+                    if (switcher.dialogAction(event) !== "")
+                        event.accepted = true
+                }
                 Keys.onPressed: (event) => {
+                    if (switcher.handleDialogKey(event))
+                        return
                     if (switcher.commandMode && event.key === Qt.Key_Backspace
                         && queryField.text.length === 0) {
                         switcher.commandMode = false
@@ -678,6 +717,7 @@ Popup {
                 ]
                 delegate: AbstractButton {
                     id: scopeChip
+                    Keys.forwardTo: [dialogKeySink]
                     required property var modelData
                     readonly property bool selected:
                         switcher.commandScope === modelData.value
@@ -753,6 +793,7 @@ Popup {
             }
             AppButton {
                 id: searchMessagesButton
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherSearchMessages"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -776,6 +817,7 @@ Popup {
             }
             AppButton {
                 id: exploreRoomsButton
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherExploreRooms"
                 Layout.alignment: Qt.AlignHCenter
                 visible: queryField.text.length > 0
@@ -819,6 +861,7 @@ Popup {
             }
             ListView {
                 id: resultList
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherList"
                 anchors.fill: parent
                 clip: true
@@ -845,6 +888,7 @@ Popup {
 
                 delegate: ItemDelegate {
                     id: row
+                    Keys.forwardTo: [dialogKeySink]
                     width: ListView.view.width
                     height: switcher.resultRowHeight
                     highlighted: ListView.isCurrentItem
@@ -949,6 +993,7 @@ Popup {
             }
             ListView {
                 id: commandList
+                Keys.forwardTo: [dialogKeySink]
                 objectName: "quickSwitcherCommandList"
                 anchors.fill: parent
                 clip: true
@@ -964,6 +1009,7 @@ Popup {
 
                 delegate: ItemDelegate {
                     id: cmdRow
+                    Keys.forwardTo: [dialogKeySink]
                     width: ListView.view.width
                     height: switcher.commandRowHeight
                     highlighted: ListView.isCurrentItem

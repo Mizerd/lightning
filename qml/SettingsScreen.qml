@@ -1297,6 +1297,7 @@ Item {
     // The outline under one section's nav row.
     component SettingsNavOutlineFor: SettingsNavOutline {
         required property string sectionKey
+        objectName: "settingsNavOutline_" + sectionKey
         shown: root.section === sectionKey
                && !root.outlineCollapsed(sectionKey)
                && root.settingsSearchQuery.trim().length === 0
@@ -1490,6 +1491,7 @@ Item {
     }
 
     Component.onCompleted: {
+        app.installSettingsNavigation(root)
         var requested = app.takeRequestedSettingsSection()
         if (requested.length > 0)
             section = mapLegacySection(requested)
@@ -1564,26 +1566,93 @@ Item {
         // Escape peels one layer at a time (as ThemeEditor.peelEscape does):
         // a non-empty search query, then an open name-colour picker, and only
         // then Settings itself.
-        onActivated: {
-            var focused = root.Window.window ? root.Window.window.activeFocusItem
-                                             : null
-            if (settingsSearchField && settingsSearchField.text.length > 0)
-                settingsSearchField.text = ""
-            else if (nameColorPicker.open)
-                nameColorPicker.open = false
-            else if (root.isTextEditor(focused)
-                     && focused !== settingsSearchField
-                     && root.isInsideContent(focused)) {
-                // Escape leaves a field before it leaves Settings: the typed,
-                // uncommitted text is dropped (a percent box shows the stored
-                // value again) and the focus returns to the page.
-                if (typeof focused.revertTyped === "function")
-                    focused.revertTyped()
-                contentFlick.forceActiveFocus()
-            } else
-                root.goBack()
+        onActivated: root.dismissLayer()
+    }
+    function dismissLayer() {
+        var focused = root.Window.window ? root.Window.window.activeFocusItem
+                                         : null
+        if (settingsSearchField && settingsSearchField.text.length > 0)
+            settingsSearchField.text = ""
+        else if (nameColorPicker.open)
+            nameColorPicker.open = false
+        else if (root.isTextEditor(focused)
+                 && focused !== settingsSearchField
+                 && root.isInsideContent(focused)) {
+            // Escape leaves a field before it leaves Settings: the typed,
+            // uncommitted text is dropped (a percent box shows the stored
+            // value again) and the focus returns to the page.
+            if (typeof focused.revertTyped === "function")
+                focused.revertTyped()
+            contentFlick.forceActiveFocus()
+        } else
+            root.goBack()
+    }
+
+    function moveSection(delta) {
+        var rows = []
+        for (var i = 0; i < navColumn.children.length; ++i) {
+            var child = navColumn.children[i]
+            if (child.objectName.indexOf("settingsNavRow_") === 0
+                    && child.visible && child.enabled)
+                rows.push(child)
+        }
+        if (rows.length === 0)
+            return
+        var current = -1
+        for (var j = 0; j < rows.length; ++j) {
+            if (rows[j].sectionKey === root.section)
+                current = j
+        }
+        var next = current < 0 ? (delta < 0 ? rows.length - 1 : 0)
+                               : Math.max(0, Math.min(rows.length - 1, current + delta))
+        root.section = rows[next].sectionKey
+        rows[next].forceActiveFocus(Qt.ShortcutFocusReason)
+    }
+    function moveSubsection(delta) {
+        if (settingsSearchField.text.length > 0) {
+            settingsSearchField.text = ""
+            Qt.callLater(function() { root.moveSubsection(delta) })
+            return
+        }
+        var entries = root.outlineEntries(root.section)
+        var available = []
+        for (var i = 0; i < entries.length; ++i) {
+            if (root.firstShownAnchor(entries[i].anchors))
+                available.push(i)
+        }
+        if (available.length === 0)
+            return
+        root.refreshOutlineActive()
+        var current = available.indexOf(root.outlineActive)
+        var next = current < 0 ? (delta < 0 ? available.length - 1 : 0)
+                               : Math.max(0, Math.min(available.length - 1, current + delta))
+        if (root.outlineCollapsed(root.section))
+            root.toggleOutline(root.section)
+        root.revealOutlineEntry(root.section, available[next])
+        var outline = root.findInPane(navColumn, "settingsNavOutline_" + root.section)
+        if (outline)
+            outline.focusEntry(available[next])
+    }
+    // The controller routes these before native controls consume Copy or
+    // Return, only while Settings owns focus and no popup/capture is active.
+    readonly property bool dialogShortcutsEnabled:
+        !accountIdentityCard.editingDisplayName && root.renamingSessionDeviceId === ""
+    Connections {
+        target: app
+        function onSettingsDialogActionRequested(action) {
+            if (action === "dialog.close")
+                root.dismissLayer()
+            else if (action === "dialog.previousItem" || action === "dialog.nextItem"
+                     || action === "settings.previousPage" || action === "settings.nextPage")
+                root.moveSection(action === "dialog.previousItem" || action === "settings.previousPage" ? -1 : 1)
+            else if (action === "settings.previousSubsection" || action === "settings.nextSubsection")
+                root.moveSubsection(action === "settings.previousSubsection" ? -1 : 1)
+            else if (action === "settings.halfPageUp" || action === "settings.halfPageDown")
+                root.pageScrollBy(Math.max(24, contentFlick.height / 2)
+                                  * (action === "settings.halfPageUp" ? -1 : 1))
         }
     }
+
     function isTextEditor(it) {
         return !!it && it.cursorPosition !== undefined
                && it.inputMethodHints !== undefined
@@ -5401,11 +5470,14 @@ Item {
                                     font.pixelSize: AppTheme.settingsHintSize
                                     // Explains why a bare letter is refused and
                                     // why Ctrl+B does two things.
-                                    text: qsTr("A shortcut needs Ctrl, Alt or Super: "
+                                    text: qsTr("Global shortcuts need Ctrl, Alt or Super: "
                                                + "Lightning takes the key before any "
                                                + "text box sees it, so a plain letter "
                                                + "would stop you typing that letter "
                                                + "anywhere.\n\n"
+                                               + "Settings page actions also accept Tab "
+                                               + "and Shift+Tab; those bindings replace "
+                                               + "normal focus traversal only in Settings.\n\n"
                                                + "Message formatting keys apply only "
                                                + "while the message box has focus. "
                                                + "Everywhere else, the same key still "

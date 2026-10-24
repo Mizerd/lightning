@@ -12,6 +12,8 @@
 #include "app/MembershipLostNotice.h"
 #include "update/InstallType.h"
 #include <QSettings>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QCoreApplication>
 #include "crypto/BackupController.h"
 #include "privacy/AccountPrefsController.h"
@@ -6172,6 +6174,13 @@ bool AppController::hasOpenPopup(QQuickItem *within) const
         within ? within->window() : nullptr);
 }
 
+void AppController::installSettingsNavigation(QQuickItem *within)
+{
+    m_settingsNavigation = within;
+    if (QCoreApplication::instance())
+        QCoreApplication::instance()->installEventFilter(this);
+}
+
 void AppController::installMouseNavigation(QQuickItem *within)
 {
     if (!within)
@@ -7407,12 +7416,42 @@ bool AppController::activationRestoresWindow(bool hiddenByClose,
 
 bool AppController::eventFilter(QObject *watched, QEvent *event)
 {
+    if (m_settingsNavigation && m_settingsNavigation->isVisible()
+        && watched == m_settingsNavigation->window()
+        && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
+        && m_settingsNavigation->property("dialogShortcutsEnabled").toBool()
+        && !hasOpenPopup(m_settingsNavigation)) {
+        auto *focused = m_settingsNavigation->window()->activeFocusItem();
+        bool inside = false;
+        for (auto *item = focused; item; item = item->parentItem()) {
+            if (item == m_settingsNavigation) {
+                inside = true;
+                break;
+            }
+        }
+        if (inside && focused
+            && !focused->objectName().startsWith(QStringLiteral("shortcutCaptureSink_"))) {
+            const auto *key = static_cast<QKeyEvent *>(event);
+            const bool copying = key->matches(QKeySequence::Copy)
+                && !focused->property("selectedText").toString().isEmpty();
+            const QString action = m_shortcuts->settingsActionForKey(
+                key->key(), int(key->modifiers()), copying);
+            if (!action.isEmpty()) {
+                event->accept();
+                if (event->type() == QEvent::KeyPress)
+                    Q_EMIT settingsDialogActionRequested(action);
+                return true;
+            }
+        }
+    }
+#ifdef Q_OS_MACOS
     if (event->type() == QEvent::Quit && watched == QCoreApplication::instance()
         && event->spontaneous()) {
         // The platform asked us to terminate; the window's close handler runs
         // next and must let it through.
         Q_EMIT applicationQuitIntended();
     }
+#endif
     return QObject::eventFilter(watched, event);
 }
 

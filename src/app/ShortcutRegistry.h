@@ -62,6 +62,12 @@ public:
         /// claims them before Global shortcuts; compose never receives them.
         /// Plain letters are safe here and may shadow Global/Editor bindings.
         MessageSelectionContext = 3,
+        /// Dispatched only inside Activity, the quick switcher and Settings.
+        /// These surfaces claim the chord before main-window shortcuts, while
+        /// their fields retain ordinary typing and selected-text Copy.
+        DialogContext = 4,
+        /// Settings-only overrides of shared dialog navigation.
+        SettingsContext = 5,
     };
     Q_ENUM(ActionContext)
 
@@ -136,6 +142,14 @@ public:
     /// Selection-only actions; never forwarded from a message editor.
     Q_INVOKABLE QString messageSelectionActionForKey(int key, int modifiers) const;
 
+    /// Selected text keeps its native Copy action instead of dismissing.
+    Q_INVOKABLE QString dialogActionForKey(int key, int modifiers,
+                                          bool copyingSelectedText = false) const;
+
+    /// Settings-specific actions take priority over shared dialog navigation.
+    QString settingsActionForKey(int key, int modifiers,
+                                 bool copyingSelectedText = false) const;
+
     /// What a composer should CLAIM on ShortcutOverride. Same as
     /// editorActionForKey(), except that with nothing selected a key that a
     /// Global action also holds (Ctrl+B panel toggle, Ctrl+U people panel) is
@@ -194,9 +208,10 @@ private:
     QString currentSequence(const Action &action) const;
     QString conflictNote(int row) const;
     /// reservedOwner(), minus the hard-coded keys that cannot collide with an
-    /// action of `context`. The one place that decides it.
+    /// action of `context` and `actionId`. The one place that decides it.
     QString blockingReservedOwner(const QString &portable,
-                                  ActionContext context) const;
+                                  ActionContext context,
+                                  const QString &actionId) const;
     QString shadowNote(int row) const;
     void recomputeSummary();
     void announceAll();
@@ -210,6 +225,7 @@ private:
     QVector<QPair<QString, QString>> m_exclusive;
     bool exclusive(const QString &a, const QString &b) const;
     static bool contextsClash(ActionContext a, ActionContext b);
+    static bool actionsClash(const Action &a, const Action &b);
     /// Resolved sequence per row. Cached because data() runs per role per row
     /// on every repaint and a miss would be a QSettings read.
     QVector<QString> m_resolved;

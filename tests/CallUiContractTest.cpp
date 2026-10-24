@@ -5097,6 +5097,12 @@ Item {
         QStringList unwired;
         int timelineRows = 0;
         int selectionRows = 0;
+        int dialogRows = 0;
+        int settingsRows = 0;
+        const QStringList dialogFiles = {
+            QStringLiteral("ActivityCenterPanel.qml"),
+            QStringLiteral("QuickSwitcher.qml"),
+        };
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
             // EditorContext rows are routed by the composer through
@@ -5107,6 +5113,25 @@ Item {
                 continue;
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
+            if (context == ShortcutRegistry::SettingsContext) {
+                ++settingsRows;
+                const QString source = code(read(dir.filePath(QStringLiteral("SettingsScreen.qml"))));
+                if (!source.contains(QStringLiteral("action === \"%1\"").arg(id)))
+                    unwired.append(id);
+                continue;
+            }
+            // DialogContext rows are dispatched from each supporting surface,
+            // not from QML Shortcut objects. Check every action in each one.
+            if (context == ShortcutRegistry::DialogContext) {
+                ++dialogRows;
+                for (const QString &file : dialogFiles) {
+                    const QString source = code(read(dir.filePath(file)));
+                    if (!source.contains(QStringLiteral("dialogActionForKey("))
+                        || !source.contains(QStringLiteral("action === \"%1\"").arg(id)))
+                        unwired.append(id + QStringLiteral(" in ") + file);
+                }
+                continue;
+            }
             // MessageSelectionContext rows are resolved by
             // messageSelectionActionForKey() and run from the timeline's
             // runNavigationAction() switch: wired when it has a case.
@@ -5131,6 +5156,13 @@ Item {
         // Count control: the timeline branch must have seen the four
         // paging rows, or it is checking nothing.
         QVERIFY2(timelineRows >= 4, "no TimelineContext rows were checked");
+        QCOMPARE(dialogRows, 3);
+        QCOMPARE(settingsRows, 6);
+        const QString settingsSource = code(read(dir.filePath(QStringLiteral("SettingsScreen.qml"))));
+        QVERIFY(settingsSource.contains(QStringLiteral("installSettingsNavigation(root)")));
+        for (const QString &id : {QStringLiteral("dialog.previousItem"),
+                                 QStringLiteral("dialog.nextItem"), QStringLiteral("dialog.close")})
+            QVERIFY2(settingsSource.contains(QStringLiteral("action === \"%1\"").arg(id)), qPrintable(id));
         QVERIFY2(selectionRows >= 5,
                  "no MessageSelectionContext rows were checked");
         QVERIFY2(unwired.isEmpty(),

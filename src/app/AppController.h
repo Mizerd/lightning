@@ -975,6 +975,8 @@ public Q_SLOTS:
     // Called by MainScreen; installs once per window, and waits for the
     // window if the item has none yet.
     Q_INVOKABLE void installMouseNavigation(QQuickItem *within);
+    // Settings shares the dialog actions, before native focused controls.
+    Q_INVOKABLE void installSettingsNavigation(QQuickItem *within);
     // Whether any popup other than a tooltip is visible in `within`'s window:
     // a dialog, menu, picker or viewer, MODAL OR NOT. A Back/Forward press
     // while one is open only dismisses it (browser behaviour), so the mouse
@@ -1374,6 +1376,7 @@ Q_SIGNALS:
     void currentScreenChanged();
     // From showSettingsSection(), for the kept-alive settings screen.
     void settingsSectionRequested(const QString &section);
+    void settingsDialogActionRequested(const QString &action);
     // From requestSettingsSearchFocus(), for a warm (already-built) settings
     // screen; a cold build instead takes it via
     // takeSettingsSearchFocusRequested() in Component.onCompleted.
@@ -1657,6 +1660,7 @@ private:
     // keyboard path, the mouse filter's press and the step itself.
     bool roomHistoryNavigationAllowed() const;
     QPointer<lightning::MouseNavigationFilter> m_mouseNavigation;
+    QPointer<QQuickItem> m_settingsNavigation;
     /// Event ids already handed to the notification and Activity paths, from
     /// any producer (a thread copy, the room's sync, an SDK insert observed
     /// live, a re-delivery after a sliding-sync reset). Bounded; forgets the
