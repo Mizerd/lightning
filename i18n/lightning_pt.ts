@@ -21655,7 +21655,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os atalhos globais precisam de Ctrl, Alt ou Super: o Lightning captura a tecla antes de qualquer caixa de texto, pelo que uma letra simples impediria a sua escrita em qualquer lugar.
+
+As ações das páginas de definições também aceitam Tab e Shift+Tab; estas atribuições substituem a navegação normal do foco apenas nas definições.
+
+As chaves de formatação de mensagens aplicam-se somente enquanto a caixa de mensagem estiver em foco. Em todos os outros lugares, a mesma chave ainda faz o seu trabalho habitual.
+
+Escape e as letras únicas que o menu de mensagens usa enquanto está aberto são reservadas e não podem ser atribuídas.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24397,35 +24403,35 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Diálogos</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Selecionar o item ou a secção de definições anterior</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Selecionar o item ou a secção de definições seguinte</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar Atividade, o seletor rápido ou as definições</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilize uma única combinação de teclas para navegar nos diálogos.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilize Ctrl, Alt ou Super. Os atalhos dos diálogos devem manter disponíveis a escrita normal e as teclas de navegação.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas em Atividade, no seletor rápido ou nas definições. Copiar o texto selecionado tem prioridade sobre fechar.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Em Atividade, no seletor rápido ou nas definições, «%1» é executado em vez disso.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24905,47 +24911,47 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Navegação nas definições</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir a página de definições anterior</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir a página de definições seguinte</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para a subsecção de definições anterior</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para a subsecção de definições seguinte</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilize uma única combinação de teclas para navegar nas definições.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilize Ctrl, Alt ou Super. As ações das páginas de definições também aceitam Tab ou Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas nas definições. Substitui a navegação partilhada; as atribuições de Tab substituem a navegação normal do foco.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nas definições, «%1» é executado em vez disso.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Deslocar as definições meia página para cima</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Deslocar as definições meia página para baixo</translation>
     </message>
 </context>
 <context>

@@ -21938,7 +21938,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>تحتاج الاختصارات العامة إلى Ctrl أو Alt أو Super: يلتقط Lightning المفتاح قبل أن يصل إلى أي مربع نص، لذا فإن تعيين حرف عادي سيمنعك من كتابته في أي مكان.
+
+تقبل إجراءات صفحات الإعدادات أيضاً Tab وShift+Tab؛ تحل هذه التعيينات محل التنقل العادي للتركيز في الإعدادات فقط.
+
+يتم تطبيق مفاتيح تنسيق الرسالة فقط عندما يكون التركيز على مربع الرسالة. وفي كل مكان آخر، لا يزال نفس المفتاح يؤدي وظيفته المعتادة.
+
+Escape، والأحرف الفردية التي تستخدمها قائمة الرسائل أثناء فتحها، محجوزة ولا يمكن تخصيصها.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24692,35 +24698,35 @@ Note: importing keys does not verify this session.</source>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>مربعات الحوار</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>تحديد العنصر أو قسم الإعدادات السابق</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>تحديد العنصر أو قسم الإعدادات التالي</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>إغلاق النشاط أو المبدّل السريع أو الإعدادات</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدم تركيبة مفاتيح واحدة للتنقل في مربعات الحوار.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدم Ctrl أو Alt أو Super. يجب أن تترك اختصارات الحوار الكتابة العادية ومفاتيح التنقل متاحة.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>فقط في النشاط أو المبدّل السريع أو الإعدادات. نسخ النص المحدد له الأولوية على الإغلاق.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>في النشاط أو المبدّل السريع أو الإعدادات، يُنفَّذ «%1» بدلاً من ذلك.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -25200,47 +25206,47 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>التنقل في الإعدادات</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>فتح صفحة الإعدادات السابقة</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>فتح صفحة الإعدادات التالية</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى القسم الفرعي السابق في الإعدادات</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>الانتقال إلى القسم الفرعي التالي في الإعدادات</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدم تركيبة مفاتيح واحدة للتنقل في الإعدادات.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدم Ctrl أو Alt أو Super. تقبل إجراءات صفحات الإعدادات أيضاً Tab أو Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>فقط في الإعدادات. يتجاوز التنقل المشترك؛ تحل تعيينات Tab محل التنقل العادي للتركيز.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>في الإعدادات، يُنفَّذ «%1» بدلاً من ذلك.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>تمرير الإعدادات نصف صفحة إلى الأعلى</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>تمرير الإعدادات نصف صفحة إلى الأسفل</translation>
     </message>
 </context>
 <context>

@@ -21582,7 +21582,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pintasan global memerlukan Ctrl, Alt, atau Super: Lightning menangkap tombol sebelum kotak teks mana pun menerimanya, sehingga pengikatan huruf biasa akan menghalangi Anda mengetik huruf tersebut di mana saja.
+
+Tindakan halaman pengaturan juga menerima Tab dan Shift+Tab; pengikatan ini menggantikan perpindahan fokus normal hanya di Pengaturan.
+
+Kunci pemformatan pesan hanya berlaku ketika kotak pesan memiliki fokus. Di tempat lain, kunci yang sama masih berfungsi seperti biasanya.
+
+Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan tidak dapat ditetapkan.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24321,35 +24327,35 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Dialog</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Pilih item atau bagian pengaturan sebelumnya</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Pilih item atau bagian pengaturan berikutnya</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Tutup Aktivitas, pengalih cepat, atau Pengaturan</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gunakan satu kombinasi tombol untuk navigasi dialog.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gunakan Ctrl, Alt, atau Super. Pintasan dialog harus tetap menyediakan pengetikan biasa dan tombol navigasi.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Hanya di Aktivitas, pengalih cepat, atau Pengaturan. Menyalin teks yang dipilih diprioritaskan daripada menutup.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Di Aktivitas, pengalih cepat, atau Pengaturan, “%1” dijalankan sebagai gantinya.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24829,47 +24835,47 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Navigasi pengaturan</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Buka halaman pengaturan sebelumnya</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Buka halaman pengaturan berikutnya</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Lompat ke subbagian pengaturan sebelumnya</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Lompat ke subbagian pengaturan berikutnya</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gunakan satu kombinasi tombol untuk navigasi pengaturan.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gunakan Ctrl, Alt, atau Super. Tindakan halaman pengaturan juga menerima Tab atau Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Hanya di Pengaturan. Menggantikan navigasi bersama; pengikatan Tab menggantikan perpindahan fokus normal.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Di Pengaturan, “%1” dijalankan sebagai gantinya.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Gulir pengaturan setengah halaman ke atas</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Gulir pengaturan setengah halaman ke bawah</translation>
     </message>
 </context>
 <context>

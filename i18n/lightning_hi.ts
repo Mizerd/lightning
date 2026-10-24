@@ -21655,7 +21655,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>वैश्विक शॉर्टकट के लिए Ctrl, Alt या Super की आवश्यकता होती है: Lightning किसी भी टेक्स्ट बॉक्स से पहले कुंजी को ग्रहण करता है, इसलिए एक सामान्य अक्षर बाँधने पर आप उसे कहीं भी टाइप नहीं कर पाएँगे।
+
+सेटिंग पृष्ठ क्रियाएँ Tab और Shift+Tab भी स्वीकार करती हैं; ये बाइंडिंग केवल सेटिंग में सामान्य फ़ोकस नेविगेशन की जगह लेती हैं।
+
+संदेश स्वरूपण कुंजियाँ केवल तभी लागू होती हैं जब संदेश बॉक्स पर फोकस होता है। अन्य सभी जगह, वही कुंजी अभी भी अपना सामान्य कार्य करती है।
+
+एस्केप, और संदेश मेनू खुले रहने के दौरान जिन एकल अक्षरों का उपयोग करता है, वे आरक्षित हैं और उन्हें असाइन नहीं किया जा सकता है।</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24397,35 +24403,35 @@ Note: importing keys does not verify this session.</source>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>संवाद</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>पिछला आइटम या सेटिंग अनुभाग चुनें</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>अगला आइटम या सेटिंग अनुभाग चुनें</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>गतिविधि, त्वरित स्विचर या सेटिंग बंद करें</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>संवाद में नेविगेशन के लिए एक कुंजी संयोजन का उपयोग करें।</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl, Alt या Super का उपयोग करें। संवाद शॉर्टकट को सामान्य टाइपिंग और नेविगेशन कुंजियाँ उपलब्ध रखनी चाहिए।</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>केवल गतिविधि, त्वरित स्विचर या सेटिंग में। चयनित पाठ की प्रतिलिपि बनाने को बंद करने पर प्राथमिकता मिलती है।</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>गतिविधि, त्वरित स्विचर या सेटिंग में इसके बजाय “%1” चलता है।</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24905,47 +24911,47 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>सेटिंग नेविगेशन</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>पिछला सेटिंग पृष्ठ खोलें</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>अगला सेटिंग पृष्ठ खोलें</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>पिछले सेटिंग उप-अनुभाग पर जाएँ</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>अगले सेटिंग उप-अनुभाग पर जाएँ</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>सेटिंग नेविगेशन के लिए एक कुंजी संयोजन का उपयोग करें।</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl, Alt या Super का उपयोग करें। सेटिंग पृष्ठ क्रियाएँ Tab या Shift+Tab भी स्वीकार करती हैं।</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>केवल सेटिंग में। साझा नेविगेशन को बदलता है; Tab बाइंडिंग सामान्य फ़ोकस नेविगेशन की जगह लेती हैं।</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>सेटिंग में इसके बजाय “%1” चलता है।</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>सेटिंग को आधा पृष्ठ ऊपर स्क्रॉल करें</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>सेटिंग को आधा पृष्ठ नीचे स्क्रॉल करें</translation>
     </message>
 </context>
 <context>

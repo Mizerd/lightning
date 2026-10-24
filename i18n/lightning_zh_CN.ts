@@ -21582,7 +21582,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>全局快捷键需要 Ctrl、Alt 或 Super：Lightning 会在任何文本框收到按键之前捕获它，因此绑定普通字母会导致你无法在任何地方输入该字母。
+
+设置页面操作也接受 Tab 和 Shift+Tab；这些绑定仅在设置中替代正常的焦点切换。
+
+消息格式化键仅在消息框具有焦点时适用。在其他地方，同一把钥匙仍然发挥其通常的作用。
+
+转义符以及消息菜单在打开时使用的单个字母均被保留且无法分配。</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24321,35 +24327,35 @@ Note: importing keys does not verify this session.</source>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>对话框</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>选择上一个项目或设置分区</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>选择下一个项目或设置分区</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭动态、快速切换器或设置</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>请使用单个组合键导航对话框。</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>请使用 Ctrl、Alt 或 Super。对话框快捷键必须保留正常输入和导航按键。</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>仅用于动态、快速切换器或设置。复制所选文本优先于关闭。</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>在动态、快速切换器或设置中，将改为执行“%1”。</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24829,47 +24835,47 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>设置导航</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>打开上一页设置</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>打开下一页设置</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到上一个设置子分区</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到下一个设置子分区</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>请使用单个组合键导航设置。</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>请使用 Ctrl、Alt 或 Super。设置页面操作也接受 Tab 或 Shift+Tab。</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>仅用于设置。覆盖共享导航；Tab 绑定会替代正常的焦点切换。</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>在设置中，将改为执行“%1”。</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>将设置向上滚动半页</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>将设置向下滚动半页</translation>
     </message>
 </context>
 <context>

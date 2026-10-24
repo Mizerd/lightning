@@ -21728,7 +21728,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Глобальным сочетаниям клавиш нужны Ctrl, Alt или Super: Lightning перехватывает клавишу до любого текстового поля, поэтому назначение обычной буквы помешает вводить её везде.
+
+Действия страниц настроек также принимают Tab и Shift+Tab; эти привязки заменяют обычный переход фокуса только в настройках.
+
+Ключи форматирования сообщения применяются только тогда, когда окно сообщения находится в фокусе. Везде та же клавиша продолжает выполнять свою обычную работу.
+
+Escape и отдельные буквы, которые меню сообщений использует, пока оно открыто, зарезервированы и не могут быть назначены.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24473,35 +24479,35 @@ Note: importing keys does not verify this session.</source>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Диалоги</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Выбрать предыдущий элемент или раздел настроек</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Выбрать следующий элемент или раздел настроек</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Закрыть активность, быстрый переключатель или настройки</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Используйте одно сочетание клавиш для навигации в диалогах.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Используйте Ctrl, Alt или Super. Сочетания клавиш диалогов должны сохранять обычный ввод и клавиши навигации.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Только в активности, быстром переключателе или настройках. Копирование выделенного текста имеет приоритет перед закрытием.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>В активности, быстром переключателе или настройках вместо этого выполняется «%1».</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24981,47 +24987,47 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Навигация в настройках</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть предыдущую страницу настроек</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть следующую страницу настроек</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к предыдущему подразделу настроек</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Перейти к следующему подразделу настроек</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Используйте одно сочетание клавиш для навигации в настройках.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Используйте Ctrl, Alt или Super. Действия страниц настроек также принимают Tab или Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Только в настройках. Заменяет общую навигацию; привязки Tab заменяют обычный переход фокуса.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>В настройках вместо этого выполняется «%1».</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Прокрутить настройки на полстраницы вверх</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Прокрутить настройки на полстраницы вниз</translation>
     </message>
 </context>
 <context>

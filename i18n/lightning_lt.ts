@@ -21288,7 +21288,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Bendriesiems spartiesiems klavišams reikia Ctrl, Alt arba Super: „Lightning“ perima klavišą prieš jį gaunant bet kuriam teksto laukeliui, todėl paprastos raidės priskyrimas neleistų jos įvesti niekur.
+
+Nustatymų puslapių veiksmams taip pat tinka Tab ir Shift+Tab; šie priskyrimai pakeičia įprastą židinio perkėlimą tik nustatymuose.
+
+Žinutės formatavimo raktai taikomi tik tada, kai žinučių laukelis yra sufokusuotas. Visur kitur tas pats raktas atlieka įprastą funkciją.
+
+Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas, yra rezervuotos ir jų negalima priskirti.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24473,35 +24479,35 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Dialogai</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Pasirinkti ankstesnį elementą arba nustatymų skiltį</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Pasirinkti kitą elementą arba nustatymų skiltį</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Užverti veiklos langą, spartųjį perjungiklį arba nustatymus</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naršymui dialoguose naudokite vieną klavišų derinį.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naudokite Ctrl, Alt arba Super. Dialogų spartieji klavišai turi netrukdyti įprastam rašymui ir naršymo klavišams.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tik veiklos lange, sparčiajame perjungiklyje arba nustatymuose. Pasirinkto teksto kopijavimas turi pirmenybę prieš užvėrimą.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Veiklos lange, sparčiajame perjungiklyje arba nustatymuose vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24981,47 +24987,47 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Naršymas nustatymuose</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Atverti ankstesnį nustatymų puslapį</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Atverti kitą nustatymų puslapį</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Pereiti į ankstesnį nustatymų poskyrį</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Pereiti į kitą nustatymų poskyrį</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naršymui nustatymuose naudokite vieną klavišų derinį.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naudokite Ctrl, Alt arba Super. Nustatymų puslapių veiksmams taip pat tinka Tab arba Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tik nustatymuose. Pakeičia bendrą naršymą; Tab priskyrimai pakeičia įprastą židinio perkėlimą.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nustatymuose vietoj to vykdoma „%1“.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Slinkti nustatymus puse puslapio aukštyn</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Slinkti nustatymus puse puslapio žemyn</translation>
     </message>
 </context>
 <context>

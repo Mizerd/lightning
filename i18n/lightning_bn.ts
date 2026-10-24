@@ -21646,7 +21646,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>গ্লোবাল শর্টকাটের জন্য Ctrl, Alt বা Super প্রয়োজন: Lightning যেকোনো টেক্সট বক্সের আগে কীটি গ্রহণ করে, তাই একটি সাধারণ অক্ষর বাঁধলে আপনি সেটি কোথাও টাইপ করতে পারবেন না।
+
+সেটিংস পৃষ্ঠার কাজগুলো Tab ও Shift+Tab-ও গ্রহণ করে; এই বাঁধনগুলো শুধু সেটিংসে স্বাভাবিক ফোকাস নেভিগেশন প্রতিস্থাপন করে।
+
+মেসেজ ফরম্যাটিং কী শুধুমাত্র মেসেজ বক্সে ফোকাস থাকলেই প্রযোজ্য হয়। অন্য সব জায়গায়, একই কী এখনও তার স্বাভাবিক কাজ করে।
+
+Escape, এবং বার্তা মেনু খোলা থাকা অবস্থায় যে একক অক্ষর ব্যবহার করে, সেগুলি সংরক্ষিত এবং বরাদ্দ করা যায় না।</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24388,35 +24394,35 @@ Note: importing keys does not verify this session.</source>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>ডায়ালগ</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>আগের আইটেম বা সেটিংস বিভাগ নির্বাচন করুন</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>পরের আইটেম বা সেটিংস বিভাগ নির্বাচন করুন</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>কার্যকলাপ, দ্রুত সুইচার বা সেটিংস বন্ধ করুন</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>ডায়ালগে নেভিগেশনের জন্য একটি কী সমন্বয় ব্যবহার করুন।</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl, Alt বা Super ব্যবহার করুন। ডায়ালগ শর্টকাটকে স্বাভাবিক টাইপিং ও নেভিগেশন কী উপলভ্য রাখতে হবে।</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু কার্যকলাপ, দ্রুত সুইচার বা সেটিংসে। নির্বাচিত লেখা কপি করা বন্ধ করার চেয়ে অগ্রাধিকার পায়।</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>কার্যকলাপ, দ্রুত সুইচার বা সেটিংসে এর বদলে “%1” চলে।</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24896,47 +24902,47 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>সেটিংস নেভিগেশন</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>আগের সেটিংস পৃষ্ঠা খুলুন</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>পরের সেটিংস পৃষ্ঠা খুলুন</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>আগের সেটিংস উপবিভাগে যান</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>পরের সেটিংস উপবিভাগে যান</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>সেটিংস নেভিগেশনের জন্য একটি কী সমন্বয় ব্যবহার করুন।</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl, Alt বা Super ব্যবহার করুন। সেটিংস পৃষ্ঠার কাজগুলো Tab বা Shift+Tab-ও গ্রহণ করে।</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু সেটিংসে। ভাগ করা নেভিগেশন প্রতিস্থাপন করে; Tab বাঁধন স্বাভাবিক ফোকাস নেভিগেশন প্রতিস্থাপন করে।</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>সেটিংসে এর বদলে “%1” চলে।</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>সেটিংস অর্ধেক পৃষ্ঠা উপরে স্ক্রল করুন</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>সেটিংস অর্ধেক পৃষ্ঠা নিচে স্ক্রল করুন</translation>
     </message>
 </context>
 <context>

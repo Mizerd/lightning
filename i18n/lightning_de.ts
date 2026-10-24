@@ -22295,7 +22295,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Globale Tastenkombinationen brauchen Ctrl, Alt oder Super: Lightning fängt die Taste ab, bevor ein Textfeld sie sieht, daher könntest du bei einem einfachen Buchstaben diesen Buchstaben nirgends mehr tippen.
+
+Aktionen für Einstellungsseiten akzeptieren auch Tab und Shift+Tab; diese Belegungen ersetzen die normale Fokusnavigation nur in den Einstellungen.
+
+Tasten für die Nachrichtenformatierung gelten nur, solange das Nachrichtenfeld den Fokus hat. Überall sonst erfüllt dieselbe Taste weiterhin ihre übliche Aufgabe.
+
+Escape und die einzelnen Buchstaben, die das Nachrichtenmenü bei geöffnetem Zustand verwendet, sind reserviert und können nicht zugewiesen werden.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24397,35 +24403,35 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Dialoge</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Vorherigen Eintrag oder Einstellungsbereich auswählen</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Nächsten Eintrag oder Einstellungsbereich auswählen</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Aktivität, Schnellauswahl oder Einstellungen schließen</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwende eine einzelne Tastenkombination zur Dialognavigation.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwende Ctrl, Alt oder Super. Dialogkürzel müssen normales Tippen und Navigationstasten verfügbar lassen.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur in Aktivität, Schnellauswahl oder Einstellungen. Das Kopieren ausgewählten Texts hat Vorrang vor dem Schließen.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>In Aktivität, Schnellauswahl oder Einstellungen wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24905,47 +24911,47 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Navigation in den Einstellungen</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Vorherige Einstellungsseite öffnen</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Nächste Einstellungsseite öffnen</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Zum vorherigen Unterabschnitt der Einstellungen springen</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Zum nächsten Unterabschnitt der Einstellungen springen</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwende eine einzelne Tastenkombination zur Navigation in den Einstellungen.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwende Ctrl, Alt oder Super. Aktionen für Einstellungsseiten akzeptieren auch Tab oder Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur in den Einstellungen. Überschreibt die gemeinsame Navigation; Tab-Belegungen ersetzen die normale Fokusnavigation.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>In den Einstellungen wird stattdessen „%1“ ausgeführt.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Einstellungen eine halbe Seite nach oben scrollen</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Einstellungen eine halbe Seite nach unten scrollen</translation>
     </message>
 </context>
 <context>

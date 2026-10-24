@@ -21655,7 +21655,13 @@ Settings page actions also accept Tab and Shift+Tab; those bindings replace norm
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation type="unfinished"></translation>
+        <translation>Les raccourcis globaux nécessitent Ctrl, Alt ou Super : Lightning intercepte la touche avant toute zone de texte, donc une simple lettre vous empêcherait de la saisir partout.
+
+Les actions des pages de paramètres acceptent aussi Tab et Shift+Tab ; ces raccourcis remplacent le parcours normal du focus uniquement dans les paramètres.
+
+Les clés de formatage des messages s'appliquent uniquement lorsque la boîte de message a le focus. Partout ailleurs, la même clé fait toujours son travail habituel.
+
+L'échappement et les lettres uniques utilisées par le menu de messages lorsqu'il est ouvert sont réservées et ne peuvent pas être attribuées.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24397,35 +24403,35 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <name>ShortcutRegistry</name>
     <message>
         <source>Dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Boîtes de dialogue</translation>
     </message>
     <message>
         <source>Select the previous item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Sélectionner l’élément ou la section des paramètres précédent</translation>
     </message>
     <message>
         <source>Select the next item or Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Sélectionner l’élément ou la section des paramètres suivant</translation>
     </message>
     <message>
         <source>Dismiss Activity, the quick switcher or Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Fermer Activité, le sélecteur rapide ou les paramètres</translation>
     </message>
     <message>
         <source>Use a single key combination for dialog navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilisez une seule combinaison de touches pour naviguer dans les boîtes de dialogue.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Dialog shortcuts must leave ordinary typing and navigation keys available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilisez Ctrl, Alt ou Super. Les raccourcis des boîtes de dialogue doivent laisser disponibles la saisie normale et les touches de navigation.</translation>
     </message>
     <message>
         <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uniquement dans Activité, le sélecteur rapide ou les paramètres. Copier le texte sélectionné est prioritaire sur la fermeture.</translation>
     </message>
     <message>
         <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dans Activité, le sélecteur rapide ou les paramètres, « %1 » est exécuté à la place.</translation>
     </message>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+398"/>
@@ -24905,47 +24911,47 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Navigation dans les paramètres</translation>
     </message>
     <message>
         <source>Open the previous Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Ouvrir la page de paramètres précédente</translation>
     </message>
     <message>
         <source>Open the next Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Ouvrir la page de paramètres suivante</translation>
     </message>
     <message>
         <source>Jump to the previous Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Aller à la sous-section précédente des paramètres</translation>
     </message>
     <message>
         <source>Jump to the next Settings subsection</source>
-        <translation type="unfinished"></translation>
+        <translation>Aller à la sous-section suivante des paramètres</translation>
     </message>
     <message>
         <source>Use a single key combination for Settings navigation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilisez une seule combinaison de touches pour naviguer dans les paramètres.</translation>
     </message>
     <message>
         <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
-        <translation type="unfinished"></translation>
+        <translation>Utilisez Ctrl, Alt ou Super. Les actions des pages de paramètres acceptent aussi Tab ou Shift+Tab.</translation>
     </message>
     <message>
         <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uniquement dans les paramètres. Remplace la navigation partagée ; les raccourcis Tab remplacent le parcours normal du focus.</translation>
     </message>
     <message>
         <source>In Settings, “%1” runs instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dans les paramètres, « %1 » est exécuté à la place.</translation>
     </message>
     <message>
         <source>Scroll Settings up half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Faire défiler les paramètres d’une demi-page vers le haut</translation>
     </message>
     <message>
         <source>Scroll Settings down half a page</source>
-        <translation type="unfinished"></translation>
+        <translation>Faire défiler les paramètres d’une demi-page vers le bas</translation>
     </message>
 </context>
 <context>
