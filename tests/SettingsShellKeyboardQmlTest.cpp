@@ -5,6 +5,9 @@
 // keyboard. Production Main window, mock backend.
 #include <QtTest/QtTest>
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QScopeGuard>
+#include "app/ShortcutRegistry.h"
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -90,6 +93,12 @@ private slots:
         QVERIFY(loginSpy.wait(kSignalTimeoutMs));
         QTRY_VERIFY(m_controller->loggedIn());
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QCoreApplication::processEvents();
+    }
+
+    void cleanup()
+    {
+        m_controller->showMain();
         QCoreApplication::processEvents();
     }
 
@@ -247,6 +256,251 @@ private slots:
         QCOMPARE(content->property("contentY").toReal(), 0.0);
         m_window->setHeight(800);
         QCoreApplication::processEvents();
+    }
+
+    void dialogKeysSwitchSectionsAndKeepTabAvailable()
+    {
+        openSection(QStringLiteral("account"));
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        search->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        auto *privacy = item("settingsNavRow_privacy");
+        QVERIFY(privacy);
+        QVERIFY(privacy->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QVERIFY(!privacy->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("account"));
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("account"));
+        screen->setProperty("section", QStringLiteral("about"));
+        item("settingsNavRow_about")->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("about"));
+    }
+
+    void sectionNavigationSkipsFilteredRows()
+    {
+        openSection(QStringLiteral("account"));
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        search->setProperty("text", QStringLiteral("cursor blinking"));
+        search->forceActiveFocus();
+        QTRY_VERIFY(!item("settingsNavRow_privacy")->isVisible());
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
+                 QStringLiteral("appearance"));
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
+                 QStringLiteral("appearance"));
+        search->setProperty("text", QString());
+    }
+
+    void closePreservesCopyAndPeelsSearchBeforeLeaving()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        search->setProperty("text", QStringLiteral("cursor"));
+        search->forceActiveFocus();
+        QVERIFY(QMetaObject::invokeMethod(search, "selectAll"));
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("cursor"));
+        QCOMPARE(search->property("text").toString(), QStringLiteral("cursor"));
+        QVERIFY(QMetaObject::invokeMethod(search, "deselect"));
+        QTRY_COMPARE(search->property("selectedText").toString(), QString());
+        QVERIFY(search->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(search->property("text").toString(), QString());
+        QCOMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_COMPARE(m_controller->currentScreen(), AppController::MainScreen);
+    }
+
+    void closeLeavesAContentEditorBeforeSettings()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *box = item("textScalePercentBox");
+        QVERIFY(box);
+        const QString before = box->property("text").toString();
+        box->forceActiveFocus();
+        QTRY_VERIFY(box->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_7);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(box->property("text").toString(), before);
+        QCOMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QTRY_COMPARE(m_controller->currentScreen(), AppController::MainScreen);
+    }
+
+    void reboundDialogKeysWorkAndCaptureKeepsTheChord()
+    {
+        auto *shortcuts = m_controller->shortcuts();
+        const auto restore = qScopeGuard([&] {
+            shortcuts->resetToDefault(QStringLiteral("dialog.nextItem"));
+            shortcuts->resetToDefault(QStringLiteral("dialog.close"));
+        });
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("dialog.nextItem"),
+                                      QStringLiteral("Ctrl+Down")), QString());
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("dialog.close"),
+                                      QStringLiteral("Ctrl+Return")), QString());
+        openSection(QStringLiteral("account"));
+        item("settingsSearchField")->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Down, Qt::ControlModifier);
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
+                 QStringLiteral("privacy"));
+        QTest::keyClick(m_window, Qt::Key_Return, Qt::ControlModifier);
+        QTRY_COMPARE(m_controller->currentScreen(), AppController::MainScreen);
+
+        openSection(QStringLiteral("shortcuts"));
+        auto *change = item("shortcutChange_dialog.close");
+        QVERIFY(change);
+        QQuickItem *row = change;
+        while (row && row->property("actionId").toString() != QStringLiteral("dialog.close"))
+            row = row->parentItem();
+        QVERIFY(row);
+        QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
+        QTRY_VERIFY(item("shortcutCaptureSink_dialog.close")->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(shortcuts->sequenceFor(QStringLiteral("dialog.close")),
+                 QStringLiteral("Ctrl+C"));
+        QCOMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
+    }
+
+    void pageTabsAndSubsectionKeysRevealTheirTarget()
+    {
+        auto *shortcuts = m_controller->shortcuts();
+        const QStringList ids = {QStringLiteral("settings.nextPage"), QStringLiteral("settings.previousPage"),
+            QStringLiteral("settings.nextSubsection"), QStringLiteral("settings.previousSubsection")};
+        const auto restore = qScopeGuard([&] {
+            for (const QString &id : ids)
+                shortcuts->resetToDefault(id);
+        });
+        const QStringList keys = {QStringLiteral("Tab"), QStringLiteral("Shift+Tab"),
+                                   QStringLiteral("Ctrl+J"), QStringLiteral("Ctrl+K")};
+        for (int i = 0; i < ids.size(); ++i)
+            QCOMPARE(shortcuts->setBinding(ids[i], keys[i]), QString());
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        search->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("shortcuts"));
+        QTest::keyClick(m_window, Qt::Key_Backtab, Qt::ShiftModifier);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(flick);
+        flick->setProperty("contentY", 0.0);
+        flick->forceActiveFocus();
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(screen, "refreshOutlineActive"));
+        const int before = screen->property("outlineActive").toInt();
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        const int next = screen->property("outlineActive").toInt();
+        QVERIFY(next > before);
+        const QString anchor = screen->property("searchRevealAnchor").toString();
+        QVERIFY(!anchor.isEmpty());
+        QTRY_VERIFY(flick->property("contentY").toReal() > 0);
+        QVERIFY(m_window->activeFocusItem()->objectName().startsWith(QStringLiteral("settingsNavOutlineEntry_")));
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(screen->property("outlineActive").toInt(), before);
+        QTest::keyClick(m_window, Qt::Key_K, Qt::ControlModifier);
+        QCOMPARE(screen->property("outlineActive").toInt(), before);
+        QTest::keyClick(m_window, Qt::Key_Comma, Qt::ControlModifier);
+        QTRY_VERIFY(search->hasActiveFocus());
+        search->setProperty("text", QStringLiteral("cursor"));
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTRY_COMPARE(search->property("text").toString(), QString());
+        QTRY_VERIFY(m_window->activeFocusItem()->objectName().startsWith(QStringLiteral("settingsNavOutlineEntry_")));
+    }
+
+    void settingsPageTabsCanBeCapturedFromTheConfigMenu()
+    {
+        auto *shortcuts = m_controller->shortcuts();
+        const auto restore = qScopeGuard([&] {
+            shortcuts->resetToDefault(QStringLiteral("settings.nextPage"));
+            shortcuts->resetToDefault(QStringLiteral("settings.previousPage"));
+        });
+        openSection(QStringLiteral("shortcuts"));
+        for (const QString &id : {QStringLiteral("settings.nextPage"), QStringLiteral("settings.previousPage")}) {
+            const QByteArray name = (QStringLiteral("shortcutChange_") + id).toUtf8();
+            auto *change = item(name.constData());
+            QVERIFY(change);
+            QQuickItem *row = change;
+            while (row && row->property("actionId").toString() != id)
+                row = row->parentItem();
+            QVERIFY(row);
+            QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
+            const bool previous = id == QStringLiteral("settings.previousPage");
+            QTest::keyClick(m_window, previous ? Qt::Key_Backtab : Qt::Key_Tab,
+                            previous ? Qt::ShiftModifier : Qt::NoModifier);
+            QCOMPARE(shortcuts->sequenceFor(id), previous ? QStringLiteral("Shift+Tab") : QStringLiteral("Tab"));
+            QVERIFY(!row->property("capturing").toBool());
+            QCOMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
+        }
+    }
+
+    void manualHalfPagesScrollContentWithoutMovingFocus()
+    {
+        auto *shortcuts = m_controller->shortcuts();
+        const auto restore = qScopeGuard([&] {
+            shortcuts->resetToDefault(QStringLiteral("settings.halfPageUp"));
+            shortcuts->resetToDefault(QStringLiteral("settings.halfPageDown"));
+        });
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("settings.halfPageUp"), QStringLiteral("Ctrl+U")), QString());
+        QCOMPARE(shortcuts->setBinding(QStringLiteral("settings.halfPageDown"), QStringLiteral("Ctrl+D")), QString());
+        openSection(QStringLiteral("appearance"));
+        auto *flick = item("settingsContentFlick");
+        auto *nav = item("settingsNavFlick");
+        auto *row = item("settingsNavRow_appearance");
+        QVERIFY(flick);
+        QVERIFY(nav);
+        QVERIFY(row);
+        row->forceActiveFocus();
+        flick->setProperty("contentY", 0.0);
+        const qreal navY = nav->property("contentY").toReal();
+        const qreal half = flick->height() / 2;
+        QTest::keyClick(m_window, Qt::Key_D, Qt::ControlModifier);
+        QVERIFY(qAbs(flick->property("contentY").toReal() - half) < 2);
+        QVERIFY(row->hasActiveFocus());
+        QCOMPARE(nav->property("contentY").toReal(), navY);
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(), QStringLiteral("appearance"));
+        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QVERIFY(qAbs(flick->property("contentY").toReal()) < 2);
+        QTest::keyClick(m_window, Qt::Key_U, Qt::ControlModifier);
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+        const qreal maxY = flick->property("contentHeight").toReal() - flick->height();
+        flick->setProperty("contentY", maxY);
+        QTest::keyClick(m_window, Qt::Key_D, Qt::ControlModifier);
+        QVERIFY(qAbs(flick->property("contentY").toReal() - maxY) < 2);
+        QVERIFY(row->hasActiveFocus());
+    }
+
+    void nestedDialogKeepsSettingsKeys()
+    {
+        openSection(QStringLiteral("account"));
+        QObject *dialog = nullptr;
+        for (QObject *o : m_window->findChildren<QObject *>()) {
+            if (o->property("title").toString() == QLatin1String("Clear your display name?")) {
+                dialog = o;
+                break;
+            }
+        }
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QTRY_VERIFY(item("confirmDialogCancel")->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_J, Qt::ControlModifier);
+        QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
+                 QStringLiteral("account"));
+        QCOMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
+        QVERIFY(dialog->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
     }
 
     // C63-F07: Menu opens the copy-link menu for the focused setting.

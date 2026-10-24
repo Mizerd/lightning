@@ -19,6 +19,12 @@ Item {
     // results in place of the list.
     property bool shown: false
 
+    function focusEntry(index) {
+        var entry = outlineRepeater.itemAt(index)
+        if (entry)
+            entry.forceActiveFocus(Qt.ShortcutFocusReason)
+    }
+
     signal entryActivated(int index)
     // A keyboard-focused entry, so the owner can scroll it into view.
     signal entryFocused(Item entry)
@@ -64,6 +70,7 @@ Item {
         }
 
         Repeater {
+            id: outlineRepeater
             model: outline.entries
             delegate: AbstractButton {
                 id: entryRow

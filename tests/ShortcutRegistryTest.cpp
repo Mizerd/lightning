@@ -296,6 +296,39 @@ private Q_SLOTS:
                  QStringLiteral("timeline.olderMessage"));
     }
 
+    void settingsOverridesAllowPageTabsAndKeepDialogKeysSeparate()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        QVERIFY(registry.sequenceFor(QStringLiteral("settings.nextPage")).isEmpty());
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.nextPage"), QStringLiteral("Tab")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.previousPage"), QStringLiteral("Shift+Tab")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.nextSubsection"), QStringLiteral("Ctrl+J")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("settings.previousSubsection"), QStringLiteral("Ctrl+K")), QString());
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_Tab, Qt::NoModifier),
+                 QStringLiteral("settings.nextPage"));
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_Backtab, Qt::ShiftModifier),
+                 QStringLiteral("settings.previousPage"));
+        QCOMPARE(registry.settingsActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("settings.nextSubsection"));
+        QCOMPARE(registry.dialogActionForKey(Qt::Key_J, Qt::ControlModifier),
+                 QStringLiteral("dialog.nextItem"));
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextSubsection"), QStringLiteral("Tab")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextPage"), QStringLiteral("J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("settings.nextPage"), QStringLiteral("Ctrl+J")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("dialog.close"), QStringLiteral("Ctrl+J")).isEmpty());
+        QCOMPARE(registry.conflictCount(), 0);
+        QVERIFY(roleFor(registry, QStringLiteral("settings.nextPage"),
+                        ShortcutRegistry::ShadowNoteRole).contains(QStringLiteral("Tab")));
+        ShortcutRegistry restored(&settings);
+        QCOMPARE(restored.sequenceFor(QStringLiteral("settings.nextPage")), QStringLiteral("Tab"));
+        QCOMPARE(restored.resetToDefault(QStringLiteral("settings.nextPage")), QString());
+        QVERIFY(restored.sequenceFor(QStringLiteral("settings.nextPage")).isEmpty());
+        QCOMPARE(ShortcutRegistry::normalize(QStringLiteral("Shift+Backtab")), QStringLiteral("Shift+Tab"));
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -332,6 +365,10 @@ private Q_SLOTS:
                     .toString();
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
+            if (seq.isEmpty()) {
+                QCOMPARE(ctx, QString::number(int(ShortcutRegistry::SettingsContext)));
+                continue;
+            }
             auto &seen = seenPerContext[ctx];
             // The one designed share: find-previous and the GIF picker hold
             // Ctrl+Shift+G on mutually exclusive QML gates (m_exclusive).
@@ -400,6 +437,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            if (seq.isEmpty()
+                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                   == ShortcutRegistry::SettingsContext)
+                continue; // Settings overrides are opt-in.
             QVERIFY2(!seq.isEmpty(),
                      qPrintable(QStringLiteral("%1 has an unparseable default")
                                     .arg(id)));
@@ -428,6 +469,10 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
+            if (seq.isEmpty()
+                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                   == ShortcutRegistry::SettingsContext)
+                continue;
             // A selection action is a Keys handler on the focused timeline,
             // so a bare key is exactly what it is for; it must still be
             // storable (no navigation key) and a single chord.
@@ -684,6 +729,8 @@ private Q_SLOTS:
         QHash<QString, QStringList> idsBySequence;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
+            if (registry.data(idx, ShortcutRegistry::CurrentSequenceRole).toString().isEmpty())
+                continue;
             idsBySequence[registry
                               .data(idx,
                                     ShortcutRegistry::CurrentSequenceRole)

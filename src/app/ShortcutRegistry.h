@@ -62,10 +62,12 @@ public:
         /// claims them before Global shortcuts; compose never receives them.
         /// Plain letters are safe here and may shadow Global/Editor bindings.
         MessageSelectionContext = 3,
-        /// Dispatched only inside Activity and the quick switcher. These
-        /// modal surfaces exclude main-window shortcuts, but their query
-        /// fields must still accept ordinary typing and selected-text Copy.
+        /// Dispatched only inside Activity, the quick switcher and Settings.
+        /// These surfaces claim the chord before main-window shortcuts, while
+        /// their fields retain ordinary typing and selected-text Copy.
         DialogContext = 4,
+        /// Settings-only overrides of shared dialog navigation.
+        SettingsContext = 5,
     };
     Q_ENUM(ActionContext)
 
@@ -144,6 +146,10 @@ public:
     Q_INVOKABLE QString dialogActionForKey(int key, int modifiers,
                                           bool copyingSelectedText = false) const;
 
+    /// Settings-specific actions take priority over shared dialog navigation.
+    QString settingsActionForKey(int key, int modifiers,
+                                 bool copyingSelectedText = false) const;
+
     /// What a composer should CLAIM on ShortcutOverride. Same as
     /// editorActionForKey(), except that with nothing selected a key that a
     /// Global action also holds (Ctrl+B panel toggle, Ctrl+U people panel) is
@@ -219,6 +225,7 @@ private:
     QVector<QPair<QString, QString>> m_exclusive;
     bool exclusive(const QString &a, const QString &b) const;
     static bool contextsClash(ActionContext a, ActionContext b);
+    static bool actionsClash(const Action &a, const Action &b);
     /// Resolved sequence per row. Cached because data() runs per role per row
     /// on every repaint and a miss would be a QSettings read.
     QVector<QString> m_resolved;

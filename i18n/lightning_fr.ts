@@ -21648,16 +21648,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+68"/>
-        <source>A shortcut needs Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+        <source>Global shortcuts need Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
+
+Settings page actions also accept Tab and Shift+Tab; those bindings replace normal focus traversal only in Settings.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
 
 Escape, and the single letters the message menu uses while it is open, are reserved and cannot be assigned.</source>
-        <translation>Un raccourci nécessite Ctrl, Alt ou Super&#xa0;: Lightning prend la touche avant qu&apos;une zone de texte ne la voie, donc une simple lettre vous empêcherait de taper cette lettre n&apos;importe où.
-
-Les clés de formatage des messages s&apos;appliquent uniquement lorsque la boîte de message a le focus. Partout ailleurs, la même clé fait toujours son travail habituel.
-
-L&apos;échappement et les lettres uniques utilisées par le menu de messages lorsqu&apos;il est ouvert sont réservées et ne peuvent pas être attribuées.</translation>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+39"/>
@@ -24402,15 +24400,15 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Select the previous item in Activity or the quick switcher</source>
+        <source>Select the previous item or Settings section</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Select the next item in Activity or the quick switcher</source>
+        <source>Select the next item or Settings section</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close Activity or the quick switcher</source>
+        <source>Dismiss Activity, the quick switcher or Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -24422,11 +24420,11 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Only while Activity or the quick switcher is open. Copying selected text takes priority over closing.</source>
+        <source>Only in Activity, the quick switcher or Settings. Copying selected text takes priority over closing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>While Activity or the quick switcher is open, “%1” runs instead.</source>
+        <source>In Activity, the quick switcher or Settings, “%1” runs instead.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -24904,6 +24902,50 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="+3"/>
         <source>While the message box has focus, “%1” runs instead.</source>
         <translation>Pendant que la boîte de message a le focus, « %1 » s&apos;exécute à la place.</translation>
+    </message>
+    <message>
+        <source>Settings navigation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the previous Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the next Settings page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump to the previous Settings subsection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump to the next Settings subsection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a single key combination for Settings navigation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Ctrl, Alt or Super. Settings page actions also accept Tab or Shift+Tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only in Settings. Overrides shared navigation; Tab bindings replace normal focus traversal.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>In Settings, “%1” runs instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll Settings up half a page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll Settings down half a page</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
