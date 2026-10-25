@@ -17,6 +17,9 @@
 #include <QSet>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QtTest>
 
 #include <functional>
@@ -427,6 +430,277 @@ private Q_SLOTS:
         QVERIFY(!reopened.exists());
         QVERIFY(reopened.themes().isEmpty());
         QVERIFY(reopened.name().isEmpty());
+    }
+
+    // ---- user colour groups (master prompt Part 6, 4; UI-001..015) ----
+
+    // UI-001/002/003: two unrelated roles linked under a name; one edit, from
+    // the group or from either member's own picker, recolours both; creation
+    // is one undo step that restores both originals.
+    void aColourGroupLinksUnrelatedRolesInOneStep()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Groups"));
+        store.setColor(QStringLiteral("accent"), QStringLiteral("#112233"));
+        store.sealUndoStep();
+        store.setColor(QStringLiteral("unreadBadge"), QStringLiteral("#445566"));
+        store.sealUndoStep();
+        const QVariantMap made = store.createColorGroup(
+            QStringLiteral("Highlights"),
+            { QStringLiteral("accent"), QStringLiteral("unreadBadge") },
+            QStringLiteral("#aa0000"), false);
+        QVERIFY2(made.value(QStringLiteral("ok")).toBool(),
+                 qPrintable(made.value(QStringLiteral("error")).toString()));
+        const QString id = made.value(QStringLiteral("id")).toString();
+        QCOMPARE(store.groupOfRole(QStringLiteral("accent")), id);
+        QCOMPARE(store.groupOfRole(QStringLiteral("unreadBadge")), id);
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#AA0000"));
+        QCOMPARE(store.colors().value(QStringLiteral("unreadBadge")).toString(),
+                 QStringLiteral("#AA0000"));
+        QCOMPARE(store.colorGroups().size(), 1);
+
+        // A member's ordinary picker edits the whole group.
+        store.setColor(QStringLiteral("unreadBadge"), QStringLiteral("#00AA00"));
+        store.sealUndoStep();
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#00AA00"));
+
+        // Undo the edit, then the creation: the exact originals and no group.
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#AA0000"));
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#112233"));
+        QCOMPARE(store.colors().value(QStringLiteral("unreadBadge")).toString(),
+                 QStringLiteral("#445566"));
+        QVERIFY(store.colorGroups().isEmpty());
+        QVERIFY(store.redo());
+        QCOMPARE(store.groupOfRole(QStringLiteral("accent")), id);
+    }
+
+    // UI-004: a drag through many samples is one step, and every sample
+    // updates every member (no partial group state).
+    void aGroupColourDragIsOneStep()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Drag"));
+        const QString id = store.createColorGroup(
+            QStringLiteral("Pair"),
+            { QStringLiteral("accent"), QStringLiteral("link") },
+            QStringLiteral("#101010"), false).value(QStringLiteral("id")).toString();
+        QVERIFY(!id.isEmpty());
+        const QString undoBefore = store.undoLabel();
+        for (int i = 0; i < 30; ++i) {
+            const QString hex = QStringLiteral("#%1%1%1")
+                .arg(0x20 + i * 4, 2, 16, QLatin1Char('0')).toUpper();
+            QVERIFY(store.setGroupColor(id, hex));
+            QCOMPARE(store.colors().value(QStringLiteral("accent")),
+                     store.colors().value(QStringLiteral("link")));
+        }
+        store.sealUndoStep();
+        QVERIFY(store.undoLabel() != undoBefore);
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#101010"));
+        QCOMPARE(store.colors().value(QStringLiteral("link")).toString(),
+                 QStringLiteral("#101010"));
+        QCOMPARE(store.undoLabel(), undoBefore);
+    }
+
+    // UI-005/006: detaching keeps the rendered colour and later group edits
+    // leave it alone; a group below two members dissolves; ungrouping keeps
+    // appearance and undo restores the relationship.
+    void detachAndUngroupKeepTheAppearance()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Detach"));
+        const QString id = store.createColorGroup(
+            QStringLiteral("Three"),
+            { QStringLiteral("accent"), QStringLiteral("link"),
+              QStringLiteral("focusRing") },
+            QStringLiteral("#123456"), false).value(QStringLiteral("id")).toString();
+        QVERIFY(store.detachFromColorGroup(QStringLiteral("focusRing")));
+        QCOMPARE(store.colors().value(QStringLiteral("focusRing")).toString(),
+                 QStringLiteral("#123456"));
+        QVERIFY(store.groupOfRole(QStringLiteral("focusRing")).isEmpty());
+        store.setGroupColor(id, QStringLiteral("#654321"));
+        store.sealUndoStep();
+        QCOMPARE(store.colors().value(QStringLiteral("focusRing")).toString(),
+                 QStringLiteral("#123456"));
+        QCOMPARE(store.colors().value(QStringLiteral("link")).toString(),
+                 QStringLiteral("#654321"));
+
+        QVERIFY(store.deleteColorGroup(id));
+        QVERIFY(store.colorGroups().isEmpty());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#654321"));
+        QVERIFY(store.undo());
+        QCOMPARE(store.groupOfRole(QStringLiteral("link")), id);
+
+        // Down to one member: the group dissolves, the colour stays.
+        QVERIFY(store.detachFromColorGroup(QStringLiteral("link")));
+        QVERIFY(store.colorGroups().isEmpty());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#654321"));
+    }
+
+    // UI-007: a role already in a group moves only when asked, atomically.
+    void movingARoleBetweenGroupsIsExplicit()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Move"));
+        const QString a = store.createColorGroup(
+            QStringLiteral("A"), { QStringLiteral("accent"), QStringLiteral("link"),
+                                   QStringLiteral("focusRing") },
+            QStringLiteral("#111111"), false).value(QStringLiteral("id")).toString();
+        const QString b = store.createColorGroup(
+            QStringLiteral("B"), { QStringLiteral("success"), QStringLiteral("warning") },
+            QStringLiteral("#222222"), false).value(QStringLiteral("id")).toString();
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+        QVariantMap refused = store.addToColorGroup(b, QStringLiteral("link"), false);
+        QVERIFY(!refused.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(store.groupOfRole(QStringLiteral("link")), a);
+        QVariantMap moved = store.addToColorGroup(b, QStringLiteral("link"), true);
+        QVERIFY(moved.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(store.groupOfRole(QStringLiteral("link")), b);
+        QCOMPARE(store.colors().value(QStringLiteral("link")).toString(),
+                 QStringLiteral("#222222"));
+        // Creating over a member also refuses without the explicit move.
+        QVERIFY(!store.createColorGroup(QStringLiteral("C"),
+                    { QStringLiteral("accent"), QStringLiteral("danger") },
+                    QStringLiteral("#333333"), false).value(QStringLiteral("ok")).toBool());
+        QVERIFY(store.undo());   // the move
+        QCOMPARE(store.groupOfRole(QStringLiteral("link")), a);
+    }
+
+    // UI-008/009/010: a parent role's inherited dependents are reported; a
+    // gradient-bearing role is refused (never silently flattened); giving a
+    // member a gradient or resetting it takes it out of the group, so a badge
+    // can never claim a link that is not there.
+    void impactGradientsAndResetsAreHonest()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Impact"));
+        const QVariantMap impact = store.colorGroupImpact(
+            { QStringLiteral("selected"), QStringLiteral("accent") });
+        QStringList dependents;
+        for (const QVariant &d : impact.value(QStringLiteral("dependents")).toList())
+            dependents << d.toMap().value(QStringLiteral("role")).toString();
+        QVERIFY2(dependents.contains(QStringLiteral("roomSelected")),
+                 qPrintable(dependents.join(QLatin1Char(','))));
+        QVERIFY(!dependents.contains(QStringLiteral("accent")));
+
+        QVariantMap grad;
+        grad.insert(QStringLiteral("type"), QStringLiteral("linear"));
+        grad.insert(QStringLiteral("angle"), 180);
+        grad.insert(QStringLiteral("stops"),
+                    QVariantList{ QStringLiteral("#000000"), QStringLiteral("#FFFFFF") });
+        QVERIFY(store.setGradient(QStringLiteral("background"), grad));
+        const QVariantMap refused = store.createColorGroup(
+            QStringLiteral("Bad"),
+            { QStringLiteral("background"), QStringLiteral("textPrimary") },
+            QStringLiteral("#444444"), false);
+        QVERIFY(!refused.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!refused.value(QStringLiteral("error")).toString().isEmpty());
+        QVERIFY(store.gradients().contains(QStringLiteral("background")));
+
+        const QString id = store.createColorGroup(
+            QStringLiteral("Surfaces"),
+            { QStringLiteral("surface"), QStringLiteral("sidebar"),
+              QStringLiteral("roomList") },
+            QStringLiteral("#202020"), false).value(QStringLiteral("id")).toString();
+        QVERIFY(!id.isEmpty());
+        QVERIFY(store.setGradient(QStringLiteral("sidebar"), grad));
+        QVERIFY(store.groupOfRole(QStringLiteral("sidebar")).isEmpty());
+        store.resetColor(QStringLiteral("roomList"));
+        // roomList left; surface alone dissolves the group.
+        QVERIFY(store.groupOfRole(QStringLiteral("roomList")).isEmpty());
+        QVERIFY(!store.colors().contains(QStringLiteral("roomList")));
+        QVERIFY(store.colorGroups().isEmpty());
+        QCOMPARE(store.colors().value(QStringLiteral("surface")).toString(),
+                 QStringLiteral("#202020"));
+    }
+
+    // UI-011/013/015: groups survive restart, duplication and the share
+    // round trip; the export still carries every materialised colour, so an
+    // older build shows the same theme.
+    void groupsSurviveRestartDuplicateAndExport()
+    {
+        SettingsManager settings;
+        QString payload;
+        {
+            CustomThemeStore store(&settings);
+            store.createTheme(QStringLiteral("Keep"));
+            QVERIFY(store.createColorGroup(QStringLiteral("Pair"),
+                        { QStringLiteral("accent"), QStringLiteral("link") },
+                        QStringLiteral("#ABCDEF"), false).value(QStringLiteral("ok")).toBool());
+            payload = store.exportTheme(store.activeThemeId());
+        }
+        CustomThemeStore reopened(&settings);
+        QCOMPARE(reopened.colorGroups().size(), 1);
+        QVERIFY(!reopened.groupOfRole(QStringLiteral("link")).isEmpty());
+        reopened.duplicateActiveTheme(QStringLiteral("Copy"));
+        QCOMPARE(reopened.colorGroups().size(), 1);
+
+        const QJsonObject shared = QJsonDocument::fromJson(payload.toUtf8()).object();
+        QCOMPARE(shared.value(QStringLiteral("colors")).toObject()
+                     .value(QStringLiteral("link")).toString(),
+                 QStringLiteral("#ABCDEF"));
+        QCOMPARE(shared.value(QStringLiteral("groups")).toArray().size(), 1);
+        QVERIFY(reopened.importTheme(payload).isEmpty());
+        QCOMPARE(reopened.colorGroups().size(), 1);
+        QCOMPARE(reopened.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#ABCDEF"));
+    }
+
+    // UI-012/014: malformed, oversized and conflicting groups are repaired or
+    // dropped deterministically; the rest of the theme is kept; a theme with
+    // no groups is untouched.
+    void untrustedGroupsAreBoundedAndRepaired()
+    {
+        QVariantMap colors{ { QStringLiteral("accent"), QStringLiteral("#010101") },
+                            { QStringLiteral("link"), QStringLiteral("#020202") } };
+        QVariantList none;
+        QVariantMap untouched = colors;
+        QCOMPARE(CustomThemeStore::normalizeColorGroups(&none, &untouched, {}), 0);
+        QCOMPARE(untouched, colors);
+
+        QVariantList groups;
+        for (int i = 0; i < 40; ++i) {
+            groups << QVariantMap{
+                { QStringLiteral("id"), QStringLiteral("g%1").arg(i) },
+                { QStringLiteral("name"), QStringLiteral("n") },
+                { QStringLiteral("color"), QStringLiteral("#0000FF") },
+                { QStringLiteral("members"),
+                  QVariantList{ QStringLiteral("accent"), QStringLiteral("link") } } };
+        }
+        // Same members claimed 40 times: first wins, the rest dissolve.
+        groups.prepend(QVariantMap{
+            { QStringLiteral("id"), QStringLiteral("<script>") },
+            { QStringLiteral("name"), QString(500, QLatin1Char('x')) },
+            { QStringLiteral("color"), QStringLiteral("#00FF00") },
+            { QStringLiteral("members"),
+              QVariantList{ QStringLiteral("accent"), QStringLiteral("nonsense"),
+                            QStringLiteral("textPrimary"), QStringLiteral("accent") } } });
+        groups.prepend(QVariantMap{ { QStringLiteral("color"), QStringLiteral("red") } });
+        QVariantMap c = colors;
+        QVERIFY(CustomThemeStore::normalizeColorGroups(&groups, &c, {}) > 0);
+        QCOMPARE(groups.size(), 1);
+        const QVariantMap g = groups.first().toMap();
+        QCOMPARE(g.value(QStringLiteral("members")).toStringList(),
+                 (QStringList{ QStringLiteral("accent"), QStringLiteral("textPrimary") }));
+        QVERIFY(g.value(QStringLiteral("name")).toString().size() <= CustomThemeStore::kMaxNameLength);
+        QVERIFY(g.value(QStringLiteral("id")).toString() != QStringLiteral("<script>"));
+        QCOMPARE(c.value(QStringLiteral("textPrimary")).toString(), QStringLiteral("#00FF00"));
+        // link was not in the surviving group and keeps its own colour.
+        QCOMPARE(c.value(QStringLiteral("link")).toString(), QStringLiteral("#020202"));
     }
 
     // ---- the collection ----

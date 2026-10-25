@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QPair>
 #include <QRegularExpression>
+#include <QSet>
 #include <QUuid>
 
 #include <algorithm>
@@ -1548,6 +1549,10 @@ CustomThemeStore::Theme CustomThemeStore::fromJson(const QJsonObject &object)
     // Optional and additive: a file from before gradients has no key.
     theme.gradients = sanitizeGradients(
         object.value(QStringLiteral("gradients")).toObject().toVariantMap());
+    // Optional and additive, like gradients: a theme from before user colour
+    // groups has none. Repaired, never trusted (normalizeColorGroups).
+    theme.groups = object.value(QStringLiteral("groups")).toArray().toVariantList();
+    normalizeColorGroups(&theme.groups, &theme.colors, theme.gradients);
     return theme;
 }
 
@@ -1562,6 +1567,9 @@ QJsonObject CustomThemeStore::toJson(const Theme &theme)
     if (!theme.gradients.isEmpty())
         object.insert(QStringLiteral("gradients"),
                       QJsonObject::fromVariantMap(theme.gradients));
+    if (!theme.groups.isEmpty())
+        object.insert(QStringLiteral("groups"),
+                      QJsonArray::fromVariantList(theme.groups));
     return object;
 }
 
@@ -1722,6 +1730,12 @@ QString CustomThemeStore::exportTheme(const QString &id) const
         if (!theme.gradients.isEmpty())
             object.insert(QStringLiteral("gradients"),
                           QJsonObject::fromVariantMap(theme.gradients));
+        // Additive too, and safe for an older build: the members' colours are
+        // already in `colors`, so it renders the same theme, only without
+        // the editable link.
+        if (!theme.groups.isEmpty())
+            object.insert(QStringLiteral("groups"),
+                          QJsonArray::fromVariantList(theme.groups));
         return QString::fromUtf8(
             QJsonDocument(object).toJson(QJsonDocument::Compact));
     }
@@ -1760,6 +1774,16 @@ bool CustomThemeStore::parseShared(const QString &payload, Theme *out,
     // Same gate as a loaded file: unknown roles and bad stops are dropped.
     theme.gradients = sanitizeGradients(
         object.value(QStringLiteral("gradients")).toObject().toVariantMap());
+    // Untrusted: a bounded parse that repairs or drops, never refuses the
+    // whole theme for a bad group (valid unrelated content is kept).
+    const QJsonValue groupsValue = object.value(QStringLiteral("groups"));
+    if (groupsValue.isArray()) {
+        QJsonArray array = groupsValue.toArray();
+        while (array.size() > kMaxColorGroups * 2)
+            array.removeLast();
+        theme.groups = array.toVariantList();
+    }
+    normalizeColorGroups(&theme.groups, &theme.colors, theme.gradients);
     if (theme.colors.isEmpty() && theme.gradients.isEmpty()) {
         *error = tr("That theme has no colours in it.");
         return false;
@@ -1801,6 +1825,7 @@ QVariantMap CustomThemeStore::previewImport(const QString &payload) const
     out.insert(QStringLiteral("colors"), theme.colors);
     out.insert(QStringLiteral("gradients"), theme.gradients);
     out.insert(QStringLiteral("colourCount"), int(theme.colors.size()));
+    out.insert(QStringLiteral("groupCount"), int(theme.groups.size()));
     out.insert(QStringLiteral("gradientCount"), int(theme.gradients.size()));
     out.insert(QStringLiteral("atLimit"), load().size() >= kMaxThemes);
     return out;
@@ -1818,17 +1843,19 @@ QString CustomThemeStore::replaceActiveTheme(const QString &payload)
     const int baseBefore = baseTheme();
     const QVariantMap colorsBefore = colors();
     const QVariantMap gradientsBefore = gradients();
+    const QVariantList groupsBefore = groupsRaw();
     QList<Theme> themes = load();
     const int index = activeIndex();
     themes[index].baseTheme = incoming.baseTheme;
     themes[index].colors = incoming.colors;
     themes[index].gradients = incoming.gradients;
+    themes[index].groups = incoming.groups;
     save(themes, themes.at(index).id);
     // One step, named; the name is not replaced, so nothing outside the
     // history changes.
     m_undoSealed = true;
-    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, QString(),
-               tr("Replace with the imported theme"));
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, groupsBefore,
+               QString(), tr("Replace with the imported theme"));
     return {};
 }
 
@@ -1866,6 +1893,8 @@ void CustomThemeStore::store(const QVariantMap &colors)
         index = themes.size() - 1;
     }
     themes[index].colors = sanitize(colors);
+    normalizeColorGroups(&themes[index].groups, &themes[index].colors,
+                         themes[index].gradients);
     save(themes, themes.at(index).id);
 }
 
@@ -1938,6 +1967,10 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
 {
     if (!roleIsEditable(role) || !colorIsValid(hex))
         return false;
+    // A linked member's ordinary picker edits its whole group (UI-003).
+    const QString group = groupOfRole(role);
+    if (!group.isEmpty())
+        return setGroupColor(group, hex);
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap before = colors();
@@ -1954,6 +1987,24 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
 
 void CustomThemeStore::resetColor(const QString &role)
 {
+    // A grouped member's reset is explicitly "leave the group and follow the
+    // base again", one step: resetting the colour alone would be repaired
+    // straight back to the group's by the invariant.
+    if (!groupOfRole(role).isEmpty()) {
+        editActive([&](Theme &t) {
+            for (int i = 0; i < t.groups.size(); ++i) {
+                QVariantMap g = t.groups.at(i).toMap();
+                QStringList members = g.value(QStringLiteral("members")).toStringList();
+                if (members.removeAll(role) > 0) {
+                    g.insert(QStringLiteral("members"), members);
+                    t.groups[i] = g;
+                }
+            }
+            t.colors.remove(role);
+            return true;
+        }, QString(), tr("Reset %1").arg(roleLabel(role)));
+        return;
+    }
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap before = colors();
@@ -2005,16 +2056,36 @@ bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
     for (const QString &member : members)
         next.remove(member);
 
-    if (nextGradients != gradientsBefore) {
-        QList<Theme> themes = load();
-        const int index = activeIndex();
-        if (index >= 0) {
-            themes[index].gradients = sanitizeGradients(nextGradients);
-            save(themes, themes.at(index).id);
+    // The built-in group's members drop their own colours and the group
+    // role takes one: any of them in a USER group leaves it in the same step
+    // (otherwise the invariant would repaint them with the user group's).
+    const QVariantList groupsBefore = groupsRaw();
+    QStringList touched = members;
+    touched << group;
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index >= 0) {
+        QVariantList groups = themes.at(index).groups;
+        for (int i = 0; i < groups.size(); ++i) {
+            QVariantMap g = groups.at(i).toMap();
+            QStringList m = g.value(QStringLiteral("members")).toStringList();
+            for (const QString &r : touched)
+                m.removeAll(r);
+            g.insert(QStringLiteral("members"), m);
+            groups[i] = g;
         }
+        themes[index].groups = groups;
+        if (nextGradients != gradientsBefore)
+            themes[index].gradients = sanitizeGradients(nextGradients);
+        themes[index].colors = sanitize(next);
+        normalizeColorGroups(&themes[index].groups, &themes[index].colors,
+                             themes[index].gradients);
+        save(themes, themes.at(index).id);
+    } else {
+        store(next);
     }
-    store(next);
-    recordStep(idBefore, baseBefore, before, gradientsBefore, QString(),
+    recordStep(idBefore, baseBefore, before, gradientsBefore, groupsBefore,
+               QString(),
                tr("Apply %1 to all of %2").arg(roleLabel(role), roleLabel(group)));
     return true;
 }
@@ -2023,24 +2094,27 @@ void CustomThemeStore::resetAll()
 {
     const QVariantMap before = colors();
     const bool hadGradients = !gradients().isEmpty();
-    if (before.isEmpty() && !hadGradients)
+    const QVariantList groupsBefore = groupsRaw();
+    if (before.isEmpty() && !hadGradients && groupsBefore.isEmpty())
         return;
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap gradientsBefore = gradients();
-    // Gradients go with "Reset all" too, and are in the undo history.
-    if (hadGradients) {
+    // Gradients and colour groups go with "Reset all" too, and are in the
+    // undo history.
+    {
         QList<Theme> themes = load();
         const int index = activeIndex();
-        if (index >= 0) {
+        if (index >= 0 && (hadGradients || !groupsBefore.isEmpty())) {
             themes[index].gradients.clear();
+            themes[index].groups.clear();
             save(themes, themes.at(index).id);
         }
     }
     if (!before.isEmpty())
         store({});
-    recordStep(idBefore, baseBefore, before, gradientsBefore, QString(),
-               tr("Reset every colour"));
+    recordStep(idBefore, baseBefore, before, gradientsBefore, groupsBefore,
+               QString(), tr("Reset every colour"));
 }
 
 QVariantMap CustomThemeStore::gradients() const
@@ -2073,8 +2147,20 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
     }
     if (themes.at(index).gradients.value(role).toMap() == clean)
         return true;
+    const QVariantList groupsBefore = themes.at(index).groups;
     themes[index].gradients.insert(role, clean);
+    // A member never carries a gradient: giving one leaves the group (the
+    // normaliser drops it), in this same step.
+    normalizeColorGroups(&themes[index].groups, &themes[index].colors,
+                         themes[index].gradients);
     save(themes, themes.at(index).id);
+    if (groupsBefore != themes.at(index).groups) {
+        m_undoSealed = true;
+        recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore,
+                   groupsBefore, QString(),
+                   tr("Change %1 gradient").arg(roleLabel(role)));
+        return true;
+    }
     // Stops dragged in the bar or the picker are one step per role until the
     // editor seals it, as for a colour.
     recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore,
@@ -2162,6 +2248,18 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
                                   const QString &coalesceKey,
                                   const QString &defaultLabel)
 {
+    // An edit that cannot touch the groups: their "before" is what they are.
+    recordStep(themeIdBefore, baseBefore, colorsBefore, gradientsBefore,
+               groupsRaw(), coalesceKey, defaultLabel);
+}
+
+void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
+                                  const QVariantMap &colorsBefore,
+                                  const QVariantMap &gradientsBefore,
+                                  const QVariantList &groupsBefore,
+                                  const QString &coalesceKey,
+                                  const QString &defaultLabel)
+{
     const QString id = activeThemeId();
     const QString pending = m_pendingLabel;
     m_pendingLabel.clear();
@@ -2174,8 +2272,9 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
     const int baseAfter = baseTheme();
     const QVariantMap colorsAfter = colors();
     const QVariantMap gradientsAfter = gradients();
+    const QVariantList groupsAfter = groupsRaw();
     if (baseAfter == baseBefore && colorsAfter == colorsBefore
-        && gradientsAfter == gradientsBefore)
+        && gradientsAfter == gradientsBefore && groupsAfter == groupsBefore)
         return;
 
     // Inside a group every edit merges into the group's one step.
@@ -2193,10 +2292,12 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         last.baseAfter = baseAfter;
         last.colorsAfter = colorsAfter;
         last.gradientsAfter = gradientsAfter;
+        last.groupsAfter = groupsAfter;
         // A drag that came back to where it started is no step at all.
         if (last.baseAfter == last.baseBefore
             && last.colorsAfter == last.colorsBefore
-            && last.gradientsAfter == last.gradientsBefore)
+            && last.gradientsAfter == last.gradientsBefore
+            && last.groupsAfter == last.groupsBefore)
             m_undo.removeLast();
     } else {
         UndoStep step;
@@ -2207,6 +2308,8 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         step.colorsAfter = colorsAfter;
         step.gradientsBefore = gradientsBefore;
         step.gradientsAfter = gradientsAfter;
+        step.groupsBefore = groupsBefore;
+        step.groupsAfter = groupsAfter;
         step.coalesce = coalesce;
         step.label = label;
         m_undo.append(step);
@@ -2230,7 +2333,8 @@ void CustomThemeStore::clearHistory()
 }
 
 void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors,
-                                         const QVariantMap &gradients)
+                                         const QVariantMap &gradients,
+                                         const QVariantList &groups)
 {
     QList<Theme> themes = load();
     const int index = activeIndex();
@@ -2239,6 +2343,9 @@ void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors,
     themes[index].baseTheme = base;
     themes[index].colors = sanitize(colors);
     themes[index].gradients = sanitizeGradients(gradients);
+    themes[index].groups = groups;
+    normalizeColorGroups(&themes[index].groups, &themes[index].colors,
+                         themes[index].gradients);
     save(themes, themes.at(index).id);
 }
 
@@ -2252,7 +2359,8 @@ bool CustomThemeStore::undo()
         return false;
     }
     const UndoStep step = m_undo.takeLast();
-    applyHistoryState(step.baseBefore, step.colorsBefore, step.gradientsBefore);
+    applyHistoryState(step.baseBefore, step.colorsBefore, step.gradientsBefore,
+                      step.groupsBefore);
     m_redo.append(step);
     m_undoSealed = true;
     Q_EMIT historyChanged();
@@ -2268,7 +2376,8 @@ bool CustomThemeStore::redo()
         return false;
     }
     const UndoStep step = m_redo.takeLast();
-    applyHistoryState(step.baseAfter, step.colorsAfter, step.gradientsAfter);
+    applyHistoryState(step.baseAfter, step.colorsAfter, step.gradientsAfter,
+                      step.groupsAfter);
     m_undo.append(step);
     m_undoSealed = true;
     Q_EMIT historyChanged();
@@ -2293,4 +2402,410 @@ bool CustomThemeStore::isValidColor(const QString &hex) const
 bool CustomThemeStore::isEditableRole(const QString &role) const
 {
     return roleIsEditable(role);
+}
+
+// ---- user colour groups ----------------------------------------------------
+
+namespace {
+
+constexpr int kMaxGroupIdLength = 16;
+
+QVariantMap makeGroup(const QString &id, const QString &name,
+                      const QString &color, const QStringList &members)
+{
+    QVariantMap g;
+    g.insert(QStringLiteral("id"), id);
+    g.insert(QStringLiteral("name"), name);
+    g.insert(QStringLiteral("color"), color);
+    g.insert(QStringLiteral("members"), members);
+    return g;
+}
+
+QString nextGroupId(const QVariantList &groups)
+{
+    for (int n = 1; n <= CustomThemeStore::kMaxColorGroups * 4; ++n) {
+        const QString id = QStringLiteral("g%1").arg(n);
+        bool taken = false;
+        for (const QVariant &v : groups) {
+            if (v.toMap().value(QStringLiteral("id")).toString() == id) {
+                taken = true;
+                break;
+            }
+        }
+        if (!taken)
+            return id;
+    }
+    return {};
+}
+
+} // namespace
+
+int CustomThemeStore::normalizeColorGroups(QVariantList *groups,
+                                           QVariantMap *colors,
+                                           const QVariantMap &gradients)
+{
+    if (!groups || !colors)
+        return 0;
+    static const QRegularExpression idRe(QStringLiteral("^[A-Za-z0-9_-]+$"));
+    int repairs = 0;
+    QVariantList out;
+    QSet<QString> claimed;
+    QSet<QString> ids;
+    for (const QVariant &value : std::as_const(*groups)) {
+        if (out.size() >= kMaxColorGroups) {
+            ++repairs;
+            break;
+        }
+        const QVariantMap raw = value.toMap();
+        QString id = raw.value(QStringLiteral("id")).toString();
+        if (id.isEmpty() || id.size() > kMaxGroupIdLength
+            || !idRe.match(id).hasMatch() || ids.contains(id)) {
+            id = nextGroupId(out);
+            ++repairs;
+        }
+        QString name = raw.value(QStringLiteral("name")).toString().simplified()
+                           .left(kMaxNameLength);
+        if (name.isEmpty()) {
+            name = tr("Colour group");
+            ++repairs;
+        }
+        const QString color = raw.value(QStringLiteral("color")).toString().toUpper();
+        if (!colorIsValid(color)) {
+            ++repairs;
+            continue;
+        }
+        QStringList members;
+        const QVariantList rawMembers = raw.value(QStringLiteral("members")).toList();
+        for (const QVariant &m : rawMembers) {
+            const QString role = m.toString();
+            if (members.size() >= int(std::size(kRoles))) {
+                ++repairs;
+                break;
+            }
+            // Unknown, already claimed (by this group or an earlier one), or
+            // carrying a gradient: dropped, deterministically, first wins.
+            if (!roleIsEditable(role) || claimed.contains(role)
+                || gradients.contains(role)) {
+                ++repairs;
+                continue;
+            }
+            members << role;
+            claimed.insert(role);
+        }
+        if (members.size() < 2) {
+            // A group of one is no relationship; its colour stays.
+            for (const QString &role : std::as_const(members))
+                claimed.remove(role);
+            ++repairs;
+            continue;
+        }
+        ids.insert(id);
+        for (const QString &role : std::as_const(members)) {
+            if (colors->value(role).toString() != color) {
+                colors->insert(role, color);
+                ++repairs;
+            }
+        }
+        out.append(makeGroup(id, name, color, members));
+    }
+    *groups = out;
+    return repairs;
+}
+
+QVariantList CustomThemeStore::groupsRaw() const
+{
+    const int index = activeIndex();
+    return index < 0 ? QVariantList() : m_cache.at(index).groups;
+}
+
+QVariantList CustomThemeStore::colorGroups() const
+{
+    QVariantList out;
+    for (const QVariant &v : groupsRaw()) {
+        QVariantMap g = v.toMap();
+        QStringList labels;
+        for (const QString &role : g.value(QStringLiteral("members")).toStringList())
+            labels << roleLabel(role);
+        g.insert(QStringLiteral("labels"), labels);
+        out.append(g);
+    }
+    return out;
+}
+
+QString CustomThemeStore::groupOfRole(const QString &role) const
+{
+    for (const QVariant &v : groupsRaw()) {
+        const QVariantMap g = v.toMap();
+        if (g.value(QStringLiteral("members")).toStringList().contains(role))
+            return g.value(QStringLiteral("id")).toString();
+    }
+    return {};
+}
+
+bool CustomThemeStore::editActive(const std::function<bool(Theme &)> &edit,
+                                  const QString &coalesce, const QString &label)
+{
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index < 0)
+        return false;
+    const QString idBefore = themes.at(index).id;
+    const int baseBefore = themes.at(index).baseTheme;
+    const QVariantMap colorsBefore = themes.at(index).colors;
+    const QVariantMap gradientsBefore = themes.at(index).gradients;
+    const QVariantList groupsBefore = themes.at(index).groups;
+    Theme next = themes.at(index);
+    if (!edit(next))
+        return false;
+    next.colors = sanitize(next.colors);
+    normalizeColorGroups(&next.groups, &next.colors, next.gradients);
+    if (next.colors == colorsBefore && next.groups == groupsBefore
+        && next.gradients == gradientsBefore)
+        return false;
+    themes[index] = next;
+    save(themes, next.id);
+    if (coalesce.isEmpty())
+        m_undoSealed = true;
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, groupsBefore,
+               coalesce, label);
+    return true;
+}
+
+QVariantMap CustomThemeStore::createColorGroup(const QString &name,
+                                               const QStringList &roles,
+                                               const QString &hex,
+                                               bool moveFromOtherGroups)
+{
+    QVariantMap result;
+    auto fail = [&result](const QString &error) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("error"), error);
+        return result;
+    };
+    QStringList members;
+    for (const QString &role : roles) {
+        if (!roleIsEditable(role))
+            return fail(tr("%1 is not an editable colour.").arg(role));
+        if (!members.contains(role))
+            members << role;
+    }
+    if (members.size() < 2)
+        return fail(tr("Choose at least two elements to group."));
+    if (!colorIsValid(hex))
+        return fail(tr("That is not a colour."));
+    if (activeIndex() < 0)
+        return fail(tr("Create a theme first."));
+    if (groupsRaw().size() >= kMaxColorGroups)
+        return fail(tr("This theme already has the maximum number of colour groups."));
+    const QVariantMap grads = gradients();
+    for (const QString &role : std::as_const(members)) {
+        if (grads.contains(role))
+            return fail(tr("%1 has a gradient. Remove it first, or leave it out "
+                           "of the group: a group links solid colours only.")
+                            .arg(roleLabel(role)));
+        if (!moveFromOtherGroups && !groupOfRole(role).isEmpty())
+            return fail(tr("%1 is already in another group.").arg(roleLabel(role)));
+    }
+    QString cleanName = name.simplified().left(kMaxNameLength);
+    if (cleanName.isEmpty())
+        cleanName = tr("Colour group");
+    QString newId;
+    const bool ok = editActive([&](Theme &t) {
+        // The move out of other groups is part of this one step.
+        for (int i = 0; i < t.groups.size(); ++i) {
+            QVariantMap g = t.groups.at(i).toMap();
+            QStringList m = g.value(QStringLiteral("members")).toStringList();
+            for (const QString &role : std::as_const(members))
+                m.removeAll(role);
+            g.insert(QStringLiteral("members"), m);
+            t.groups[i] = g;
+        }
+        newId = nextGroupId(t.groups);
+        if (newId.isEmpty())
+            return false;
+        t.groups.append(makeGroup(newId, cleanName, hex.toUpper(), members));
+        return true;
+    }, QString(), tr("Group %1").arg(cleanName));
+    if (!ok)
+        return fail(tr("Those elements could not be grouped."));
+    result.insert(QStringLiteral("ok"), true);
+    result.insert(QStringLiteral("id"), newId);
+    result.insert(QStringLiteral("error"), QString());
+    return result;
+}
+
+bool CustomThemeStore::setGroupColor(const QString &groupId, const QString &hex)
+{
+    if (!colorIsValid(hex))
+        return false;
+    QString name;
+    for (const QVariant &v : groupsRaw()) {
+        const QVariantMap g = v.toMap();
+        if (g.value(QStringLiteral("id")).toString() == groupId)
+            name = g.value(QStringLiteral("name")).toString();
+    }
+    if (name.isEmpty())
+        return false;
+    // Drag samples coalesce into one step per group until sealUndoStep().
+    // An unchanged colour is a successful no-op.
+    editActive([&](Theme &t) {
+        for (int i = 0; i < t.groups.size(); ++i) {
+            QVariantMap g = t.groups.at(i).toMap();
+            if (g.value(QStringLiteral("id")).toString() != groupId)
+                continue;
+            g.insert(QStringLiteral("color"), hex.toUpper());
+            t.groups[i] = g;
+            return true;   // the normaliser materialises every member
+        }
+        return false;
+    }, QStringLiteral("group:") + groupId,
+       tr("Change %1 colour").arg(name));
+    return true;
+}
+
+bool CustomThemeStore::renameColorGroup(const QString &groupId, const QString &name)
+{
+    const QString clean = name.simplified().left(kMaxNameLength);
+    if (clean.isEmpty())
+        return false;
+    return editActive([&](Theme &t) {
+        for (int i = 0; i < t.groups.size(); ++i) {
+            QVariantMap g = t.groups.at(i).toMap();
+            if (g.value(QStringLiteral("id")).toString() != groupId)
+                continue;
+            g.insert(QStringLiteral("name"), clean);
+            t.groups[i] = g;
+            return true;
+        }
+        return false;
+    }, QString(), tr("Rename group to %1").arg(clean));
+}
+
+QVariantMap CustomThemeStore::addToColorGroup(const QString &groupId,
+                                              const QString &role,
+                                              bool moveFromOtherGroups)
+{
+    QVariantMap result;
+    auto fail = [&result](const QString &error) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("error"), error);
+        return result;
+    };
+    if (!roleIsEditable(role))
+        return fail(tr("%1 is not an editable colour.").arg(role));
+    if (gradients().contains(role))
+        return fail(tr("%1 has a gradient. Remove it first: a group links solid "
+                       "colours only.").arg(roleLabel(role)));
+    const QString current = groupOfRole(role);
+    if (current == groupId)
+        return fail(tr("%1 is already in this group.").arg(roleLabel(role)));
+    if (!current.isEmpty() && !moveFromOtherGroups)
+        return fail(tr("%1 is already in another group.").arg(roleLabel(role)));
+    QString name;
+    for (const QVariant &v : groupsRaw()) {
+        const QVariantMap g = v.toMap();
+        if (g.value(QStringLiteral("id")).toString() == groupId)
+            name = g.value(QStringLiteral("name")).toString();
+    }
+    if (name.isEmpty())
+        return fail(tr("That group no longer exists."));
+    const bool ok = editActive([&](Theme &t) {
+        bool found = false;
+        for (int i = 0; i < t.groups.size(); ++i) {
+            QVariantMap g = t.groups.at(i).toMap();
+            QStringList m = g.value(QStringLiteral("members")).toStringList();
+            if (g.value(QStringLiteral("id")).toString() == groupId) {
+                m << role;
+                found = true;
+            } else {
+                m.removeAll(role);
+            }
+            g.insert(QStringLiteral("members"), m);
+            t.groups[i] = g;
+        }
+        return found;
+    }, QString(), tr("Add %1 to %2").arg(roleLabel(role), name));
+    if (!ok)
+        return fail(tr("That element could not be added."));
+    result.insert(QStringLiteral("ok"), true);
+    result.insert(QStringLiteral("id"), groupId);
+    result.insert(QStringLiteral("error"), QString());
+    return result;
+}
+
+bool CustomThemeStore::detachFromColorGroup(const QString &role)
+{
+    if (groupOfRole(role).isEmpty())
+        return false;
+    // The colour it shows now stays as its own override: colors[role]
+    // already holds it (the invariant), so only the membership goes.
+    return editActive([&](Theme &t) {
+        for (int i = 0; i < t.groups.size(); ++i) {
+            QVariantMap g = t.groups.at(i).toMap();
+            QStringList m = g.value(QStringLiteral("members")).toStringList();
+            if (m.removeAll(role) > 0) {
+                g.insert(QStringLiteral("members"), m);
+                t.groups[i] = g;
+            }
+        }
+        return true;
+    }, QString(), tr("Edit %1 on its own").arg(roleLabel(role)));
+}
+
+bool CustomThemeStore::deleteColorGroup(const QString &groupId)
+{
+    QString name;
+    for (const QVariant &v : groupsRaw()) {
+        const QVariantMap g = v.toMap();
+        if (g.value(QStringLiteral("id")).toString() == groupId)
+            name = g.value(QStringLiteral("name")).toString();
+    }
+    if (name.isEmpty())
+        return false;
+    return editActive([&](Theme &t) {
+        for (int i = 0; i < t.groups.size(); ++i) {
+            if (t.groups.at(i).toMap().value(QStringLiteral("id")).toString()
+                == groupId) {
+                t.groups.removeAt(i);
+                return true;
+            }
+        }
+        return false;
+    }, QString(), tr("Ungroup %1").arg(name));
+}
+
+QVariantMap CustomThemeStore::colorGroupImpact(const QStringList &roles) const
+{
+    QVariantMap out;
+    QStringList members;
+    for (const QString &role : roles) {
+        if (roleIsEditable(role) && !members.contains(role))
+            members << role;
+    }
+    out.insert(QStringLiteral("members"), members);
+    const QVariantMap own = colors();
+    QVariantList dependents;
+    for (const Role &r : kRoles) {
+        const QString key = QLatin1String(r.key);
+        if (members.contains(key) || own.contains(key))
+            continue;
+        // Walk the follow chain until a role with its own colour or a member.
+        QString parent = roleFollows(key);
+        int guard = 0;
+        while (!parent.isEmpty() && ++guard < 8) {
+            if (members.contains(parent)) {
+                QVariantMap d;
+                d.insert(QStringLiteral("role"), key);
+                d.insert(QStringLiteral("label"), roleLabel(key));
+                d.insert(QStringLiteral("via"), parent);
+                dependents.append(d);
+                break;
+            }
+            if (own.contains(parent))
+                break;
+            parent = roleFollows(parent);
+        }
+    }
+    out.insert(QStringLiteral("dependents"), dependents);
+    return out;
 }

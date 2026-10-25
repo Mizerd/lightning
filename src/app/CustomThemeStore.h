@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 #include <QList>
+#include <functional>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -52,6 +53,20 @@ class CustomThemeStore : public QObject
     // The short human name of the step Undo / Redo would take ("Change Room
     // header colour"), empty when there is none.
     Q_PROPERTY(QString undoLabel READ undoLabel NOTIFY historyChanged)
+    // User-defined colour groups of the active theme (master prompt Part 6,
+    // 4): [{ id, name, color, members: [role], labels: [label] }], in
+    // creation order. A group links two or more editable roles, even ones with
+    // no common built-in parent: editing the group or any member recolours
+    // every member, in one undo step.
+    //
+    // Model: the group is AUTHORING metadata beside the ordinary materialised
+    // colours. Every member's colour is stored in `colors` as usual (the
+    // renderer and an older build see nothing new), and the store keeps
+    // `colors[member] == group.color` as an invariant after every edit, load
+    // and import. Rules: a role belongs to at most one group, groups hold
+    // roles only (no nesting), a member never carries a gradient, a group
+    // never has fewer than two members (it dissolves, keeping the colours).
+    Q_PROPERTY(QVariantList colorGroups READ colorGroups NOTIFY customThemeChanged)
     Q_PROPERTY(QString redoLabel READ redoLabel NOTIFY historyChanged)
 
 public:
@@ -97,6 +112,49 @@ public:
     Q_INVOKABLE bool applyToGroup(const QString &role, const QString &hex);
     // The element roles that follow `group` directly, in editor order.
     Q_INVOKABLE QStringList groupMembers(const QString &group) const;
+    QVariantList colorGroups() const;
+
+    // ---- user colour groups ------------------------------------------------
+    //
+    // Every call below is ONE undo step (setGroupColor coalesces a drag until
+    // sealUndoStep(), like setColor). Results that can be refused return
+    // { ok, id, error } with a short user-facing `error`.
+
+    // Links `roles` (two or more editable roles) under `name` with `hex` as
+    // the group colour. Refused for an unknown role, a role carrying a
+    // gradient (it would be flattened silently), or a role already in a group
+    // unless `moveFromOtherGroups` (the move is then part of the same step).
+    Q_INVOKABLE QVariantMap createColorGroup(const QString &name,
+                                             const QStringList &roles,
+                                             const QString &hex,
+                                             bool moveFromOtherGroups);
+    Q_INVOKABLE bool setGroupColor(const QString &groupId, const QString &hex);
+    Q_INVOKABLE bool renameColorGroup(const QString &groupId, const QString &name);
+    Q_INVOKABLE QVariantMap addToColorGroup(const QString &groupId,
+                                            const QString &role,
+                                            bool moveFromOtherGroups);
+    // "Edit this element only": the role leaves its group and keeps the
+    // colour it shows now. A group left with one member dissolves.
+    Q_INVOKABLE bool detachFromColorGroup(const QString &role);
+    // Ungroup: the relationship goes, every member keeps its current colour.
+    Q_INVOKABLE bool deleteColorGroup(const QString &groupId);
+    // The group id `role` belongs to, or empty.
+    Q_INVOKABLE QString groupOfRole(const QString &role) const;
+    // What editing `roles` together would change: { members: [role],
+    // dependents: [{ role, label, via }] }, `dependents` being the editable
+    // roles with no colour of their own that inherit from a member through
+    // roleFollows (so they change too), `via` the member they follow.
+    Q_INVOKABLE QVariantMap colorGroupImpact(const QStringList &roles) const;
+
+    static constexpr int kMaxColorGroups = 16;
+
+    // Bounded, deterministic repair of a theme's groups against its colours
+    // and gradients (unknown/duplicate/gradient members dropped, groups below
+    // two members or with a bad colour dropped, member colours materialised
+    // from the group). Returns the number of repairs. Public for the suite.
+    static int normalizeColorGroups(QVariantList *groups, QVariantMap *colors,
+                                    const QVariantMap &gradients);
+
     // Drops every override and every gradient, keeping the base theme and name.
     Q_INVOKABLE void resetAll();
     // Forgets every custom theme.
@@ -312,6 +370,7 @@ private:
         int baseTheme = 0;
         QVariantMap colors;
         QVariantMap gradients;
+        QVariantList groups;   // see colorGroups / normalizeColorGroups
     };
 
     void store(const QVariantMap &colors);
@@ -339,6 +398,8 @@ private:
         QVariantMap colorsAfter;
         QVariantMap gradientsBefore;
         QVariantMap gradientsAfter;
+        QVariantList groupsBefore;
+        QVariantList groupsAfter;
         QString coalesce;
         QString label;
     };
@@ -348,9 +409,22 @@ private:
                     const QVariantMap &colorsBefore,
                     const QVariantMap &gradientsBefore, const QString &coalesce,
                     const QString &label);
+    // The same, for an edit that may also have changed the groups.
+    void recordStep(const QString &themeIdBefore, int baseBefore,
+                    const QVariantMap &colorsBefore,
+                    const QVariantMap &gradientsBefore,
+                    const QVariantList &groupsBefore, const QString &coalesce,
+                    const QString &label);
+    QVariantList groupsRaw() const;
+    // Applies `edit` to the active theme (creating none), normalises its
+    // groups, saves, and records one step. False when there is no active
+    // theme, `edit` refused, or nothing changed.
+    bool editActive(const std::function<bool(Theme &)> &edit,
+                    const QString &coalesce, const QString &label);
     void clearHistory();
     void applyHistoryState(int base, const QVariantMap &colors,
-                           const QVariantMap &gradients);
+                           const QVariantMap &gradients,
+                           const QVariantList &groups);
     QString m_pendingLabel;
     QString m_groupLabel;
     int m_groupDepth = 0;
