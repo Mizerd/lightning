@@ -4205,6 +4205,79 @@ private slots:
         QCOMPARE(parentAfterUndo, group);
     }
 
+    // Master prompt Part 6, 4 (UI-001/003/005/016): "Select elements to link"
+    // turns row and preview clicks into a selection, two or more are linked
+    // under a name with the first one's colour, the rows say they are
+    // linked, the picker says its edit changes the whole group, and "Edit
+    // this element only" takes one out. The editor had no such flow.
+    void theEditorLinksSelectedElementsIntoAColourGroup()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        auto cleanup = qScopeGuard([&] {
+            closeThemeEditor();
+            resetThemeFixture(restoreBase);
+        });
+
+        auto *select = item("themeSelectRolesButton");
+        QVERIFY(select);
+        clickItem(select);
+        QTRY_VERIFY(dialog->property("selectingRoles").toBool());
+        // A preview click selects instead of opening the picker.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openFromPreview",
+                                          Q_ARG(QVariant, QStringLiteral("accent")),
+                                          Q_ARG(QVariant, QVariantList())));
+        QCOMPARE(dialog->property("editingRole").toString(), QString());
+        auto *linkRow = item("themeRole_link");
+        QVERIFY(linkRow);
+        clickItem(linkRow);
+        QCOMPARE(dialog->property("selectedRoles").toStringList(),
+                 (QStringList{ QStringLiteral("accent"), QStringLiteral("link") }));
+        auto *mark = item("themeRoleSelect_link");
+        QVERIFY(mark && mark->isVisible());
+        const QString startColour = dialog->property("selectionStartColour").toString();
+        QVERIFY(!startColour.isEmpty());
+
+        auto *name = item("themeGroupNameField");
+        auto *create = item("themeGroupCreateButton");
+        QVERIFY(name && create);
+        name->setProperty("text", QStringLiteral("Links"));
+        QVERIFY(create->isEnabled());
+        clickItem(create);
+        QTRY_COMPARE(store->colorGroups().size(), 1);
+        QVERIFY(!dialog->property("selectingRoles").toBool());
+        const QVariantMap group = store->colorGroups().first().toMap();
+        QCOMPARE(group.value(QStringLiteral("name")).toString(), QStringLiteral("Links"));
+        QCOMPARE(group.value(QStringLiteral("color")).toString(), startColour.toUpper());
+        auto *badge = item("themeRoleGroup_accent");
+        QVERIFY(badge);
+        QTRY_VERIFY(badge->property("visible").toBool());
+        QVERIFY(badge->property("text").toString().contains(QStringLiteral("Links")));
+
+        // The picker on a member states the group scope and edits the group.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "beginEdit",
+                                          Q_ARG(QVariant, QStringLiteral("link")),
+                                          Q_ARG(QVariant, QStringLiteral("link"))));
+        QCoreApplication::processEvents();
+        auto *scope = item("themeEditingGroupScope");
+        QVERIFY(scope);
+        QTRY_VERIFY(scope->isVisible());
+        QVERIFY(store->setColor(QStringLiteral("link"), QStringLiteral("#13579B")));
+        QCOMPARE(store->colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#13579B"));
+        auto *detach = item("themeDetachFromGroupButton");
+        QVERIFY(detach);
+        clickItem(detach);
+        QTRY_VERIFY(store->colorGroups().isEmpty());
+        QCOMPARE(store->colors().value(QStringLiteral("link")).toString(),
+                 QStringLiteral("#13579B"));
+        QTRY_VERIFY(!scope->isVisible());
+    }
+
     // Opening a group shows how many of its elements keep their own colour,
     // and "Include them" gives them the group's. Fails on the old tree.
     void aGroupCanIncludeTheElementsThatKeepTheirOwnColour()

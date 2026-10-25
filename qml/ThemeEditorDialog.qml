@@ -88,7 +88,7 @@ Popup {
         root.confirmingReset || root.confirmingDelete
         || root.editingRole.length > 0
         || root.reportOpen || root.menuOpen || root.shareOpen
-        || root.pendingBase >= 0
+        || root.pendingBase >= 0 || root.selectingRoles
 
     function peelEscape() {
         if (root.hasTransientState) {
@@ -119,6 +119,8 @@ Popup {
             root.confirmingDelete = false
         else if (root.editingRole.length > 0)
             root.editingRole = ""
+        else if (root.selectingRoles)
+            root.setSelecting(false)
     }
 
     // ---- undo ----
@@ -267,6 +269,90 @@ Popup {
     // The role under the pointer (or the keyboard) in the list, outlined in the
     // preview so it can be traced to where it paints.
     property string hoverRole: ""
+
+    // ---- user colour groups (master prompt Part 6, 4) ----
+    //
+    // "Select elements" turns a click on a row (or on the preview) into a
+    // selection toggle instead of opening the picker; two or more selected
+    // roles can then be linked under a name. The relationship lives in the
+    // store (CustomThemeStore::createColorGroup and friends), which keeps the
+    // members' colours equal and makes every edit one undo step.
+    property bool selectingRoles: false
+    property var selectedRoles: []
+    property string groupError: ""
+    // Selected roles already in another group move only when this is on.
+    property bool moveIntoGroup: false
+    readonly property var colorGroups: root.store.colorGroups
+    function groupFor(key) {
+        var groups = root.colorGroups
+        for (var i = 0; i < groups.length; ++i) {
+            if (groups[i].members.indexOf(key) >= 0)
+                return groups[i]
+        }
+        return null
+    }
+    function isSelected(key) { return root.selectedRoles.indexOf(key) >= 0 }
+    function toggleSelected(key) {
+        var next = root.selectedRoles.slice()
+        var at = next.indexOf(key)
+        if (at >= 0)
+            next.splice(at, 1)
+        else
+            next.push(key)
+        root.selectedRoles = next
+        root.groupError = ""
+    }
+    function setSelecting(on) {
+        root.selectingRoles = on
+        root.selectedRoles = []
+        root.groupError = ""
+        root.moveIntoGroup = false
+    }
+    // What the selection would change: the members, plus every role that
+    // inherits from one of them (shown, so "only these change" is never
+    // claimed when a parent role fans out).
+    readonly property var selectionImpact:
+        root.selectedRoles.length > 0
+        ? root.store.colorGroupImpact(root.selectedRoles)
+        : ({ members: [], dependents: [] })
+    readonly property int selectionInGroups: {
+        var n = 0
+        for (var i = 0; i < root.selectedRoles.length; ++i) {
+            if (root.groupFor(root.selectedRoles[i]) !== null)
+                ++n
+        }
+        return n
+    }
+    readonly property var selectionWithGradient:
+        root.selectedRoles.filter((k) => root.hasOwnGradient(k))
+    // The group starts with the colour the FIRST selected element shows now:
+    // a definite, visible choice rather than whichever role came last.
+    readonly property string selectionStartColour:
+        root.selectedRoles.length > 0
+        ? root.toHex(Qt.color(String(root.effectiveColor(root.selectedRoles[0]))))
+        : ""
+    function groupSelection(name) {
+        if (root.selectedRoles.length < 2)
+            return false
+        var result = root.store.createColorGroup(
+            name, root.selectedRoles, root.selectionStartColour,
+            root.moveIntoGroup)
+        if (!result.ok) {
+            root.groupError = result.error
+            return false
+        }
+        var count = root.selectedRoles.length
+        root.setSelecting(false)
+        root.announce(qsTr("Linked %n element(s)", "custom theme colour group",
+                           count), function () { root.undoEdit() })
+        return true
+    }
+    // A theme or account change drops a half-made selection: its roles may
+    // mean nothing in the theme now shown.
+    readonly property string activeIdForSelection: root.store.activeThemeId
+    onActiveIdForSelectionChanged: root.setSelecting(false)
+    readonly property var editingColorGroup:
+        root.editingRole.length > 0 ? root.groupFor(root.editingRole) : null
     property bool confirmingReset: false
     property bool confirmingDelete: false
     // The theme menu under the top bar (the list of themes, New, Duplicate,
@@ -1025,6 +1111,10 @@ Popup {
     // A click in the preview: open the role, and keep every role painted
     // under the pointer so the surface behind a label can be reached too.
     function openFromPreview(role, stack) {
+        if (root.selectingRoles) {
+            root.toggleSelected(role)
+            return
+        }
         root.spotRoles = stack && stack.length > 1 ? stack : []
         root.beginEdit(role, root.labelForRole(role))
     }
@@ -2107,12 +2197,191 @@ Popup {
                         font.pixelSize: AppTheme.textMeta
                     }
 
+                    // Colour groups: link two or more elements so one colour
+                    // edit changes them together.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+                        EditorButton {
+                            objectName: "themeSelectRolesButton"
+                            Layout.fillWidth: true
+                            text: root.selectingRoles ? qsTr("Done selecting")
+                                                      : qsTr("Select elements to link")
+                            checkable: true
+                            checked: root.selectingRoles
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.checked: root.selectingRoles
+                            Accessible.description:
+                                qsTr("Choose two or more elements and give them one shared colour")
+                            onClicked: root.setSelecting(!root.selectingRoles)
+                        }
+                    }
+                    Rectangle {
+                        objectName: "themeGroupSelectionBar"
+                        visible: root.selectingRoles
+                        Layout.fillWidth: true
+                        implicitHeight: selectionCol.implicitHeight + AppTheme.spacing8 * 2
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.editorInset
+                        border.width: 1
+                        border.color: AppTheme.editorBorderStrong
+                        ColumnLayout {
+                            id: selectionCol
+                            anchors.fill: parent
+                            anchors.margins: AppTheme.spacing8
+                            spacing: AppTheme.spacing6
+                            Label {
+                                objectName: "themeGroupSelectionCount"
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: root.selectedRoles.length === 0
+                                      ? qsTr("Click elements in the list or the preview to select them.")
+                                      : qsTr("%n element(s) selected", "custom theme colour group",
+                                             root.selectedRoles.length)
+                                color: AppTheme.editorText
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                            Label {
+                                objectName: "themeGroupSelectionImpact"
+                                Layout.fillWidth: true
+                                visible: root.selectionImpact.dependents.length > 0
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: qsTr("Also changes %n element(s) that follow them: %1",
+                                           "custom theme colour group",
+                                           root.selectionImpact.dependents.length)
+                                      .arg(root.selectionImpact.dependents
+                                           .map((d) => d.label).join(", "))
+                                color: AppTheme.editorTextSecondary
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                            }
+                            Label {
+                                objectName: "themeGroupSelectionGradient"
+                                Layout.fillWidth: true
+                                visible: root.selectionWithGradient.length > 0
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: qsTr("%1 has a gradient. A group links solid colours: remove the gradient first or leave it out.")
+                                      .arg(root.selectionWithGradient
+                                           .map((k) => root.labelForRole(k)).join(", "))
+                                color: AppTheme.editorDanger
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: root.selectedRoles.length >= 2
+                                spacing: AppTheme.spacing6
+                                Rectangle {
+                                    implicitWidth: 18
+                                    implicitHeight: 18
+                                    radius: AppTheme.radiusSm
+                                    color: root.selectionStartColour.length > 0
+                                           ? root.selectionStartColour : "transparent"
+                                    border.width: 1
+                                    border.color: AppTheme.editorBorderStrong
+                                }
+                                Label {
+                                    objectName: "themeGroupStartColour"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                    text: root.selectedRoles.length > 0
+                                          ? qsTr("Starts with %1 (the colour of %2)")
+                                            .arg(root.selectionStartColour)
+                                            .arg(root.labelForRole(root.selectedRoles[0]))
+                                          : ""
+                                    color: AppTheme.editorTextSecondary
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.menuSectionSize
+                                }
+                            }
+                            CheckBox {
+                                id: moveCheck
+                                objectName: "themeGroupMoveCheck"
+                                visible: root.selectionInGroups > 0
+                                checked: root.moveIntoGroup
+                                onToggled: root.moveIntoGroup = checked
+                                text: qsTr("Move %n element(s) out of their current group",
+                                           "custom theme colour group",
+                                           root.selectionInGroups)
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                            }
+                            Rectangle {
+                                visible: root.selectedRoles.length >= 2
+                                Layout.fillWidth: true
+                                implicitHeight: 30
+                                radius: AppTheme.radiusMd
+                                color: AppTheme.editorPanel
+                                border.width: groupNameField.activeFocus ? 2 : 1
+                                border.color: groupNameField.activeFocus
+                                              ? AppTheme.editorAccent
+                                              : AppTheme.editorBorderStrong
+                                TextInput {
+                                    id: groupNameField
+                                    objectName: "themeGroupNameField"
+                                    anchors.fill: parent
+                                    anchors.leftMargin: AppTheme.spacing8
+                                    anchors.rightMargin: AppTheme.spacing8
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    activeFocusOnTab: true
+                                    color: AppTheme.editorText
+                                    selectionColor: AppTheme.editorAccent
+                                    selectedTextColor: AppTheme.editorAccentInk
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    maximumLength: 48
+                                    Accessible.role: Accessible.EditableText
+                                    Accessible.name: qsTr("Group name")
+                                    onAccepted: if (root.groupSelection(text)) text = ""
+                                    Label {
+                                        anchors.fill: parent
+                                        verticalAlignment: Text.AlignVCenter
+                                        visible: groupNameField.text.length === 0
+                                        text: qsTr("Group name")
+                                        color: AppTheme.editorTextMuted
+                                        font: groupNameField.font
+                                    }
+                                }
+                            }
+                            EditorButton {
+                                objectName: "themeGroupCreateButton"
+                                visible: root.selectedRoles.length >= 2
+                                Layout.fillWidth: true
+                                primary: true
+                                enabled: root.selectionWithGradient.length === 0
+                                         && (root.selectionInGroups === 0
+                                             || root.moveIntoGroup)
+                                text: qsTr("Link colours")
+                                onClicked: if (root.groupSelection(groupNameField.text))
+                                               groupNameField.text = ""
+                            }
+                            Label {
+                                objectName: "themeGroupError"
+                                Layout.fillWidth: true
+                                visible: root.groupError.length > 0
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: root.groupError
+                                color: AppTheme.editorDanger
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                            }
+                        }
+                    }
+
                     ThemeSimplePanel {
                         id: simplePanel
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: root.level === 0
                                  && root.roleFilter.trim().length === 0
+                                 && !root.selectingRoles
                         swatches: root.simpleSwatches
                         gradientRoles: root.simpleGradientRoles
                         baseTheme: root.store.baseTheme
@@ -2136,6 +2405,7 @@ Popup {
                         Layout.fillHeight: true
                         visible: root.level > 0
                                  || root.roleFilter.trim().length > 0
+                                 || root.selectingRoles
                         clip: true
                         contentWidth: width
                         contentHeight: roleColumn.implicitHeight
@@ -2158,6 +2428,158 @@ Popup {
                             id: roleColumn
                             width: roleScroll.width
                             spacing: AppTheme.spacing8
+
+                            // This theme's colour groups: open one to edit
+                            // its colour (every member follows), rename it,
+                            // or ungroup it (the colours stay).
+                            ColumnLayout {
+                                objectName: "themeColorGroups"
+                                visible: root.colorGroups.length > 0
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing6
+                                    text: qsTr("Colour groups")
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.editorTextSecondary
+                                    font.family: AppTheme.menuSectionFont
+                                    font.pixelSize: AppTheme.menuSectionSize
+                                    font.weight: AppTheme.menuSectionWeight
+                                }
+                                Repeater {
+                                    model: root.colorGroups
+                                    delegate: Rectangle {
+                                        id: groupRow
+                                        required property var modelData
+                                        objectName: "themeColorGroup_" + modelData.id
+                                        property bool renaming: false
+                                        Layout.fillWidth: true
+                                        implicitHeight: Math.max(38, groupRowLayout.implicitHeight + 8)
+                                        radius: AppTheme.radiusSm
+                                        color: groupHover.containsMouse ? AppTheme.editorInset
+                                                                        : "transparent"
+                                        activeFocusOnTab: true
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: qsTr("Colour group %1").arg(modelData.name)
+                                        Accessible.description: modelData.labels.join(", ")
+                                        Keys.onPressed: (e) => {
+                                            if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                                                || e.key === Qt.Key_Space) {
+                                                root.beginEdit(groupRow.modelData.members[0],
+                                                    root.labelForRole(groupRow.modelData.members[0]))
+                                                e.accepted = true
+                                            }
+                                        }
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            visible: groupRow.activeFocus
+                                            radius: AppTheme.radiusSm
+                                            color: "transparent"
+                                            border.width: 2
+                                            border.color: AppTheme.editorAccent
+                                        }
+                                        MouseArea {
+                                            id: groupHover
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.beginEdit(groupRow.modelData.members[0],
+                                                root.labelForRole(groupRow.modelData.members[0]))
+                                        }
+                                        RowLayout {
+                                            id: groupRowLayout
+                                            anchors.fill: parent
+                                            anchors.leftMargin: AppTheme.spacing8
+                                            anchors.rightMargin: AppTheme.spacing6
+                                            spacing: AppTheme.spacing8
+                                            Rectangle {
+                                                implicitWidth: 26
+                                                implicitHeight: 26
+                                                radius: AppTheme.radiusSm
+                                                color: groupRow.modelData.color
+                                                border.width: 1
+                                                border.color: AppTheme.editorBorderStrong
+                                                Icon {
+                                                    anchors.centerIn: parent
+                                                    name: "link"
+                                                    size: 14
+                                                    color: AppTheme.relativeLuminance(
+                                                               Qt.color(groupRow.modelData.color)) > 0.4
+                                                           ? "#000000" : "#FFFFFF"
+                                                }
+                                            }
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 0
+                                                Label {
+                                                    visible: !groupRow.renaming
+                                                    Layout.fillWidth: true
+                                                    textFormat: Text.PlainText
+                                                    text: groupRow.modelData.name
+                                                    color: AppTheme.editorText
+                                                    font.family: AppTheme.uiFont
+                                                    font.pixelSize: AppTheme.textMeta
+                                                    elide: Label.ElideRight
+                                                }
+                                                TextInput {
+                                                    id: renameInput
+                                                    objectName: "themeColorGroupRename_" + groupRow.modelData.id
+                                                    visible: groupRow.renaming
+                                                    Layout.fillWidth: true
+                                                    color: AppTheme.editorText
+                                                    font.family: AppTheme.uiFont
+                                                    font.pixelSize: AppTheme.textMeta
+                                                    maximumLength: 48
+                                                    clip: true
+                                                    Accessible.role: Accessible.EditableText
+                                                    Accessible.name: qsTr("Group name")
+                                                    onAccepted: {
+                                                        root.store.renameColorGroup(
+                                                            groupRow.modelData.id, text)
+                                                        groupRow.renaming = false
+                                                    }
+                                                    Keys.onEscapePressed: groupRow.renaming = false
+                                                }
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    textFormat: Text.PlainText
+                                                    text: groupRow.modelData.labels.join(", ")
+                                                    color: AppTheme.editorTextMuted
+                                                    font.family: AppTheme.uiFont
+                                                    font.pixelSize: AppTheme.menuSectionSize
+                                                    elide: Label.ElideRight
+                                                }
+                                            }
+                                            EditorButton {
+                                                objectName: "themeColorGroupRenameButton_" + groupRow.modelData.id
+                                                implicitHeight: 26
+                                                implicitWidth: implicitContentWidth + AppTheme.spacing8 * 2
+                                                text: qsTr("Rename")
+                                                Accessible.name: qsTr("Rename %1").arg(groupRow.modelData.name)
+                                                onClicked: {
+                                                    renameInput.text = groupRow.modelData.name
+                                                    groupRow.renaming = true
+                                                    renameInput.forceActiveFocus()
+                                                }
+                                            }
+                                            EditorButton {
+                                                objectName: "themeColorGroupUngroup_" + groupRow.modelData.id
+                                                implicitHeight: 26
+                                                implicitWidth: implicitContentWidth + AppTheme.spacing8 * 2
+                                                text: qsTr("Ungroup")
+                                                Accessible.name: qsTr("Ungroup %1, keeping its colours")
+                                                                 .arg(groupRow.modelData.name)
+                                                onClicked: {
+                                                    var name = groupRow.modelData.name
+                                                    if (root.store.deleteColorGroup(groupRow.modelData.id))
+                                                        root.announce(qsTr("Ungrouped %1; the colours stay").arg(name),
+                                                                      function () { root.undoEdit() })
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             Repeater {
                                 model: root.roleGroups
@@ -2257,12 +2679,24 @@ Popup {
                                                 if (e.key === Qt.Key_Return
                                                     || e.key === Qt.Key_Enter
                                                     || e.key === Qt.Key_Space) {
-                                                    root.beginEdit(
-                                                        roleRow.modelData.key,
-                                                        roleRow.modelData.label)
+                                                    roleRow.activate()
                                                     e.accepted = true
                                                 }
                                             }
+                                            // Selecting for a colour group, or
+                                            // opening the picker.
+                                            function activate() {
+                                                if (root.selectingRoles)
+                                                    root.toggleSelected(roleRow.modelData.key)
+                                                else
+                                                    root.beginEdit(roleRow.modelData.key,
+                                                                   roleRow.modelData.label)
+                                            }
+                                            readonly property var colorGroup:
+                                                root.groupFor(modelData.key)
+                                            Accessible.checkable: root.selectingRoles
+                                            Accessible.checked: root.selectingRoles
+                                                                && root.isSelected(modelData.key)
                                             Rectangle {
                                                 anchors.fill: parent
                                                 visible: roleRow.activeFocus
@@ -2305,9 +2739,7 @@ Popup {
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.beginEdit(
-                                                    roleRow.modelData.key,
-                                                    roleRow.modelData.label)
+                                                onClicked: roleRow.activate()
                                             }
 
                                             RowLayout {
@@ -2315,6 +2747,30 @@ Popup {
                                                 anchors.leftMargin: AppTheme.spacing8
                                                 anchors.rightMargin: AppTheme.spacing6
                                                 spacing: AppTheme.spacing8
+
+                                                // Selection mark while choosing
+                                                // elements for a colour group.
+                                                Rectangle {
+                                                    objectName: "themeRoleSelect_"
+                                                        + roleRow.modelData.key
+                                                    visible: root.selectingRoles
+                                                    implicitWidth: 16
+                                                    implicitHeight: 16
+                                                    radius: 3
+                                                    color: root.isSelected(roleRow.modelData.key)
+                                                           ? AppTheme.editorAccent : "transparent"
+                                                    border.width: 1
+                                                    border.color: root.isSelected(roleRow.modelData.key)
+                                                                  ? AppTheme.editorAccent
+                                                                  : AppTheme.editorBorderStrong
+                                                    Icon {
+                                                        anchors.centerIn: parent
+                                                        visible: root.isSelected(roleRow.modelData.key)
+                                                        name: "check"
+                                                        size: 12
+                                                        color: AppTheme.editorAccentInk
+                                                    }
+                                                }
 
                                                 // The swatch is the data; the "changed"
                                                 // mark is a separate dot rather than an
@@ -2417,6 +2873,22 @@ Popup {
                                                         }
                                                         // Editing the parent
                                                         // recolours this one.
+                                                        // Linked in a colour group: one
+                                                        // edit changes every member.
+                                                        Label {
+                                                            objectName: "themeRoleGroup_"
+                                                                + roleRow.modelData.key
+                                                            visible: roleRow.colorGroup !== null
+                                                            Layout.minimumWidth: 0
+                                                            textFormat: Text.PlainText
+                                                            text: roleRow.colorGroup !== null
+                                                                  ? qsTr("linked: %1").arg(roleRow.colorGroup.name)
+                                                                  : ""
+                                                            color: AppTheme.editorAccent
+                                                            font.family: AppTheme.uiFont
+                                                            font.pixelSize: AppTheme.menuSectionSize
+                                                            elide: Label.ElideRight
+                                                        }
                                                         Label {
                                                             objectName: "themeRoleFollows_"
                                                                 + roleRow.modelData.key
@@ -2959,6 +3431,57 @@ Popup {
                             }
                         }
                         onClosed: root.editingRole = ""
+                    }
+
+                    // A member of a user colour group: say that the picker
+                    // edits the whole group, and offer to take this element out.
+                    Rectangle {
+                        objectName: "themeEditingGroupScope"
+                        visible: root.editingColorGroup !== null
+                        Layout.fillWidth: true
+                        implicitHeight: groupScopeRow.implicitHeight + AppTheme.spacing8 * 2
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.editorInset
+                        border.width: 1
+                        border.color: AppTheme.editorAccent
+                        RowLayout {
+                            id: groupScopeRow
+                            anchors.fill: parent
+                            anchors.margins: AppTheme.spacing8
+                            spacing: AppTheme.spacing8
+                            Icon {
+                                name: "link"
+                                size: 16
+                                color: AppTheme.editorAccent
+                            }
+                            Label {
+                                objectName: "themeEditingGroupScopeText"
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: root.editingColorGroup !== null
+                                      ? qsTr("Linked in %1: this colour changes all %n element(s): %2",
+                                             "custom theme colour group",
+                                             root.editingColorGroup.members.length)
+                                        .arg(root.editingColorGroup.name)
+                                        .arg(root.editingColorGroup.labels.join(", "))
+                                      : ""
+                                color: AppTheme.editorText
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                            }
+                            EditorButton {
+                                objectName: "themeDetachFromGroupButton"
+                                implicitHeight: 28
+                                text: qsTr("Edit this element only")
+                                onClicked: {
+                                    var label = root.labelForRole(root.editingRole)
+                                    if (root.store.detachFromColorGroup(root.editingRole))
+                                        root.announce(qsTr("%1 now has its own colour").arg(label),
+                                                      function () { root.undoEdit() })
+                                }
+                            }
+                        }
                     }
 
                     // How the open role is tied to the rest of the theme, as
