@@ -1695,6 +1695,110 @@ private Q_SLOTS:
         QCOMPARE(latest.count(), 1);
     }
 
+    // "When returning to a conversation" (master prompt Part 3, §6.5,
+    // SC49-SC52, SC55): the viewport anchor and the message selection are
+    // saved apart and the return mode chooses between them.
+    void returnModesChooseBetweenAnchorLatestAndSelection()
+    {
+        FakeClient client;
+        auto anchor = makeEvent(QStringLiteral("$anchor:example.org"));
+        auto picked = makeEvent(QStringLiteral("$picked:example.org"));
+        client.timelines[kRoomA] = { anchor, picked };
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+        controller.saveScrollAnchor(kRoomA,
+                                    QStringLiteral("$anchor:example.org"),
+                                    17.5, false);
+        controller.saveSelection(kRoomA, QStringLiteral("$picked:example.org"));
+        QCOMPARE(controller.savedSelection(kRoomA),
+                 QStringLiteral("$picked:example.org"));
+
+        // Previous position: the anchor, at its offset; the selection does
+        // not move anything.
+        QVERIFY(controller.hasHistoricalReturn(kRoomA, 0));
+        controller.restoreConversation(kRoomA, 0);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.last().at(0).toInt(),
+                 model.rowForStableId(QStringLiteral("$anchor:example.org")));
+        QCOMPARE(located.last().at(1).toReal(), 17.5);
+
+        // Latest messages: the live edge, and the selection stays saved.
+        QVERIFY(!controller.hasHistoricalReturn(kRoomA, 1));
+        controller.restoreConversation(kRoomA, 1);
+        QCOMPARE(latest.count(), 1);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(controller.savedSelection(kRoomA),
+                 QStringLiteral("$picked:example.org"));
+
+        // Selected message: the selection, centred (NaN offset) because it
+        // is not the anchor; as a passive restore, not a highlighted jump.
+        controller.restoreConversation(kRoomA, 2);
+        QCOMPARE(located.count(), 2);
+        QCOMPARE(located.last().at(0).toInt(),
+                 model.rowForStableId(QStringLiteral("$picked:example.org")));
+        QVERIFY(qIsNaN(located.last().at(1).toReal()));
+        QVERIFY(!located.last().at(2).toBool());
+
+        // A selection that IS the anchor keeps the anchor's offset.
+        controller.saveSelection(kRoomA, QStringLiteral("$anchor:example.org"));
+        controller.restoreConversation(kRoomA, 2);
+        QCOMPARE(located.last().at(1).toReal(), 17.5);
+
+        // No selection saved: selected-message mode is the previous position.
+        controller.saveSelection(kRoomA, QString());
+        controller.restoreConversation(kRoomA, 2);
+        QCOMPARE(located.count(), 4);
+        QCOMPARE(located.last().at(1).toReal(), 17.5);
+
+        // Account isolation: sign-out (and every account switch, which
+        // detaches the session the same way) forgets both.
+        controller.saveSelection(kRoomA, QStringLiteral("$picked:example.org"));
+        client.logout();
+        QCOMPARE(controller.savedSelection(kRoomA), QString());
+    }
+
+    // SC55: a saved selection that cannot be reached (redacted, beyond the
+    // walk) falls back to the previous position, never silently to latest.
+    void anUnreachableSelectionFallsBackToThePreviousPosition()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$anchor")) }, false);
+        controller.saveScrollAnchor(kRoomA, QStringLiteral("$anchor"), 9.0,
+                                    false);
+        controller.saveSelection(kRoomA, QStringLiteral("$gone"));
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+        controller.restoreConversation(kRoomA, 2);
+        QCOMPARE(located.count(), 0); // walking history for it
+        // The room's start arrives without it.
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 2, true);
+        QTRY_COMPARE(located.count(), 1);
+        QCOMPARE(latest.count(), 0);
+        QCOMPARE(located.first().at(0).toInt(),
+                 model.rowForStableId(QStringLiteral("$anchor")));
+        QCOMPARE(located.first().at(1).toReal(), 9.0);
+    }
+
     void logoutClearsRoomScrollAnchors()
     {
         FakeClient client;

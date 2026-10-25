@@ -101,17 +101,43 @@ Rectangle {
 
     property string keyboardSelectedEventId: ""
     property string resumeSelectedEventId: ""
-    // The message selected when each room was last left, kept for the session
-    // only and apart from the saved viewport (issue #55): returning restores
-    // the viewport exactly as before and moves nothing, and the resume
-    // shortcut reselects this message when it is in view. Keyed by account and
-    // room; never persisted, never revealed by an automatic scroll.
-    property var rememberedSelections: ({})
-    property string selectionRoomKey: ""
-    property string rememberedSelectionEventId: ""
-    function roomSelectionKey() {
-        return (app.accounts ? app.accounts.activeUserId : "") + "|"
-               + app.currentRoomId
+    // The message selection is remembered per room apart from the viewport
+    // ("When returning to a conversation"): restoring one never moves or
+    // implies the other. selectionRoomId is the room a selection belongs to,
+    // so the save never lands on the room being switched to.
+    property string selectionRoomId: ""
+    // A saved selection waiting for its row to be loaded in the reopened
+    // room; applied by the count observer below, never by scrolling to it.
+    property string pendingReturnSelection: ""
+    // Outline the restored selection without taking keyboard focus (the
+    // "Show the message selection outline when returning" choice).
+    property bool restoredSelectionOutline: false
+    function rememberSelection() {
+        var id = root.keyboardSelectedEventId !== ""
+                 ? root.keyboardSelectedEventId : root.resumeSelectedEventId
+        // Only a real selection is saved: the clears below (room switch,
+        // an event leaving the model) are bookkeeping, not the reader
+        // deselecting.
+        if (id !== "" && root.selectionRoomId !== ""
+                && root.selectionRoomId === app.currentRoomId)
+            app.pagination.saveSelection(root.selectionRoomId, id)
+    }
+    onKeyboardSelectedEventIdChanged: rememberSelection()
+    onResumeSelectedEventIdChanged: rememberSelection()
+    function applyReturnSelection() {
+        var id = root.pendingReturnSelection
+        if (id === "" || !app.timeline || app.timeline.rowForStableId(id) < 0)
+            return
+        root.pendingReturnSelection = ""
+        // A selection the reader made since the room opened wins.
+        if (root.keyboardSelectedEventId !== ""
+                || root.resumeSelectedEventId !== "")
+            return
+        root.resumeSelectedEventId = id
+        if (app.settings.showSelectionOnReturn) {
+            root.keyboardSelectedEventId = id
+            root.restoredSelectionOutline = true
+        }
     }
 
     // Inline thread style: narrowing to a thread is how a thread is opened
@@ -156,8 +182,7 @@ Rectangle {
         // Resume an existing selection only if it is still in this viewport.
         // Scrolling while composing must not cause a jump back into history.
         if (root.keyboardSelectedEventId === "")
-            root.keyboardSelectedEventId = root.resumeSelectedEventId !== ""
-                ? root.resumeSelectedEventId : root.rememberedSelectionEventId
+            root.keyboardSelectedEventId = root.resumeSelectedEventId
         var row = timeline.viewRowForStableId(root.keyboardSelectedEventId)
         if (timeline.selectionDetached || !timeline.messageIntersectsViewport(row))
             timeline.selectVisibleMessage(1)
@@ -167,20 +192,16 @@ Rectangle {
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
-            var leaving = root.keyboardSelectedEventId !== ""
-                ? root.keyboardSelectedEventId : root.resumeSelectedEventId
-            var remembered = root.rememberedSelections
-            if (root.selectionRoomKey !== "" && leaving !== "") {
-                remembered[root.selectionRoomKey] = leaving
-                root.rememberedSelections = remembered
-            }
-            root.selectionRoomKey = root.roomSelectionKey()
-            root.rememberedSelectionEventId =
-                remembered[root.selectionRoomKey] || ""
+            root.selectionRoomId = ""
+            root.restoredSelectionOutline = false
             root.keyboardSelectedEventId = ""
             root.resumeSelectedEventId = ""
             timeline.selectionDetached = false
             timeline.stopEntrySelection()
+            root.selectionRoomId = app.currentRoomId
+            root.pendingReturnSelection = app.currentRoomId !== ""
+                    ? app.pagination.savedSelection(app.currentRoomId) : ""
+            root.applyReturnSelection()
         }
     }
     Connections {
@@ -192,6 +213,7 @@ Rectangle {
             if (root.resumeSelectedEventId !== ""
                     && app.timeline.rowForStableId(root.resumeSelectedEventId) < 0)
                 root.resumeSelectedEventId = ""
+            root.applyReturnSelection()
         }
     }
     // The current room is an invite not yet accepted (opened from Activity or
@@ -3404,7 +3426,8 @@ Rectangle {
                 // row as a pinned thread root.
                 property var timelineModel: app.timeline
                 readonly property string keyboardSelectedEventId:
-                    activeFocus ? root.keyboardSelectedEventId : ""
+                    activeFocus || root.restoredSelectionOutline
+                    ? root.keyboardSelectedEventId : ""
 
                 property bool selectionDetached: false
 
@@ -4029,6 +4052,10 @@ Rectangle {
                     cancelWheelMotion()
                     if (highlight) {
                         positionViewAtNavigationTarget(viewRow)
+                    } else if (isNaN(pixelOffset)) {
+                        // A restored selection with no offset of its own
+                        // (it is not the saved anchor): centred.
+                        positionViewAtViewRow(viewRow, true)
                     } else {
                         positionViewAtViewRow(viewRow, false)
                         contentY = anchorPositionForItem(item) + pixelOffset
@@ -5931,8 +5958,9 @@ Rectangle {
                                 timeline.presentationResetHadRows
                         presentationGuard.restart()
                         timeline.restoreHoldsGate =
-                                app.pagination.hasHistoricalScrollAnchor(
-                                    app.currentRoomId)
+                                app.pagination.hasHistoricalReturn(
+                                    app.currentRoomId,
+                                    app.settings.conversationReturnMode)
                         if (timeline.restoreHoldsGate)
                             restoreHoldGuard.restart()
                         else
@@ -5945,7 +5973,11 @@ Rectangle {
                             if (timeline.resetEpoch !== resetEpoch
                                     || timeline.navigationEpoch !== readerEpoch)
                                 return
-                            app.pagination.restoreScrollAnchor(app.currentRoomId)
+                            // "When returning to a conversation": previous
+                            // position, latest, or the selected message.
+                            app.pagination.restoreConversation(
+                                app.currentRoomId,
+                                app.settings.conversationReturnMode)
                         })
                         Qt.callLater(timeline.maybeFillViewport)
                         presentationResetSettledTimer.restart()

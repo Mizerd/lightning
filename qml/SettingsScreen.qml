@@ -184,6 +184,15 @@ Item {
           keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
           breadcrumb: qsTr("Appearance · Timeline"),
           anchor: "timelineWheelSpeedCombo" },
+        { title: qsTr("When returning to a conversation"),
+          keywords: qsTr("return reopen room position latest selected message "
+                         + "reading restore remember scroll"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          anchor: "conversationReturnCombo" },
+        { title: qsTr("Show the message selection outline when returning"),
+          keywords: qsTr("selection outline highlight return reopen keyboard"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          anchor: "showSelectionOnReturnCheck" },
         { title: qsTr("Joins, leaves and invites"),
           keywords: qsTr("membership join leave invite kick ban activity hide"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
@@ -4418,6 +4427,69 @@ Item {
                                     text: qsTr("How far one physical mouse-wheel notch moves "
                                                + "the timeline. Touchpad and precision scrolling "
                                                + "stay fine-grained regardless of this setting.")
+                                }
+                                // Where a passive return to a conversation
+                                // lands. An explicit target (a link, a
+                                // notification, a search hit) always wins.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("When returning to a conversation")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: returnModeCombo
+                                    objectName: "conversationReturnCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [
+                                        { label: qsTr("Previous position"), value: 0 },
+                                        { label: qsTr("Latest messages"), value: 1 },
+                                        { label: qsTr("Selected message when available"),
+                                          value: 2 }
+                                    ]
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.conversationReturnMode)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onConversationReturnModeChanged() {
+                                            returnModeCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.conversationReturnMode = currentValue
+                                    Accessible.description: qsTr(
+                                        "Where a room opens when you come back to it")
+                                }
+                                Label {
+                                    objectName: "conversationReturnHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Previous position puts you back where you were "
+                                               + "reading, or at the newest messages if you "
+                                               + "were following them. Selected message opens "
+                                               + "at the message you last selected with the "
+                                               + "keyboard, and otherwise at your previous "
+                                               + "position. Opening a link or a notification "
+                                               + "always goes to its message.")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showSelectionOnReturnCheck"
+                                    text: qsTr("Show the message selection outline when returning")
+                                    checked: app.settings.showSelectionOnReturn
+                                    onToggled: app.settings.showSelectionOnReturn = checked
+                                    Accessible.description: qsTr(
+                                        "Outline the message you last selected without "
+                                        + "moving the keyboard focus")
                                 }
                             }
                         }

@@ -420,6 +420,22 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
                    WRITE setHideThreadReplies NOTIFY hideThreadRepliesChanged)
 
+    // conversationReturnMode: where a passive return to a room lands. 0
+    // Previous position (default: the saved anchor, or the live edge when the
+    // reader left following it), 1 Latest messages, 2 Selected message when
+    // available (else the previous position). Explicit targets (a link, a
+    // notification, a search hit, a reply jump) always win. Out-of-range
+    // reads back as Previous position. Account-scoped.
+    Q_PROPERTY(int conversationReturnMode READ conversationReturnMode
+                   WRITE setConversationReturnMode
+                   NOTIFY conversationReturnModeChanged)
+    // Whether a restored message selection is outlined on return without the
+    // timeline taking keyboard focus. Selection identity is restored either
+    // way; this only governs the visible outline. Default false.
+    Q_PROPERTY(bool showSelectionOnReturn READ showSelectionOnReturn
+                   WRITE setShowSelectionOnReturn
+                   NOTIFY showSelectionOnReturnChanged)
+
     // Smooth scrolling. Separate from reducedMotion so the wheel can land
     // directly without disabling every animation. Default on.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
@@ -1044,6 +1060,13 @@ public:
     void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
+    static constexpr int kReturnPrevious = 0;
+    static constexpr int kReturnLatest = 1;
+    static constexpr int kReturnSelected = 2;
+    int conversationReturnMode() const;
+    void setConversationReturnMode(int mode);
+    bool showSelectionOnReturn() const;
+    void setShowSelectionOnReturn(bool v);
     bool showBridgeBadges() const;
     void setShowBridgeBadges(bool show);
     bool compactRoomList() const;
@@ -1482,6 +1505,8 @@ Q_SIGNALS:
     void layoutPresetChanged();
     void hideThreadRepliesChanged();
     void smoothScrollingChanged();
+    void conversationReturnModeChanged();
+    void showSelectionOnReturnChanged();
     void showBridgeBadgesChanged();
     void compactRoomListChanged();
     void disableCursorBlinkChanged();

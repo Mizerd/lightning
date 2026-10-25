@@ -1,5 +1,7 @@
 #include "models/PaginationController.h"
 
+#include <QtNumeric>
+
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
 
@@ -385,6 +387,76 @@ bool PaginationController::hasHistoricalScrollAnchor(const QString &roomId) cons
     const auto it = m_scrollAnchors.constFind(roomId);
     return it != m_scrollAnchors.cend() && !it->followingLatest
         && !it->eventId.isEmpty();
+}
+
+void PaginationController::saveSelection(const QString &roomId,
+                                         const QString &eventId)
+{
+    if (roomId.isEmpty())
+        return;
+    if (eventId.isEmpty()) {
+        m_savedSelections.remove(roomId);
+        return;
+    }
+    if (m_savedSelections.size() >= kMaxScrollAnchors
+        && !m_savedSelections.contains(roomId))
+        m_savedSelections.erase(m_savedSelections.begin());
+    m_savedSelections.insert(roomId, eventId);
+}
+
+QString PaginationController::savedSelection(const QString &roomId) const
+{
+    return m_savedSelections.value(roomId);
+}
+
+bool PaginationController::hasHistoricalReturn(const QString &roomId,
+                                               int mode) const
+{
+    if (mode == 1)
+        return false;
+    if (mode == 2 && !m_savedSelections.value(roomId).isEmpty())
+        return true;
+    return hasHistoricalScrollAnchor(roomId);
+}
+
+void PaginationController::restoreConversation(const QString &roomId,
+                                               int mode)
+{
+    if (roomId.isEmpty() || roomId != m_roomId)
+        return;
+    if (mode == 1) {
+        // Latest messages: the saved selection stays saved (the pane keeps
+        // it as identity), but it does not pull the viewport backwards.
+        Q_EMIT restoreLatestRequested();
+        return;
+    }
+    const QString selection = mode == 2 ? m_savedSelections.value(roomId)
+                                        : QString{};
+    if (selection.isEmpty()) {
+        restoreScrollAnchor(roomId);
+        return;
+    }
+    const auto anchor = m_scrollAnchors.constFind(roomId);
+    const qreal offset =
+        (anchor != m_scrollAnchors.cend() && !anchor->followingLatest
+         && anchor->eventId == selection)
+            ? anchor->pixelOffset : qQNaN();
+    const int row = m_timelineModel
+        ? m_timelineModel->rowForStableId(selection) : -1;
+    if (row >= 0) {
+        Q_EMIT targetLocated(row, offset, false);
+        return;
+    }
+    clearNavigation();
+    m_navigationPurpose = NavigationPurpose::Restore;
+    m_navigationEventId = selection;
+    m_navigationBatches = 0;
+    m_restoreIsSelection = true;
+    m_restoreOffset = offset;
+    request(Reason::Navigation);
+    if (!m_requestActive && m_client
+        && m_client->paginationReady(m_roomId))
+        failNavigation();
 }
 
 void PaginationController::restoreScrollAnchor(const QString &roomId)
@@ -852,6 +924,7 @@ void PaginationController::onLoggedOut()
     resetPerRoomState();
     clearNavigation();
     m_scrollAnchors.clear();
+    m_savedSelections.clear();
     emitStateChanged();
 }
 
@@ -879,11 +952,14 @@ void PaginationController::locateNavigationTarget(int row)
 {
     const bool highlight = m_navigationPurpose == NavigationPurpose::Reply;
     qreal offset = 0;
-    if (!highlight) {
+    if (!highlight && m_restoreIsSelection) {
+        offset = m_restoreOffset;
+    } else if (!highlight) {
         const auto it = m_scrollAnchors.constFind(m_roomId);
         if (it != m_scrollAnchors.cend())
             offset = it->pixelOffset;
     }
+    m_restoreIsSelection = false;
     const QString eventId = m_navigationEventId;
     m_navigationPurpose = NavigationPurpose::None;
     m_navigationEventId.clear();
@@ -899,7 +975,16 @@ void PaginationController::locateNavigationTarget(int row)
 void PaginationController::failNavigation(bool tooFar)
 {
     const bool wasRestore = m_navigationPurpose == NavigationPurpose::Restore;
+    const bool wasSelection = wasRestore && m_restoreIsSelection;
     clearNavigation(false);
+    if (wasSelection) {
+        // The selected message is out of reach (redacted, trimmed, beyond
+        // the walk's budget): the previous position, not the live edge.
+        qCInfo(lcPagination)
+            << "selected-message return unreachable; previous position";
+        restoreScrollAnchor(m_roomId);
+        return;
+    }
     if (wasRestore) {
         Q_EMIT restoreLatestRequested();
         return;
@@ -914,6 +999,7 @@ void PaginationController::clearNavigation(bool clearMessage)
 {
     bool changed = m_navigationPurpose == NavigationPurpose::Reply;
     m_navigationPurpose = NavigationPurpose::None;
+    m_restoreIsSelection = false;
     m_navigationEventId.clear();
     m_navigationBatches = 0;
     if (!m_highlightedEventId.isEmpty()) {

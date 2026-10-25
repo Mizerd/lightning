@@ -209,6 +209,24 @@ public:
                                       qreal pixelOffset,
                                       bool followingLatest);
     Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
+    // A passive return to `roomId` under SettingsManager's
+    // conversationReturnMode (0 previous position, 1 latest, 2 selected
+    // message when available). restoreScrollAnchor() is mode 0. In mode 2 a
+    // saved selection is the target (placed centred unless it IS the saved
+    // anchor, which keeps its offset); a selection that cannot be reached
+    // falls back to the previous position rather than to latest.
+    Q_INVOKABLE void restoreConversation(const QString &roomId, int mode);
+    // Whether restoreConversation() will land in history (keeps the pane's
+    // presentation gate closed until it has).
+    Q_INVOKABLE bool hasHistoricalReturn(const QString &roomId,
+                                         int mode) const;
+    // The message selection last held in `roomId`, kept apart from the
+    // viewport anchor: restoring one never implies the other. Navigation
+    // state only (an event id), memory-only, cleared on sign-out and on an
+    // account switch with the anchors.
+    Q_INVOKABLE void saveSelection(const QString &roomId,
+                                   const QString &eventId);
+    Q_INVOKABLE QString savedSelection(const QString &roomId) const;
     // True when restoreScrollAnchor() will put the reader in history rather
     // than at the live edge, so the pane can keep its presentation gate
     // closed until that restore has landed.
@@ -400,6 +418,12 @@ private:
     QTimer m_highlightTimer;
     QTimer m_navigationMessageTimer;
     QHash<QString, ScrollAnchor> m_scrollAnchors;
+    QHash<QString, QString> m_savedSelections;
+    // The running Restore targets a saved selection: its pixel offset is
+    // m_restoreOffset (NaN = centre), and failing to reach it falls back to
+    // the previous-position restore instead of to latest.
+    bool m_restoreIsSelection = false;
+    qreal m_restoreOffset = 0;
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
     // Fill dispatches that never completed, spent by abandonStalledRequest().

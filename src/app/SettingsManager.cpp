@@ -123,6 +123,8 @@ constexpr auto kNhekoMessageLayout  = "ui/nhekoCompact/messageLayout";
 constexpr auto kNhekoMessageSpacing = "ui/nhekoCompact/messageSpacing";
 constexpr auto kNhekoThreadPlacement = "ui/nhekoCompact/threadPlacement";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
+constexpr auto kConversationReturn  = "ui/conversationReturnMode";
+constexpr auto kShowSelectionReturn = "ui/showSelectionOnReturn";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
 constexpr auto kShowBridgeBadges    = "ui/showBridgeBadges";
 constexpr auto kCompactRoomList     = "ui/compactRoomList";
@@ -732,6 +734,8 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT threadPlacementChanged();
     Q_EMIT layoutPresetChanged();
     Q_EMIT smoothScrollingChanged();
+    Q_EMIT conversationReturnModeChanged();
+    Q_EMIT showSelectionOnReturnChanged();
     Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
     Q_EMIT clockFormatChanged();
@@ -4319,6 +4323,39 @@ void SettingsManager::setSmoothScrolling(bool v)
         return;
     setAppearanceValue(kSmoothScrolling, v);
     Q_EMIT smoothScrollingChanged();
+}
+
+int SettingsManager::conversationReturnMode() const
+{
+    // An unknown value (a newer build's fourth choice) is the default, never
+    // the nearest end of the range.
+    const int stored =
+        appearanceValue(kConversationReturn, kReturnPrevious).toInt();
+    return (stored == kReturnLatest || stored == kReturnSelected)
+               ? stored : kReturnPrevious;
+}
+
+void SettingsManager::setConversationReturnMode(int mode)
+{
+    if (mode != kReturnLatest && mode != kReturnSelected)
+        mode = kReturnPrevious;
+    if (conversationReturnMode() == mode)
+        return;
+    setAppearanceValue(kConversationReturn, mode);
+    Q_EMIT conversationReturnModeChanged();
+}
+
+bool SettingsManager::showSelectionOnReturn() const
+{
+    return appearanceValue(kShowSelectionReturn, false).toBool();
+}
+
+void SettingsManager::setShowSelectionOnReturn(bool v)
+{
+    if (showSelectionOnReturn() == v)
+        return;
+    setAppearanceValue(kShowSelectionReturn, v);
+    Q_EMIT showSelectionOnReturnChanged();
 }
 
 bool SettingsManager::showBridgeBadges() const

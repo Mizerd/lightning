@@ -1076,7 +1076,6 @@ ApplicationWindow {
     void roomChangesClearRememberedSelection()
     {
         openJoinedRoom();
-        const QString roomA = m_controller->currentRoomId();
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         auto *pane = item("timelinePane");
@@ -1104,16 +1103,66 @@ ApplicationWindow {
         QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
-        // Issue #55: what was selected is remembered per room, apart from the
-        // viewport. Nothing is selected or focused by the return itself.
-        QCOMPARE(pane->property("rememberedSelectionEventId").toString(),
-                 QString());
+    }
+
+    // Master prompt Part 3 §6.5 (SC49, SC53): a selection is remembered per
+    // room apart from the viewport. Returning restores its identity (resume
+    // continues from it) without moving focus; the outline shows without
+    // keyboard focus only when "Show the message selection outline when
+    // returning" is on.
+    void returningToARoomRestoresItsSelectionWithoutTakingFocus()
+    {
+        openJoinedRoom();
+        const QString roomA = m_controller->currentRoomId();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                       Qt::ControlModifier | Qt::ShiftModifier);
+        auto *pane = item("timelinePane");
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
+        const QString previous = pane->property("keyboardSelectedEventId").toString();
+        // Back to typing: the selection becomes the resume point and the
+        // composer holds focus, which no restore below may take.
+        QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        QCOMPARE(pane->property("resumeSelectedEventId").toString(), previous);
+        QString otherRoom;
+        auto *rooms = m_controller->roomList();
+        for (int row = 0; row < rooms->rowCount(); ++row) {
+            const QString roomId = rooms->data(rooms->index(row),
+                                               RoomListModel::RoomIdRole).toString();
+            const auto result = rooms->findRoom(roomId);
+            if (result.value(QStringLiteral("membership")).toString()
+                    == QStringLiteral("joined")
+                && !result.value(QStringLiteral("isSpace")).toBool()
+                && roomId != roomA) {
+                otherRoom = roomId;
+                break;
+            }
+        }
+        QVERIFY(!otherRoom.isEmpty());
+
+        // Outline off (default): identity comes back, nothing is outlined.
+        m_controller->openRoom(otherRoom);
+        QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
+        QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
         m_controller->openRoom(roomA);
         QTRY_COMPARE(m_controller->currentRoomId(), roomA);
-        QCOMPARE(pane->property("rememberedSelectionEventId").toString(),
-                 previous);
+        QTRY_COMPARE(pane->property("resumeSelectedEventId").toString(), previous);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
-        QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
+        QVERIFY(!item("timelineListView")->hasActiveFocus());
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+
+        // Outline on: the same selection is outlined, focus still elsewhere.
+        m_controller->settings()->setShowSelectionOnReturn(true);
+        m_controller->openRoom(otherRoom);
+        QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
+        m_controller->openRoom(roomA);
+        QTRY_COMPARE(m_controller->currentRoomId(), roomA);
+        QTRY_COMPARE(pane->property("keyboardSelectedEventId").toString(), previous);
+        QVERIFY(!item("timelineListView")->hasActiveFocus());
+        QCOMPARE(item("timelineListView")->property("keyboardSelectedEventId")
+                     .toString(), previous);
+        QTRY_COMPARE(itemsNamed(QStringLiteral("keyboardMessageSelection")).size(), 1);
     }
 
     // L1: only the selected row instantiates a selection outline.
