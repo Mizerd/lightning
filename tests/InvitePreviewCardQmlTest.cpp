@@ -3,6 +3,7 @@
 // keyboard trap), showing it never steals focus, and focus returns to it when
 // its buttons disable under the user.
 
+#include <QFile>
 #include <QQmlApplicationEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -89,6 +90,40 @@ private Q_SLOTS:
         card->setProperty("pending", true);
         QTest::qWait(100);
         QVERIFY2(before->hasActiveFocus(), "pending set elsewhere must not steal focus");
+    }
+
+    // UI-041: the preview card used to hand the invitation's avatar straight
+    // to Avatar, bypassing the account's invite_avatars choice that the room
+    // list and quick switcher honour. It asks for the picture only when told
+    // it may, and by default it may not.
+    void theInviteAvatarFollowsTheAccountChoice()
+    {
+        QQmlApplicationEngine engine;
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("InvitePreviewCard"));
+        QVERIFY(created.count() > 0 || created.wait(5000));
+        auto *card = created.at(0).at(0).value<QObject *>();
+        QVERIFY(card);
+        card->setProperty("roomId", QStringLiteral("!r:test"));
+        card->setProperty("avatarUrl", QStringLiteral("mxc://evil.example/pic"));
+        auto *avatar = card->findChild<QObject *>(QStringLiteral("invitePreviewAvatar"));
+        QVERIFY(avatar);
+        QCOMPARE(avatar->property("mxc").toString(), QString());
+        card->setProperty("showAvatar", true);
+        QCOMPARE(avatar->property("mxc").toString(),
+                 QStringLiteral("mxc://evil.example/pic"));
+        card->setProperty("showAvatar", false);
+        QCOMPARE(avatar->property("mxc").toString(), QString());
+        // The host wires the account's fail-closed answer, not the MSC default.
+        QFile pane(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/TimelinePane.qml"));
+        QVERIFY(pane.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(pane.readAll());
+        const int at = src.indexOf(QStringLiteral("id: invitePreviewCard"));
+        QVERIFY(at > 0);
+        const QString block = src.mid(at, 1500);
+        QVERIFY(block.contains(QStringLiteral("app.accountPrefs.inviteAvatarsAllowed")));
+        delete card;
     }
 };
 QTEST_MAIN(InvitePreviewCardQmlTest)

@@ -4555,6 +4555,8 @@ if(BUILD_TESTING)
     )
     lightning_configure_qml_test(invite-preview-card-qml-test)
     target_link_libraries(invite-preview-card-qml-test PRIVATE Qt6::Test)
+    target_compile_definitions(invite-preview-card-qml-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME invite-preview-card-qml COMMAND invite-preview-card-qml-test)
     set_tests_properties(invite-preview-card-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

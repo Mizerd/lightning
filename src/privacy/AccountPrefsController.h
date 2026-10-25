@@ -36,6 +36,12 @@ class AccountPrefsController : public QObject
     Q_PROPERTY(bool inviteAvatars READ inviteAvatars NOTIFY changed)
     // True once the account's own copy was read (or written) this session.
     Q_PROPERTY(bool mediaPreviewKnown READ mediaPreviewKnown NOTIFY changed)
+    // Whether a stranger-supplied invitation avatar may be fetched NOW. Unlike
+    // `inviteAvatars` (the MSC default, on, until the account answers) this
+    // is fail-closed: false until the account's own copy is known, because a
+    // fetch made in that window cannot be taken back once the answer is
+    // "off". Every invitation identity surface reads this one.
+    Q_PROPERTY(bool inviteAvatarsAllowed READ inviteAvatarsAllowed NOTIFY changed)
     // The last write failed; the displayed value is still the account's.
     Q_PROPERTY(bool writeFailed READ writeFailed NOTIFY changed)
 
@@ -47,6 +53,8 @@ public:
     QString mediaPreviews() const { return m_media.mediaPreviews; }
     bool inviteAvatars() const { return m_media.inviteAvatars; }
     bool mediaPreviewKnown() const { return m_mediaKnown; }
+    bool inviteAvatarsAllowed() const
+    { return m_mediaKnown && m_media.inviteAvatars; }
     bool writeFailed() const { return m_writeFailed; }
 
     // Should media in this room start collapsed? `roomIsPrivate`: encrypted

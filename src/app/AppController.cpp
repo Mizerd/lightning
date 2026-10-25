@@ -8159,7 +8159,8 @@ void AppController::processInviteNotices()
             tr("Room invitation"),
             notices::inviteBody(preview, inviter, room.name, room.isDirect),
             room.id,
-            notices::showsRoomAvatar(preview)
+            notices::showsInviteAvatar(preview,
+                                       m_accountPrefs->inviteAvatarsAllowed())
                 ? m_roomList->findRoom(room.id)
                       .value(QStringLiteral("avatarUrl")).toString()
                 : QString(),

@@ -176,7 +176,12 @@ ItemDelegate {
             labelSize: 9
             name: root.channelName
             colorKey: root.identityColorKey.length > 0 ? root.identityColorKey : root.roomId
-            mxc: root.avatarUrl
+            // A stranger's invite picture loads only when the account allows
+            // it (MSC4278 invite_avatars, fail-closed until known).
+            mxc: (root.isInvite
+                  && !(typeof app !== "undefined" && app && app.accountPrefs
+                       && app.accountPrefs.inviteAvatarsAllowed))
+                 ? "" : root.avatarUrl
         }
 
         // A small ringed badge on the avatar's corner: invite or lock. The lock

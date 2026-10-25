@@ -45,6 +45,10 @@ private Q_SLOTS:
         QVERIFY(!showsRoomAvatar(priv));
         QVERIFY(showsRoomAvatar(0));
         QVERIFY(showsRoomAvatar(1));
+        // An invitation's picture also needs invite_avatars known and on.
+        QVERIFY(showsInviteAvatar(0, true));
+        QVERIFY(!showsInviteAvatar(0, false));
+        QVERIFY(!showsInviteAvatar(priv, true));
     }
 
     void callWordingNamesTheCallerOnceAndTheKindOfCall()

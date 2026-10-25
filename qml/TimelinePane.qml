@@ -6752,6 +6752,9 @@ Rectangle {
                 topic: root.currentRoom.topic || ""
                 inviter: root.currentRoom.inviter || ""
                 avatarUrl: root.currentRoom.avatarUrl || ""
+                // The same MSC4278 gate as the room list's invite row.
+                showAvatar: !!app.accountPrefs
+                            && app.accountPrefs.inviteAvatarsAllowed
                 colorKey: root.currentRoom.identityColorKey || ""
                 isDirect: root.currentRoom.isDirect === true
                 isSpace: root.currentRoom.isSpace === true

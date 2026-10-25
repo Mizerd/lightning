@@ -19,6 +19,10 @@ Rectangle {
     property string topic: ""
     property string inviter: ""
     property string avatarUrl: ""
+    // MSC4278 invite_avatars for this account (the host passes
+    // app.accountPrefs.inviteAvatarsAllowed). Off: the letter tile stands in
+    // and no request is made for the stranger-chosen picture.
+    property bool showAvatar: false
     property string colorKey: ""
     property bool isDirect: false
     property bool isSpace: false
@@ -91,7 +95,8 @@ Rectangle {
             size: 72
             squareRadius: AppTheme.radiusLg
             name: card.roomName || card.roomId
-            mxc: card.avatarUrl
+            objectName: "invitePreviewAvatar"
+            mxc: card.showAvatar ? card.avatarUrl : ""
             colorKey: card.colorKey || card.roomId
             circle: card.isDirect
         }

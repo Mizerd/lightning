@@ -33,6 +33,14 @@ inline bool isPrivate(int preview) { return preview >= kPreviewPrivate; }
 /// Private withholds the room as well, and its picture would name it.
 inline bool showsRoomAvatar(int preview) { return !isPrivate(preview); }
 
+/// An invitation's picture is chosen by a stranger: it also needs the
+/// account's MSC4278 invite_avatars to be known and on
+/// (AccountPrefsController::inviteAvatarsAllowed, fail-closed).
+inline bool showsInviteAvatar(int preview, bool inviteAvatarsAllowed)
+{
+    return showsRoomAvatar(preview) && inviteAvatarsAllowed;
+}
+
 // ── Calls ────────────────────────────────────────────────────────────────
 
 inline QString incomingCallTitle(bool video)

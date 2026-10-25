@@ -238,6 +238,29 @@ private Q_SLOTS:
         QVERIFY(c.inviteAvatars());
     }
 
+    // UI-041/042: an invitation avatar is a stranger's picture, and a fetch
+    // made before the account's answer cannot be undone when the answer is
+    // "off". inviteAvatars keeps the MSC default (on) for display of the
+    // setting; inviteAvatarsAllowed, which every invitation surface reads, is
+    // false until the account's own copy is known.
+    void inviteAvatarsAreFailClosedUntilTheAccountAnswers()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        QVERIFY(c.inviteAvatars());
+        QVERIFY(!c.inviteAvatarsAllowed());
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true,
+                                      { { "invite_avatars", "off" } });
+        QVERIFY(!c.inviteAvatarsAllowed());
+        // Nothing stored: the MSC default applies once that is KNOWN.
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), false, {});
+        QVERIFY(c.inviteAvatarsAllowed());
+        // A sign-out or switch forgets it again.
+        c.setClient(nullptr);
+        QVERIFY(!c.inviteAvatarsAllowed());
+    }
+
     void aChoiceIsWrittenWithTheFieldsWeDoNotOwnAndRevertsWhenRefused()
     {
         FakePrefsClient client;
