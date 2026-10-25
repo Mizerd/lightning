@@ -100,9 +100,39 @@ FocusScope {
     property string sourceKey: ""
     // Where to resume once the player can seek; 0 when nothing is pending.
     property real pendingResumeMs: 0
-    // Why the failure panel shows: "" (the media), or "audio" when the play
-    // gate gave up because the sound system never became ready.
+    // Why the failure panel shows, from facts the pipeline knows (never a Qt
+    // error string, which can carry a local path):
+    //   ""            unknown: the generic message and Retry
+    //   "audio"       the play gate gave up (sound system never ready)
+    //   "network"     the download failed in a way a retry can fix
+    //   "unavailable" the server no longer serves it (gone, forbidden, refused)
+    //   "too_large"   over the playable-file limit: Download instead
+    //   "format"      the bytes arrived but this device cannot decode them:
+    //                 retrying the same bytes cannot help; Download instead
     property string failureReason: ""
+    function reasonForCategory(category) {
+        switch (category) {
+        case "network": case "timeout": case "server_unreachable":
+        case "server_error": case "rate_limited": case "request_failure":
+            return "network"
+        // The two MediaBridge treats as permanent for the session. Its own
+        // "unavailable" is a transient local dispatch refusal (no client
+        // during a restore or switch) and keeps the generic Retry.
+        case "not_found": case "rejected":
+            return "unavailable"
+        case "too_large":
+            return "too_large"
+        case "unsupported_mime": case "invalid": case "unrecognized":
+            return "format"
+        }
+        return ""
+    }
+    // Retrying is offered only where it can change the outcome.
+    readonly property bool failureRetryable:
+        failureReason !== "unavailable" && failureReason !== "format"
+        && failureReason !== "too_large"
+    readonly property bool failureOffersDownload:
+        canSave && (failureReason === "format" || failureReason === "too_large")
     // The video reached its end while the expanded view was open: the view
     // stays, holding the poster and a Replay.
     property bool ended: false
@@ -144,6 +174,8 @@ FocusScope {
             // A failure mark means no fetch was dispatched (an earlier
             // failure is still in its retry interval) or it failed at once;
             // no signal will follow, so show the failure and its Retry.
+            failureReason = reasonForCategory(
+                        app.mediaBridge.failureCategory(root.fetchCacheKey))
             fetchState = "failed"
             fetchingKey = ""
         } else {
@@ -221,6 +253,7 @@ FocusScope {
         unpinFile()
         cancelFetch()
         fetchState = "idle"
+        failureReason = ""
         app.playback.release(root.ownerKey)
     }
     // Reached at end of playback. Some backends clear the video sink once the
@@ -303,6 +336,7 @@ FocusScope {
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey === root.fetchCacheKey
                 && root.fetchState === "fetching") {
+                root.failureReason = root.reasonForCategory(category)
                 root.fetchState = "failed"
                 root.fetchingKey = "" // the fetch is over; nothing to cancel
             }
@@ -374,7 +408,13 @@ FocusScope {
             // it only on this card, to the value it just stored.
             volume: app.settings.mediaVolume
         }
-        onErrorOccurred: root.fetchState = "failed"
+        // The file is local by now, so a player error is about decoding it
+        // (format, codec, a broken file), not about the download.
+        onErrorOccurred: {
+            if (root.failureReason === "")
+                root.failureReason = "format"
+            root.fetchState = "failed"
+        }
         onMediaStatusChanged: {
             if (mediaStatus === MediaPlayer.EndOfMedia)
                 root.handleEndOfMedia()
@@ -499,9 +539,21 @@ FocusScope {
             spacing: AppTheme.spacing8
             Label {
                 objectName: "videoFailedText"
-                text: root.failureReason === "audio"
-                      ? qsTr("The sound system is not ready, so the video cannot start yet")
-                      : qsTr("This video cannot be played")
+                text: {
+                    switch (root.failureReason) {
+                    case "audio":
+                        return qsTr("The sound system is not ready, so the video cannot start yet")
+                    case "network":
+                        return qsTr("The video could not be downloaded. Check the connection and try again.")
+                    case "unavailable":
+                        return qsTr("This video is no longer available")
+                    case "too_large":
+                        return qsTr("This video is too large to play here")
+                    case "format":
+                        return qsTr("This video's format cannot be played on this device")
+                    }
+                    return qsTr("This video cannot be played")
+                }
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 Layout.maximumWidth: Math.max(80, root.width - 24)
@@ -513,8 +565,16 @@ FocusScope {
             AppButton {
                 objectName: "videoRetryButton"
                 text: qsTr("Retry")
+                visible: root.failureRetryable
                 Layout.alignment: Qt.AlignHCenter
                 onClicked: root.retryFetch()
+            }
+            AppButton {
+                objectName: "videoFailedDownloadButton"
+                text: qsTr("Download")
+                visible: root.failureOffersDownload
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: root.saveRequested()
             }
         }
 

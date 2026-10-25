@@ -62,8 +62,12 @@ TestCase {
         // True while a fetch is "in flight": playableSource has nothing yet
         // and the card waits for playableMediaReady.
         property bool holdFetch: false
+        // A source that is not media at all: the player fails to decode it.
+        property bool brokenSource: false
         function playableSource(key) {
-            return holdFetch ? "" : test.fixture.toString()
+            if (holdFetch) return ""
+            return brokenSource ? Qt.resolvedUrl("tst_VideoPlayer.qml").toString()
+                                : test.fixture.toString()
         }
         function failureCategory(key) { return "" }
         function cancelPlayable(key) {}
@@ -142,6 +146,7 @@ TestCase {
         playback.resume = ({})
         settings.mediaVolume = 0.8
         bridge.holdFetch = false
+        bridge.brokenSource = false
     }
 
     // ---- helpers ----
@@ -665,6 +670,46 @@ TestCase {
         bridge.playableMediaReady("full:$video")
         compare(holdingGate.plays, 1)
         verify(playback.owns("owner-video"))
+    }
+
+    // ---- M-F06: a failure says which kind it is ----
+    // Every failure used to read "This video cannot be played" with a Retry,
+    // including a permanent server refusal and a file this device cannot
+    // decode, where retrying the same bytes changes nothing.
+    function failureText(card) {
+        var t = findChild(card, "videoFailedText")
+        return t && t.visible ? t.text : ""
+    }
+    function test_aGoneVideoSaysSoAndOffersNoRetry() {
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        bridge.mediaFetchFailed("full:$video", "not_found")
+        compare(card.fetchState, "failed")
+        verify(failureText(card).indexOf("no longer available") >= 0,
+               failureText(card))
+        verify(!findChild(card, "videoRetryButton").visible,
+               "a permanent failure offers a Retry that cannot help")
+    }
+    function test_aNetworkFailureKeepsItsRetry() {
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        bridge.mediaFetchFailed("full:$video", "timeout")
+        verify(failureText(card).indexOf("could not be downloaded") >= 0,
+               failureText(card))
+        verify(findChild(card, "videoRetryButton").visible)
+        verify(!findChild(card, "videoFailedDownloadButton").visible)
+    }
+    function test_anUndecodableFileSaysItIsTheFormatAndOffersDownload() {
+        bridge.brokenSource = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300,
+                                           canSave: true })
+        tryCompare(card, "fetchState", "failed", 10000)
+        verify(failureText(card).indexOf("format") >= 0, failureText(card))
+        verify(!findChild(card, "videoRetryButton").visible)
+        verify(findChild(card, "videoFailedDownloadButton").visible)
     }
 
     // ---- M-F03: the expanded view owns playback while it is open ----

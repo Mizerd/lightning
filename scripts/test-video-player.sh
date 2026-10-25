@@ -48,7 +48,8 @@ status=${PIPESTATUS[0]}
 # binding after warning and still report the test itself as successful.
 # "No audio device detected" and the failed PulseAudio connection are the
 # point of the environment above.
-if grep -Ev 'No audio device detected|PulseAudioService: pa_context_connect' \
+# "Could not open media" is the undecodable-file case asking for exactly that.
+if grep -Ev 'No audio device detected|PulseAudioService: pa_context_connect|mediadataholder: Could not open media' \
         "$imports/test.log" \
         | grep -Eq '^QWARN|Binding loop detected|ReferenceError:|TypeError:'; then
     echo 'the video player emitted QML warnings' >&2
