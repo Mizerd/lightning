@@ -28,6 +28,12 @@ QVariant StickerPackModel::data(const QModelIndex &index, int role) const
     case ImageCountRole:    return pack.images.size();
     case StickerCountRole:  return pack.stickerCount();
     case EmoticonCountRole: return pack.emoticonCount();
+    case NamespaceRole:     return pack.ns;
+    case AvailableRole:     return pack.available;
+    case UnavailableRole:   return pack.unavailable;
+    case LegacyTwinRole:    return pack.legacyTwin;
+    case LegacySubscribedRole: return pack.legacySubscribed;
+    case FromSpaceRole:     return pack.fromSpace;
     default:                return {};
     }
 }
@@ -47,6 +53,12 @@ QHash<int, QByteArray> StickerPackModel::roleNames() const
         { ImageCountRole,    "imageCount" },
         { StickerCountRole,  "stickerCount" },
         { EmoticonCountRole, "emoticonCount" },
+        { NamespaceRole,     "packNamespace" },
+        { AvailableRole,     "available" },
+        { UnavailableRole,   "unavailableReason" },
+        { LegacyTwinRole,    "legacyTwin" },
+        { LegacySubscribedRole, "legacySubscribed" },
+        { FromSpaceRole,     "fromSpace" },
     };
 }
 
@@ -86,6 +98,12 @@ QVariantMap StickerPackModel::get(int row) const
     map.insert(QStringLiteral("imageCount"), pack.images.size());
     map.insert(QStringLiteral("stickerCount"), pack.stickerCount());
     map.insert(QStringLiteral("emoticonCount"), pack.emoticonCount());
+    map.insert(QStringLiteral("packNamespace"), pack.ns);
+    map.insert(QStringLiteral("available"), pack.available);
+    map.insert(QStringLiteral("unavailableReason"), pack.unavailable);
+    map.insert(QStringLiteral("legacyTwin"), pack.legacyTwin);
+    map.insert(QStringLiteral("legacySubscribed"), pack.legacySubscribed);
+    map.insert(QStringLiteral("fromSpace"), pack.fromSpace);
     return map;
 }
 

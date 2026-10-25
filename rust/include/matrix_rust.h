@@ -1104,7 +1104,21 @@ unsigned char *mx_rust_personal_background_take(void *client,
  */
 char *mx_rust_stickers_fetch_packs(void *client,
                                    const char *room_id,
+                                   bool deep,
                                    unsigned long long op_id);
+/*
+ * Create a new, empty STABLE `m.room.image_pack` under `state_key` (the
+ * caller picks a key unique among the packs it knows). Only a confirmed
+ * absence creates; an existing record answers "pack_exists". Power-level
+ * gated on the exact type. Answers on "sticker_pack_edit_result" with
+ * `shortcode` = the state key.
+ */
+char *mx_rust_stickers_create_room_pack(void *client,
+                                        const char *room_id,
+                                        const char *state_key,
+                                        const char *name,
+                                        const char *usage,
+                                        unsigned long long op_id);
 /*
  * Send one `m.sticker`. An EMPTY `thread_root_id` targets the room timeline;
  * otherwise the SDK's thread-aware send attaches the `m.thread` relation
@@ -1134,6 +1148,7 @@ char *mx_rust_stickers_send(void *client,
 char *mx_rust_stickers_add_to_room_pack(void *client,
                                         const char *room_id,
                                         const char *state_key,
+                                        const char *ns, /* "stable" | "legacy" */
                                         const char *shortcode,
                                         const char *url,
                                         const char *body,
@@ -1155,6 +1170,7 @@ char *mx_rust_stickers_add_to_room_pack(void *client,
 char *mx_rust_stickers_set_room_pack_enabled(void *client,
                                              const char *room_id,
                                              const char *state_key,
+                                             const char *ns,
                                              bool enabled,
                                              unsigned long long op_id);
 /*
@@ -1262,6 +1278,7 @@ char *mx_rust_qr_login_cancel(void *client);
 char *mx_rust_stickers_edit_pack(void *client,
                                  const char *room_id,
                                  const char *state_key,
+                                 const char *ns,
                                  const char *action,
                                  const char *arg_a,
                                  const char *arg_b,

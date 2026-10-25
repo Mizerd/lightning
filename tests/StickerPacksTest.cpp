@@ -109,13 +109,29 @@ public:
     bool paginating(const QString &) const override { return false; }
 
     bool supportsStickerPacks() const override { return packsSupported; }
-    void fetchStickerPacks(const QString &roomId, quint64 opId) override
+    bool lastFetchDeep = false;
+    void fetchStickerPacks(const QString &roomId, quint64 opId,
+                           bool deep) override
     {
         if (refuseFetch)
             return;
         ++fetchCalls;
         lastFetchRoom = roomId;
         lastFetchOp = opId;
+        lastFetchDeep = deep;
+    }
+    int createCalls = 0;
+    QString createRoom, createKey, createName, createUsage;
+    void createStickerRoomPack(const QString &roomId, const QString &stateKey,
+                               const QString &name, const QString &usage,
+                               quint64 opId) override
+    {
+        ++createCalls;
+        createRoom = roomId;
+        createKey = stateKey;
+        createName = name;
+        createUsage = usage;
+        lastEditOp = opId;
     }
     void sendSticker(const QString &roomId, const QString &rootId,
                      const QString &url, const QString &body,
@@ -133,23 +149,25 @@ public:
         sendSize = size;
     }
     int roomsSetCalls = 0;
-    QString roomsSetRoom, roomsSetKey;
+    QString roomsSetRoom, roomsSetKey, roomsSetNs;
     bool roomsSetEnabled = false;
     quint64 lastRoomsOp = 0;
     void setStickerRoomPackEnabled(const QString &roomId,
-                                   const QString &stateKey, bool enabled,
-                                   quint64 opId) override
+                                   const QString &stateKey, const QString &ns,
+                                   bool enabled, quint64 opId) override
     {
         ++roomsSetCalls;
         roomsSetRoom = roomId;
         roomsSetKey = stateKey;
+        roomsSetNs = ns;
         roomsSetEnabled = enabled;
         lastRoomsOp = opId;
     }
     int roomPackAddCalls = 0;
-    QString roomPackRoom, roomPackStateKey, roomPackShortcode;
+    QString roomPackRoom, roomPackStateKey, roomPackShortcode, roomPackNs;
     quint64 lastRoomPackOp = 0;
     void addStickerToRoomPack(const QString &roomId, const QString &stateKey,
+                              const QString &ns,
                               const QString &shortcode, const QString &,
                               const QString &, const QString &, quint64,
                               quint64, quint64, quint64 opId) override
@@ -157,6 +175,7 @@ public:
         ++roomPackAddCalls;
         roomPackRoom = roomId;
         roomPackStateKey = stateKey;
+        roomPackNs = ns;
         roomPackShortcode = shortcode;
         lastRoomPackOp = opId;
     }
@@ -170,15 +189,17 @@ public:
         return op;
     }
     int editCalls = 0;
-    QString editRoom, editStateKey, editAction, editArgA, editArgB;
+    QString editRoom, editStateKey, editNs, editAction, editArgA, editArgB;
     quint64 lastEditOp = 0;
     void editStickerPack(const QString &roomId, const QString &stateKey,
-                         const QString &action, const QString &argA,
-                         const QString &argB, quint64 opId) override
+                         const QString &ns, const QString &action,
+                         const QString &argA, const QString &argB,
+                         quint64 opId) override
     {
         ++editCalls;
         editRoom = roomId;
         editStateKey = stateKey;
+        editNs = ns;
         editAction = action;
         editArgA = argA;
         editArgB = argB;
@@ -569,21 +590,28 @@ private Q_SLOTS:
         manager.setClient(&client);
         manager.applySnapshotForTest(kRoom, false, twoPacks());
 
-        // Only emoticons, never stickers.
+        // Only emoticons, never stickers. Both packs' `wave` are offered,
+        // each naming its pack (PACK-PRO-004 / PACK-UX-004): a collision is
+        // shown, never hidden behind the first pack.
         const QVariantList all = manager.findEmoticons(QString(), 50);
-        QCOMPARE(all.size(), 1);
+        QCOMPARE(all.size(), 2);
         QCOMPARE(all.at(0).toMap().value(QStringLiteral("shortcode")).toString(),
                  QStringLiteral("wave"));
-        // One winner per shortcode, and the ACCOUNT's pack comes first in the
-        // snapshot, so the user's own "wave" beats the room pack's.
         QCOMPARE(all.at(0).toMap().value(QStringLiteral("url")).toString(),
                  kMxcB);
         QCOMPARE(all.at(0).toMap().value(QStringLiteral("packName")).toString(),
                  QStringLiteral("Your pack"));
+        QCOMPARE(all.at(1).toMap().value(QStringLiteral("packName")).toString(),
+                 QStringLiteral("Cat Lovers"));
 
-        QCOMPARE(manager.findEmoticons(QStringLiteral("WA"), 50).size(), 1);
+        QCOMPARE(manager.findEmoticons(QStringLiteral("WA"), 50).size(), 2);
         QVERIFY(manager.findEmoticons(QStringLiteral("zz"), 50).isEmpty());
-        QCOMPARE(manager.findEmoticons(QString(), 0).size(), 1);
+        QCOMPARE(manager.findEmoticons(QString(), 0).size(), 2);
+
+        // A typed `:wave:` is ambiguous (two different images): it resolves
+        // to nothing rather than to the first pack's.
+        QVERIFY(manager.uniqueEmoticonUrl(QStringLiteral("wave")).isEmpty());
+        QVERIFY(manager.uniqueEmoticonUrl(QStringLiteral("cat")).isEmpty());
 
         const QVariantMap one = manager.emoticon(QStringLiteral("wave"));
         QCOMPARE(one.value(QStringLiteral("url")).toString(), kMxcB);
@@ -811,7 +839,7 @@ private Q_SLOTS:
         const int before = client.fetchCalls;
         Q_EMIT client.stickerPackRoomsSet(client.lastRoomsOp, true, QString(),
                                           QStringLiteral("!r:example.org"),
-                                          QString(), true);
+                                          QString(), true, QStringLiteral("none"));
         // The authoritative snapshot is what moves the switch.
         QCOMPARE(client.fetchCalls, before + 1);
         QCOMPARE(done.size(), 1);
@@ -825,7 +853,7 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackRoomsSet(client.lastRoomsOp, false,
                                           QStringLiteral("forbidden"),
                                           QStringLiteral("!r:example.org"),
-                                          QString(), false);
+                                          QString(), false, QStringLiteral("none"));
         QCOMPARE(client.fetchCalls, after);
         QCOMPARE(done.size(), 2);
         QCOMPARE(done.at(1).at(1).toString(), QStringLiteral("forbidden"));
@@ -885,7 +913,7 @@ private Q_SLOTS:
             kRoom, QStringLiteral("https://example.org/a.png")));
     }
 
-    void aRoomPackAddCarriesTheDefaultStateKeyAndReportsLikeAUserPackAdd()
+    void aRoomPackAddCreatesAStablePackUnderAFreshKeyAndReportsLikeAUserPackAdd()
     {
         FakeClient client;
         StickerPackManager manager;
@@ -897,9 +925,11 @@ private Q_SLOTS:
                                   QStringLiteral("image/png"), 128, 96, 4096);
         QCOMPARE(client.roomPackAddCalls, 1);
         QCOMPARE(client.roomPackRoom, kRoom);
-        // The empty state key is the room's default pack (MSC2545), not a
-        // missing key.
-        QVERIFY(client.roomPackStateKey.isEmpty());
+        // The empty key has no "default pack" meaning in Matrix v1.19
+        // (PACK-LTN-010): a room with no pack gets a NEW stable pack under a
+        // fresh, non-empty key.
+        QCOMPARE(client.roomPackStateKey, QStringLiteral("stickers"));
+        QCOMPARE(client.roomPackNs, QStringLiteral("stable"));
         QCOMPARE(client.roomPackShortcode, QStringLiteral("A cat"));
         QVERIFY(manager.saving());
 
@@ -914,6 +944,89 @@ private Q_SLOTS:
                  QStringLiteral("forbidden"));
         QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("room"));
         QVERIFY(!manager.saving());
+    }
+
+    void aSaveTargetsTheRoomsExistingWritablePackInItsOwnDialect()
+    {
+        // PACK-MIG-008 / PACK-UX-002: a legacy pack is written as legacy (no
+        // silent namespace move), a stable one is preferred, and the empty key
+        // is only targeted when that IS the existing pack's key.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap legacy = pack(QStringLiteral("L"), QStringLiteral("room"),
+                                  QStringLiteral("Old"), {});
+        legacy.insert(QStringLiteral("roomId"), kRoom);
+        legacy.insert(QStringLiteral("stateKey"), QString());
+        legacy.insert(QStringLiteral("namespace"), QStringLiteral("legacy"));
+        legacy.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { legacy });
+        manager.saveStickerToRoom(kRoom, kMxcA, QStringLiteral("A cat"),
+                                  QStringLiteral("image/png"), 1, 1, 1);
+        QCOMPARE(client.roomPackNs, QStringLiteral("legacy"));
+        QCOMPARE(client.roomPackStateKey, QString());
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
+                                             QStringLiteral("x"), QString());
+
+        QVariantMap stable = legacy;
+        stable.insert(QStringLiteral("id"), QStringLiteral("S"));
+        stable.insert(QStringLiteral("stateKey"), QStringLiteral("animals_v1"));
+        stable.insert(QStringLiteral("namespace"), QStringLiteral("stable"));
+        manager.applySnapshotForTest(kRoom, true, { legacy, stable });
+        manager.saveStickerToRoom(kRoom, kMxcA, QStringLiteral("A cat"),
+                                  QStringLiteral("image/png"), 1, 1, 1);
+        QCOMPARE(client.roomPackNs, QStringLiteral("stable"));
+        QCOMPARE(client.roomPackStateKey, QStringLiteral("animals_v1"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
+                                             QStringLiteral("x"), QString());
+
+        // Edits and "use everywhere" carry the pack's dialect too.
+        manager.renamePack(QStringLiteral("L"), QStringLiteral("New"));
+        QCOMPARE(client.editNs, QStringLiteral("legacy"));
+        Q_EMIT client.stickerPackEditFinished(client.lastEditOp, false,
+                                              QStringLiteral("x"), QString());
+        manager.setRoomPackEnabled(QStringLiteral("S"), true);
+        QCOMPARE(client.roomsSetNs, QStringLiteral("stable"));
+
+        // A fresh key never collides with a key the room already uses.
+        QVariantMap taken = stable;
+        taken.insert(QStringLiteral("id"), QStringLiteral("T"));
+        taken.insert(QStringLiteral("stateKey"), QStringLiteral("stickers"));
+        taken.insert(QStringLiteral("canManage"), false);
+        manager.applySnapshotForTest(kRoom, true, { taken });
+        manager.createRoomPack(kRoom, QStringLiteral("Animals"),
+                               QStringLiteral("emoticon"));
+        QCOMPARE(client.createCalls, 1);
+        QCOMPARE(client.createKey, QStringLiteral("stickers-2"));
+        QCOMPARE(client.createUsage, QStringLiteral("emoticon"));
+    }
+
+    void aSyncChangeRereadsOnceAndOnlyWhenItConcernsTheSnapshot()
+    {
+        // PACK-LTN-002 / PACK-PER-008: another device's subscription edit or a
+        // member's pack edit updates an open picker, a burst coalesces into one
+        // read, and an unrelated room's pack change reads nothing.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.setActiveRoomId(kRoom);
+        manager.refresh();
+        Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false,
+                                           twoPacks());
+        QVERIFY(client.lastFetchDeep);
+        const int before = client.fetchCalls;
+
+        Q_EMIT client.stickerPacksChanged(QStringLiteral("!unrelated:example.org"));
+        QTest::qWait(400);
+        QCOMPARE(client.fetchCalls, before);
+
+        Q_EMIT client.stickerPacksChanged(QString());
+        Q_EMIT client.stickerPacksChanged(kRoom);
+        Q_EMIT client.stickerPacksChanged(QStringLiteral("!r:example.org"));
+        QTRY_COMPARE(client.fetchCalls, before + 1);
+        QTest::qWait(400);
+        QCOMPARE(client.fetchCalls, before + 1);
+        QCOMPARE(client.lastFetchRoom, kRoom);
     }
 
     void theRevisionMovesOnEveryStateChangeSoAnInvokableBindingReEvaluates()

@@ -37,8 +37,9 @@ use matrix_sdk::{
     deserialized_responses::RawAnySyncOrStrippedState,
     ruma::{
         events::{
-            room::ImageInfo, sticker::StickerEventContent, AnyMessageLikeEventContent,
-            GlobalAccountDataEventType, StateEventType,
+            macros::EventContent, room::ImageInfo, sticker::StickerEventContent,
+            AnyMessageLikeEventContent, GlobalAccountDataEvent, GlobalAccountDataEventType,
+            StateEventType,
         },
         MxcUri, OwnedMxcUri, RoomId, UInt,
     },
@@ -55,6 +56,57 @@ use crate::{enqueue, RustClient};
 pub(crate) const USER_EMOTES: &str = "im.ponies.user_emotes";
 pub(crate) const ROOM_EMOTES: &str = "im.ponies.room_emotes";
 pub(crate) const EMOTE_ROOMS: &str = "im.ponies.emote_rooms";
+
+/// Matrix v1.19's stable identifiers (MSC2545 merged): room-pack state and
+/// the global subscription account data. There is NO stable counterpart of
+/// `im.ponies.user_emotes`; the account's own legacy pack stays a legacy
+/// record.
+pub(crate) const STABLE_ROOM_PACK: &str = "m.room.image_pack";
+pub(crate) const STABLE_PACK_ROOMS: &str = "m.image_pack.rooms";
+
+/// Which wire dialect a ROOM pack record lives in. A stable and a legacy
+/// record under the same (room, state key) are two remote records; which one
+/// the standard view shows is `resolve_room_packs`'s rule.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub(crate) enum Namespace {
+    Stable,
+    Legacy,
+}
+
+impl Namespace {
+    pub(crate) fn room_type(self) -> &'static str {
+        match self {
+            Namespace::Stable => STABLE_ROOM_PACK,
+            Namespace::Legacy => ROOM_EMOTES,
+        }
+    }
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Namespace::Stable => "stable",
+            Namespace::Legacy => "legacy",
+        }
+    }
+    /// Refuses anything else, so a typo cannot pick a dialect.
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        match text {
+            "stable" => Some(Namespace::Stable),
+            "legacy" => Some(Namespace::Legacy),
+            _ => None,
+        }
+    }
+}
+
+/// An opaque, unambiguous id for a room pack. Room ids and state keys both
+/// contain colons, so `room:<room>:<key>` could not be split back; the tuple
+/// is JSON-encoded instead. C++ treats the id as opaque and carries the
+/// typed fields beside it.
+pub(crate) fn room_pack_id(namespace: Namespace, room_id: &str, state_key: &str) -> String {
+    format!(
+        "room:{}:{}",
+        namespace.as_str(),
+        serde_json::to_string(&(room_id, state_key)).unwrap_or_default()
+    )
+}
 
 /// Max packs in one snapshot; more means a hostile or broken blob.
 const MAX_PACKS: usize = 64;
@@ -160,7 +212,18 @@ pub(crate) fn sanitize_shortcode(raw: &str) -> String {
 /// True when `url` is a valid `mxc://server/mediaid`, as judged by
 /// `MxcUri::parts()`.
 pub(crate) fn is_valid_mxc(url: &str) -> bool {
-    if !url.starts_with("mxc://") {
+    let Some(rest) = url.strip_prefix("mxc://") else {
+        return false;
+    };
+    // The media id grammar is ASCII alphanumerics, `_` and `-` (no `/`, `?`,
+    // `#`, `..`): checked here explicitly rather than trusting a parser's
+    // leniency; the server name is ruma's to judge.
+    let Some((_, media_id)) = rest.split_once('/') else {
+        return false;
+    };
+    if media_id.is_empty()
+        || !media_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
         return false;
     }
     <&MxcUri>::from(url).parts().is_ok()
@@ -188,9 +251,16 @@ pub(crate) enum Usage {
 }
 
 fn parse_usage(value: Option<&Value>) -> BTreeSet<Usage> {
+    parse_usage_detail(value).0
+}
+
+/// The known usages, and whether the array named anything at all. An array
+/// of ONLY unknown values is not an absent array: under the stable rules it
+/// must not become "everything" (PACK-PRO-012).
+fn parse_usage_detail(value: Option<&Value>) -> (BTreeSet<Usage>, bool) {
     let mut out = BTreeSet::new();
     let Some(Value::Array(items)) = value else {
-        return out;
+        return (out, false);
     };
     for item in items {
         match item.as_str() {
@@ -203,7 +273,22 @@ fn parse_usage(value: Option<&Value>) -> BTreeSet<Usage> {
             _ => {}
         }
     }
-    out
+    (out, !items.is_empty())
+}
+
+/// Matrix v1.19's rule: usage is PACK-wide; missing or empty means every
+/// usage; known values restrict; only-unknown values allow none of the two
+/// this client knows (the pack is shown, flagged, not silently broadened).
+/// Returns (emoticon, sticker, unsupported).
+fn resolve_stable_usage(pack_usage: Option<&Value>) -> (bool, bool, bool) {
+    let (known, named) = parse_usage_detail(pack_usage);
+    if !named {
+        return (true, true, false);
+    }
+    if known.is_empty() {
+        return (false, false, true);
+    }
+    (known.contains(&Usage::Emoticon), known.contains(&Usage::Sticker), false)
 }
 
 /// MSC2545's inheritance rule, in one place: the image's usage wins if it
@@ -249,8 +334,29 @@ pub(crate) struct PackImage {
 /// One validated pack.
 #[derive(Clone, Debug)]
 pub(crate) struct Pack {
-    /// Stable id for C++: `user`, or `room:<room_id>:<state_key>`.
+    /// Opaque id for C++: `user`, or `room_pack_id(namespace, room, key)`.
     pub id: String,
+    /// `stable` (`m.room.image_pack`) or `legacy` (`im.ponies.*`; the
+    /// account's own pack is always legacy). Every write goes back to this
+    /// dialect unless the user deliberately upgrades.
+    pub namespace: &'static str,
+    /// A legacy record exists under the same (room, key) and is hidden by
+    /// this present stable one (stable is authoritative for the standard
+    /// view; the twin is reported, never merged).
+    pub legacy_twin: bool,
+    /// Listed only in the legacy `im.ponies.emote_rooms` while a stable
+    /// `m.image_pack.rooms` document exists and is authoritative, so it is
+    /// NOT active everywhere; the manager can offer to carry it over.
+    pub legacy_subscribed: bool,
+    /// The pack's usage names only values this client does not know.
+    pub usage_unsupported: bool,
+    /// False for a subscribed reference whose pack could not be read; then
+    /// `unavailable` names why and `images` is empty.
+    pub available: bool,
+    pub unavailable: String,
+    /// Reached through the active room's canonical space ancestry (usable in
+    /// that room because it sits in the space), not subscribed.
+    pub from_space: bool,
     pub display_name: String,
     pub avatar_url: String,
     pub attribution: String,
@@ -275,6 +381,13 @@ impl Pack {
     fn to_json(&self) -> Value {
         json!({
             "id": self.id,
+            "namespace": self.namespace,
+            "legacy_twin": self.legacy_twin,
+            "legacy_subscribed": self.legacy_subscribed,
+            "usage_unsupported": self.usage_unsupported,
+            "available": self.available,
+            "unavailable": self.unavailable,
+            "from_space": self.from_space,
             "display_name": self.display_name,
             "avatar_url": self.avatar_url,
             "attribution": self.attribution,
@@ -300,8 +413,7 @@ impl Pack {
     }
 }
 
-/// Parse one pack's `{ images, pack }` content. `None` only when it is not
-/// an object; a pack with no usable images is an empty pack, not a failure.
+/// Parse one LEGACY pack (`im.ponies.*`, per-image usage overrides).
 pub(crate) fn parse_pack_content(
     content: &Value,
     id: String,
@@ -310,10 +422,29 @@ pub(crate) fn parse_pack_content(
     state_key: String,
     fallback_name: &str,
 ) -> Option<Pack> {
+    parse_pack_content_ns(content, id, source, room_id, state_key, fallback_name,
+                          Namespace::Legacy)
+}
+
+/// Parse one pack's `{ images, pack }` content in its dialect. `None` only
+/// when it is not an object; a pack with no usable images is an empty pack,
+/// not a failure. A stable pack's usage is pack-wide: a per-image `usage`
+/// some older client left behind is preserved on write but has no meaning
+/// here.
+pub(crate) fn parse_pack_content_ns(
+    content: &Value,
+    id: String,
+    source: &'static str,
+    room_id: String,
+    state_key: String,
+    fallback_name: &str,
+    namespace: Namespace,
+) -> Option<Pack> {
     let object = content.as_object()?;
 
     let pack_info = object.get("pack").and_then(|p| p.as_object());
     let pack_usage = parse_usage(pack_info.and_then(|p| p.get("usage")));
+    let stable_usage = resolve_stable_usage(pack_info.and_then(|p| p.get("usage")));
 
     let display_name = pack_info
         .and_then(|p| p.get("display_name"))
@@ -381,8 +512,13 @@ pub(crate) fn parse_pack_content(
                 continue;
             }
 
-            let image_usage = parse_usage(entry.get("usage"));
-            let (is_emoticon, is_sticker) = resolve_usage(&image_usage, &pack_usage);
+            let (is_emoticon, is_sticker) = match namespace {
+                Namespace::Stable => (stable_usage.0, stable_usage.1),
+                Namespace::Legacy => {
+                    let image_usage = parse_usage(entry.get("usage"));
+                    resolve_usage(&image_usage, &pack_usage)
+                }
+            };
 
             // MSC2545: `body` defaults to the shortcode.
             let body = entry
@@ -416,6 +552,13 @@ pub(crate) fn parse_pack_content(
 
     Some(Pack {
         id,
+        namespace: namespace.as_str(),
+        legacy_twin: false,
+        legacy_subscribed: false,
+        usage_unsupported: namespace == Namespace::Stable && stable_usage.2,
+        available: true,
+        unavailable: String::new(),
+        from_space: false,
         display_name,
         avatar_url,
         attribution,
@@ -452,23 +595,414 @@ pub(crate) fn parse_emote_rooms(content: &Value) -> Vec<(String, String)> {
 }
 
 // ---------------------------------------------------------------------------
+// Subscriptions (stable `m.image_pack.rooms`, legacy `im.ponies.emote_rooms`)
+// ---------------------------------------------------------------------------
+
+/// The references that make packs usable everywhere, and where they came
+/// from. Policy (documented in docs/feature-contracts.md, "Image packs"):
+///
+///   * a PRESENT stable document is authoritative, including an empty one (an
+///     intentional "unsubscribe from everything" must not be refilled from
+///     legacy data on every refresh). References only the legacy document
+///     holds are reported as `legacy_only`, not activated.
+///   * a CONFIRMED-ABSENT stable document leaves the legacy references in
+///     force, exactly as before stable support existed.
+///   * an UNREADABLE stable document is not an absence: the legacy references
+///     are shown so the picker is not emptied by a timeout, and the snapshot
+///     says the stable side could not be read.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Subscriptions {
+    pub active: Vec<(String, String)>,
+    /// "stable" | "legacy" | "none".
+    pub source: &'static str,
+    pub legacy_only: Vec<(String, String)>,
+    pub stable_unreadable: bool,
+}
+
+pub(crate) fn effective_subscriptions(stable: &PackRead, legacy: Option<&Value>) -> Subscriptions {
+    let legacy_refs = legacy.map(parse_emote_rooms).unwrap_or_default();
+    match stable {
+        PackRead::Found(content) => {
+            let active = parse_emote_rooms(content);
+            let legacy_only = legacy_refs
+                .into_iter()
+                .filter(|r| !active.contains(r))
+                .collect();
+            Subscriptions { active, source: "stable", legacy_only, stable_unreadable: false }
+        }
+        PackRead::Absent | PackRead::Failed(_) => Subscriptions {
+            source: if legacy.is_some() { "legacy" } else { "none" },
+            active: legacy_refs,
+            legacy_only: Vec::new(),
+            stable_unreadable: matches!(stable, PackRead::Failed(_)),
+        },
+    }
+}
+
+/// The stable subscription document to WRITE for one toggle. Starts from the
+/// server's current stable document; when the server confirmed there is none
+/// yet, the first stable document carries over every legacy reference
+/// verbatim (leaf objects included) so creating it does not silently switch
+/// off choices the user made in older clients. An unreadable stable document
+/// writes nothing.
+pub(crate) fn plan_stable_subscription_write(
+    stable: PackRead,
+    legacy: Option<&Value>,
+    room_id: &str,
+    state_key: &str,
+    enabled: bool,
+) -> Result<Value, String> {
+    let base = match stable {
+        PackRead::Found(content) => content,
+        PackRead::Absent => {
+            let rooms = legacy
+                .and_then(|l| l.get("rooms"))
+                .filter(|r| r.is_object())
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            json!({ "rooms": rooms })
+        }
+        PackRead::Failed(category) => return Err(category),
+    };
+    apply_emote_rooms_change(base, room_id, state_key, enabled)
+}
+
+// ---------------------------------------------------------------------------
+// Room pack records
+// ---------------------------------------------------------------------------
+
+/// One room-pack state record as read (store or `/state`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PackRecord {
+    pub namespace: Namespace,
+    pub state_key: String,
+    pub content: Value,
+    /// `origin_server_ts`, 0 when unknown (stripped state).
+    pub ts: u64,
+}
+
+/// A room pack the standard view shows.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResolvedRoomPack {
+    pub namespace: Namespace,
+    pub state_key: String,
+    pub content: Value,
+    pub legacy_twin: bool,
+}
+
+fn has_images(content: &Value) -> bool {
+    content.get("images").is_some_and(|v| v.is_object())
+}
+
+/// Record-level precedence for one room, pure. Per state key:
+///   * a present stable record is authoritative; a legacy twin is hidden and
+///     reported (`legacy_twin`), never merged into it;
+///   * a stable record that is cleared or redacted (`{}`, no `images`) hides
+///     the key entirely: stale legacy content must not come back through it
+///     (PACK-MIG-005);
+///   * otherwise a legacy record with images is shown as legacy.
+///
+/// Records of one (namespace, key) seen twice keep the newer one.
+pub(crate) fn resolve_room_packs(records: Vec<PackRecord>) -> Vec<ResolvedRoomPack> {
+    let mut newest: BTreeMap<(String, Namespace), PackRecord> = BTreeMap::new();
+    for record in records {
+        let slot = (record.state_key.clone(), record.namespace);
+        match newest.get(&slot) {
+            Some(existing) if existing.ts > record.ts => {}
+            _ => {
+                newest.insert(slot, record);
+            }
+        }
+    }
+    let keys: BTreeSet<String> = newest.keys().map(|(k, _)| k.clone()).collect();
+    let mut out = Vec::new();
+    for key in keys {
+        let stable = newest.get(&(key.clone(), Namespace::Stable));
+        let legacy = newest.get(&(key.clone(), Namespace::Legacy));
+        if let Some(stable) = stable {
+            if has_images(&stable.content) {
+                out.push(ResolvedRoomPack {
+                    namespace: Namespace::Stable,
+                    state_key: key.clone(),
+                    content: stable.content.clone(),
+                    legacy_twin: legacy.is_some_and(|l| has_images(&l.content)),
+                });
+            }
+            continue;
+        }
+        if let Some(legacy) = legacy {
+            if has_images(&legacy.content) {
+                out.push(ResolvedRoomPack {
+                    namespace: Namespace::Legacy,
+                    state_key: key,
+                    content: legacy.content.clone(),
+                    legacy_twin: false,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// A full-room `/state` scan's pack records, per (account, room), so opening
+/// the picker in a room twice does not fetch the room's whole state twice.
+/// Dropped by our own writes and by sync delivering a pack event there.
+struct RoomScans {
+    entries: std::sync::Mutex<
+        std::collections::HashMap<(String, String), (std::time::Instant, Vec<PackRecord>)>,
+    >,
+}
+
+const ROOM_SCAN_TTL: Duration = Duration::from_secs(10 * 60);
+
+fn room_scans() -> &'static RoomScans {
+    static SCANS: once_cell::sync::Lazy<RoomScans> = once_cell::sync::Lazy::new(|| RoomScans {
+        entries: std::sync::Mutex::new(std::collections::HashMap::new()),
+    });
+    &SCANS
+}
+
+impl RoomScans {
+    fn get(&self, account: &str, room: &str) -> Option<Vec<PackRecord>> {
+        let mut map = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        let key = (account.to_owned(), room.to_owned());
+        match map.get(&key) {
+            Some((at, records)) if at.elapsed() < ROOM_SCAN_TTL => Some(records.clone()),
+            Some(_) => {
+                map.remove(&key);
+                None
+            }
+            None => None,
+        }
+    }
+    fn put(&self, account: &str, room: &str, records: Vec<PackRecord>) {
+        let mut map = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if map.len() > 256 {
+            map.clear();
+        }
+        map.insert((account.to_owned(), room.to_owned()), (std::time::Instant::now(), records));
+    }
+    fn forget(&self, account: &str, room: &str) {
+        let mut map = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        map.remove(&(account.to_owned(), room.to_owned()));
+    }
+}
+
+/// Forget everything cached about one room's packs (scan and remembered
+/// absences): a write of ours or a sync change landed there.
+pub(crate) fn forget_room(client: &matrix_sdk::Client, room_id: &str) {
+    let account = account_key(client);
+    room_scans().forget(&account, room_id);
+    absent_answers().forget_prefix(&account, &format!("state|{room_id}|"));
+}
+
+fn record_from_event(namespace: Namespace, value: &Value) -> Option<PackRecord> {
+    let state_key = value.get("state_key")?.as_str()?.to_owned();
+    let content = value.get("content")?.clone();
+    let ts = value.get("origin_server_ts").and_then(|v| v.as_u64()).unwrap_or(0);
+    Some(PackRecord { namespace, state_key, content, ts })
+}
+
+/// Every pack record of both dialects in one room: the store, and with `deep`
+/// a (cached) full `/state` read. Sliding sync never puts these custom types
+/// in `required_state`, so the store holds only what passed through a synced
+/// timeline; `deep` is for the moments a user asks (picker, manager), never
+/// for plain room navigation. Returns (records, room name, scan_failed).
+async fn scan_room_packs(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    deep: bool,
+) -> (Vec<PackRecord>, String, bool) {
+    use matrix_sdk::ruma::api::client::state::get_state_events;
+
+    let Ok(room) = joined_room(client, room_id) else {
+        return (Vec::new(), String::new(), false);
+    };
+    let name = room.name().unwrap_or_default();
+    let mut records = Vec::new();
+    for namespace in [Namespace::Stable, Namespace::Legacy] {
+        let Ok(events) = room.get_state_events(StateEventType::from(namespace.room_type())).await
+        else {
+            continue;
+        };
+        for raw in events {
+            let json = match &raw {
+                RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+                RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+            };
+            if let Ok(value) = serde_json::from_str::<Value>(&json) {
+                records.extend(record_from_event(namespace, &value));
+            }
+        }
+    }
+    let mut scan_failed = false;
+    if deep {
+        let account = account_key(client);
+        let scanned = match room_scans().get(&account, room_id) {
+            Some(cached) => Some(cached),
+            None => {
+                let config = RequestConfig::new()
+                    .disable_retry()
+                    .timeout(Duration::from_secs(20));
+                let request = get_state_events::v3::Request::new(room.room_id().to_owned());
+                match client.send(request).with_request_config(config).await {
+                    Ok(response) => {
+                        let mut found = Vec::new();
+                        for raw in response.room_state {
+                            let Ok(value) = serde_json::from_str::<Value>(raw.json().get()) else {
+                                continue;
+                            };
+                            let namespace = match value.get("type").and_then(|v| v.as_str()) {
+                                Some(STABLE_ROOM_PACK) => Namespace::Stable,
+                                Some(ROOM_EMOTES) => Namespace::Legacy,
+                                _ => continue,
+                            };
+                            found.extend(record_from_event(namespace, &value));
+                            if found.len() >= MAX_PACKS * 2 {
+                                break;
+                            }
+                        }
+                        room_scans().put(&account, room_id, found.clone());
+                        Some(found)
+                    }
+                    Err(_) => {
+                        scan_failed = true;
+                        None
+                    }
+                }
+            }
+        };
+        records.extend(scanned.unwrap_or_default());
+    }
+    (records, name, scan_failed)
+}
+
+// ---------------------------------------------------------------------------
+// Canonical space ancestry (Matrix v1.19: packs of a room's canonical spaces)
+// ---------------------------------------------------------------------------
+
+/// One `m.space.parent` claim in a room, with the facts its validity needs.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ParentClaim {
+    pub space_id: String,
+    pub canonical: bool,
+    pub has_via: bool,
+    /// The parent space lists this room as a child (non-empty `via`).
+    pub reciprocal: bool,
+    /// The claim's sender may add children to the parent space (power to send
+    /// `m.space.child` there), so the claim is valid without reciprocity.
+    pub sender_authorised: bool,
+}
+
+/// The canonical parent under the spaces rules, pure: a claim counts only
+/// when it is `canonical` with a `via`, AND either the parent lists the room
+/// as a child or the claim's sender has the authority to make it one. Among
+/// several, the lowest space id in code-point order wins (Rust `String` order
+/// on UTF-8 is code-point order). A claim from an unrelated room never counts
+/// (PACK-PRO-020/021).
+pub(crate) fn pick_canonical_parent(claims: &[ParentClaim]) -> Option<String> {
+    claims
+        .iter()
+        .filter(|c| c.canonical && c.has_via && (c.reciprocal || c.sender_authorised))
+        .map(|c| c.space_id.clone())
+        .min()
+}
+
+/// How far up the canonical chain Lightning looks. A documented resource
+/// bound, not a protocol number.
+const MAX_ANCESTRY_DEPTH: usize = 8;
+
+/// The canonical ancestors of `room_id` the account is JOINED to, nearest
+/// first. Bounded (`MAX_ANCESTRY_DEPTH`), cycle-safe (visited set), and it
+/// stops at the first parent the account is not a member of: that space's
+/// packs are not the account's to see (the module requires membership) and
+/// its own parents cannot be validated. Never joins anything, never asks the
+/// network: only this account's own store (PACK-PRO-022/024).
+async fn canonical_ancestry(client: &matrix_sdk::Client, room_id: &str) -> Vec<String> {
+    use matrix_sdk::deserialized_responses::SyncOrStrippedState;
+    use matrix_sdk::ruma::events::space::{
+        child::SpaceChildEventContent, parent::SpaceParentEventContent,
+    };
+    use matrix_sdk::ruma::events::SyncStateEvent;
+
+    let mut out = Vec::new();
+    let mut visited: BTreeSet<String> = BTreeSet::new();
+    visited.insert(room_id.to_owned());
+    let mut current = room_id.to_owned();
+    for _ in 0..MAX_ANCESTRY_DEPTH {
+        let Ok(room) = joined_room(client, &current) else { break };
+        let Ok(events) = room.get_state_events_static::<SpaceParentEventContent>().await else {
+            break;
+        };
+        let mut claims = Vec::new();
+        for raw in events {
+            let Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(event))) = raw.deserialize()
+            else {
+                continue;
+            };
+            let space_id = event.state_key.to_string();
+            let mut claim = ParentClaim {
+                space_id: space_id.clone(),
+                canonical: event.content.canonical,
+                has_via: !event.content.via.is_empty(),
+                reciprocal: false,
+                sender_authorised: false,
+            };
+            if claim.canonical && claim.has_via {
+                if let Ok(space) = joined_room(client, &space_id) {
+                    if let Ok(Some(child)) = space
+                        .get_state_event_static_for_key::<SpaceChildEventContent, _>(room.room_id())
+                        .await
+                    {
+                        if let Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(child))) =
+                            child.deserialize()
+                        {
+                            claim.reciprocal = !child.content.via.is_empty();
+                        }
+                    }
+                    claim.sender_authorised = space
+                        .get_member_no_sync(&event.sender)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some_and(|m| m.can_send_state(StateEventType::SpaceChild));
+                }
+            }
+            claims.push(claim);
+        }
+        let Some(parent) = pick_canonical_parent(&claims) else { break };
+        if !visited.insert(parent.clone()) {
+            break; // a cycle
+        }
+        if joined_room(client, &parent).is_err() {
+            break; // not a member: not ours to read, and no further validation
+        }
+        out.push(parent.clone());
+        current = parent;
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Reading packs
 // ---------------------------------------------------------------------------
 
 /// Read every pack available to this account and emit one `sticker_packs`
-/// snapshot, in this order:
-///   1. `im.ponies.user_emotes`, the account's own pack;
-///   2. the active room's own `im.ponies.room_emotes` packs (usable inside
-///      that room without opt-in);
-///   3. every (room, state key) in `im.ponies.emote_rooms` not already
-///      collected.
+/// snapshot, in Matrix v1.19's source order:
+///   1. the account's own legacy `im.ponies.user_emotes` pack and every pack
+///      the authoritative subscription document references (global);
+///   2. the active room's own packs, stable and legacy, by
+///      `resolve_room_packs` (usable inside that room without opt-in).
 ///
-/// Empty `room_id` skips step 2. Account data is read from the store, then
-/// the server, so a cold start is correct rather than empty.
+/// A subscribed reference that cannot be read stays in the snapshot as an
+/// unavailable row with its reason, never silently dropped and never joined.
+/// Empty `room_id` skips step 2; `deep` allows a full `/state` read of the
+/// active room (see `scan_room_packs`).
 pub(crate) fn fetch_packs(
     bridge: &RustClient,
     op_id: u64,
     room_id: String,
+    deep: bool,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -479,18 +1013,13 @@ pub(crate) fn fetch_packs(
         let mut packs: Vec<Pack> = Vec::new();
         let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
 
-        // ---- 0. which room packs this account has turned on ----------
-        //
-        // Read first: it also answers `enabled_globally` for the active room's
-        // packs.
-        let enabled = match read_global_account_data(&client, EMOTE_ROOMS).await {
-            Some(content) => parse_emote_rooms(&content),
-            None => Vec::new(),
-        };
-        let enabled_set: BTreeSet<(String, String)> =
-            enabled.iter().cloned().collect();
+        // ---- 0. subscriptions -------------------------------------------
+        let stable_doc = read_global_account_data_typed(&client, STABLE_PACK_ROOMS).await;
+        let legacy_doc = read_global_account_data(&client, EMOTE_ROOMS).await;
+        let subs = effective_subscriptions(&stable_doc, legacy_doc.as_ref());
+        let legacy_only: BTreeSet<(String, String)> = subs.legacy_only.iter().cloned().collect();
 
-        // ---- 1. the account's own pack -------------------------------
+        // ---- 1a. the account's own (legacy) pack ------------------------
         if let Some(content) = read_global_account_data(&client, USER_EMOTES).await {
             if let Some(pack) = parse_pack_content(
                 &content,
@@ -504,67 +1033,119 @@ pub(crate) fn fetch_packs(
             }
         }
 
-        // ---- 2. the active room's own packs ---------------------------
-        //
-        // `can_manage` is reported for the room on the snapshot itself: a room with
-        // no pack yet has no row to carry it, and its first pack must be creatable.
+        // ---- 1b. globally subscribed packs --------------------------------
+        for (sub_room, state_key) in &subs.active {
+            if packs.len() >= MAX_PACKS {
+                break;
+            }
+            if !seen.insert((sub_room.clone(), state_key.clone())) {
+                continue;
+            }
+            let (namespace, read, name) = read_subscribed_pack(&client, sub_room, state_key).await;
+            let mut pack = match read {
+                PackRead::Found(content) => parse_pack_content_ns(
+                    &content,
+                    room_pack_id(namespace, sub_room, state_key),
+                    "room",
+                    sub_room.clone(),
+                    state_key.clone(),
+                    &name,
+                    namespace,
+                ),
+                PackRead::Absent => Some(unavailable_pack(namespace, sub_room, state_key, &name, "absent")),
+                PackRead::Failed(category) => {
+                    Some(unavailable_pack(namespace, sub_room, state_key, &name, &category))
+                }
+            };
+            if let Some(pack) = pack.as_mut() {
+                pack.enabled_globally = true;
+                pack.can_manage = pack.available
+                    && can_manage_room_packs(&client, sub_room, namespace).await;
+            }
+            packs.extend(pack);
+        }
+
+        // ---- 2. the active room's own packs -------------------------------
         let mut room_can_manage = false;
+        let mut room_can_manage_legacy = false;
+        let mut room_scan_failed = false;
         if !room_id.is_empty() {
-            let can_manage = can_manage_room_packs(&client, &room_id).await;
-            room_can_manage = can_manage;
-            for (state_key, content, name) in
-                read_room_packs(&client, &room_id).await
-            {
+            room_can_manage = can_manage_room_packs(&client, &room_id, Namespace::Stable).await;
+            room_can_manage_legacy =
+                can_manage_room_packs(&client, &room_id, Namespace::Legacy).await;
+            let (records, name, scan_failed) = scan_room_packs(&client, &room_id, deep).await;
+            room_scan_failed = scan_failed;
+            for resolved in resolve_room_packs(records) {
                 if packs.len() >= MAX_PACKS {
                     break;
                 }
-                seen.insert((room_id.clone(), state_key.clone()));
-                if let Some(mut pack) = parse_pack_content(
-                    &content,
-                    format!("room:{room_id}:{state_key}"),
+                let coordinate = (room_id.clone(), resolved.state_key.clone());
+                if seen.contains(&coordinate) {
+                    continue;
+                }
+                seen.insert(coordinate.clone());
+                if let Some(mut pack) = parse_pack_content_ns(
+                    &resolved.content,
+                    room_pack_id(resolved.namespace, &room_id, &resolved.state_key),
                     "room",
                     room_id.clone(),
-                    state_key.clone(),
+                    resolved.state_key.clone(),
                     &name,
+                    resolved.namespace,
                 ) {
-                    pack.enabled_globally =
-                        enabled_set.contains(&(room_id.clone(), state_key));
-                    pack.can_manage = can_manage;
+                    pack.legacy_twin = resolved.legacy_twin;
+                    pack.legacy_subscribed = legacy_only.contains(&coordinate);
+                    pack.can_manage = match resolved.namespace {
+                        Namespace::Stable => room_can_manage,
+                        Namespace::Legacy => room_can_manage_legacy,
+                    };
                     packs.push(pack);
                 }
             }
         }
 
-        // ---- 3. globally enabled room packs ---------------------------
-        for (enabled_room, state_key) in enabled {
-            if packs.len() >= MAX_PACKS {
-                break;
-            }
-            if seen.contains(&(enabled_room.clone(), state_key.clone())) {
-                continue;
-            }
-            let (read, name) =
-                read_one_room_pack(&client, &enabled_room, &state_key).await;
-            let PackRead::Found(content) = read else {
-                continue;
-            };
-            // A cleared pack (no `images`) is retired, not an empty pack.
-            if content.get("images").is_none() {
-                continue;
-            }
-            if let Some(mut pack) = parse_pack_content(
-                &content,
-                format!("room:{enabled_room}:{state_key}"),
-                "room",
-                enabled_room.clone(),
-                state_key,
-                &name,
-            ) {
-                // In `emote_rooms` by construction.
-                pack.enabled_globally = true;
-                pack.can_manage =
-                    can_manage_room_packs(&client, &enabled_room).await;
-                packs.push(pack);
+        // ---- 3. the active room's canonical space ancestry --------------
+        //
+        // Usable in this room because it sits in those spaces; not a
+        // subscription. Same record precedence as the room itself.
+        let mut ancestry_len = 0usize;
+        if !room_id.is_empty() {
+            let ancestors = canonical_ancestry(&client, &room_id).await;
+            ancestry_len = ancestors.len();
+            for space_id in ancestors {
+                if packs.len() >= MAX_PACKS {
+                    break;
+                }
+                let can_stable = can_manage_room_packs(&client, &space_id, Namespace::Stable).await;
+                let can_legacy = can_manage_room_packs(&client, &space_id, Namespace::Legacy).await;
+                let (records, name, _) = scan_room_packs(&client, &space_id, deep).await;
+                for resolved in resolve_room_packs(records) {
+                    if packs.len() >= MAX_PACKS {
+                        break;
+                    }
+                    let coordinate = (space_id.clone(), resolved.state_key.clone());
+                    if !seen.insert(coordinate.clone()) {
+                        continue;
+                    }
+                    if let Some(mut pack) = parse_pack_content_ns(
+                        &resolved.content,
+                        room_pack_id(resolved.namespace, &space_id, &resolved.state_key),
+                        "room",
+                        space_id.clone(),
+                        resolved.state_key.clone(),
+                        &name,
+                        resolved.namespace,
+                    ) {
+                        pack.legacy_twin = resolved.legacy_twin;
+                        pack.legacy_subscribed = legacy_only.contains(&coordinate);
+                        pack.from_space = true;
+                        pack.can_manage = match resolved.namespace {
+                            Namespace::Stable => can_stable,
+                            Namespace::Legacy => can_legacy,
+                        };
+                        packs.push(pack);
+                    }
+                }
             }
         }
 
@@ -575,10 +1156,16 @@ pub(crate) fn fetch_packs(
             &events,
             json!({
                 "type": "sticker_packs",
+                "canonical_ancestors": ancestry_len,
                 "op_id": op_id,
                 "lifecycle": lifecycle,
                 "room_id": room_id,
                 "room_can_manage": room_can_manage,
+                "room_can_manage_legacy": room_can_manage_legacy,
+                "room_scan_failed": room_scan_failed,
+                "subscriptions_source": subs.source,
+                "stable_subscriptions_unreadable": subs.stable_unreadable,
+                "legacy_only_subscriptions": subs.legacy_only.len(),
                 "packs": packs.iter().map(Pack::to_json).collect::<Vec<_>>(),
             }),
         );
@@ -586,10 +1173,76 @@ pub(crate) fn fetch_packs(
     Ok(())
 }
 
-/// Whether this account may write `im.ponies.room_emotes` in `room_id`, per
-/// the room's own required power level, asked of the SDK (never a role
-/// label). An unresolvable room or unreadable membership answers false.
-async fn can_manage_room_packs(client: &matrix_sdk::Client, room_id: &str) -> bool {
+/// A subscribed reference whose pack could not be read: kept visible with
+/// its reason (`absent`, `not_joined`, `forbidden`, `network`, ...) so the
+/// user can see and remove it; Lightning never joins a room for it.
+fn unavailable_pack(
+    namespace: Namespace,
+    room_id: &str,
+    state_key: &str,
+    name: &str,
+    reason: &str,
+) -> Pack {
+    Pack {
+        id: room_pack_id(namespace, room_id, state_key),
+        namespace: namespace.as_str(),
+        legacy_twin: false,
+        legacy_subscribed: false,
+        usage_unsupported: false,
+        available: false,
+        unavailable: if reason == "unknown_room" { "not_joined".to_owned() } else { reason.to_owned() },
+        from_space: false,
+        display_name: one_line(name, MAX_PACK_NAME_CHARS),
+        avatar_url: String::new(),
+        attribution: String::new(),
+        source: "room",
+        room_id: room_id.to_owned(),
+        state_key: state_key.to_owned(),
+        enabled_globally: true,
+        can_manage: false,
+        images: Vec::new(),
+    }
+}
+
+/// Read a subscribed (room, key): the stable record first, the legacy one
+/// only when the server CONFIRMED there is no stable record (a failed stable
+/// read is not permission to show stale legacy content). A cleared stable
+/// record (`{}`) is reported as absent rather than falling back.
+async fn read_subscribed_pack(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    state_key: &str,
+) -> (Namespace, PackRead, String) {
+    let (stable, name) = read_one_room_pack(client, room_id, state_key, Namespace::Stable).await;
+    match stable {
+        PackRead::Found(content) if has_images(&content) => {
+            (Namespace::Stable, PackRead::Found(content), name)
+        }
+        PackRead::Found(_) => (Namespace::Stable, PackRead::Absent, name),
+        PackRead::Failed(category) => (Namespace::Stable, PackRead::Failed(category), name),
+        PackRead::Absent => {
+            let (legacy, name) =
+                read_one_room_pack(client, room_id, state_key, Namespace::Legacy).await;
+            match legacy {
+                PackRead::Found(content) if has_images(&content) => {
+                    (Namespace::Legacy, PackRead::Found(content), name)
+                }
+                PackRead::Found(_) | PackRead::Absent => (Namespace::Stable, PackRead::Absent, name),
+                other => (Namespace::Legacy, other, name),
+            }
+        }
+    }
+}
+
+/// Whether this account may write the EXACT pack event type in `room_id`,
+/// per the room's own power levels, asked of the SDK (never a role label,
+/// never "level 100"). `m.room.image_pack` and `im.ponies.room_emotes` can
+/// require different levels, so each is asked separately.
+async fn can_manage_room_packs(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    namespace: Namespace,
+) -> bool {
     let Ok(room) = joined_room(client, room_id) else {
         return false;
     };
@@ -600,22 +1253,30 @@ async fn can_manage_room_packs(client: &matrix_sdk::Client, room_id: &str) -> bo
         .await
         .ok()
         .flatten()
-        .is_some_and(|m| m.can_send_state(StateEventType::from(ROOM_EMOTES)))
+        .is_some_and(|m| m.can_send_state(StateEventType::from(namespace.room_type())))
 }
 
-/// Turn one room pack on or off in `im.ponies.emote_rooms` ("use this room's
-/// stickers everywhere"). Account data: the reader's own choice, no power
-/// level. A room's packs remain usable inside that room regardless.
+/// Subscribe or unsubscribe one room pack ("use everywhere"). Account data:
+/// the reader's own choice, no power level. A room's packs remain usable
+/// inside that room regardless.
 ///
-/// Read-modify-write against the server copy, never the store: account data
-/// has no server-side merge, so a stale blob would drop other devices'
-/// selections.
+/// Writes the STABLE `m.image_pack.rooms` (see `plan_stable_subscription_write`
+/// for the first-document rule). For a LEGACY pack the same change is also
+/// mirrored into `im.ponies.emote_rooms`, so older clients on the user's other
+/// devices keep seeing it; that second write is reported separately
+/// (`mirror`: `ok` | `failed` | `none`) and never turns a saved stable write
+/// into a reported failure. Two writes are not one transaction.
+///
+/// Read-modify-write against the server copy, never the store. This narrows
+/// but cannot close the race with another device writing at the same moment:
+/// account data has no compare-and-swap.
 pub(crate) fn set_room_pack_enabled(
     bridge: &RustClient,
     op_id: u64,
     room_id: String,
     state_key: String,
     enabled: bool,
+    namespace: Namespace,
 ) -> Result<(), String> {
     if RoomId::parse(&room_id).is_err() {
         return Err("room id is not valid".to_owned());
@@ -627,14 +1288,14 @@ pub(crate) fn set_room_pack_enabled(
 
     bridge.spawn_room_action(async move {
         let outcome =
-            set_room_pack_enabled_inner(&client, &room_id, &state_key, enabled)
+            set_room_pack_enabled_inner(&client, &room_id, &state_key, enabled, namespace)
                 .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        let (ok, category) = match outcome {
-            Ok(()) => (true, String::new()),
-            Err(category) => (false, category),
+        let (ok, category, mirror) = match outcome {
+            Ok(mirror) => (true, String::new(), mirror),
+            Err(category) => (false, category, "none"),
         };
         enqueue(
             &events,
@@ -644,6 +1305,7 @@ pub(crate) fn set_room_pack_enabled(
                 "lifecycle": lifecycle,
                 "ok": ok,
                 "category": category,
+                "mirror": mirror,
                 "room_id": room_id,
                 "state_key": state_key,
                 "enabled": enabled,
@@ -653,9 +1315,10 @@ pub(crate) fn set_room_pack_enabled(
     Ok(())
 }
 
-/// The pure `im.ponies.emote_rooms` read-modify-write, testable offline.
-/// Takes whatever the server returned (another client's blob) and returns
-/// the content to write.
+/// The pure subscription read-modify-write, testable offline. Works on both
+/// documents (same shape). Every other room, every other state key and every
+/// leaf object survives: enabling an already-present key keeps its leaf (the
+/// leaf is reserved for future fields), and only the toggled key is touched.
 pub(crate) fn apply_emote_rooms_change(
     existing: Value,
     room_id: &str,
@@ -684,12 +1347,13 @@ pub(crate) fn apply_emote_rooms_change(
         if !entry.is_object() {
             *entry = json!({});
         }
-        // ruma 0.34's ImagePackRoomContent has no overrides: the key's presence is
-        // the enablement, so an empty object is the whole payload.
+        // The key's presence is the subscription; its (reserved) leaf object is
+        // kept as found.
         entry
             .as_object_mut()
             .ok_or_else(|| "rejected".to_owned())?
-            .insert(state_key.to_owned(), json!({}));
+            .entry(state_key.to_owned())
+            .or_insert_with(|| json!({}));
     } else {
         let mut room_now_empty = false;
         if let Some(entry) = rooms.get_mut(room_id).and_then(|v| v.as_object_mut())
@@ -697,7 +1361,8 @@ pub(crate) fn apply_emote_rooms_change(
             entry.remove(state_key);
             room_now_empty = entry.is_empty();
         }
-        // Drop a room whose last pack was turned off; an absent key means the same.
+        // An empty room object has no stable meaning (it is NOT "every pack"),
+        // so a room whose last reference went is dropped rather than left.
         if room_now_empty {
             rooms.remove(room_id);
         }
@@ -705,33 +1370,82 @@ pub(crate) fn apply_emote_rooms_change(
     Ok(content)
 }
 
+async fn write_account_data(
+    client: &matrix_sdk::Client,
+    event_type: &str,
+    content: &Value,
+) -> Result<(), String> {
+    let raw = matrix_sdk::ruma::serde::Raw::new(content)
+        .map_err(|_| "rejected".to_owned())?
+        .cast_unchecked();
+    let written = client
+        .account()
+        .set_account_data_raw(GlobalAccountDataEventType::from(event_type), raw)
+        .await;
+    // The sync echo of this write has not landed; a remembered "not found"
+    // would hide it (AbsentAnswers).
+    forget_own_write(client, event_type);
+    written
+        .map(|_| ())
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+}
+
 async fn set_room_pack_enabled_inner(
     client: &matrix_sdk::Client,
     room_id: &str,
     state_key: &str,
     enabled: bool,
-) -> Result<(), String> {
-    let ty = GlobalAccountDataEventType::from(EMOTE_ROOMS);
-
-    let existing = match client.account().fetch_account_data(ty.clone()).await {
-        Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
-            .unwrap_or_else(|_| json!({})),
-        Ok(None) => json!({}),
-        Err(err) => return Err(classify_room_error(&err.to_string()).to_owned()),
+    namespace: Namespace,
+) -> Result<&'static str, String> {
+    let stable = account_data_read(
+        client
+            .account()
+            .fetch_account_data(GlobalAccountDataEventType::from(STABLE_PACK_ROOMS))
+            .await,
+    );
+    let legacy = account_data_read(
+        client
+            .account()
+            .fetch_account_data(GlobalAccountDataEventType::from(EMOTE_ROOMS))
+            .await,
+    );
+    // Seeding a first stable document from an UNREADABLE legacy one could hide
+    // every legacy choice; refuse instead.
+    if stable == PackRead::Absent {
+        if let PackRead::Failed(category) = &legacy {
+            return Err(category.clone());
+        }
+    }
+    let legacy_value = match &legacy {
+        PackRead::Found(value) => Some(value.clone()),
+        _ => None,
     };
+    let content = plan_stable_subscription_write(
+        stable,
+        legacy_value.as_ref(),
+        room_id,
+        state_key,
+        enabled,
+    )?;
+    write_account_data(client, STABLE_PACK_ROOMS, &content).await?;
 
-    let content =
-        apply_emote_rooms_change(existing, room_id, state_key, enabled)?;
-
-    let raw = matrix_sdk::ruma::serde::Raw::new(&content)
-        .map_err(|_| "rejected".to_owned())?
-        .cast_unchecked();
-    let written = client.account().set_account_data_raw(ty, raw).await;
-    // The sync echo of this write has not landed; a remembered "not found"
-    // would hide it (AbsentAnswers).
-    forget_own_write(&client, EMOTE_ROOMS);
-    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
-    Ok(())
+    if namespace != Namespace::Legacy {
+        return Ok("none");
+    }
+    let mirrored = match legacy {
+        PackRead::Failed(_) => Err("unreadable".to_owned()),
+        other => {
+            let base = match other {
+                PackRead::Found(value) => value,
+                _ => json!({}),
+            };
+            match apply_emote_rooms_change(base, room_id, state_key, enabled) {
+                Ok(content) => write_account_data(client, EMOTE_ROOMS, &content).await,
+                Err(category) => Err(category),
+            }
+        }
+    };
+    Ok(if mirrored.is_ok() { "ok" } else { "failed" })
 }
 
 /// Account-data types the server answered "not found" for, per account.
@@ -787,6 +1501,12 @@ impl AbsentAnswers {
 
     pub(crate) fn forget(&self, account: &str, event_type: &str) {
         self.lock().remove(&(account.to_owned(), event_type.to_owned()));
+    }
+
+    /// Drop every mark of `account` whose key starts with `prefix`.
+    pub(crate) fn forget_prefix(&self, account: &str, prefix: &str) {
+        self.lock()
+            .retain(|(a, key), _| !(a == account && key.starts_with(prefix)));
     }
 }
 
@@ -880,6 +1600,60 @@ fn account_data_read<E: std::fmt::Display>(
     }
 }
 
+/// As `read_remembering_absence`, keeping "absent" and "failed" apart.
+pub(crate) async fn read_remembering_absence_typed<S, Q, QF>(
+    memory: &AbsentAnswers,
+    account: &str,
+    event_type: &str,
+    store: S,
+    ask: Q,
+) -> PackRead
+where
+    S: std::future::Future<Output = Option<Value>>,
+    Q: FnOnce() -> QF,
+    QF: std::future::Future<Output = ServerAnswer>,
+{
+    if let Some(value) = store.await {
+        memory.forget(account, event_type);
+        return PackRead::Found(value);
+    }
+    if memory.is_absent(account, event_type, std::time::Instant::now()) {
+        return PackRead::Absent;
+    }
+    match ask().await {
+        ServerAnswer::Found(value) => PackRead::Found(value),
+        ServerAnswer::Absent => {
+            memory.mark_absent(account, event_type, std::time::Instant::now());
+            PackRead::Absent
+        }
+        ServerAnswer::Failed => PackRead::Failed("network".to_owned()),
+    }
+}
+
+/// Store first, then the server, keeping a confirmed absence apart from a
+/// failure (the subscription policy depends on the difference).
+async fn read_global_account_data_typed(
+    client: &matrix_sdk::Client,
+    event_type: &str,
+) -> PackRead {
+    let ty = GlobalAccountDataEventType::from(event_type);
+    read_remembering_absence_typed(
+        absent_answers(),
+        &account_key(client),
+        event_type,
+        async {
+            match client.account().account_data_raw(ty.clone()).await {
+                Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
+                    .ok()
+                    .filter(|v| v.is_object()),
+                _ => None,
+            }
+        },
+        || async { server_answer(client.account().fetch_account_data(ty.clone()).await) },
+    )
+    .await
+}
+
 /// Store first, then the server. `None` means absent or unreadable; either
 /// way the source contributes nothing. A server "not found" is remembered
 /// (`AbsentAnswers`), so the next read asks nothing; an error is not.
@@ -901,46 +1675,6 @@ async fn read_global_account_data(
         || async { server_answer(client.account().fetch_account_data(ty.clone()).await) },
     )
     .await
-}
-
-/// Every `im.ponies.room_emotes` state event in one room, as (state key,
-/// content, room name). The room name is the MSC's default display name.
-async fn read_room_packs(
-    client: &matrix_sdk::Client,
-    room_id: &str,
-) -> Vec<(String, Value, String)> {
-    let Ok(room) = joined_room(client, room_id) else {
-        return Vec::new();
-    };
-    let name = room.name().unwrap_or_default();
-    let Ok(events) = room
-        .get_state_events(StateEventType::from(ROOM_EMOTES))
-        .await
-    else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for raw in events {
-        let json = match &raw {
-            RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
-            RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
-        };
-        let Ok(value) = serde_json::from_str::<Value>(&json) else {
-            continue;
-        };
-        let state_key = value
-            .get("state_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned();
-        let Some(content) = value.get("content") else { continue };
-        // An empty content object retires a state event: a removed pack.
-        if content.get("images").is_none() {
-            continue;
-        }
-        out.push((state_key, content.clone(), name.clone()));
-    }
-    out
 }
 
 /// What reading one room pack came back as. `Absent` is the server's own
@@ -998,6 +1732,7 @@ async fn read_one_room_pack(
     client: &matrix_sdk::Client,
     room_id: &str,
     state_key: &str,
+    namespace: Namespace,
 ) -> (PackRead, String) {
     use matrix_sdk::ruma::api::client::state::get_state_event_for_key;
 
@@ -1005,9 +1740,10 @@ async fn read_one_room_pack(
         return (PackRead::Failed("unknown_room".to_owned()), String::new());
     };
     let name = room.name().unwrap_or_default();
+    let event_type = namespace.room_type();
 
     if let Ok(Some(raw)) = room
-        .get_state_event(StateEventType::from(ROOM_EMOTES), state_key)
+        .get_state_event(StateEventType::from(event_type), state_key)
         .await
     {
         let json = match &raw {
@@ -1023,18 +1759,30 @@ async fn read_one_room_pack(
         }
     }
 
+    // A server "no such event" is remembered per (account, room, type, key),
+    // so a legacy-only subscription does not ask for its missing stable twin
+    // on every refresh; sync delivering either type there, or a write of ours,
+    // drops the mark (`forget_room`).
+    let account = account_key(client);
+    let memo = format!("state|{room_id}|{event_type}|{state_key}");
+    if absent_answers().is_absent(&account, &memo, std::time::Instant::now()) {
+        return (PackRead::Absent, name);
+    }
     let config = RequestConfig::new()
         .disable_retry()
         .timeout(PACK_REQUEST_TIMEOUT);
     let request = get_state_event_for_key::v3::Request::new(
         room.room_id().to_owned(),
-        StateEventType::from(ROOM_EMOTES),
+        StateEventType::from(event_type),
         state_key.to_owned(),
     );
     let read = match client.send(request).with_request_config(config).await {
         Ok(response) => classify_pack_read(Ok(response.event_or_content.get())),
         Err(err) => classify_pack_read(Err(err.to_string())),
     };
+    if read == PackRead::Absent {
+        absent_answers().mark_absent(&account, &memo, std::time::Instant::now());
+    }
     (read, name)
 }
 
@@ -1267,13 +2015,14 @@ pub(crate) fn add_to_user_pack(
     Ok(())
 }
 
-/// Add one image to a room's `im.ponies.room_emotes` pack. Room state, so
+/// Add one image to a room pack, in the pack's own dialect (`namespace`): a
+/// legacy pack is edited as legacy, never silently moved. Room state, so
 /// power-level gated:
 ///
-///   * the gate is the room's own required level for
-///     `im.ponies.room_emotes`, via the SDK (`can_send_state`), and false
-///     when membership cannot be read. The server would refuse anyway; this
-///     stops callers that did not ask.
+///   * the gate is the room's own required level for that EXACT event type,
+///     via the SDK (`can_send_state`), and false when membership cannot be
+///     read. The server would refuse anyway; this stops callers that did not
+///     ask.
 ///   * nothing is optimistic: the caller re-reads the pack afterwards.
 ///
 /// Read-modify-write of the current state event, so a concurrent edit by
@@ -1291,6 +2040,7 @@ pub(crate) fn add_to_room_pack(
     width: u64,
     height: u64,
     size: u64,
+    namespace: Namespace,
 ) -> Result<(), String> {
     if !is_valid_mxc(&url) {
         return Err("sticker url is not an mxc URI".to_owned());
@@ -1311,7 +2061,7 @@ pub(crate) fn add_to_room_pack(
     bridge.spawn_room_action(async move {
         let outcome = add_to_room_pack_inner(
             &client, &room_id, &state_key, requested, url, body, mimetype,
-            width, height, size,
+            width, height, size, namespace,
         )
         .await;
         if !timelines.lifecycle_current(lifecycle) {
@@ -1348,24 +2098,34 @@ async fn add_to_room_pack_inner(
     width: u64,
     height: u64,
     size: u64,
+    namespace: Namespace,
 ) -> Result<String, String> {
     let room = joined_room(client, room_id).map_err(|_| "unknown_room".to_owned())?;
     // Gate before anything is read or built.
-    if !can_manage_room_packs(client, room_id).await {
+    if !can_manage_room_packs(client, room_id, namespace).await {
         return Err("forbidden".to_owned());
     }
 
     // Only the server's own "not found" is a first use; a failed read writes
     // nothing (PACK-LTN-017).
-    let existing = base_for_add(read_one_room_pack(client, room_id, state_key).await.0)?;
+    let existing =
+        base_for_add(read_one_room_pack(client, room_id, state_key, namespace).await.0)?;
 
+    // A stable image has no per-image usage (it is pack-wide in v1.19); a
+    // legacy room image keeps the conservative "sticker".
+    let usage = match namespace {
+        Namespace::Stable => "",
+        Namespace::Legacy => "sticker",
+    };
     let (content, code) =
         add_image_to_pack_content(existing, requested, url, body, mimetype,
-                                  width, height, size, "sticker")?;
+                                  width, height, size, usage)?;
 
-    room.send_state_event_raw(ROOM_EMOTES, state_key, content)
-        .await
-        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    let written = room
+        .send_state_event_raw(namespace.room_type(), state_key, content)
+        .await;
+    forget_room(client, room_id);
+    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
 }
 
@@ -1462,7 +2222,11 @@ pub(crate) fn add_image_to_pack_content(
     // A saved sticker stays out of emoticon completion; a saved custom emoji
     // stays out of the sticker picker. Anything unrecognised is a sticker,
     // which is the conservative one (it never appears inline in a message box).
-    entry.insert("usage".to_owned(), usage_value(usage));
+    // An EMPTY usage writes no per-image field: stable packs (usage is
+    // pack-wide in Matrix v1.19).
+    if !usage.is_empty() {
+        entry.insert("usage".to_owned(), usage_value(usage));
+    }
 
     images.insert(code.clone(), Value::Object(entry));
     Ok((content, code))
@@ -1476,8 +2240,13 @@ pub(crate) enum PackEdit {
     RemoveImage { key: String },
     RenameImage { from: String, to: String },
     SetName { name: String },
-    /// Empty the pack by writing an empty object (no delete verb exists for
-    /// account data or state). Not a redaction: the event stays in history.
+    /// Pack-wide usage (`emoticon` | `sticker` | `both`), stable packs only.
+    SetUsage { usage: String },
+    /// Retire the pack (no delete verb exists for account data or state; not a
+    /// redaction: the events stay in history and uploaded media is untouched).
+    /// Legacy: an empty object, the convention older clients read as removed.
+    /// Stable: the schema-valid `{"images":{}}`, keeping the pack metadata so
+    /// the retired pack is still recognisable.
     DeletePack,
 }
 
@@ -1485,6 +2254,10 @@ impl PackEdit {
     /// Apply to a content object. Returns the content to write and the applied
     /// shortcode for a rename (empty otherwise).
     fn apply(&self, existing: Value) -> Result<(Value, String), String> {
+        self.apply_in(existing, Namespace::Legacy)
+    }
+
+    fn apply_in(&self, existing: Value, namespace: Namespace) -> Result<(Value, String), String> {
         match self {
             PackEdit::RemoveImage { key } => {
                 remove_image_from_pack_content(existing, key)
@@ -1497,8 +2270,24 @@ impl PackEdit {
                 set_pack_display_name_content(existing, name)
                     .map(|c| (c, String::new()))
             }
-            // Drops the name too: a named empty pack would not read as deleted.
-            PackEdit::DeletePack => Ok((json!({}), String::new())),
+            PackEdit::SetUsage { usage } => {
+                if namespace != Namespace::Stable {
+                    return Err("unsupported".to_owned());
+                }
+                set_pack_usage_content(existing, usage).map(|c| (c, String::new()))
+            }
+            // Legacy drops the name too: a named empty pack would not read as
+            // deleted there.
+            PackEdit::DeletePack => match namespace {
+                Namespace::Legacy => Ok((json!({}), String::new())),
+                Namespace::Stable => {
+                    let mut out = json!({ "images": {} });
+                    if let Some(pack) = existing.get("pack").filter(|p| p.is_object()) {
+                        out["pack"] = pack.clone();
+                    }
+                    Ok((out, String::new()))
+                }
+            },
         }
     }
 }
@@ -1512,6 +2301,7 @@ pub(crate) fn edit_pack(
     room_id: String,
     state_key: String,
     edit: PackEdit,
+    namespace: Namespace,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -1522,7 +2312,7 @@ pub(crate) fn edit_pack(
         let outcome = if room_id.is_empty() {
             edit_user_pack_inner(&client, &edit).await
         } else {
-            edit_room_pack_inner(&client, &room_id, &state_key, &edit).await
+            edit_room_pack_inner(&client, &room_id, &state_key, &edit, namespace).await
         };
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -1574,19 +2364,149 @@ async fn edit_room_pack_inner(
     room_id: &str,
     state_key: &str,
     edit: &PackEdit,
+    namespace: Namespace,
 ) -> Result<String, String> {
     let room = joined_room(client, room_id).map_err(|_| "unknown_room".to_owned())?;
-    // The same gate as the add path; deleting a room's pack is more
-    // destructive than adding to it.
-    if !can_manage_room_packs(client, room_id).await {
+    // The same gate as the add path, for the exact event type; deleting a
+    // room's pack is more destructive than adding to it.
+    if !can_manage_room_packs(client, room_id, namespace).await {
         return Err("forbidden".to_owned());
     }
-    let existing = base_for_edit(read_one_room_pack(client, room_id, state_key).await.0)?;
-    let (content, code) = edit.apply(existing)?;
-    room.send_state_event_raw(ROOM_EMOTES, state_key, content)
-        .await
-        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    let existing =
+        base_for_edit(read_one_room_pack(client, room_id, state_key, namespace).await.0)?;
+    let (content, code) = edit.apply_in(existing, namespace)?;
+    let written = room
+        .send_state_event_raw(namespace.room_type(), state_key, content)
+        .await;
+    forget_room(client, room_id);
+    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
+}
+
+/// The content of a NEW stable pack: schema-valid (`images` present even when
+/// empty, which some reference clients omit), with the name and pack-wide
+/// usage the user chose (`both` writes no usage: absent means every usage).
+pub(crate) fn new_stable_pack_content(name: &str, usage: &str) -> Value {
+    let mut pack = serde_json::Map::new();
+    let name = one_line(name, MAX_PACK_NAME_CHARS);
+    if !name.is_empty() {
+        pack.insert("display_name".to_owned(), json!(name));
+    }
+    match usage {
+        "emoticon" => {
+            pack.insert("usage".to_owned(), json!(["emoticon"]));
+        }
+        "sticker" => {
+            pack.insert("usage".to_owned(), json!(["sticker"]));
+        }
+        _ => {}
+    }
+    let mut content = json!({ "images": {} });
+    if !pack.is_empty() {
+        content["pack"] = Value::Object(pack);
+    }
+    content
+}
+
+/// The pure "create" decision: only a confirmed absence creates; an existing
+/// record (even a retired one) is never overwritten by a create.
+pub(crate) fn plan_create(read: PackRead, name: &str, usage: &str) -> Result<Value, String> {
+    match read {
+        PackRead::Absent => Ok(new_stable_pack_content(name, usage)),
+        PackRead::Found(_) => Err("pack_exists".to_owned()),
+        PackRead::Failed(category) => Err(category),
+    }
+}
+
+/// Create a new, empty STABLE room pack under `state_key` in `room_id`.
+/// Answers on `sticker_pack_edit_result` with `shortcode` set to the state
+/// key. The caller chooses the key (unique among known packs); a key that
+/// already holds a record is refused with `pack_exists`.
+pub(crate) fn create_room_pack(
+    bridge: &RustClient,
+    op_id: u64,
+    room_id: String,
+    state_key: String,
+    name: String,
+    usage: String,
+) -> Result<(), String> {
+    if RoomId::parse(&room_id).is_err() {
+        return Err("room id is not valid".to_owned());
+    }
+    // General event limit for a state key; not a shortcode rule.
+    if state_key.len() > 255 {
+        return Err("state key is too long".to_owned());
+    }
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let outcome = async {
+            let room = joined_room(&client, &room_id).map_err(|_| "unknown_room".to_owned())?;
+            if !can_manage_room_packs(&client, &room_id, Namespace::Stable).await {
+                return Err("forbidden".to_owned());
+            }
+            let read = read_one_room_pack(&client, &room_id, &state_key, Namespace::Stable)
+                .await
+                .0;
+            let content = plan_create(read, &name, &usage)?;
+            let written = room
+                .send_state_event_raw(STABLE_ROOM_PACK, &state_key, content)
+                .await;
+            forget_room(&client, &room_id);
+            written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+            Ok::<String, String>(state_key.clone())
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category, shortcode) = match outcome {
+            Ok(code) => (true, String::new(), code),
+            Err(category) => (false, category, String::new()),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "sticker_pack_edit_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "category": category,
+                "shortcode": shortcode,
+            }),
+        );
+    });
+    Ok(())
+}
+
+/// Set a stable pack's pack-wide usage. `both` removes the field (absent
+/// means every usage); unknown values another client wrote are dropped only
+/// because the user chose a new explicit usage.
+pub(crate) fn set_pack_usage_content(existing: Value, usage: &str) -> Result<Value, String> {
+    let mut content = existing;
+    if !content.is_object() {
+        return Err("rejected".to_owned());
+    }
+    if content.get("pack").and_then(|p| p.as_object()).is_none() {
+        content["pack"] = json!({});
+    }
+    let pack = content["pack"].as_object_mut().ok_or_else(|| "rejected".to_owned())?;
+    match usage {
+        "emoticon" => {
+            pack.insert("usage".to_owned(), json!(["emoticon"]));
+        }
+        "sticker" => {
+            pack.insert("usage".to_owned(), json!(["sticker"]));
+        }
+        "both" => {
+            pack.remove("usage");
+        }
+        _ => return Err("rejected".to_owned()),
+    }
+    Ok(content)
 }
 
 /// Remove one image from a pack by shortcode. Pure and shared by both
@@ -1707,6 +2627,90 @@ async fn add_to_user_pack_inner(
     forget_own_write(&client, USER_EMOTES);
     written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
+}
+
+// ---------------------------------------------------------------------------
+// Live changes
+// ---------------------------------------------------------------------------
+
+// Typed only so the SDK dispatches these four types to the change handlers;
+// never read (a change is re-read through `fetch_packs`, the one parser).
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "m.room.image_pack", kind = State, state_key_type = String)]
+pub(crate) struct StableImagePackEventContent {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "im.ponies.room_emotes", kind = State, state_key_type = String)]
+pub(crate) struct LegacyRoomEmotesEventContent {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "m.image_pack.rooms", kind = GlobalAccountData)]
+pub(crate) struct StableImagePackRoomsEventContent {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "im.ponies.emote_rooms", kind = GlobalAccountData)]
+pub(crate) struct LegacyEmoteRoomsEventContent {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "im.ponies.user_emotes", kind = GlobalAccountData)]
+pub(crate) struct LegacyUserEmotesEventContent {}
+
+/// `{type: sticker_packs_changed, room_id}`; an empty room id means account
+/// data (subscriptions or the account's own pack). Nothing else crosses.
+pub(crate) fn change_payload(room_id: &str) -> Value {
+    json!({ "type": "sticker_packs_changed", "room_id": room_id })
+}
+
+/// Report pack and subscription changes from sync so an open picker or
+/// manager updates without a restart (PACK-LTN-002). A room change also drops
+/// that room's cached scan and remembered absences, so the re-read sees it.
+pub(crate) fn install_change_handlers(
+    client: &matrix_sdk::Client,
+    events: crate::EventQueueRef,
+) -> Vec<matrix_sdk::event_handler::EventHandlerHandle> {
+    let mut handles = Vec::new();
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: SyncStableImagePackEvent, room: matrix_sdk::Room, client: matrix_sdk::Client| {
+            let q = Arc::clone(&q);
+            async move {
+                forget_room(&client, room.room_id().as_str());
+                enqueue(&q, change_payload(room.room_id().as_str()));
+            }
+        },
+    ));
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: SyncLegacyRoomEmotesEvent, room: matrix_sdk::Room, client: matrix_sdk::Client| {
+            let q = Arc::clone(&q);
+            async move {
+                forget_room(&client, room.room_id().as_str());
+                enqueue(&q, change_payload(room.room_id().as_str()));
+            }
+        },
+    ));
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: GlobalAccountDataEvent<StableImagePackRoomsEventContent>| {
+            let q = Arc::clone(&q);
+            async move { enqueue(&q, change_payload("")) }
+        },
+    ));
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: GlobalAccountDataEvent<LegacyEmoteRoomsEventContent>| {
+            let q = Arc::clone(&q);
+            async move { enqueue(&q, change_payload("")) }
+        },
+    ));
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: GlobalAccountDataEvent<LegacyUserEmotesEventContent>| {
+            let q = Arc::clone(&q);
+            async move { enqueue(&q, change_payload("")) }
+        },
+    ));
+    handles
 }
 
 // ---------------------------------------------------------------------------
@@ -2413,6 +3417,13 @@ mod tests {
         assert!(!is_valid_mxc("https://example.org/a.png"));
         assert!(!is_valid_mxc(""));
         assert!(!is_valid_mxc("  mxc://example.org/abc"));
+        // PACK-PRO-027 / media grammar: no extra path, query, fragment or
+        // traversal in the media id.
+        for bad in ["mxc://e.org/a/b", "mxc://e.org/a?x=1", "mxc://e.org/a#f",
+                    "mxc://e.org/..", "mxc://e.org/a b", "mxc://e.org/"] {
+            assert!(!is_valid_mxc(bad), "{bad}");
+        }
+        assert!(is_valid_mxc("mxc://e.org:8448/Ab_c-9"));
     }
 
     #[test]
@@ -2589,6 +3600,289 @@ mod tests {
         // Images are untouched by renaming the pack.
         assert_eq!(named["images"].as_object().unwrap().len(), 2);
     }
+    // ---- stable namespaces (Matrix v1.19) --------------------------------
+
+    fn parse_stable(content: Value) -> Pack {
+        parse_pack_content_ns(&content, "id".into(), "room", "!r:e".into(), "k".into(),
+                              "Room", Namespace::Stable)
+            .expect("object")
+    }
+
+    #[test]
+    fn stable_usage_is_pack_wide_and_unknown_only_is_not_everything() {
+        // PACK-PRO-010/011/012, PACK-LTN-011.
+        let both = parse_stable(json!({ "images": { "a": { "url": "mxc://e/1" } } }));
+        assert_eq!((both.images[0].is_emoticon, both.images[0].is_sticker), (true, true));
+        let empty = parse_stable(json!({ "pack": { "usage": [] },
+                                         "images": { "a": { "url": "mxc://e/1" } } }));
+        assert_eq!((empty.images[0].is_emoticon, empty.images[0].is_sticker), (true, true));
+        // A per-image `usage` is a legacy field: in a stable pack it is ignored.
+        let emo = parse_stable(json!({ "pack": { "usage": ["emoticon"] },
+            "images": { "a": { "url": "mxc://e/1", "usage": ["sticker"] } } }));
+        assert_eq!((emo.images[0].is_emoticon, emo.images[0].is_sticker), (true, false));
+        let unknown = parse_stable(json!({ "pack": { "usage": ["hologram"] },
+            "images": { "a": { "url": "mxc://e/1" } } }));
+        assert_eq!((unknown.images[0].is_emoticon, unknown.images[0].is_sticker),
+                   (false, false));
+        assert!(unknown.usage_unsupported);
+        let mixed = parse_stable(json!({ "pack": { "usage": ["hologram", "sticker"] },
+            "images": { "a": { "url": "mxc://e/1" } } }));
+        assert_eq!((mixed.images[0].is_emoticon, mixed.images[0].is_sticker),
+                   (false, true));
+        assert!(!mixed.usage_unsupported);
+        // The same document read as LEGACY keeps the per-image override
+        // (PACK-PRO-013).
+        let legacy = parse(json!({ "pack": { "usage": ["emoticon"] },
+            "images": { "a": { "url": "mxc://e/1", "usage": ["sticker"] } } }));
+        assert_eq!((legacy.images[0].is_emoticon, legacy.images[0].is_sticker),
+                   (false, true));
+    }
+
+    #[test]
+    fn room_pack_ids_are_unambiguous_across_colons_and_dialects() {
+        // `room:<room>:<key>` could not be split: `!a:b` + `c:d` and `!a:b:c` +
+        // `d` collided.
+        let a = room_pack_id(Namespace::Stable, "!a:b", "c:d");
+        let b = room_pack_id(Namespace::Stable, "!a:b:c", "d");
+        assert_ne!(a, b);
+        assert_ne!(room_pack_id(Namespace::Stable, "!a:b", ""),
+                   room_pack_id(Namespace::Legacy, "!a:b", ""));
+    }
+
+    fn rec(ns: Namespace, key: &str, content: Value, ts: u64) -> PackRecord {
+        PackRecord { namespace: ns, state_key: key.into(), content, ts }
+    }
+
+    #[test]
+    fn a_present_stable_record_wins_and_a_cleared_one_does_not_resurrect_legacy() {
+        // PACK-LTN-001/004, PACK-MIG-004/005/018.
+        let img = |u: &str| json!({ "images": { "x": { "url": u } } });
+        let out = resolve_room_packs(vec![
+            rec(Namespace::Legacy, "twin", img("mxc://e/legacy"), 5),
+            rec(Namespace::Stable, "twin", img("mxc://e/stable"), 1),
+            rec(Namespace::Stable, "cleared", json!({}), 9),
+            rec(Namespace::Legacy, "cleared", img("mxc://e/stale"), 1),
+            rec(Namespace::Stable, "", json!({ "images": {} }), 1),
+            rec(Namespace::Legacy, "old", img("mxc://e/old"), 1),
+            rec(Namespace::Legacy, "retired", json!({}), 1),
+        ]);
+        let keys: Vec<(&str, Namespace)> =
+            out.iter().map(|r| (r.state_key.as_str(), r.namespace)).collect();
+        // The empty state key is an ordinary pack (PACK-PRO-002); `cleared`
+        // and `retired` are gone; `twin` is the stable record, flagged.
+        assert_eq!(keys, vec![("", Namespace::Stable), ("old", Namespace::Legacy),
+                              ("twin", Namespace::Stable)]);
+        let twin = out.iter().find(|r| r.state_key == "twin").unwrap();
+        assert!(twin.legacy_twin);
+        assert_eq!(twin.content["images"]["x"]["url"], json!("mxc://e/stable"));
+        // Two copies of one record keep the newer one.
+        let out = resolve_room_packs(vec![
+            rec(Namespace::Stable, "k", img("mxc://e/new"), 10),
+            rec(Namespace::Stable, "k", img("mxc://e/old"), 3),
+        ]);
+        assert_eq!(out[0].content["images"]["x"]["url"], json!("mxc://e/new"));
+    }
+
+    #[test]
+    fn a_present_stable_subscription_document_is_authoritative_even_empty() {
+        // PACK-MIG-006: an intentional "unsubscribe from everything" stays so.
+        let legacy = json!({ "rooms": { "!a:e": { "x": {} } } });
+        let empty = effective_subscriptions(&PackRead::Found(json!({ "rooms": {} })),
+                                            Some(&legacy));
+        assert!(empty.active.is_empty());
+        assert_eq!(empty.source, "stable");
+        assert_eq!(empty.legacy_only, vec![("!a:e".to_owned(), "x".to_owned())]);
+        // Confirmed absent: legacy references stay in force.
+        let absent = effective_subscriptions(&PackRead::Absent, Some(&legacy));
+        assert_eq!(absent.active, vec![("!a:e".to_owned(), "x".to_owned())]);
+        assert_eq!(absent.source, "legacy");
+        assert!(!absent.stable_unreadable);
+        // Unreadable is not absent (PACK-MIG-007): shown, flagged.
+        let failed = effective_subscriptions(&PackRead::Failed("network".into()),
+                                             Some(&legacy));
+        assert!(failed.stable_unreadable);
+        // An empty inner map is NOT "every pack in the room" (PACK-PRO-016).
+        let none = effective_subscriptions(
+            &PackRead::Found(json!({ "rooms": { "!a:e": {} } })), None);
+        assert!(none.active.is_empty());
+    }
+
+    #[test]
+    fn the_first_stable_document_carries_legacy_choices_and_leaves_leaves_alone() {
+        // PACK-PRO-015/017: subscribe to one explicit key, keep every other
+        // room, key and leaf object.
+        let legacy = json!({ "rooms": { "!old:e": { "a": { "future": 1 } } } });
+        let first = plan_stable_subscription_write(PackRead::Absent, Some(&legacy),
+                                                   "!new:e", "k", true).unwrap();
+        assert_eq!(first["rooms"]["!old:e"]["a"]["future"], json!(1));
+        assert_eq!(first["rooms"]["!new:e"]["k"], json!({}));
+        assert_eq!(first["rooms"].as_object().unwrap().len(), 2);
+        // An existing stable document: other leaves survive a toggle, and
+        // re-enabling a present key keeps its leaf.
+        let current = json!({ "rooms": { "!a:e": { "k": { "keep": true }, "j": {} } },
+                              "x-top": "kept" });
+        let out = plan_stable_subscription_write(PackRead::Found(current.clone()), None,
+                                                 "!a:e", "k", true).unwrap();
+        assert_eq!(out["rooms"]["!a:e"]["k"]["keep"], json!(true));
+        assert_eq!(out["x-top"], json!("kept"));
+        let off = plan_stable_subscription_write(PackRead::Found(current), None,
+                                                 "!a:e", "j", false).unwrap();
+        assert_eq!(off["rooms"]["!a:e"]["k"]["keep"], json!(true));
+        assert!(off["rooms"]["!a:e"].get("j").is_none());
+        // An unreadable stable document writes nothing.
+        assert_eq!(plan_stable_subscription_write(PackRead::Failed("network".into()),
+                                                  None, "!a:e", "k", true).unwrap_err(),
+                   "network");
+    }
+
+    #[test]
+    fn creating_needs_a_confirmed_absence_and_writes_valid_stable_content() {
+        // PACK-PRO-001/002, PACK-MIG-018: `images` is present even when empty.
+        let made = plan_create(PackRead::Absent, "Lightning animals", "emoticon").unwrap();
+        assert_eq!(made, json!({ "images": {}, "pack": {
+            "display_name": "Lightning animals", "usage": ["emoticon"] } }));
+        assert_eq!(plan_create(PackRead::Absent, "", "both").unwrap(), json!({ "images": {} }));
+        assert_eq!(plan_create(PackRead::Found(json!({})), "x", "both").unwrap_err(),
+                   "pack_exists");
+        assert_eq!(plan_create(PackRead::Failed("forbidden".into()), "x", "both").unwrap_err(),
+                   "forbidden");
+    }
+
+    #[test]
+    fn retiring_a_stable_pack_writes_valid_empty_content_and_legacy_keeps_its_convention() {
+        let base = json!({ "pack": { "display_name": "P" },
+                           "images": { "a": { "url": "mxc://e/1" } } });
+        let (stable, _) = PackEdit::DeletePack.apply_in(base.clone(), Namespace::Stable).unwrap();
+        assert_eq!(stable, json!({ "images": {}, "pack": { "display_name": "P" } }));
+        let (legacy, _) = PackEdit::DeletePack.apply_in(base.clone(), Namespace::Legacy).unwrap();
+        assert_eq!(legacy, json!({}));
+        // Usage is a stable, pack-wide edit.
+        let (used, _) = PackEdit::SetUsage { usage: "sticker".into() }
+            .apply_in(base.clone(), Namespace::Stable).unwrap();
+        assert_eq!(used["pack"]["usage"], json!(["sticker"]));
+        assert_eq!(used["images"], base["images"]);
+        let (open, _) = PackEdit::SetUsage { usage: "both".into() }
+            .apply_in(used, Namespace::Stable).unwrap();
+        assert!(open["pack"].get("usage").is_none());
+        assert!(PackEdit::SetUsage { usage: "both".into() }
+            .apply_in(base, Namespace::Legacy).is_err());
+    }
+
+    #[test]
+    fn a_stable_add_writes_no_per_image_usage() {
+        let (content, _) = add_image_to_pack_content(json!({ "images": {} }), "cat".into(),
+            "mxc://e/1".into(), "A cat".into(), String::new(), 0, 0, 0, "").unwrap();
+        assert!(content["images"]["cat"].get("usage").is_none());
+        assert_eq!(content["images"]["cat"]["body"], json!("A cat"));
+    }
+
+    #[test]
+    fn unknown_fields_survive_every_edit() {
+        // PACK-LTN-003, PACK-MIG-013.
+        let base = json!({ "x-pack-meta": { "a": 1 },
+            "pack": { "display_name": "P", "x-extra": true },
+            "images": { "a": { "url": "mxc://e/1", "x-img": "kept" },
+                        "b": { "url": "mxc://e/2" } } });
+        let (renamed, _) = PackEdit::RenameImage { from: "a".into(), to: "c".into() }
+            .apply_in(base.clone(), Namespace::Stable).unwrap();
+        assert_eq!(renamed["images"]["c"]["x-img"], json!("kept"));
+        assert_eq!(renamed["x-pack-meta"]["a"], json!(1));
+        let (named, _) = PackEdit::SetName { name: "Q".into() }
+            .apply_in(base, Namespace::Stable).unwrap();
+        assert_eq!(named["pack"]["x-extra"], json!(true));
+    }
+
+    #[test]
+    fn only_a_valid_canonical_claim_counts_and_the_lowest_id_wins() {
+        // PACK-PRO-019/020/021.
+        let claim = |id: &str, canonical, via, reciprocal, auth| ParentClaim {
+            space_id: id.into(), canonical, has_via: via, reciprocal, sender_authorised: auth,
+        };
+        // A false claim (no reciprocity, sender without authority) is ignored.
+        assert_eq!(pick_canonical_parent(&[claim("!evil:e", true, true, false, false)]), None);
+        // Not canonical, or no via: ignored.
+        assert_eq!(pick_canonical_parent(&[claim("!a:e", false, true, true, true),
+                                           claim("!b:e", true, false, true, true)]), None);
+        // Reciprocal OR an authorised sender suffices.
+        assert_eq!(pick_canonical_parent(&[claim("!a:e", true, true, true, false)]),
+                   Some("!a:e".into()));
+        assert_eq!(pick_canonical_parent(&[claim("!a:e", true, true, false, true)]),
+                   Some("!a:e".into()));
+        // Two valid canonical parents: the lowest id by code point.
+        assert_eq!(pick_canonical_parent(&[claim("!b:e", true, true, true, false),
+                                           claim("!B:e", true, true, true, false),
+                                           claim("!a:e", true, true, false, true)]),
+                   Some("!B:e".into()));
+    }
+
+    #[test]
+    fn canonical_ancestry_is_bounded_cycle_safe_and_membership_scoped() {
+        // PACK-PRO-019/020/022, PACK-LTN-013/014: child -> A -> B -> A (a
+        // cycle); a forged canonical claim to `!evil` (no reciprocity, sender
+        // with no authority there) is ignored; ancestry never passes a space
+        // the account has not joined.
+        use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id, serde::Raw};
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_base::RequestedRequiredStates;
+
+        let child = room_id!("!child:e");
+        let a = room_id!("!a:e");
+        let b = room_id!("!b:e");
+        let evil = room_id!("!evil:e");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            let me = client.user_id().unwrap().to_string();
+            let ev = |ty: &str, key: &str, sender: &str, id: &str, content: Value| {
+                Raw::from_json_string(json!({
+                    "type": ty, "state_key": key, "sender": sender, "event_id": id,
+                    "origin_server_ts": 1_700_000_000_000u64, "content": content,
+                }).to_string()).unwrap()
+            };
+            let via = json!({ "via": ["e"], "canonical": true });
+            let child_of = json!({ "via": ["e"] });
+            let mut response = v5::Response::new("p1".to_owned());
+            let mut room = |id: &matrix_sdk::ruma::RoomId, state: Vec<Raw<_>>| {
+                let mut entry = v5::response::Room::default();
+                entry.required_state = state;
+                response.rooms.insert(id.to_owned(), entry);
+            };
+            room(child, vec![
+                ev("m.space.parent", a.as_str(), &me, "$1", via.clone()),
+                // Lower id than `!a`, canonical, but nobody in `!evil` agrees.
+                ev("m.space.parent", "!0evil:e", "@stranger:e", "$2", via.clone()),
+            ]);
+            room(a, vec![
+                ev("m.space.child", child.as_str(), &me, "$3", child_of.clone()),
+                ev("m.space.child", b.as_str(), &me, "$7", child_of.clone()),
+                ev("m.space.parent", b.as_str(), &me, "$4", via.clone()),
+            ]);
+            room(b, vec![
+                ev("m.space.child", a.as_str(), &me, "$5", child_of.clone()),
+                // A cycle back to A.
+                ev("m.space.parent", a.as_str(), &me, "$6", via.clone()),
+            ]);
+            let _ = evil;
+            client
+                .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+                .await
+                .expect("sync processed");
+            let chain = tokio::time::timeout(
+                Duration::from_secs(10),
+                canonical_ancestry(&client, child.as_str()),
+            )
+            .await
+            .expect("bounded");
+            assert_eq!(chain, vec![a.to_string(), b.to_string()]);
+            // Starting at B: its parent A, then A's parent B is already
+            // visited, so the walk stops.
+            let from_b = canonical_ancestry(&client, b.as_str()).await;
+            assert_eq!(from_b, vec![a.to_string()]);
+            drop(server);
+        });
+    }
+
     // ---- remembering a server "not found" -------------------------------
 
     use std::sync::atomic::{AtomicUsize, Ordering};

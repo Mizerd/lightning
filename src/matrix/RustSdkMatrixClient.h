@@ -386,19 +386,24 @@ public:
     void fetchProfileBio(const QString &userId, quint64 opId) override;
     void setProfileBio(const QString &text, quint64 opId) override;
     bool supportsStickerPacks() const override { return true; }
-    void fetchStickerPacks(const QString &roomId, quint64 opId) override;
+    void fetchStickerPacks(const QString &roomId, quint64 opId,
+                           bool deep) override;
+    void createStickerRoomPack(const QString &roomId, const QString &stateKey,
+                               const QString &name, const QString &usage,
+                               quint64 opId) override;
     void sendSticker(const QString &roomId, const QString &rootId,
                      const QString &url, const QString &body,
                      const QString &mimetype, quint64 width, quint64 height,
                      quint64 size) override;
     void addStickerToRoomPack(const QString &roomId, const QString &stateKey,
+                              const QString &ns,
                               const QString &shortcode, const QString &url,
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
                               quint64 opId) override;
     void setStickerRoomPackEnabled(const QString &roomId,
-                                   const QString &stateKey, bool enabled,
-                                   quint64 opId) override;
+                                   const QString &stateKey, const QString &ns,
+                                   bool enabled, quint64 opId) override;
     void uploadStickerToUserPack(const QString &shortcode, const QString &body,
                                  const QString &localPath,
                                  const QString &usage,
@@ -424,6 +429,7 @@ public:
     void qrLoginSubmitCheckCode(quint64 generation, int code) override;
     void qrLoginCancel() override;
     void editStickerPack(const QString &roomId, const QString &stateKey,
+                         const QString &ns,
                          const QString &action, const QString &argA,
                          const QString &argB, quint64 opId) override;
     bool supportsRoomBanners() const override { return true; }

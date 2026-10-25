@@ -107,7 +107,8 @@ public:
     int usablePackCount() const;
     int revision() const { return m_revision; }
 
-    // Unconditional re-read.
+    // Unconditional re-read, allowed to read the active room's whole state
+    // once (a pack surface was opened).
     Q_INVOKABLE void refresh();
     // Re-read only when there is no snapshot or it is for another room. Called
     // when a picker opens.
@@ -176,9 +177,24 @@ public:
     /// Id, display name and writability of one pack, or an empty map. One call
     /// so the permission rule does not end up half in QML.
     Q_INVOKABLE QVariantMap packInfo(const QString &packId) const;
-    // Turns a room pack on or off globally (`im.ponies.emote_rooms`). User
-    // packs are refused. Not optimistic: the snapshot is re-read after the
-    // write.
+    // Creates a new, empty STABLE pack in `roomId` under a fresh state key
+    // (never the empty key by default). `usage` is "emoticon", "sticker" or
+    // "both". Requires a snapshot of that room granting the power level.
+    // Reports on editFinished (shortcode = the new state key).
+    Q_INVOKABLE void createRoomPack(const QString &roomId, const QString &name,
+                                    const QString &usage);
+    Q_INVOKABLE bool canCreateRoomPack(const QString &roomId) const;
+    // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
+    Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
+    // What the last snapshot knew about its own sources (see
+    // MatrixClient::stickerPackSnapshotMeta).
+    Q_INVOKABLE QVariantMap snapshotMeta() const { return m_snapshotMeta; }
+    // The last "use everywhere" saved the standard list but not the legacy
+    // copy older clients read.
+    Q_INVOKABLE bool lastMirrorFailed() const { return m_lastMirrorFailed; }
+    // Turns a room pack on or off globally (`m.image_pack.rooms`, mirrored to
+    // `im.ponies.emote_rooms` for a legacy pack). User packs are refused. Not
+    // optimistic: the snapshot is re-read after the write.
     Q_INVOKABLE void setRoomPackEnabled(const QString &packId, bool enabled);
     // A room-pack enable/disable is in flight.
     bool togglingRoomPack() const { return m_roomsOp != 0; }
@@ -247,6 +263,9 @@ public:
     // One emoticon by exact shortcode, or an empty map. The account's own pack
     // comes first, so its shortcodes win.
     Q_INVOKABLE QVariantMap emoticon(const QString &shortcode) const;
+    // The mxc a TYPED `:shortcode:` resolves to: only when every usable image
+    // with that exact key is the same media, otherwise "" (it stays literal).
+    Q_INVOKABLE QString uniqueEmoticonUrl(const QString &shortcode) const;
 
     bool transferring() const { return m_transfer.active; }
     QString transferKind() const { return m_transfer.kind; }
@@ -355,7 +374,15 @@ private:
                   const QString &argA, const QString &argB);
     void onRoomsSet(quint64 opId, bool ok, const QString &category,
                     const QString &roomId, const QString &stateKey,
-                    bool enabled);
+                    bool enabled, const QString &mirror);
+    void onPacksChanged(const QString &roomId);
+    void refreshWith(bool deep);
+    struct RoomPackTarget {
+        QString stateKey;  // null: no permitted destination
+        QString ns;
+    };
+    RoomPackTarget roomSaveTarget(const QString &roomId) const;
+    QString freshStateKey(const QString &roomId) const;
     void onLoggedOut();
     void applySnapshot(const QString &roomId, bool roomCanManage,
                        const QVariantList &packs);
@@ -392,6 +419,13 @@ private:
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;
+    bool m_refreshOwedDeep = false;
+    // The room a deep (full-state) read last covered.
+    QString m_deepRoomId;
+    QTimer *m_changeRefresh = nullptr;
+    QVariantMap m_pendingMeta;
+    QVariantMap m_snapshotMeta;
+    bool m_lastMirrorFailed = false;
 
     // Every mxc in the account's own pack, for isSaved().
     QSet<QString> m_savedUrls;

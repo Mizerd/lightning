@@ -1921,7 +1921,59 @@ provenance**: no room, event, or sender. Do not weaken any of that, and do
 not extend the exception to other media without the same guarantees.
 
 
-### Stickers and custom emoji (MSC2545 image packs)
+### Stickers and custom emoji (Matrix v1.19 image packs, with MSC2545 compatibility)
+
+**Image packs are STABLE since Matrix v1.19** (`m.room.image_pack` room state,
+`m.image_pack.rooms` global account data). Everything below that names the
+`im.ponies.*` events describes the LEGACY adapter, which stays. Current
+contract (2026-10-25, `rust/src/stickers.rs`):
+
+- **Identity is exact.** A pack is (dialect, room id, state key); the opaque
+  C++ id JSON-encodes that tuple (room ids and state keys both contain colons).
+  An image is its EXACT `images` key: never repaired, truncated or case-folded.
+  A key outside `[A-Za-z0-9_-]{1,100}` is shown with an "Invalid name" badge and
+  stays removable/renamable; only new and renamed keys are validated. Collisions
+  are case-sensitive. The empty state key is an ordinary pack with no "default"
+  meaning: a save to a room with no writable pack creates a NEW stable pack under
+  a fresh key (`stickers`, `stickers-2`, ...).
+- **Reads are typed** (Found / Absent / Failed). Only the server's M_NOT_FOUND
+  is an absence; a timeout, refusal or unparseable body never becomes an empty
+  pack to write over, and an add never writes after a failed read.
+- **Record precedence per (room, key):** a present stable record is shown and a
+  legacy twin is reported (`legacyTwin`), never merged; a cleared/redacted stable
+  record (`{}`) hides the key, so stale legacy images cannot resurrect; a
+  legacy-only record is shown as legacy. Writes go back to the record's own
+  dialect; nothing is moved between dialects without an explicit action.
+- **Usage:** stable packs are pack-wide (absent/empty = both; only-unknown values
+  = neither, flagged `usageUnsupported`); a per-image `usage` is a legacy field,
+  honoured only in legacy packs and never written into stable ones.
+- **Subscriptions:** a present `m.image_pack.rooms` is authoritative, EMPTY
+  included (an intentional unsubscribe-all is not refilled from legacy data);
+  references only `im.ponies.emote_rooms` holds are reported as legacy-only, not
+  activated. A confirmed-absent stable document leaves the legacy references in
+  force; an unreadable one shows them but is flagged and never treated as absent.
+  The FIRST stable document written carries every legacy reference verbatim (leaf
+  objects included), so creating it switches nothing off. Toggling a legacy pack
+  also mirrors the change into the legacy document for older clients; that second
+  write is reported separately (`mirror`) and never turns a saved stable write
+  into a failure. An empty room object is never written or read as "all packs".
+  Leaf objects are preserved.
+- **Discovery:** subscriptions first, then the active room's packs (stable and
+  legacy). Sliding sync never delivers these custom state types, so the active
+  room's packs come from the store plus, when a pack surface is OPENED (not on
+  navigation), one full `/state` read cached per room for 10 minutes. Sync
+  handlers for all five types drop that cache and poke C++
+  (`sticker_packs_changed`), which re-reads once per 250 ms burst, so another
+  device's subscription or a member's pack edit appears without a restart. An
+  unreadable subscribed reference stays visible as unavailable with its reason;
+  Lightning never joins a room for it. Canonical-space ancestry: NOT YET.
+- **Concurrency:** state and account-data PUTs replace whole documents and have
+  NO compare-and-swap. Reading fresh state immediately before a write narrows
+  the race with another device; it cannot close it. Lightning does not claim
+  lossless concurrent editing.
+- **Retiring** a stable pack writes the schema-valid `{"images":{}}` keeping its
+  `pack` metadata; this removes nothing from room history or the media
+  repository.
 
 Lightning invents NO storage format here. The three events are MSC2545's own,
 transcribed from ruma's `ruma_events::image_pack` (ruma-events 0.34.0) without

@@ -32,6 +32,12 @@ public:
         ImageCountRole,
         StickerCountRole,
         EmoticonCountRole,
+        NamespaceRole,      // "stable" | "legacy"
+        AvailableRole,
+        UnavailableRole,    // reason when !available
+        LegacyTwinRole,
+        LegacySubscribedRole,
+        FromSpaceRole,
     };
 
     explicit StickerPackModel(QObject *parent = nullptr);

@@ -7986,18 +7986,49 @@ pub unsafe extern "C" fn mx_rust_personal_background_take(
 /// Read every image pack available to this account; answers with one
 /// `sticker_packs { op_id, lifecycle, room_id, packs[] }` snapshot.
 ///
-/// When `room_id` is set, that room's own `im.ponies.room_emotes` packs are
-/// included (MSC2545 makes them usable in that room without opt-in).
+/// When `room_id` is set, that room's own packs (stable `m.room.image_pack`
+/// and legacy `im.ponies.room_emotes`) are included: usable in that room
+/// without opt-in. `deep` allows one (cached) full `/state` read of that room,
+/// for when the user opened a pack surface; plain navigation passes false.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
     ptr: *mut c_void,
     room_id: *const c_char,
+    deep: bool,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
-        stickers::fetch_packs(bridge, op_id, room_id).map(|_| String::new())
+        stickers::fetch_packs(bridge, op_id, room_id, deep).map(|_| String::new())
+    })
+}
+
+/// Parse an FFI namespace argument; anything but `stable`/`legacy` refuses.
+fn pack_namespace(text: &str) -> Result<stickers::Namespace, String> {
+    stickers::Namespace::parse(text).ok_or_else(|| "unknown pack namespace".to_owned())
+}
+
+/// Create a new, empty stable room pack. Answers on
+/// `sticker_pack_edit_result` (`shortcode` = the state key); `pack_exists`
+/// when the key already holds a record, `forbidden` without the power level.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_create_room_pack(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    state_key: *const c_char,
+    name: *const c_char,
+    usage: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
+        let name = unsafe { cstr_arg(name) }?;
+        let usage = unsafe { cstr_arg(usage) }?;
+        stickers::create_room_pack(bridge, op_id, room_id, state_key, name, usage)
+            .map(|_| String::new())
     })
 }
 
@@ -8043,6 +8074,7 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_room_pack(
     ptr: *mut c_void,
     room_id: *const c_char,
     state_key: *const c_char,
+    namespace: *const c_char,
     shortcode: *const c_char,
     url: *const c_char,
     body: *const c_char,
@@ -8056,13 +8088,14 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_room_pack(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let state_key = unsafe { cstr_arg(state_key) }?;
+        let namespace = pack_namespace(&unsafe { cstr_arg(namespace) }?)?;
         let shortcode = unsafe { cstr_arg(shortcode) }?;
         let url = unsafe { cstr_arg(url) }?;
         let body = unsafe { cstr_arg(body) }?;
         let mimetype = unsafe { cstr_arg(mimetype) }?;
         stickers::add_to_room_pack(
             bridge, op_id, room_id, state_key, shortcode, url, body, mimetype,
-            width, height, size,
+            width, height, size, namespace,
         )
         .map(|_| String::new())
     })
@@ -8077,6 +8110,7 @@ pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
     ptr: *mut c_void,
     room_id: *const c_char,
     state_key: *const c_char,
+    namespace: *const c_char,
     enabled: bool,
     op_id: u64,
 ) -> *mut c_char {
@@ -8084,7 +8118,8 @@ pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let state_key = unsafe { cstr_arg(state_key) }?;
-        stickers::set_room_pack_enabled(bridge, op_id, room_id, state_key, enabled)
+        let namespace = pack_namespace(&unsafe { cstr_arg(namespace) }?)?;
+        stickers::set_room_pack_enabled(bridge, op_id, room_id, state_key, enabled, namespace)
             .map(|_| String::new())
     })
 }
@@ -8319,6 +8354,7 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
     ptr: *mut c_void,
     room_id: *const c_char,
     state_key: *const c_char,
+    namespace: *const c_char,
     action: *const c_char,
     arg_a: *const c_char,
     arg_b: *const c_char,
@@ -8328,6 +8364,13 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let state_key = unsafe { cstr_arg(state_key) }?;
+        // The account's own pack (empty room) is always legacy account data.
+        let namespace_text = unsafe { cstr_arg(namespace) }?;
+        let namespace = if room_id.is_empty() {
+            stickers::Namespace::Legacy
+        } else {
+            pack_namespace(&namespace_text)?
+        };
         let action = unsafe { cstr_arg(action) }?;
         let arg_a = unsafe { cstr_arg(arg_a) }?;
         let arg_b = unsafe { cstr_arg(arg_b) }?;
@@ -8346,10 +8389,11 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
                 stickers::PackEdit::RenameImage { from: arg_a, to: arg_b }
             }
             "set_name" => stickers::PackEdit::SetName { name: arg_a },
+            "set_usage" => stickers::PackEdit::SetUsage { usage: arg_a },
             "delete_pack" => stickers::PackEdit::DeletePack,
             _ => return Err("unknown pack edit".to_owned()),
         };
-        stickers::edit_pack(bridge, op_id, room_id, state_key, edit)
+        stickers::edit_pack(bridge, op_id, room_id, state_key, edit, namespace)
             .map(|_| String::new())
     })
 }
@@ -13009,6 +13053,11 @@ fn install_event_handlers(
         // MSC4278 media-preview config and Element's recent emoji changed in
         // account data. Only the type crosses; C++ re-reads it.
         accountprefs::install_change_handlers(client, Arc::clone(&events));
+
+        // Image packs or subscriptions changed (another device, another room
+        // member, or our own write's echo): only the room id (or nothing, for
+        // account data) crosses; C++ re-reads. See stickers::install_change_handlers.
+        stickers::install_change_handlers(client, Arc::clone(&events));
 
         // A room an administrator deleted from another of the user's sessions
         // (serveradmin.rs): the server purged it, so sync never says it is gone.

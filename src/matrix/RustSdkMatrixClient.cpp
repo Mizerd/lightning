@@ -4608,14 +4608,15 @@ void RustSdkMatrixClient::clearAllPersonalBackgrounds(
 // Stickers and custom emoji (MSC2545 image packs)
 // ---------------------------------------------------------------------------
 
-void RustSdkMatrixClient::fetchStickerPacks(const QString &roomId, quint64 opId)
+void RustSdkMatrixClient::fetchStickerPacks(const QString &roomId, quint64 opId,
+                                            bool deep)
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
     // An empty room id asks for the global packs only.
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(
-        mx_rust_stickers_fetch_packs(m_rustHandle, room.constData(), opId));
+        mx_rust_stickers_fetch_packs(m_rustHandle, room.constData(), deep, opId));
     if (!result.isEmpty()) {
         // A rejection must still answer, or the picker waits forever. An empty
         // list is honest here: with the handle checked above, Rust can only
@@ -4651,8 +4652,32 @@ void RustSdkMatrixClient::sendSticker(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::createStickerRoomPack(const QString &roomId,
+                                                const QString &stateKey,
+                                                const QString &name,
+                                                const QString &usage,
+                                                quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()) {
+        Q_EMIT stickerPackEditFinished(opId, false, QStringLiteral("rejected"),
+                                       QString());
+        return;
+    }
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray key = stateKey.toUtf8();
+    const QByteArray label = name.toUtf8();
+    const QByteArray kind = usage.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_create_room_pack(
+        m_rustHandle, room.constData(), key.constData(), label.constData(),
+        kind.constData(), opId));
+    if (!result.isEmpty())
+        Q_EMIT stickerPackEditFinished(opId, false, QStringLiteral("rejected"),
+                                       QString());
+}
+
 void RustSdkMatrixClient::addStickerToRoomPack(
-    const QString &roomId, const QString &stateKey, const QString &shortcode,
+    const QString &roomId, const QString &stateKey, const QString &ns,
+    const QString &shortcode,
     const QString &url, const QString &body, const QString &mimetype,
     quint64 width, quint64 height, quint64 size, quint64 opId)
 {
@@ -4660,14 +4685,15 @@ void RustSdkMatrixClient::addStickerToRoomPack(
         return;
     const QByteArray room = roomId.toUtf8();
     const QByteArray key = stateKey.toUtf8();
+    const QByteArray dialect = ns.toUtf8();
     const QByteArray code = shortcode.toUtf8();
     const QByteArray mxc = url.toUtf8();
     const QByteArray alt = body.toUtf8();
     const QByteArray mime = mimetype.toUtf8();
     const QString result = takeRustString(mx_rust_stickers_add_to_room_pack(
-        m_rustHandle, room.constData(), key.constData(), code.constData(),
-        mxc.constData(), alt.constData(), mime.constData(), width, height,
-        size, opId));
+        m_rustHandle, room.constData(), key.constData(), dialect.constData(),
+        code.constData(), mxc.constData(), alt.constData(), mime.constData(),
+        width, height, size, opId));
     if (!result.isEmpty()) {
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
                                       QString());
@@ -4676,18 +4702,22 @@ void RustSdkMatrixClient::addStickerToRoomPack(
 
 void RustSdkMatrixClient::setStickerRoomPackEnabled(const QString &roomId,
                                                     const QString &stateKey,
+                                                    const QString &ns,
                                                     bool enabled, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
     const QByteArray room = roomId.toUtf8();
     const QByteArray key = stateKey.toUtf8();
+    const QByteArray dialect = ns.toUtf8();
     const QString result =
         takeRustString(mx_rust_stickers_set_room_pack_enabled(
-            m_rustHandle, room.constData(), key.constData(), enabled, opId));
+            m_rustHandle, room.constData(), key.constData(),
+            dialect.constData(), enabled, opId));
     if (!result.isEmpty()) {
         Q_EMIT stickerPackRoomsSet(opId, false, QStringLiteral("rejected"),
-                                   roomId, stateKey, enabled);
+                                   roomId, stateKey, enabled,
+                                   QStringLiteral("none"));
     }
 }
 
@@ -4847,19 +4877,21 @@ void RustSdkMatrixClient::qrLoginCancel()
 }
 
 void RustSdkMatrixClient::editStickerPack(
-    const QString &roomId, const QString &stateKey, const QString &action,
+    const QString &roomId, const QString &stateKey, const QString &ns,
+    const QString &action,
     const QString &argA, const QString &argB, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || action.isEmpty())
         return;
     const QByteArray room = roomId.toUtf8();
     const QByteArray key = stateKey.toUtf8();
+    const QByteArray dialect = ns.toUtf8();
     const QByteArray verb = action.toUtf8();
     const QByteArray a = argA.toUtf8();
     const QByteArray b = argB.toUtf8();
     const QString result = takeRustString(mx_rust_stickers_edit_pack(
-        m_rustHandle, room.constData(), key.constData(), verb.constData(),
-        a.constData(), b.constData(), opId));
+        m_rustHandle, room.constData(), key.constData(), dialect.constData(),
+        verb.constData(), a.constData(), b.constData(), opId));
     // A synchronous refusal still reports; the caller is waiting on the op id.
     if (!result.isEmpty()) {
         Q_EMIT stickerPackEditFinished(opId, false, QStringLiteral("rejected"),
@@ -12479,6 +12511,20 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 pack.value(QStringLiteral("enabled_globally")).toBool());
             entry.insert(QStringLiteral("canManage"),
                          pack.value(QStringLiteral("can_manage")).toBool());
+            entry.insert(QStringLiteral("namespace"),
+                         pack.value(QStringLiteral("namespace")).toString());
+            entry.insert(QStringLiteral("legacyTwin"),
+                         pack.value(QStringLiteral("legacy_twin")).toBool());
+            entry.insert(QStringLiteral("legacySubscribed"),
+                         pack.value(QStringLiteral("legacy_subscribed")).toBool());
+            entry.insert(QStringLiteral("usageUnsupported"),
+                         pack.value(QStringLiteral("usage_unsupported")).toBool());
+            entry.insert(QStringLiteral("available"),
+                         pack.value(QStringLiteral("available")).toBool(true));
+            entry.insert(QStringLiteral("unavailable"),
+                         pack.value(QStringLiteral("unavailable")).toString());
+            entry.insert(QStringLiteral("fromSpace"),
+                         pack.value(QStringLiteral("from_space")).toBool());
             QVariantList images;
             const QJsonArray rawImages =
                 pack.value(QStringLiteral("images")).toArray();
@@ -12516,6 +12562,22 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             entry.insert(QStringLiteral("images"), images);
             packs.append(entry);
         }
+        Q_EMIT stickerPackSnapshotMeta(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            QVariantMap{
+                { QStringLiteral("roomCanManageLegacy"),
+                  event.value(QStringLiteral("room_can_manage_legacy")).toBool() },
+                { QStringLiteral("roomScanFailed"),
+                  event.value(QStringLiteral("room_scan_failed")).toBool() },
+                { QStringLiteral("subscriptionsSource"),
+                  event.value(QStringLiteral("subscriptions_source")).toString() },
+                { QStringLiteral("stableSubscriptionsUnreadable"),
+                  event.value(QStringLiteral("stable_subscriptions_unreadable"))
+                      .toBool() },
+                { QStringLiteral("legacyOnlySubscriptions"),
+                  event.value(QStringLiteral("legacy_only_subscriptions")).toInt() },
+            });
         Q_EMIT stickerPacksReceived(
             static_cast<quint64>(
                 event.value(QStringLiteral("op_id")).toDouble(0)),
@@ -12532,7 +12594,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("state_key")).toString(),
-            event.value(QStringLiteral("enabled")).toBool(false));
+            event.value(QStringLiteral("enabled")).toBool(false),
+            event.value(QStringLiteral("mirror")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sticker_packs_changed")) {
+        Q_EMIT stickerPacksChanged(
+            event.value(QStringLiteral("room_id")).toString());
         return true;
     }
     if (type == QLatin1String("policy_rules")) {

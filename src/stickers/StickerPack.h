@@ -49,8 +49,24 @@ struct PackImage
 
 struct Pack
 {
-    // `user` or `room:<room id>:<state key>`; stable across refreshes.
+    // `user`, or an opaque id for a room pack's (dialect, room, state key);
+    // stable across refreshes. Never split: use roomId/stateKey/ns.
     QString id;
+    // "stable" (m.room.image_pack) or "legacy" (im.ponies.*; the account's own
+    // pack is always legacy). Writes go back to this dialect.
+    QString ns = QStringLiteral("legacy");
+    // A legacy record under the same room/key is hidden by this stable one.
+    bool legacyTwin = false;
+    // Only the legacy subscription list holds it, while the stable list rules.
+    bool legacySubscribed = false;
+    // The pack names only usage values this client does not know.
+    bool usageUnsupported = false;
+    // False for a subscribed reference that could not be read; `unavailable`
+    // is why ("absent", "not_joined", "forbidden", "network", ...).
+    bool available = true;
+    QString unavailable;
+    // Reached through the active room's canonical space ancestry.
+    bool fromSpace = false;
     QString displayName;
     // "" unless the pack declared an mxc avatar (non-mxc ones were dropped).
     QString avatarUrl;

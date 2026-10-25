@@ -641,10 +641,23 @@ public:
     // sticker button is not offered rather than showing an empty picker.
     virtual bool supportsStickerPacks() const { return false; }
     // Read every pack available to this account. With an empty `roomId`, the
-    // active room's packs are excluded. Answers on stickerPacksReceived.
-    virtual void fetchStickerPacks(const QString &roomId, quint64 opId)
+    // active room's packs are excluded. `deep` allows one (cached) full room
+    // state read, for when a pack surface was opened; navigation passes false.
+    // Answers on stickerPacksReceived.
+    virtual void fetchStickerPacks(const QString &roomId, quint64 opId,
+                                   bool deep)
     {
-        Q_UNUSED(roomId); Q_UNUSED(opId);
+        Q_UNUSED(roomId); Q_UNUSED(opId); Q_UNUSED(deep);
+    }
+    // Create a new, empty stable room pack (m.room.image_pack) under
+    // `stateKey`. Reports on stickerPackEditFinished (shortcode = state key).
+    virtual void createStickerRoomPack(const QString &roomId,
+                                       const QString &stateKey,
+                                       const QString &name,
+                                       const QString &usage, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(name); Q_UNUSED(usage);
+        Q_UNUSED(opId);
     }
     // Send one m.sticker. An empty rootId targets the room timeline; otherwise
     // it is an m.thread reply built by the SDK. `url` must be a plain mxc://.
@@ -659,15 +672,18 @@ public:
     // Add one image to a room's im.ponies.room_emotes pack. Room state, so
     // gated in Rust on the room's power level (category "forbidden"). Reports
     // on stickerPackAddFinished.
+    // `ns` is the pack's dialect, "stable" or "legacy": it is written back in
+    // that dialect.
     virtual void addStickerToRoomPack(const QString &roomId,
                                       const QString &stateKey,
+                                      const QString &ns,
                                       const QString &shortcode,
                                       const QString &url, const QString &body,
                                       const QString &mimetype, quint64 width,
                                       quint64 height, quint64 size,
                                       quint64 opId)
     {
-        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(shortcode);
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(shortcode);
         Q_UNUSED(url); Q_UNUSED(body); Q_UNUSED(mimetype); Q_UNUSED(width);
         Q_UNUSED(height); Q_UNUSED(size); Q_UNUSED(opId);
     }
@@ -675,9 +691,10 @@ public:
     // no power level is involved. Reports on stickerPackRoomsSet.
     virtual void setStickerRoomPackEnabled(const QString &roomId,
                                            const QString &stateKey,
+                                           const QString &ns,
                                            bool enabled, quint64 opId)
     {
-        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(enabled);
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(enabled);
         Q_UNUSED(opId);
     }
     // Upload a local image into this account's own pack; the only way to create
@@ -777,11 +794,11 @@ public:
     // Reports on stickerPackEditFinished. Nothing is applied optimistically;
     // the caller re-reads the authoritative pack.
     virtual void editStickerPack(const QString &roomId,
-                                 const QString &stateKey,
+                                 const QString &stateKey, const QString &ns,
                                  const QString &action, const QString &argA,
                                  const QString &argB, quint64 opId)
     {
-        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(action);
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(action);
         Q_UNUSED(argA); Q_UNUSED(argB); Q_UNUSED(opId);
     }
     // "Follow account default": drop the room's user-defined push rules.
@@ -2155,6 +2172,12 @@ Q_SIGNALS:
     // permission is reported as false.
     void stickerPacksReceived(quint64 opId, const QString &roomId,
                               bool roomCanManage, const QVariantList &packs);
+    // Emitted immediately BEFORE the stickerPacksReceived of the same op:
+    // what the snapshot knows about its own sources. Keys: roomCanManageLegacy
+    // (bool), roomScanFailed (bool), subscriptionsSource ("stable" | "legacy"
+    // | "none"), stableSubscriptionsUnreadable (bool), legacyOnlySubscriptions
+    // (int).
+    void stickerPackSnapshotMeta(quint64 opId, const QVariantMap &meta);
     /// One policy room's rules. `truncated` says the read hit its bound.
     void policyRulesReceived(quint64 opId, bool ok, const QString &roomId,
                              bool canWrite, bool truncated,
@@ -2187,10 +2210,14 @@ Q_SIGNALS:
     // "pack_full", or a coarse room-error class.
     void stickerPackAddFinished(quint64 opId, bool ok, const QString &category,
                                 const QString &shortcode);
-    // The result of turning a room's pack on or off globally.
+    // The result of turning a room's pack on or off globally. `mirror` is the
+    // legacy-document mirror's outcome for a legacy pack: "ok", "failed" or
+    // "none" (not attempted). A failed mirror never makes `ok` false.
     void stickerPackRoomsSet(quint64 opId, bool ok, const QString &category,
                              const QString &roomId, const QString &stateKey,
-                             bool enabled);
+                             bool enabled, const QString &mirror);
+    // Packs or subscriptions changed in sync. Empty `roomId`: account data.
+    void stickerPacksChanged(const QString &roomId);
     // Publishing the user's own presence failed (coarse category); diagnostics
     // only.
     /// `retryAfterMs` is the server's M_LIMIT_EXCEEDED hint, or 0. The receiver

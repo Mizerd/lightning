@@ -38,6 +38,17 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     pack.enabledGlobally =
         map.value(QStringLiteral("enabledGlobally")).toBool();
     pack.canManage = map.value(QStringLiteral("canManage")).toBool();
+    const QString ns = map.value(QStringLiteral("namespace")).toString();
+    pack.ns = ns == QLatin1String("stable") ? QStringLiteral("stable")
+                                            : QStringLiteral("legacy");
+    pack.legacyTwin = map.value(QStringLiteral("legacyTwin")).toBool();
+    pack.legacySubscribed =
+        map.value(QStringLiteral("legacySubscribed")).toBool();
+    pack.usageUnsupported =
+        map.value(QStringLiteral("usageUnsupported")).toBool();
+    pack.available = map.value(QStringLiteral("available"), true).toBool();
+    pack.unavailable = map.value(QStringLiteral("unavailable")).toString();
+    pack.fromSpace = map.value(QStringLiteral("fromSpace")).toBool();
     const QVariantList images =
         map.value(QStringLiteral("images")).toList();
     pack.images.reserve(images.size());
@@ -82,6 +93,13 @@ void StickerPackManager::setClient(MatrixClient *client)
                 &StickerPackManager::onEditFinished);
         connect(m_client, &MatrixClient::stickerPackRoomsSet, this,
                 &StickerPackManager::onRoomsSet);
+        connect(m_client, &MatrixClient::stickerPackSnapshotMeta, this,
+                [this](quint64 opId, const QVariantMap &meta) {
+                    if (opId != 0 && opId == m_fetchOp)
+                        m_pendingMeta = meta;
+                });
+        connect(m_client, &MatrixClient::stickerPacksChanged, this,
+                &StickerPackManager::onPacksChanged);
         // Export fetches pack images by their own op ids; every other op id
         // is ignored here.
         connect(m_client, &MatrixClient::mediaReady, this,
@@ -123,8 +141,10 @@ void StickerPackManager::setActiveRoomId(const QString &roomId)
         m_activeRoomFetch->setSingleShot(true);
         m_activeRoomFetch->setInterval(0);
         connect(m_activeRoomFetch, &QTimer::timeout, this, [this] {
-            if (!m_activeRoomId.isEmpty())
-                refreshIfStale();
+            // Navigation alone never reads a room's whole state.
+            if (!m_activeRoomId.isEmpty()
+                && (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId))
+                refreshWith(false);
         });
     }
     m_activeRoomFetch->start();
@@ -170,16 +190,32 @@ int StickerPackManager::usablePackCount() const
 
 void StickerPackManager::refresh()
 {
+    // An explicit refresh comes from a pack surface the user opened (picker,
+    // manager, editor), so the room's full state may be read once.
+    refreshWith(true);
+}
+
+void StickerPackManager::refreshWith(bool deep)
+{
     if (!available())
         return;
     if (m_fetchOp != 0) {
         m_refreshOwed = true;
+        m_refreshOwedDeep = m_refreshOwedDeep || deep;
         return;
     }
     const quint64 opId = m_nextOpId++;
     m_fetchOp = opId;
+    m_pendingMeta.clear();
+    // Once a deep read has covered this room, later refreshes keep reading it
+    // deep (the scan is cached in Rust, so it costs nothing until it expires
+    // or sync says the room's packs changed).
+    if (deep)
+        m_deepRoomId = m_activeRoomId;
+    const bool readDeep = deep || (!m_activeRoomId.isEmpty()
+                                   && m_deepRoomId == m_activeRoomId);
     // The answer carries the room back; applySnapshot records it.
-    m_client->fetchStickerPacks(m_activeRoomId, opId);
+    m_client->fetchStickerPacks(m_activeRoomId, opId, readDeep);
     emitStateChanged();
 }
 
@@ -187,6 +223,37 @@ void StickerPackManager::refreshIfStale()
 {
     if (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId)
         refresh();
+}
+
+void StickerPackManager::onPacksChanged(const QString &roomId)
+{
+    // A pack or subscription changed in sync (another device, another member,
+    // or our own write's echo). Only relevant when it can change what this
+    // snapshot shows: account data always can; a room only when it is the
+    // snapshot's room or one of its packs is subscribed.
+    if (!roomId.isEmpty() && roomId != m_snapshotRoomId) {
+        bool referenced = false;
+        for (const stickers::Pack &pack : m_packs->packs()) {
+            if (pack.roomId == roomId) {
+                referenced = true;
+                break;
+            }
+        }
+        if (!referenced)
+            return;
+    }
+    m_stale = true;
+    if (!m_loaded)
+        return;
+    // Coalesce a burst (several state events in one sync) into one read.
+    if (!m_changeRefresh) {
+        m_changeRefresh = new QTimer(this);
+        m_changeRefresh->setSingleShot(true);
+        m_changeRefresh->setInterval(250);
+        connect(m_changeRefresh, &QTimer::timeout, this,
+                [this] { refreshWith(false); });
+    }
+    m_changeRefresh->start();
 }
 
 void StickerPackManager::sendToRoom(const QString &roomId,
@@ -353,8 +420,8 @@ bool StickerPackManager::canManagePack(const QString &packId) const
     if (pack.source != QLatin1String("room"))
         return true;
     // A room pack: only when the snapshot recorded permission. Absence is not
-    // permission.
-    return pack.canManage && !pack.roomId.isEmpty();
+    // permission, and an unreadable pack cannot be edited at all.
+    return pack.available && pack.canManage && !pack.roomId.isEmpty();
 }
 
 QVariantMap StickerPackManager::packInfo(const QString &packId) const
@@ -368,6 +435,15 @@ QVariantMap StickerPackManager::packInfo(const QString &packId) const
         { QStringLiteral("displayName"), pack.displayName },
         { QStringLiteral("source"), pack.source },
         { QStringLiteral("canManage"), canManagePack(packId) },
+        { QStringLiteral("namespace"), pack.ns },
+        { QStringLiteral("roomId"), pack.roomId },
+        { QStringLiteral("stateKey"), pack.stateKey },
+        { QStringLiteral("available"), pack.available },
+        { QStringLiteral("unavailable"), pack.unavailable },
+        { QStringLiteral("legacyTwin"), pack.legacyTwin },
+        { QStringLiteral("legacySubscribed"), pack.legacySubscribed },
+        { QStringLiteral("usageUnsupported"), pack.usageUnsupported },
+        { QStringLiteral("enabledGlobally"), pack.enabledGlobally },
     };
 }
 
@@ -385,6 +461,7 @@ void StickerPackManager::editPack(const QString &packId, const QString &action,
     m_editOp = opId;
     m_client->editStickerPack(isRoom ? pack.roomId : QString(),
                               isRoom ? pack.stateKey : QString(),
+                              isRoom ? pack.ns : QStringLiteral("legacy"),
                               action, argA, argB, opId);
     emitStateChanged();
 }
@@ -450,18 +527,22 @@ void StickerPackManager::setRoomPackEnabled(const QString &packId,
         return;
     const quint64 opId = m_nextOpId++;
     m_roomsOp = opId;
-    m_client->setStickerRoomPackEnabled(pack.roomId, pack.stateKey, enabled,
-                                        opId);
+    m_client->setStickerRoomPackEnabled(pack.roomId, pack.stateKey, pack.ns,
+                                        enabled, opId);
     emitStateChanged();
 }
 
 void StickerPackManager::onRoomsSet(quint64 opId, bool ok,
                                     const QString &category, const QString &,
-                                    const QString &, bool enabled)
+                                    const QString &, bool enabled,
+                                    const QString &mirror)
 {
     if (opId == 0 || opId != m_roomsOp)
         return;
     m_roomsOp = 0;
+    // The standard list saved; the copy older clients read did not. Reported,
+    // not hidden, and never turned into a failure of the saved part.
+    m_lastMirrorFailed = ok && mirror == QLatin1String("failed");
     if (ok) {
         // Not optimistic: the switch moves when the snapshot says so.
         m_stale = true;
@@ -479,12 +560,19 @@ void StickerPackManager::saveStickerToRoom(const QString &roomId,
 {
     if (!canSaveToRoom(roomId, url))
         return;
+    // The destination is an exact (dialect, state key). The empty key has no
+    // "default pack" meaning in Matrix v1.19, so it is not assumed: the first
+    // writable pack the room already has is used (stable before legacy), and a
+    // room with none gets a NEW stable pack under a fresh key (the create
+    // refuses if that key turns out to be taken).
+    const RoomPackTarget target = roomSaveTarget(roomId);
+    if (target.stateKey.isNull())
+        return;
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("room");
-    // The empty state key is the room's default pack (MSC2545). Choosing among
-    // several packs belongs in a pack editor.
-    m_client->addStickerToRoomPack(roomId, QString(), body, url, body,
+    m_client->addStickerToRoomPack(roomId, target.stateKey, target.ns, body,
+                                   url, body,
                                    mimetype,
                                    static_cast<quint64>(qMax(0, width)),
                                    static_cast<quint64>(qMax(0, height)),
@@ -498,9 +586,81 @@ bool StickerPackManager::canSaveToRoom(const QString &roomId,
 {
     if (!canSave(url) || roomId.isEmpty())
         return false;
-    // The snapshot for this room must have granted write permission; absence is
-    // not permission.
-    return m_loaded && m_snapshotRoomId == roomId && m_snapshotRoomCanManage;
+    // The snapshot for this room must have granted write permission for the
+    // pack that would receive it; absence is not permission.
+    return m_loaded && m_snapshotRoomId == roomId
+        && !roomSaveTarget(roomId).stateKey.isNull();
+}
+
+StickerPackManager::RoomPackTarget
+StickerPackManager::roomSaveTarget(const QString &roomId) const
+{
+    RoomPackTarget legacy;
+    for (const stickers::Pack &pack : m_packs->packs()) {
+        if (pack.source != QLatin1String("room") || pack.roomId != roomId
+            || !pack.available || !pack.canManage)
+            continue;
+        if (pack.ns == QLatin1String("stable"))
+            return { pack.stateKey.isNull() ? QStringLiteral("") : pack.stateKey,
+                     QStringLiteral("stable") };
+        if (legacy.stateKey.isNull())
+            legacy = { pack.stateKey.isNull() ? QStringLiteral("") : pack.stateKey,
+                       QStringLiteral("legacy") };
+    }
+    if (!legacy.stateKey.isNull())
+        return legacy;
+    if (m_snapshotRoomId == roomId && m_snapshotRoomCanManage)
+        return { freshStateKey(roomId), QStringLiteral("stable") };
+    return {};
+}
+
+QString StickerPackManager::freshStateKey(const QString &roomId) const
+{
+    QSet<QString> taken;
+    for (const stickers::Pack &pack : m_packs->packs()) {
+        if (pack.roomId == roomId)
+            taken.insert(pack.stateKey);
+    }
+    QString key = QStringLiteral("stickers");
+    for (int n = 2; taken.contains(key); ++n)
+        key = QStringLiteral("stickers-%1").arg(n);
+    return key;
+}
+
+void StickerPackManager::createRoomPack(const QString &roomId,
+                                        const QString &name,
+                                        const QString &usage)
+{
+    if (!m_client || !available() || m_editOp != 0 || roomId.isEmpty())
+        return;
+    if (!(m_snapshotRoomId == roomId && m_snapshotRoomCanManage))
+        return;
+    const QString kind = usage == QLatin1String("emoticon")
+            || usage == QLatin1String("sticker")
+        ? usage : QStringLiteral("both");
+    const quint64 opId = m_nextOpId++;
+    m_editOp = opId;
+    m_client->createStickerRoomPack(roomId, freshStateKey(roomId),
+                                    name.trimmed(), kind, opId);
+    emitStateChanged();
+}
+
+void StickerPackManager::setPackUsage(const QString &packId,
+                                      const QString &usage)
+{
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0 || m_packs->packs().at(row).ns != QLatin1String("stable"))
+        return;
+    if (usage != QLatin1String("emoticon") && usage != QLatin1String("sticker")
+        && usage != QLatin1String("both"))
+        return;
+    editPack(packId, QStringLiteral("set_usage"), usage, QString());
+}
+
+bool StickerPackManager::canCreateRoomPack(const QString &roomId) const
+{
+    return available() && !roomId.isEmpty() && m_loaded
+        && m_snapshotRoomId == roomId && m_snapshotRoomCanManage;
 }
 
 bool StickerPackManager::isSaved(const QString &url) const
@@ -550,15 +710,19 @@ QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
             if (!prefix.isEmpty()
                 && !image.shortcode.startsWith(prefix, Qt::CaseInsensitive))
                 continue;
-            // Completion needs one winner per shortcode (account first).
-            // Reactions select by mxc, so a name collision hides no image.
+            // Every image stays reachable: two packs' `:cat:` are two rows,
+            // each naming its pack, and the user's choice is what is sent
+            // (PACK-PRO-004). Only the same image reached twice (same key and
+            // url, e.g. subscribed and in this room) is shown once.
             if (uniqueShortcodes) {
-                if (seen.contains(image.shortcode))
+                const QString identity = image.key + QChar(0x1f) + image.url;
+                if (seen.contains(identity))
                     continue;
-                seen.insert(image.shortcode);
+                seen.insert(identity);
             }
             QVariantMap row = image.toVariantMap();
             row.insert(QStringLiteral("packName"), pack.displayName);
+            row.insert(QStringLiteral("packId"), pack.id);
             rows.append(row);
         }
     }
@@ -576,6 +740,27 @@ QString StickerPackManager::shortcodeForUrl(const QString &url) const
         }
     }
     return {};
+}
+
+QString StickerPackManager::uniqueEmoticonUrl(const QString &shortcode) const
+{
+    // A typed `:shortcode:` nobody chose from a list resolves only when it is
+    // unambiguous: every usable image with that exact key is the same media.
+    // Otherwise it stays literal text rather than silently becoming the first
+    // pack's image (Matrix v1.19 asks for disambiguation).
+    if (shortcode.isEmpty())
+        return {};
+    QString found;
+    for (const stickers::Pack &pack : m_packs->packs()) {
+        for (const stickers::PackImage &image : pack.images) {
+            if (!image.isEmoticon || !image.keyValid || image.key != shortcode)
+                continue;
+            if (!found.isEmpty() && found != image.url)
+                return {};
+            found = image.url;
+        }
+    }
+    return found;
 }
 
 QVariantMap StickerPackManager::emoticon(const QString &shortcode) const
@@ -609,10 +794,14 @@ void StickerPackManager::onPacksReceived(quint64 opId, const QString &roomId,
     if (opId == 0 || opId != m_fetchOp)
         return;
     m_fetchOp = 0;
+    m_snapshotMeta = m_pendingMeta;
+    m_pendingMeta.clear();
     applySnapshot(roomId, roomCanManage, packs);
     if (m_refreshOwed) {
+        const bool deep = m_refreshOwedDeep;
         m_refreshOwed = false;
-        refresh();
+        m_refreshOwedDeep = false;
+        refreshWith(deep);
     }
 }
 
@@ -656,6 +845,11 @@ void StickerPackManager::onLoggedOut()
     m_saveScope.clear();
     m_roomsOp = 0;
     m_refreshOwed = false;
+    m_refreshOwedDeep = false;
+    m_deepRoomId.clear();
+    m_pendingMeta.clear();
+    m_snapshotMeta.clear();
+    m_lastMirrorFailed = false;
     m_loaded = false;
     m_stale = true;
     m_snapshotRoomId.clear();
