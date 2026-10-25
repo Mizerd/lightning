@@ -6,6 +6,8 @@
 
 #include <QtTest/QtTest>
 
+#include <functional>
+
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -248,6 +250,68 @@ private slots:
         QTRY_VERIFY(m_dialog->property("visible").toBool());
         selectUser(QStringLiteral("@bob:mock.local"), QStringLiteral("Bob"));
         QVERIFY(!item("inviteChip_0"));
+        QMetaObject::invokeMethod(m_dialog, "close");
+        QTRY_VERIFY(!m_dialog->property("visible").toBool());
+    }
+
+    // Master prompt Part 6, 5 (UI-029/030/033/040): an empty search offers
+    // the account's recent one-to-one conversations; picking one only adds a
+    // chip, never an invite; a picked person leaves the list; Return on an
+    // empty search with nothing highlighted picks nobody.
+    void anEmptySearchSuggestsRecentConversationsAndOnlySelects()
+    {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_dialog, "openFor",
+            Q_ARG(QVariant, QVariant(QStringLiteral("!space:mock.local")))));
+        QTRY_VERIFY(m_dialog->property("visible").toBool());
+        auto *picker = m_window->findChild<QObject *>(
+            QStringLiteral("invitePeoplePicker"));
+        QVERIFY(picker);
+        const QVariantList suggestions = picker->property("suggestions").toList();
+        QStringList ids;
+        for (const QVariant &v : suggestions)
+            ids << v.toMap().value(QStringLiteral("userId")).toString();
+        QVERIFY2(ids.contains(QStringLiteral("@bob:mock.local")),
+                 qPrintable(ids.join(QLatin1Char(','))));
+        QVERIFY(!ids.contains(QStringLiteral("@alice:mock.local")));
+        auto *list = item("invitePeoplePickerSuggestions");
+        QVERIFY(list);
+        QTRY_VERIFY(list->isVisible());
+
+        // Return with nothing highlighted selects nobody.
+        auto *field = item("invitePeoplePickerSearchField");
+        QVERIFY(field);
+        field->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QVERIFY(!item("inviteChip_0"));
+
+        const int bobRow = int(ids.indexOf(QStringLiteral("@bob:mock.local")));
+        QQuickItem *row = nullptr;
+        for (int i = 0; i < 20 && !row; ++i) {
+            QList<QQuickItem *> all;
+            std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
+                if (it->objectName() == QStringLiteral("userPickerSuggestion_%1").arg(bobRow))
+                    all << it;
+                for (QQuickItem *c : it->childItems())
+                    walk(c);
+            };
+            walk(list);
+            row = all.isEmpty() ? nullptr : all.first();
+            if (!row)
+                QTest::qWait(20);
+        }
+        QVERIFY(row);
+        QMetaObject::invokeMethod(row, "click");
+        QCoreApplication::processEvents();
+        QVERIFY2(item("inviteChip_0"), "a suggestion click did not add a chip");
+        QVERIFY2(conversations()->inviteResults().isEmpty()
+                     && conversations()->errorMessage().isEmpty(),
+                 "a suggestion click must never send an invite");
+        QStringList after;
+        for (const QVariant &v : picker->property("suggestions").toList())
+            after << v.toMap().value(QStringLiteral("userId")).toString();
+        QVERIFY(!after.contains(QStringLiteral("@bob:mock.local")));
+
         QMetaObject::invokeMethod(m_dialog, "close");
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }

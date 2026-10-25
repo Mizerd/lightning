@@ -27,6 +27,29 @@ Dialog {
     property string roomId: ""
     property var selectedUsers: [] // [{id, name, avatar}]
     property bool batchDone: false
+    // Recent one-to-one conversations of the active account, taken ONCE when
+    // the dialog opens, so a sync cannot reorder the list under the pointer.
+    property var recentSnapshot: []
+    // What the picker offers: the snapshot minus whoever is selected, already
+    // in the destination (only when its own roster is loaded; unknown stays
+    // unknown and the server decides), banned there (a one-click invite would
+    // not unban them), or ignored.
+    readonly property var suggestedPeople: {
+        var out = []
+        var ignored = app.moderation ? app.moderation.ignoredUsers : []
+        for (var i = 0; i < root.recentSnapshot.length; ++i) {
+            var p = root.recentSnapshot[i]
+            if (root.selectedIndexOf(p.userId) !== -1)
+                continue
+            var m = root.membershipOf(p.userId)
+            if (m === "joined" || m === "invited" || m === "banned")
+                continue
+            if (ignored.indexOf(p.userId) !== -1)
+                continue
+            out.push(p)
+        }
+        return out
+    }
 
     // The room being invited to, from the live room-list record at open time:
     // name in the title, address below. Falls back to a generic title; nothing
@@ -44,6 +67,7 @@ Dialog {
         roomId = targetRoomId
         selectedUsers = []
         batchDone = false
+        recentSnapshot = app.conversations.recentPeople(12)
         picker.clear()
         app.conversations.reset()
         open()
@@ -52,6 +76,7 @@ Dialog {
 
     onClosed: {
         selectedUsers = []
+        recentSnapshot = []
         picker.clear()
         app.conversations.reset()
     }
@@ -94,56 +119,6 @@ Dialog {
             if (selectedUsers[i].id === userId) return i
         }
         return -1
-    }
-
-    // A primary button with a send icon; AppButton has no icon slot.
-    component InvitePrimaryButton: AbstractButton {
-        id: primaryBtn
-        // Real padding, not a widened implicitWidth: the contentItem is
-        // stretched to the button width, so extra width alone pins the content
-        // to the left edge.
-        leftPadding: 14
-        rightPadding: 14
-        implicitHeight: 32
-        hoverEnabled: true
-        focusPolicy: Qt.TabFocus
-        Accessible.role: Accessible.Button
-        Accessible.name: primaryBtn.text
-        // Bolt fill with boltInk, readable on every theme's accent.
-        contentItem: RowLayout {
-            id: primaryContent
-            spacing: AppTheme.spacing6
-            Icon {
-                name: "send"
-                size: 15
-                color: primaryBtn.enabled ? AppTheme.boltInk
-                                          : AppTheme.stormTextFaint
-            }
-            Label {
-                text: primaryBtn.text
-                color: primaryBtn.enabled ? AppTheme.boltInk
-                                          : AppTheme.stormTextFaint
-                font.family: AppTheme.menuFont
-                font.pixelSize: 13
-                font.weight: AppTheme.weightBold
-            }
-        }
-        background: Rectangle {
-            radius: AppTheme.radiusMd
-            color: !primaryBtn.enabled ? AppTheme.stormInset
-                   : primaryBtn.down ? Qt.darker(AppTheme.bolt, 1.12)
-                   : primaryBtn.hovered ? Qt.darker(AppTheme.bolt, 1.05)
-                   : AppTheme.bolt
-        }
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: -4
-            radius: AppTheme.radiusMd + 4
-            color: "transparent"
-            border.width: 2
-            border.color: AppTheme.bolt
-            visible: primaryBtn.visualFocus
-        }
     }
 
     contentItem: ColumnLayout {
@@ -194,6 +169,7 @@ Dialog {
             objectName: "invitePeoplePicker"
             Layout.fillWidth: true
             visible: !root.batchDone
+            suggestions: root.suggestedPeople
             onUserSelected: (userId, displayName, avatarUrl) => {
                 var membership = root.membershipOf(userId)
                 // The server refuses invites to banned users, so point at the
@@ -382,12 +358,6 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            AppBusyIndicator {
-                visible: app.conversations.busy
-                running: visible
-                size: 20
-                color: AppTheme.bolt
-            }
             Item { Layout.fillWidth: true }
             AppButton {
                 storm: true
@@ -397,8 +367,14 @@ Dialog {
                 Accessible.name: qsTr("Cancel")
                 onClicked: root.close()
             }
-            InvitePrimaryButton {
+            // The shared primary button (it has had an icon slot since the
+            // custom one here was written); the only submit step.
+            AppButton {
                 objectName: "invitePeopleSubmitButton"
+                storm: true
+                kind: "primary"
+                iconName: "send"
+                busy: app.conversations.busy
                 visible: !root.batchDone
                 enabled: root.selectedUsers.length > 0 && !app.conversations.busy
                 text: root.selectedUsers.length > 1

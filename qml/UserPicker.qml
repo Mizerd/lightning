@@ -23,11 +23,20 @@ ColumnLayout {
     // with a different treatment, so CreationDialogQmlTest's
     // "<objectName>SearchField" lookups keep working.
     property bool omniboxStyle: false
+    // Local suggestions shown while the search is EMPTY (Invite People:
+    // recent one-to-one conversations). [{ userId, displayName, avatarUrl }],
+    // already filtered by the owner. A click or Enter on one only selects it
+    // (userSelected), exactly like a search result; nothing is sent here.
+    property var suggestions: []
+    property string suggestionsTitle: qsTr("Recent conversations")
+    readonly property bool showingSuggestions:
+        searchField.text.trim().length === 0 && root.suggestions.length > 0
 
     function clear() {
         app.conversations.userSearch.clear()
         searchField.text = ""
         resultsList.currentIndex = -1
+        suggestionList.currentIndex = -1
     }
     function focusSearch() {
         searchField.forceActiveFocus()
@@ -111,16 +120,36 @@ ColumnLayout {
             resultsList.currentIndex = -1
         }
         Keys.onDownPressed: {
+            if (root.showingSuggestions) {
+                suggestionList.currentIndex =
+                        Math.min(suggestionList.currentIndex + 1, suggestionList.count - 1)
+                return
+            }
             if (resultsList.count > 0) {
                 resultsList.currentIndex =
                         Math.min(resultsList.currentIndex + 1, resultsList.count - 1)
             }
         }
         Keys.onUpPressed: {
+            if (root.showingSuggestions) {
+                suggestionList.currentIndex = Math.max(suggestionList.currentIndex - 1, -1)
+                return
+            }
             if (resultsList.count > 0)
                 resultsList.currentIndex = Math.max(resultsList.currentIndex - 1, 0)
         }
         Keys.onReturnPressed: (event) => {
+            // An empty search never picks a suggestion by itself: only one
+            // the keyboard highlighted, and only as a selection.
+            if (root.showingSuggestions) {
+                if (suggestionList.currentIndex >= 0) {
+                    suggestionList.selectRow(suggestionList.currentIndex)
+                    event.accepted = true
+                } else {
+                    event.accepted = false
+                }
+                return
+            }
             if (resultsList.count > 0) {
                 var row = resultsList.currentIndex >= 0 ? resultsList.currentIndex : 0
                 resultsList.selectRow(row)
@@ -147,6 +176,96 @@ ColumnLayout {
         color: app.conversations.userSearch.state === "error"
                ? AppTheme.stormDanger : AppTheme.stormTextMuted
         font.pixelSize: AppTheme.textBody
+    }
+
+    // Suggestions for an empty search, kept apart from directory results.
+    Label {
+        objectName: root.objectName.length > 0
+                    ? root.objectName + "SuggestionsTitle" : "userPickerSuggestionsTitle"
+        visible: root.showingSuggestions
+        Layout.fillWidth: true
+        text: root.suggestionsTitle
+        color: AppTheme.stormTextMuted
+        font.family: AppTheme.menuSectionFont
+        font.pixelSize: AppTheme.menuSectionSize
+        font.weight: AppTheme.menuSectionWeight
+        font.letterSpacing: AppTheme.menuSectionTracking
+    }
+    ListView {
+        id: suggestionList
+        objectName: root.objectName.length > 0
+                    ? root.objectName + "Suggestions" : "userPickerSuggestions"
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.min(contentHeight, 240)
+        visible: root.showingSuggestions
+        clip: true
+        model: root.showingSuggestions ? root.suggestions : []
+        currentIndex: -1
+        Accessible.role: Accessible.List
+        Accessible.name: root.suggestionsTitle
+        ScrollBar.vertical: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
+
+        function selectRow(row) {
+            var s = root.suggestions[row]
+            if (s && s.userId && s.userId.length > 0)
+                root.userSelected(s.userId, s.displayName || "", s.avatarUrl || "")
+        }
+
+        delegate: ItemDelegate {
+            id: suggestionRow
+            required property var modelData
+            required property int index
+            objectName: "userPickerSuggestion_" + index
+            width: ListView.view.width
+            highlighted: ListView.isCurrentItem
+            onClicked: suggestionList.selectRow(index)
+            Accessible.name: modelData.displayName && modelData.displayName.length > 0
+                             ? qsTr("%1 (%2)").arg(modelData.displayName).arg(modelData.userId)
+                             : modelData.userId
+            contentItem: RowLayout {
+                spacing: AppTheme.spacing8
+                Avatar {
+                    size: 32
+                    name: (suggestionRow.modelData.displayName || "").length > 0
+                          ? suggestionRow.modelData.displayName
+                          : suggestionRow.modelData.userId.slice(1)
+                    mxc: suggestionRow.modelData.avatarUrl || ""
+                    colorKey: suggestionRow.modelData.userId
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    Label {
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        text: (suggestionRow.modelData.displayName || "").length > 0
+                              ? suggestionRow.modelData.displayName
+                              : suggestionRow.modelData.userId
+                        color: suggestionRow.highlighted ? AppTheme.stormText
+                                                         : AppTheme.stormTextSecondary
+                        font.family: AppTheme.menuFont
+                        font.pixelSize: AppTheme.textSubtitle
+                        font.weight: AppTheme.weightStrong
+                        elide: Label.ElideRight
+                    }
+                    // The full ID always: two people can share a name.
+                    Label {
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        text: suggestionRow.modelData.userId
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
+                        font.pixelSize: AppTheme.fontMonoXS
+                        elide: Label.ElideMiddle
+                    }
+                }
+            }
+            background: Rectangle {
+                color: (suggestionRow.highlighted || suggestionRow.hovered)
+                       ? AppTheme.stormSelection : "transparent"
+                radius: AppTheme.radiusSm
+            }
+        }
     }
 
     ListView {

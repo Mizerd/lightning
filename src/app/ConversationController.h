@@ -2,7 +2,10 @@
 
 #include "models/UserSearchModel.h"
 
+#include <QDateTime>
 #include <QObject>
+
+#include "matrix/RoomInfo.h"
 #include <QString>
 #include <QStringList>
 #include <QHash>
@@ -83,6 +86,32 @@ public:
     Q_INVOKABLE QString aliasLocalpartProblem(const QString &typed) const;
 
     Q_INVOKABLE void inviteUsers(const QString &roomId, const QStringList &userIds);
+
+    // Suggested people for an invite with an empty search (master prompt
+    // Part 6, 5): the other person of each JOINED one-to-one DM of the active
+    // account, most recent room activity first, deduplicated by Matrix ID,
+    // at most `limit` (clamped to 1..12). Built from the room list the client
+    // already holds: no directory request, no profile fetch, nothing written
+    // anywhere. "Recent conversations", not "people you last messaged": room
+    // activity includes the other person's messages and state changes.
+    // Entries: { userId, displayName, avatarUrl, roomId }. Excluding people
+    // already selected, in the destination, ignored or banned is the caller's
+    // job, since only it knows the destination.
+    Q_INVOKABLE QVariantList recentPeople(int limit) const;
+
+    struct RecentPerson {
+        QString userId;
+        QString roomId;
+        QString roomName;
+        QString roomAvatar;
+        QDateTime lastActivity;
+    };
+    // The pure half, for the suite: joined 1:1 DMs only (a group DM or an
+    // ambiguous m.direct mapping names nobody), own id excluded, newest
+    // first, ties broken by user id so the order is stable.
+    static QList<RecentPerson> recentDirectPeople(const QList<RoomInfo> &rooms,
+                                                  const QString &ownUserId,
+                                                  int limit);
 
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void reset();

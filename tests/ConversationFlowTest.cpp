@@ -1067,6 +1067,56 @@ private Q_SLOTS:
                                        QStringLiteral("forbidden"));
         QVERIFY(!controller.errorMessage().contains(QLatin1String("empty room")));
     }
+
+    // Master prompt Part 6, 5 (UI-029/032/033): suggestions for an empty
+    // invite search are the other person of each JOINED one-to-one DM,
+    // newest room activity first, deduplicated by Matrix ID, bounded, with
+    // a stable tie-break. A group DM names nobody; the own account never.
+    void recentPeopleAreJoinedOneToOneDmsNewestFirst()
+    {
+        const QDateTime t0 = QDateTime::fromSecsSinceEpoch(1700000000);
+        auto dm = [&](const QString &room, QStringList peers, int ageSecs,
+                      RoomInfo::Membership m = RoomInfo::Joined) {
+            RoomInfo r;
+            r.id = room;
+            r.name = room;
+            r.isDirect = true;
+            r.directUserIds = peers;
+            r.directUserId = peers.isEmpty() ? QString() : peers.first();
+            r.membership = m;
+            r.lastActivity = t0.addSecs(-ageSecs);
+            return r;
+        };
+        RoomInfo group = dm(QStringLiteral("!group"),
+                            { QStringLiteral("@g1:x"), QStringLiteral("@g2:x") }, 1);
+        RoomInfo notDirect = dm(QStringLiteral("!room"), { QStringLiteral("@r:x") }, 1);
+        notDirect.isDirect = false;
+        const QList<RoomInfo> rooms{
+            dm(QStringLiteral("!old-amy"), { QStringLiteral("@amy:x") }, 500),
+            dm(QStringLiteral("!new-amy"), { QStringLiteral("@amy:x") }, 10),
+            dm(QStringLiteral("!bob"), { QStringLiteral("@bob:x") }, 100),
+            dm(QStringLiteral("!cat"), { QStringLiteral("@cat:x") }, 100),
+            dm(QStringLiteral("!dan-invite"), { QStringLiteral("@dan:x") }, 1,
+               RoomInfo::Invited),
+            dm(QStringLiteral("!self"), { QStringLiteral("@me:x") }, 1),
+            group,
+            notDirect,
+        };
+        const auto people = ConversationController::recentDirectPeople(
+            rooms, QStringLiteral("@me:x"), 12);
+        QStringList ids;
+        for (const auto &p : people)
+            ids << p.userId;
+        // Amy's newest DM wins; bob/cat tie on time and break by id.
+        QCOMPARE(ids, (QStringList{ QStringLiteral("@amy:x"), QStringLiteral("@bob:x"),
+                                    QStringLiteral("@cat:x") }));
+        QCOMPARE(people.first().roomId, QStringLiteral("!new-amy"));
+        // Bounded.
+        QCOMPARE(ConversationController::recentDirectPeople(
+                     rooms, QStringLiteral("@me:x"), 2).size(), 2);
+        QCOMPARE(ConversationController::recentDirectPeople(
+                     rooms, QStringLiteral("@me:x"), 500).size(), 3);
+    }
 };
 
 QTEST_GUILESS_MAIN(ConversationFlowTest)

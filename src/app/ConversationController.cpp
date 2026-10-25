@@ -1,5 +1,9 @@
 #include "app/ConversationController.h"
 
+#include <algorithm>
+
+#include <QSet>
+
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomAliasRules.h"
 #include "models/UserSearchModel.h"
@@ -655,4 +659,81 @@ void ConversationController::setError(const QString &message)
 {
     m_errorMessage = message;
     Q_EMIT errorMessageChanged();
+}
+
+QList<ConversationController::RecentPerson>
+ConversationController::recentDirectPeople(const QList<RoomInfo> &rooms,
+                                           const QString &ownUserId, int limit)
+{
+    const int cap = std::clamp(limit, 1, 12);
+    QList<RecentPerson> all;
+    for (const RoomInfo &room : rooms) {
+        if (!room.isDirect || room.membership != RoomInfo::Joined || room.isSpace)
+            continue;
+        // One person or none: a group DM is not a "recent person".
+        QString peer;
+        if (room.directUserIds.size() == 1)
+            peer = room.directUserIds.first();
+        else if (room.directUserIds.isEmpty())
+            peer = room.directUserId;
+        if (peer.isEmpty() || peer == ownUserId || !peer.startsWith(QLatin1Char('@')))
+            continue;
+        RecentPerson person;
+        person.userId = peer;
+        person.roomId = room.id;
+        person.roomName = room.name;
+        person.roomAvatar = room.avatarUrl;
+        person.lastActivity = room.lastActivity;
+        all.append(person);
+    }
+    std::stable_sort(all.begin(), all.end(),
+                     [](const RecentPerson &a, const RecentPerson &b) {
+                         if (a.lastActivity != b.lastActivity) {
+                             // An unknown time sorts last.
+                             if (!a.lastActivity.isValid())
+                                 return false;
+                             if (!b.lastActivity.isValid())
+                                 return true;
+                             return a.lastActivity > b.lastActivity;
+                         }
+                         return a.userId < b.userId;
+                     });
+    QList<RecentPerson> out;
+    QSet<QString> seen;
+    for (const RecentPerson &person : std::as_const(all)) {
+        if (seen.contains(person.userId))
+            continue;   // several DMs with one person: the newest wins
+        seen.insert(person.userId);
+        out.append(person);
+        if (out.size() >= cap)
+            break;
+    }
+    return out;
+}
+
+QVariantList ConversationController::recentPeople(int limit) const
+{
+    QVariantList out;
+    if (!m_client || !m_client->isLoggedIn())
+        return out;
+    const QList<RecentPerson> people =
+        recentDirectPeople(m_client->rooms(), m_client->currentUserId(), limit);
+    for (const RecentPerson &person : people) {
+        // The member's own name and picture in that room when the client has
+        // them cached; the DM's computed name and avatar otherwise (an
+        // m.direct room is usually named after the person).
+        QString name = m_client->displayNameFor(person.roomId, person.userId);
+        if (name.isEmpty() || name == person.userId)
+            name = person.roomName;
+        QString avatar = m_client->avatarMxcFor(person.roomId, person.userId);
+        if (avatar.isEmpty())
+            avatar = person.roomAvatar;
+        QVariantMap entry;
+        entry.insert(QStringLiteral("userId"), person.userId);
+        entry.insert(QStringLiteral("displayName"), name);
+        entry.insert(QStringLiteral("avatarUrl"), avatar);
+        entry.insert(QStringLiteral("roomId"), person.roomId);
+        out.append(entry);
+    }
+    return out;
 }
