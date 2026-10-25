@@ -404,6 +404,42 @@ private Q_SLOTS:
                  QStringLiteral("bob-token-fixture"));
     }
 
+    // Part 4 ACC-08/09: the newest click wins. A target chosen while a
+    // switch is running used to be dropped by the top-level guard, so a
+    // quick A -> B -> A ended on B, against the user's last choice.
+    void aClickDuringARunningSwitchRunsWhenItCompletes()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+
+        app.switchToAccount(kBob);
+        QVERIFY(app.accountSwitching());
+        // Back to Alice before Bob's restore completed; then the same target
+        // twice more, which must coalesce rather than queue repeats.
+        app.switchToAccount(kAlice);
+        app.switchToAccount(kAlice);
+        QVERIFY(QTest::qWaitFor([&app] {
+            return !app.accountSwitching()
+                   && app.auth()->currentUserId() == kAlice;
+        }, 5000));
+        QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+        QCOMPARE(app.currentScreen(), AppController::MainScreen);
+        // Nothing further is waiting: the loop stays quiet.
+        QTest::qWait(200);
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+    }
+
     // After A -> B the accounts list must re-notify, or the switcher keeps
     // stale isActive flags and clicking A hits the "already active" guard.
     // Drives A -> B -> A -> B -> A through the QML rows' decision inputs.

@@ -1715,6 +1715,9 @@ private:
     QStringList m_removalLeftovers;
     bool m_resetResultPending = false;
     bool m_accountSwitching = false;
+    // The newest account chosen while a switch was running (see
+    // switchToAccount); empty when none is waiting.
+    QString m_queuedSwitchTarget;
     bool m_keyringUnavailable = false;
     // True only inside endRevokedSession()'s detach, so onLoggedOut keeps the
     // account's record, stores and active-account setting, as for a switch.

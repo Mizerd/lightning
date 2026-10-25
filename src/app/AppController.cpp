@@ -99,6 +99,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTimer>
+#include <utility>
 #include <QPalette>
 #include <QStyleHints>
 #include <QUuid>
@@ -7780,6 +7781,14 @@ void AppController::setAccountSwitching(bool switching)
         return;
     m_accountSwitching = switching;
     Q_EMIT accountSwitchingChanged();
+    // A click that arrived while this switch was running is the user's
+    // latest intent: run it now, on the next turn, so the completion that
+    // cleared the flag finishes its own fan-out first. switchToAccount()
+    // re-applies every guard (already active, sign-out pending, unknown).
+    if (!switching && !m_queuedSwitchTarget.isEmpty()) {
+        const QString next = std::exchange(m_queuedSwitchTarget, QString{});
+        QTimer::singleShot(0, this, [this, next] { switchToAccount(next); });
+    }
 }
 
 void AppController::resetSessionNotificationState()
@@ -8166,8 +8175,18 @@ void AppController::processInviteNotices()
 void AppController::switchToAccount(const QString &userId)
 {
     const QString target = userId.trimmed();
-    if (m_accountSwitching || target.isEmpty())
+    if (target.isEmpty())
         return;
+    // The newest click wins, as it already does while a live (Labs) account
+    // is being released: a target chosen while a switch is running is
+    // remembered (replacing any earlier one) and runs when it completes.
+    // It used to be dropped, so A -> B -> C during B's restore ended at B.
+    if (m_accountSwitching) {
+        m_queuedSwitchTarget = target;
+        qCInfo(lcApp) << "account switch queued behind the running one"
+                      << "to=" << matrix::app_data::safeUserSlug(target);
+        return;
+    }
     // A sign-out waiting for its call to be left acts on the client's
     // current session when it runs: switching now would sign out, and delete
     // the store of, the account switched to.
