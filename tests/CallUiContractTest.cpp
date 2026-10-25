@@ -3228,6 +3228,28 @@ Item {
 #endif
     }
 
+    // Changing the share's resolution or rate while sharing must reach the
+    // running share: the controller listens for the settings signal and the
+    // handler retargets the live pipeline, never restarting the share (a
+    // portal share's descriptor cannot be reopened) or touching the call.
+    void aLiveShareFollowsTheQualitySettings()
+    {
+        const QString src = read(QStringLiteral(QML_DIR "/../src/calls/SfuCallController.cpp"));
+        QVERIFY(!src.isEmpty());
+        QVERIFY2(src.contains(QStringLiteral(
+                     "&SettingsManager::shareQualityChanged")),
+                 "the controller no longer listens for share quality changes");
+        const int at = src.indexOf(QStringLiteral(
+            "void SfuCallController::applyShareQualityToLiveShare()"));
+        QVERIFY(at >= 0);
+        const QString body = src.mid(at, 1400);
+        QVERIFY2(body.contains(QStringLiteral("applyShareQualityLive(")),
+                 "a quality change is not applied to the running share");
+        QVERIFY2(!body.contains(QStringLiteral("stopScreenShare"))
+                     && !body.contains(QStringLiteral("startScreenShare")),
+                 "a quality change must not restart the share");
+    }
+
     void theTwoShareQualityLaddersCannotDisagree()
     {
         // Quality snapping exists in SettingsManager (storage) and in
