@@ -588,3 +588,26 @@ pinned steps, end reason) and a one-shot `scroll-top-ceiling` info line.
 Live on Linux Xvfb against the local homeserver: settle-tail appends held 10
 of 10; a glide to the latest with a message arriving mid-glide lands at the
 bottom, following. Windows: NOT TESTED.
+
+## Queued navigation re-checks intent, and the incident recorder (2026-10-25)
+
+- `onTargetLocated` checked reader control when it QUEUED the landing and the
+  `Qt.callLater` closure armed it without checking again, so a wheel notch in
+  that turn was overruled by an obsolete landing (`inputBetweenALocateAndIts
+  QueuedLandingWins`, fails on the old code). A `navigationEpoch`, bumped by
+  `noteReaderTookControl()`, is captured at queue time and compared when the
+  closure runs. A model reset deliberately does not bump it: a located target
+  is held by stable id across a same-room snapshot. The reset's own queued
+  restore carries a separate `resetEpoch`, so only the newest reset's restore
+  runs (A -> B -> A), and is dropped if the reader took over meanwhile. This is a source-confirmed race with a
+  deterministic regression, NOT a confirmed cause of the user's rare
+  "teleport to the top" report.
+- Every main-timeline position write goes through `setPositionY(y, writer)`.
+  With `LIGHTNING_SCROLL_RECORDER` (or `LIGHTNING_SCROLL_TRACE`) set,
+  `TimelineScrollController::recordScroll` keeps the last 1024 writes in a
+  fixed ring (writer, old/new y, bounds, viewport, content height, rows,
+  window skip, state flags, a session-local anchor alias — never an event id),
+  and a jump of more than a screen onto the oldest loaded edge by a writer
+  that is neither input nor explicit navigation dumps the last 64 records once
+  (rate-limited, `scroll incident code=oldest-bound`). Ask a reporter for that
+  dump; it names the writer.

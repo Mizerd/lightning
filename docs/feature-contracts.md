@@ -2903,3 +2903,47 @@ live, and the server answers presence. Research and design: vault note
 - NOT TESTED: a screen reader announcing the selection. The selection is a
   drawn outline on a timeline that keeps keyboard focus, so assistive
   technology is not told which message is selected (open item).
+
+### Returning to a conversation, and the selection it remembers (2026-10-25)
+
+- **When returning to a conversation** (Settings > Appearance > Timeline,
+  `ui/conversationReturnMode`, account-scoped, synced): 0 Previous position
+  (default, unchanged behaviour: the saved anchor, or the live edge when the
+  reader left following it), 1 Latest messages, 2 Selected message when
+  available. `PaginationController::restoreConversation(room, mode)`; mode 2
+  lands on the saved selection through the same bounded Restore walk, centred
+  unless the selection IS the saved anchor (then the anchor's offset), and an
+  unreachable selection falls back to the previous position, never silently to
+  latest. An explicit target (link, notification, search hit, reply jump)
+  still wins: those are Reply navigations and the passive restore is dropped
+  once the reader or a newer jump owns the view.
+- The keyboard selection a reader leaves in a room is kept per room
+  (`saveSelection`/`savedSelection`) apart from the viewport anchor. Returning
+  restores it as the resume point (Ctrl+Shift+W continues from it) without
+  scrolling or taking focus. **Show the message selection outline when
+  returning** (`ui/showSelectionOnReturn`, default off) also outlines it while
+  focus stays where it was. Both records are memory-only navigation state
+  (event ids), bounded at 64 rooms, and cleared with the anchors on sign-out
+  and on every account switch (the cold switch detaches the session, which
+  emits `loggedOut`). A selected event that leaves the model is dropped, not
+  replaced by another event.
+- Not done: "do not move when the selection is already inside the restored
+  viewport" (mode 2 centres the selection); thread-panel selections are not
+  remembered. Live: NOT TESTED at the time of writing.
+
+### Video player failures and visibility (2026-10-25)
+
+- A failed thumbnail never blocks Play: the poster (`thumb:`) and the
+  playable file (`full:`) fail separately, the cover's Play always opens the
+  player, and a secondary "Retry preview" button retries the poster.
+- A fetch that completes after the reader scrolled the row away gives a ready,
+  paused card; it never starts sound off screen. The expanded view owns
+  playback while it is open: the row under it leaving the screen does not
+  pause it, and closing the view over an off-screen row pauses.
+- Failure vocabulary (`VideoPlayerCard.failureReason`): network (Retry),
+  unavailable (not_found/rejected: no Retry), too_large (Download), format (a
+  player error on the local file: no Retry, Download), audio (the play gate),
+  and the generic message with Retry for anything else, including the bridge's
+  transient `unavailable` dispatch refusal. No Qt error string is shown.
+- The seek track shows the time under the pointer (no frame decode), and every
+  media clock reads h:mm:ss from an hour on (`AppTheme.clockText`).
