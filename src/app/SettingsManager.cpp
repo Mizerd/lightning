@@ -1934,6 +1934,56 @@ bool SettingsManager::presetSuppliesValue(const QString &property) const
     return key && !accountScopedValue(key, QVariant()).isValid();
 }
 
+QVariant SettingsManager::lightningPresentationValue(
+    const QString &property) const
+{
+    if (property == QLatin1String("messageLayout")) {
+        const int stored = appearanceValue(kMessageLayout, 0).toInt();
+        return (stored < 0 || stored > kMaxMessageLayout) ? 0 : stored;
+    }
+    if (property == QLatin1String("messageSpacing")) {
+        const int stored =
+            appearanceValue(kMessageSpacing, kSpacingCozy).toInt();
+        return (stored < kSpacingCompact || stored > kSpacingRoomy)
+            ? kSpacingCozy : stored;
+    }
+    return {};
+}
+
+bool SettingsManager::setLightningPresentationValue(const QString &property,
+                                                    const QVariant &value)
+{
+    if (layoutPreset() != kLayoutPresetNhekoCompact) {
+        // The Lightning values ARE the ordinary setters' values.
+        if (property == QLatin1String("messageLayout")) {
+            setMessageLayout(value.toInt());
+            return true;
+        }
+        if (property == QLatin1String("messageSpacing")) {
+            setMessageSpacing(value.toInt());
+            return true;
+        }
+        return false;
+    }
+    // Nheko compact is selected: store the Lightning value for later and
+    // leave the visible (preset) value alone.
+    if (property == QLatin1String("messageLayout")) {
+        int layout = value.toInt();
+        if (layout < 0 || layout > kMaxMessageLayout)
+            layout = 0;
+        setAppearanceValue(kMessageLayout, layout);
+        return true;
+    }
+    if (property == QLatin1String("messageSpacing")) {
+        int mode = value.toInt();
+        if (mode < kSpacingCompact || mode > kSpacingRoomy)
+            mode = kSpacingCozy;
+        setAppearanceValue(kMessageSpacing, mode);
+        return true;
+    }
+    return false;
+}
+
 void SettingsManager::resetLayoutPresetOverrides()
 {
     if (layoutPreset() != kLayoutPresetNhekoCompact)

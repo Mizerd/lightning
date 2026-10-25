@@ -1355,6 +1355,29 @@ void SettingsSessionTest::layoutPresetIsAReversibleProfile()
         QCOMPARE(settings.textScale(), 120);
         settings.setThreadPlacement(0);
     }
+    {
+        // Settings sync sees and writes only the Lightning configuration:
+        // the preset's Small avatars never reaches another device, and a
+        // synced value lands in the Lightning layout without restyling the
+        // preset that is on screen.
+        SettingsManager settings;
+        QCOMPARE(settings.layoutPreset(), 1);
+        QCOMPARE(settings.lightningPresentationValue(
+                     QStringLiteral("messageLayout")).toInt(), 1);
+        QSignalSpy layoutSpy(&settings, &SettingsManager::messageLayoutChanged);
+        QVERIFY(settings.setLightningPresentationValue(
+            QStringLiteral("messageLayout"), 2));
+        QCOMPARE(settings.messageLayout(),
+                 SettingsManager::kMessageLayoutSmallAvatars);
+        QCOMPARE(layoutSpy.count(), 0);
+        QVERIFY(!settings.layoutPresetCustomized());
+        QVERIFY(!settings.setLightningPresentationValue(
+            QStringLiteral("theme"), 1));
+        settings.setLayoutPreset(0);
+        QCOMPARE(settings.messageLayout(), 2);
+        settings.setMessageLayout(1);
+        settings.setLayoutPreset(1);
+    }
     SettingsManager reopened;
     QCOMPARE(reopened.layoutPreset(), 1);
     QCOMPARE(reopened.threadPlacement(), 0);

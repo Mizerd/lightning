@@ -300,7 +300,18 @@ void SettingsSyncController::persistState()
 
 QVariantMap SettingsSyncController::localView() const
 {
-    return readProperties(m_settings.data(), Sync);
+    QVariantMap local = readProperties(m_settings.data(), Sync);
+    // The layout preset is a local profile: what syncs is the Lightning
+    // configuration, never a value the selected preset supplies.
+    if (m_settings) {
+        for (const QString &name : { QStringLiteral("messageLayout"),
+                                     QStringLiteral("messageSpacing") }) {
+            if (local.contains(name))
+                local.insert(name,
+                             m_settings->lightningPresentationValue(name));
+        }
+    }
+    return local;
 }
 
 // ---- sync ------------------------------------------------------------------
@@ -484,7 +495,17 @@ void SettingsSyncController::applyMerge(const MergeResult &r, const ParsedBlob &
     Q_UNUSED(server);
     if (!r.applyLocal.isEmpty()) {
         m_applying = true;
-        const QStringList failed = writeProperties(m_settings.data(), r.applyLocal);
+        // Presentation keys land in the Lightning configuration, never in the
+        // selected layout preset's profile (see localView).
+        QVariantMap values = r.applyLocal;
+        for (const QString &name : { QStringLiteral("messageLayout"),
+                                     QStringLiteral("messageSpacing") }) {
+            const auto it = values.constFind(name);
+            if (it != values.constEnd() && m_settings
+                && m_settings->setLightningPresentationValue(name, it.value()))
+                values.remove(name);
+        }
+        const QStringList failed = writeProperties(m_settings.data(), values);
         m_applying = false;
         if (!failed.isEmpty())
             qCWarning(lcSettingsSync) << "settings sync could not apply" << failed.size() << "value(s)";
