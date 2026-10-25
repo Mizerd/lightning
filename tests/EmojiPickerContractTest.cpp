@@ -92,7 +92,11 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("app.stickers.revision")));
         QVERIFY(picker.contains(QStringLiteral("app.stickers.refreshIfStale()")));
         QVERIFY(picker.contains(QStringLiteral("bridge.mxcImageSource(")));
-        QVERIFY(picker.contains(QStringLiteral("picker.chooseCustom(customCell.modelData.url)")));
+        QVERIFY(picker.contains(QStringLiteral("picker.chooseCustom(customCell.modelData.url,")));
+        // PACK-LTN-029: the composer palette offers custom images too, and a
+        // composer pick carries the whole row (exact identity), not a URL.
+        QVERIFY(picker.contains(QStringLiteral("readonly property bool customEmojiOffered: app.stickers.available")));
+        QVERIFY(picker.contains(QStringLiteral("customChosen(row)")));
     }
 
     void widthAndPaddingMatchSpec()

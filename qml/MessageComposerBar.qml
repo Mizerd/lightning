@@ -666,6 +666,16 @@ Item {
         // pick.
         closeAfterSelection: false
         onEmojiChosen: (emoji) => root.insertEmoji(emoji)
+        // A custom image: insert its `:shortcode:` and bind that range to the
+        // exact image chosen, so the send cannot pick a same-named one.
+        onCustomChosen: (row) => {
+            var editor = root.activeEditor()
+            var start = Math.min(emojiSelectionStart, emojiSelectionEnd)
+            if (emojiSelectionStart === emojiSelectionEnd)
+                start = emojiCursorPosition
+            root.insertEmoji(":" + (row.key || row.shortcode) + ": ")
+            app.composer.bindEmoticonAt(start, row)
+        }
         onAboutToHide: root.notePickerDismissed("emoji")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }

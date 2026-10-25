@@ -1407,6 +1407,34 @@ int MessageComposer::acceptEmoticonCompletionAt(int cursorPos,
     return token.first + code.length() + 1;
 }
 
+bool MessageComposer::bindEmoticonAt(int start, const QVariantMap &entry)
+{
+    const QString key = entry.value(QStringLiteral("key"),
+                                    entry.value(QStringLiteral("shortcode")))
+                            .toString();
+    const QString url = entry.value(QStringLiteral("url")).toString();
+    if (key.isEmpty() || !url.startsWith(QLatin1String("mxc://")))
+        return false;
+    const QString code = QLatin1Char(':') + key + QLatin1Char(':');
+    if (start < 0 || m_text.mid(start, code.length()) != code)
+        return false;
+    for (EmoticonRef &existing : m_emoticonRefs) {
+        if (existing.displayText == code) {
+            existing.url = url;
+            existing.body = entry.value(QStringLiteral("body")).toString();
+        }
+    }
+    EmoticonRef ref;
+    ref.displayText = code;
+    ref.url = url;
+    ref.body = entry.value(QStringLiteral("body")).toString();
+    ref.key = key;
+    ref.start = start;
+    ref.length = code.length();
+    m_emoticonRefs.append(ref);
+    return true;
+}
+
 QVariantList MessageComposer::selectedEmoticons() const
 {
     QVariantList out;

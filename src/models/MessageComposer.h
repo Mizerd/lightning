@@ -208,6 +208,10 @@ public:
     /// inside the range turns it back into literal text.
     Q_INVOKABLE int acceptEmoticonCompletionAt(int cursorPos,
                                                const QVariantMap &entry);
+    /// Bind the `:key:` text already at `start` in the composer text to the
+    /// image `entry` names (the emoji palette inserts the text, then binds).
+    /// False, and nothing recorded, when that text is not there.
+    Q_INVOKABLE bool bindEmoticonAt(int start, const QVariantMap &entry);
     /// The live selections, [{text, url, body, key, start, length}], for
     /// presentation and tests. Never persisted to disk.
     Q_INVOKABLE QVariantList selectedEmoticons() const;

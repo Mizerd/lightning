@@ -34,6 +34,10 @@ AnchoredPopup {
     property bool openExpanded: false
     readonly property bool compact: reactionMode && !expanded
     signal emojiChosen(string emoji)
+    // Composer mode: a custom image row (findEmoticons' shape: key, url, body,
+    // packName). The composer binds it to the inserted `:shortcode:` so the
+    // exact image is sent.
+    signal customChosen(var row)
     // The nested tone popup's lifetime, for the owner of transient row
     // interaction (TimelinePane's transientInteractionOwner).
     signal toneOpened()
@@ -167,16 +171,13 @@ AnchoredPopup {
         if (closeAfterSelection) close()
     }
 
-    // MSC2545 custom emoji, reaction mode only. A custom-emoji reaction is an
-    // m.reaction whose key is the pack image's mxc URI (the Cinny/Sable
-    // convention); MessageDelegate renders such a key as an image.
-    //
-    // Not offered in composer mode: sending one inside a message needs
-    // `<img data-mx-emoticon>` in formatted_body, which our HTML sanitizer
-    // doesn't yet accept on receive. Doesn't call recordUse(): recents are the
-    // Unicode catalogue's.
-    readonly property bool customEmojiOffered:
-        mode === "reaction" && app.stickers.available
+    // Custom emoji from the image packs, in both modes. A custom-emoji
+    // reaction is an m.reaction whose key is the pack image's mxc URI (the
+    // Cinny/Sable convention, an ecosystem extension rather than part of the
+    // image-pack standard); MessageDelegate renders such a key as an image. In
+    // the composer a pick inserts `:shortcode:` bound to that exact image.
+    // Doesn't call recordUse(): recents are the Unicode catalogue's.
+    readonly property bool customEmojiOffered: app.stickers.available
     readonly property var customEmoji: {
         // reactionEmoticons() is a plain call; reading `revision` re-evaluates this
         // when a snapshot lands.
@@ -184,9 +185,12 @@ AnchoredPopup {
         return picker.customEmojiOffered
             ? app.stickers.reactionEmoticons() : []
     }
-    function chooseCustom(url) {
+    function chooseCustom(url, row) {
         if (!url || url.indexOf("mxc://") !== 0) return
-        emojiChosen(url)
+        if (reactionMode)
+            emojiChosen(url)
+        else if (row)
+            customChosen(row)
         if (closeAfterSelection) close()
     }
 
@@ -653,8 +657,8 @@ AnchoredPopup {
                 anchors.fill: parent
                 spacing: AppTheme.spacing6
 
-                // ── Custom emoji from the shared MSC2545 pack snapshot ──
-                // Reaction mode only, and only when a pack holds emoticons.
+                // ── Custom emoji from the shared image-pack snapshot ──
+                // Both modes, when a pack holds emoticons.
                 MenuSectionLabel {
                     Layout.fillWidth: true
                     visible: picker.customEmoji.length > 0
@@ -744,7 +748,8 @@ AnchoredPopup {
                                 }
                             }
                         }
-                        onClicked: picker.chooseCustom(customCell.modelData.url)
+                        onClicked: picker.chooseCustom(customCell.modelData.url,
+                                                       customCell.modelData)
                     }
                 }
 

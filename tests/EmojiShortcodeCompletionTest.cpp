@@ -400,6 +400,22 @@ private Q_SLOTS:
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
     }
 
+    void aPalettePickBindsTheTextItInserted()
+    {
+        // PACK-LTN-029 / PACK-UX-005: the emoji palette inserts `:key: ` and
+        // binds it; a bind against text that is not there records nothing.
+        m_composer->setText(QStringLiteral("ok :blob_wave: "));
+        QVERIFY(!m_composer->bindEmoticonAt(
+            0, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString())));
+        QVERIFY(m_composer->bindEmoticonAt(
+            3, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QStringLiteral("d"))));
+        m_composer->send();
+        QCOMPARE(m_client->sentSpecs.at(0).value(QStringLiteral("emoticons")).toMap()
+                     .value(QStringLiteral(":blob_wave:")).toMap()
+                     .value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://x/2"));
+    }
+
     void anAmbiguousTypedShortcodeStaysLiteral()
     {
         // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);
