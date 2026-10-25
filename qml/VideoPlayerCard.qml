@@ -129,8 +129,15 @@ FocusScope {
             player.source = url
             root.applySessionRate()
             pinFile()
-            app.playback.acquire(root.ownerKey)
-            root.gatedPlay(player)
+            // The Play that created this card may be seconds old by now (a
+            // slow fetch): a row the reader has since scrolled away from
+            // gets a ready, paused card, never sound from off screen. The
+            // expanded view is the exception, because then the overlay and
+            // not the row is what the user is looking at.
+            if (root.playbackVisible) {
+                app.playback.acquire(root.ownerKey)
+                root.gatedPlay(player)
+            }
             root.applyPendingResume()
         } else if (app.mediaBridge.failureCategory(root.fetchCacheKey)
                    .length > 0) {
@@ -246,8 +253,12 @@ FocusScope {
     // Delegate reuse: never keep the previous event's position, source or
     // audibility.
     onMediaKeyChanged: resetPlayback()
+    // Whether anything showing this player is on screen: the row inline, or
+    // the expanded view, which keeps its own visibility while the row under
+    // it scrolls, reflows or leaves the activation band.
+    readonly property bool playbackVisible: rowOnScreen || videoOverlay.opened
     onRowOnScreenChanged: {
-        if (rowOnScreen)
+        if (rowOnScreen || videoOverlay.opened)
             return
         // A play still waiting on the gate must not start off screen either.
         root.cancelGatedPlay(player)
@@ -594,6 +605,14 @@ FocusScope {
             // Focus back on the card, only if it held it before.
             if (root.hadFocusBeforeOverlay)
                 root.forceActiveFocus(Qt.TabFocusReason)
+            // The row left the screen while the expanded view held the
+            // playback: closing the view hands it back to a row nobody can
+            // see, so it pauses as it would have had the view never opened.
+            if (!root.ended && !root.rowOnScreen) {
+                root.cancelGatedPlay(player)
+                if (player.playbackState === MediaPlayer.PlayingState)
+                    player.pause()
+            }
             if (!root.ended)
                 return
             root.resetPlayback()

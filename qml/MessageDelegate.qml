@@ -6828,13 +6828,15 @@ Item {
                        ? app.playback.videoFinished(model.mediaKey || "")
                        : false
             }
-            // Play (or retry the poster, or open externally): the cover's
-            // one action, for a tap and for Space/Return alike.
+            // Play (or open externally): the cover's one action, for a tap
+            // and for Space/Return alike. A failed THUMBNAIL is not a failed
+            // video: the poster lives under "thumb:" and the playable file
+            // under "full:", so a cover whose picture could not be fetched
+            // or extracted still plays. It used to retry the poster instead
+            // and return, which made a video whose poster could never load
+            // unplayable from its cover. The poster retry is its own,
+            // secondary button (videoThumbRetryButton).
             function activate() {
-                if (videoBox.bridgeFailed) {
-                    videoBox.refreshBridgeSource()
-                    return
-                }
                 if (videoBox.playbackAvailable)
                     videoBox.playerActive = true
                 else if (model.mediaUrl
@@ -7054,6 +7056,25 @@ Item {
                 ToolTip.visible: hovered
                 ToolTip.delay: 600
                 onClicked: videoBox.saveVideo()
+            }
+            // Retrying the poster is secondary to Play, and separate from
+            // it: only for a picture that failed, never in front of the
+            // video. Top-left, clear of Download in the top-right.
+            IconButton {
+                objectName: "videoThumbRetryButton"
+                visible: !videoBox.playerActive && videoBox.bridgeFailed
+                         && root.rowActionsEnabled
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.margins: 5
+                iconName: "refresh"
+                iconSize: 15
+                implicitWidth: 26; implicitHeight: 26
+                Accessible.name: qsTr("Retry the video preview")
+                ToolTip.text: qsTr("Retry preview")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                onClicked: videoBox.refreshBridgeSource()
             }
             TapHandler {
                 enabled: !videoBox.playerActive && root.rowActionsEnabled

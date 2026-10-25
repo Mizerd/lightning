@@ -59,7 +59,12 @@ TestCase {
         signal playableMediaReady(string cacheKey)
         signal mediaFetchFailed(string cacheKey, string category)
         signal saveFinished(bool ok, string message, string mediaKey)
-        function playableSource(key) { return test.fixture.toString() }
+        // True while a fetch is "in flight": playableSource has nothing yet
+        // and the card waits for playableMediaReady.
+        property bool holdFetch: false
+        function playableSource(key) {
+            return holdFetch ? "" : test.fixture.toString()
+        }
         function failureCategory(key) { return "" }
         function cancelPlayable(key) {}
         function pinPlayable(key) {}
@@ -136,6 +141,7 @@ TestCase {
         playback.finished = []
         playback.resume = ({})
         settings.mediaVolume = 0.8
+        bridge.holdFetch = false
     }
 
     // ---- helpers ----
@@ -589,6 +595,66 @@ TestCase {
         card.rowOnScreen = false
         verify(holdingGate.cancels > c0,
                "a held play survived the row leaving the screen")
+    }
+
+    // ---- M-F02: a slow Play that completes off screen stays paused ----
+    // The fetch that a Play started can finish after the reader scrolled the
+    // row away. start() used to acquire audibility and play regardless, so
+    // a video nobody could see started making sound.
+    function test_aFetchThatLandsOffScreenGivesAPausedReadyCard() {
+        holdingGate.plays = 0
+        holdingGate.cancels = 0
+        test.qtAudio = holdingGate
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        verify(card)
+        compare(card.fetchState, "fetching")
+        card.rowOnScreen = false
+        bridge.holdFetch = false
+        bridge.playableMediaReady("full:$video")
+        verify(card.ready, "the landed file was not handed to the player")
+        compare(holdingGate.plays, 0,
+                "a fetch landing off screen started playback")
+        verify(!playback.owns("owner-video"),
+               "a fetch landing off screen claimed the audio")
+        compare(card.fetchState, "idle")
+    }
+    // The same landing on screen still plays: the gate is visibility, not a
+    // blanket refusal to start after a fetch.
+    function test_aFetchThatLandsOnScreenStillPlays() {
+        holdingGate.plays = 0
+        test.qtAudio = holdingGate
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        bridge.holdFetch = false
+        bridge.playableMediaReady("full:$video")
+        compare(holdingGate.plays, 1)
+        verify(playback.owns("owner-video"))
+    }
+
+    // ---- M-F03: the expanded view owns playback while it is open ----
+    // The row under an expanded video can leave the viewport (resize, media
+    // reflow, a timeline update). The offscreen pause used to fire anyway and
+    // paused the video the user was watching full-size.
+    function test_theExpandedViewIsNotPausedWhenItsRowLeavesTheScreen() {
+        holdingGate.plays = 0
+        holdingGate.cancels = 0
+        test.qtAudio = holdingGate
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        mouseClick(findChild(barOf(card), "videoExpandButton"))
+        tryVerify(function() { return overlayOf(card).opened })
+        var c0 = holdingGate.cancels
+        card.rowOnScreen = false
+        compare(holdingGate.cancels, c0,
+                "the hidden row paused the expanded view")
+        // Closing the view hands playback back to a row nobody can see:
+        // that pauses.
+        overlayOf(card).close()
+        tryVerify(function() { return !overlayOf(card).opened })
+        verify(holdingGate.cancels > c0,
+               "closing the view left an off-screen row playing")
     }
 
     // ---- review R2-1: a player opened by a key takes the keys ----

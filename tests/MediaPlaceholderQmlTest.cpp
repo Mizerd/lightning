@@ -927,6 +927,64 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
+    // M-F01: a thumbnail failure is not a playback failure. The cover's Play
+    // used to retry the poster and return while the thumbnail was marked
+    // failed, so a video whose poster could never load could not be opened
+    // from its cover at all. Play now opens the player; retrying the poster
+    // is a separate, secondary button.
+    void aFailedThumbnailDoesNotBlockPlay()
+    {
+        AppController controller(AppController::MockBackend);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setSupportsMediaBridgeForTest(true);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaThumbAvailable"), true);
+        fixture.insert(QStringLiteral("mediaSize"), 0);
+        fixture.insert(QStringLiteral("mediaKey"),
+                       QStringLiteral("fixture-video-nothumb"));
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        QCoreApplication::processEvents();
+        QVERIFY(video->setProperty("bridgeFailed", true));
+        QVERIFY(QMetaObject::invokeMethod(video, "activate"));
+        QVERIFY2(video->property("playerActive").toBool(),
+                 "the failed thumbnail intercepted Play");
+        QTRY_VERIFY(video->findChild<QQuickItem *>(
+                        QStringLiteral("videoPlayerCard")) != nullptr);
+        auto *retry = video->findChild<QQuickItem *>(
+            QStringLiteral("videoThumbRetryButton"));
+        QVERIFY(retry != nullptr);
+        QVERIFY2(!retry->isVisible(),
+                 "the poster retry stays over a playing video");
+
+        // Back on the cover, the retry is the poster's own action: it asks
+        // for the poster again (the mock refuses at once, so it fails
+        // again) without opening the player.
+        QVERIFY(video->setProperty("playerActive", false));
+        QVERIFY2(retry->isVisible(),
+                 "a failed poster offers no way to retry it");
+        QSignalSpy refetched(controller.mediaBridge(),
+                             &MediaBridge::mediaFetchFailed);
+        QVERIFY(QMetaObject::invokeMethod(retry, "clicked"));
+        QTRY_VERIFY(!refetched.isEmpty());
+        QCOMPARE(refetched.first().at(0).toString(),
+                 QStringLiteral("thumb:fixture-video-nothumb"));
+        QVERIFY(!video->property("playerActive").toBool());
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // Audio and voice rows are compact and fixed, and the voice marker
     // switches the presentation.
     void audioAndVoiceRowsStayCompact()
