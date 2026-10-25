@@ -89,6 +89,12 @@ QString enumText(const QString &name, const QVariant &v)
         case 0: return QObject::tr("Modern");
         case 1: return QObject::tr("Bubbles");
         case 2: return QObject::tr("Compact");
+        case 3: return QObject::tr("Small avatars");
+        }
+    } else if (name == QLatin1String("layoutPreset")) {
+        switch (i) {
+        case 0: return QObject::tr("Lightning");
+        case 1: return QObject::tr("Nheko compact");
         }
     } else if (name == QLatin1String("roomNavigationLayout")) {
         switch (i) {

@@ -30,7 +30,23 @@ class SettingsManager : public QObject
                    WRITE setLoginHomeserverPrefill
                    NOTIFY loginHomeserverPrefillChanged)
     Q_PROPERTY(Theme theme READ theme WRITE setTheme NOTIFY themeChanged)
-    // Message layout (0 = Modern, 1 = Bubbles for DMs, 2 = Compact/IRC) and
+    // Layout preset: 0 Lightning (the ordinary presentation), 1 Nheko compact.
+    // A preset is a PROFILE for the presentation keys below (messageLayout,
+    // messageSpacing, threadPlacement): while Nheko compact is selected their
+    // getters answer the profile's own stored override, else the preset's
+    // value, and their setters write that override -- the Lightning values
+    // are never touched, so switching back restores them exactly. Fonts, text
+    // scale, palette, privacy, notifications and media choices are not
+    // presentation keys and no preset changes them. Account-scoped, synced.
+    Q_PROPERTY(int layoutPreset READ layoutPreset WRITE setLayoutPreset
+                   NOTIFY layoutPresetChanged)
+    // True while the selected preset has an override the user set.
+    Q_PROPERTY(bool layoutPresetCustomized READ layoutPresetCustomized
+                   NOTIFY layoutPresetChanged)
+    // Message layout (0 = Modern, 1 = Bubbles for DMs, 2 = Compact/IRC,
+    // 3 = Small avatars: flat rows, a small avatar beside the sender name
+    // above the first body, no permanent avatar gutter -- Nheko's
+    // small-avatar arrangement) and
     // text scale (percent, 90–140). Per-account with a global fallback that
     // doubles as the logged-out default.
     Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
@@ -598,7 +614,21 @@ public:
     void setTheme(Theme t);
 
     // Out-of-range message layout values read back as Modern.
-    static constexpr int kMaxMessageLayout = 2;
+    static constexpr int kMaxMessageLayout = 3;
+    static constexpr int kMessageLayoutSmallAvatars = 3;
+    static constexpr int kLayoutPresetLightning = 0;
+    static constexpr int kLayoutPresetNhekoCompact = 1;
+    int layoutPreset() const;
+    void setLayoutPreset(int preset);
+    bool layoutPresetCustomized() const;
+    // Drops the selected preset's overrides (Nheko compact back to its own
+    // values). The Lightning preset has no overrides: its values ARE the
+    // ordinary settings. Touches nothing outside the presentation keys.
+    Q_INVOKABLE void resetLayoutPresetOverrides();
+    // Whether `property` (messageLayout, messageSpacing, threadPlacement) is
+    // currently answered by the selected preset rather than chosen by the
+    // user. Always false in the Lightning preset.
+    Q_INVOKABLE bool presetSuppliesValue(const QString &property) const;
     /// 0 Classic, 1 Channels.
     static constexpr int kMaxRoomNavigationLayout = 1;
     int messageLayout() const;
@@ -1439,6 +1469,7 @@ Q_SIGNALS:
     void messageSpacingChanged();
     void threadStyleChanged();
     void threadPlacementChanged();
+    void layoutPresetChanged();
     void hideThreadRepliesChanged();
     void smoothScrollingChanged();
     void showBridgeBadgesChanged();

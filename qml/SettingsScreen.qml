@@ -91,8 +91,13 @@ Item {
           keywords: qsTr("match system auto theme"), section: "appearance",
           breadcrumb: qsTr("Appearance · Theme"), control: "matchSystem",
           anchor: "matchSystemSwitch" },
+        { title: qsTr("Layout preset"),
+          keywords: qsTr("layout preset nheko compact density dense lightning "
+                         + "one click"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "layoutPresetControl" },
         { title: qsTr("Message layout"),
-          keywords: qsTr("message layout modern bubbles compact"),
+          keywords: qsTr("message layout modern bubbles compact small avatars"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
@@ -3317,6 +3322,66 @@ Item {
                             }
                         }
 
+                        // One click for the whole compact look. A preset is a
+                        // profile for the layout controls below (message
+                        // layout, spacing, where threads open): switching back
+                        // to Lightning restores them exactly, and fonts, text
+                        // size, colours and privacy are never part of it.
+                        SettingsGroupLabel { text: qsTr("Layout preset") }
+                        SegmentedControl {
+                            storm: true
+                            objectName: "layoutPresetControl"
+                            model: [
+                                { label: qsTr("Lightning"), value: 0 },
+                                { label: qsTr("Nheko compact"), value: 1 },
+                            ]
+                            current: app.settings.layoutPreset
+                            onActivated: (value) =>
+                                app.settings.layoutPreset = value
+                            Accessible.description: layoutPresetHint.text
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Label {
+                                id: layoutPresetHint
+                                objectName: "layoutPresetHint"
+                                Layout.fillWidth: true
+                                Layout.leftMargin: AppTheme.spacing4
+                                wrapMode: Text.WordWrap
+                                lineHeight: AppTheme.lineHeightBody
+                                lineHeightMode: Text.ProportionalHeight
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: AppTheme.settingsHintSize
+                                text: app.settings.layoutPreset === 1
+                                      ? (app.settings.layoutPresetCustomized
+                                         ? qsTr("Nheko compact, customized. Your "
+                                                + "Lightning layout is kept and "
+                                                + "comes back when you switch.")
+                                         : qsTr("Flat rows with a small avatar "
+                                                + "above each sender's messages, "
+                                                + "tight spacing, and threads in "
+                                                + "the main view. Your fonts, text "
+                                                + "size and colours are unchanged."))
+                                      : qsTr("Lightning's own layout. Nheko "
+                                             + "compact is a denser layout you can "
+                                             + "switch back from at any time.")
+                            }
+                            AppButton {
+                                objectName: "layoutPresetResetButton"
+                                storm: true
+                                size: "sm"
+                                visible: app.settings.layoutPreset === 1
+                                         && app.settings.layoutPresetCustomized
+                                text: qsTr("Reset preset")
+                                Accessible.description: qsTr(
+                                    "Returns message layout, spacing and thread "
+                                    + "placement to the Nheko compact values. "
+                                    + "Nothing else changes.")
+                                onClicked: app.settings.resetLayoutPresetOverrides()
+                            }
+                        }
+
                         SettingsGroupLabel { text: qsTr("Conversation list") }
                         RowLayout {
                             objectName: "roomNavigationLayoutCards"
@@ -3367,10 +3432,15 @@ Item {
                                 { label: qsTr("Modern"), value: 0 },
                                 { label: qsTr("Bubbles"), value: 1 },
                                 { label: qsTr("Compact"), value: 2 },
+                                { label: qsTr("Small avatars"), value: 3 },
                             ]
                             current: app.settings.messageLayout
                             onActivated: (value) =>
                                 app.settings.messageLayout = value
+                        }
+                        PresetOriginLabel {
+                            objectName: "messageLayoutPresetOrigin"
+                            key: "messageLayout"
                         }
                         Label {
                             Layout.fillWidth: true
@@ -3381,7 +3451,9 @@ Item {
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.settingsHintSize
                             text: qsTr("Bubbles applies to direct messages; rooms keep "
-                                       + "the Modern rows. Compact tightens every timeline.")
+                                       + "the Modern rows. Compact tightens every timeline. "
+                                       + "Small avatars puts a small avatar beside each "
+                                       + "sender's name, above their messages.")
                         }
 
                         SettingsGroupLabel { text: qsTr("Thread style") }
@@ -3422,6 +3494,10 @@ Item {
                             onActivated: (value) =>
                                 app.settings.threadPlacement = value
                         }
+                        PresetOriginLabel {
+                            objectName: "threadPlacementPresetOrigin"
+                            key: "threadPlacement"
+                        }
                         Label {
                             Layout.fillWidth: true
                             Layout.leftMargin: AppTheme.spacing4
@@ -3450,6 +3526,10 @@ Item {
                                 app.settings.messageSpacing = value
                             Accessible.description: qsTr(
                                 "Space between messages and between senders")
+                        }
+                        PresetOriginLabel {
+                            objectName: "messageSpacingPresetOrigin"
+                            key: "messageSpacing"
                         }
 
                         SettingsGroupLabel { text: qsTr("Text size") }

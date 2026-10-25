@@ -16,9 +16,6 @@
 #include <algorithm>
 
 namespace {
-// Element/Discord-style visual grouping window. Five minutes is short enough
-// to keep conversations scannable while suppressing repetitive identity.
-constexpr qint64 kSenderGroupThresholdSeconds = 5 * 60;
 
 // Room id for member lookups. Thread-timeline events carry the composite
 // timeline id in `roomId`, which no member cache, receipt or typing set is
@@ -300,13 +297,34 @@ bool TimelineModel::continuesSenderGroup(int row) const
     if (previousRow < 0)
         return false;
     const auto &previous = m_events.at(previousRow);
+    // A different thread context is a different conversation: in a room that
+    // interleaves thread replies, one person's room message and their reply
+    // in a thread (or replies in two threads) each keep their own header, so
+    // the thread a row belongs to is never left to the tag alone.
     if (previous.redacted || previous.sender != event.sender
         || previous.roomId != event.roomId
+        || previous.threadRootId != event.threadRootId
         || !previous.timestamp.isValid() || !event.timestamp.isValid()
         || previous.timestamp.date() != event.timestamp.date())
         return false;
     const qint64 gap = previous.timestamp.secsTo(event.timestamp);
-    return gap >= 0 && gap < kSenderGroupThresholdSeconds;
+    return gap >= 0 && gap < m_senderGroupWindowSeconds;
+}
+
+void TimelineModel::setSenderGroupWindowSeconds(int seconds)
+{
+    seconds = qBound(60, seconds, 24 * 60 * 60);
+    if (m_senderGroupWindowSeconds == seconds)
+        return;
+    m_senderGroupWindowSeconds = seconds;
+    const int rows = rowCount();
+    if (rows <= 0)
+        return;
+    // Every row's group shape may move; nothing else does.
+    Q_EMIT dataChanged(index(0), index(rows - 1),
+                       { SameSenderAsPreviousRole, BeginsSenderGroupRole,
+                         ContinuesSenderGroupRole, EndsSenderGroupRole,
+                         ShowSenderIdentityRole });
 }
 
 void TimelineModel::setClient(MatrixClient *client)

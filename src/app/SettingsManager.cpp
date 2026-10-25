@@ -115,6 +115,13 @@ constexpr auto kNameColorCorrection = "ui/nameColorCorrection";
 constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kThreadStyle         = "ui/threadStyle";
 constexpr auto kThreadPlacement     = "ui/threadPlacement";
+constexpr auto kLayoutPreset        = "ui/layoutPreset";
+// The Nheko compact profile's own overrides (account-scoped, never synced):
+// written only while that preset is selected, so the ordinary keys above
+// stay the Lightning configuration.
+constexpr auto kNhekoMessageLayout  = "ui/nhekoCompact/messageLayout";
+constexpr auto kNhekoMessageSpacing = "ui/nhekoCompact/messageSpacing";
+constexpr auto kNhekoThreadPlacement = "ui/nhekoCompact/threadPlacement";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
 constexpr auto kShowBridgeBadges    = "ui/showBridgeBadges";
@@ -723,6 +730,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT messageSpacingChanged();
     Q_EMIT threadStyleChanged();
     Q_EMIT threadPlacementChanged();
+    Q_EMIT layoutPresetChanged();
     Q_EMIT smoothScrollingChanged();
     Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
@@ -1856,8 +1864,97 @@ void SettingsManager::setImportedFontFiles(const QStringList &fileNames)
 
 int SettingsManager::messageLayout() const
 {
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        const int stored =
+            accountScopedValue(kNhekoMessageLayout,
+                               kMessageLayoutSmallAvatars).toInt();
+        return (stored < 0 || stored > kMaxMessageLayout)
+            ? kMessageLayoutSmallAvatars : stored;
+    }
     const int stored = appearanceValue(kMessageLayout, 0).toInt();
     return (stored < 0 || stored > kMaxMessageLayout) ? 0 : stored;
+}
+
+int SettingsManager::layoutPreset() const
+{
+    // An unknown value (a newer build's preset) reads as Lightning.
+    const int stored =
+        appearanceValue(kLayoutPreset, kLayoutPresetLightning).toInt();
+    return stored == kLayoutPresetNhekoCompact ? kLayoutPresetNhekoCompact
+                                               : kLayoutPresetLightning;
+}
+
+void SettingsManager::setLayoutPreset(int preset)
+{
+    if (preset != kLayoutPresetNhekoCompact)
+        preset = kLayoutPresetLightning;
+    if (layoutPreset() == preset)
+        return;
+    // One transaction: read what every presentation key answers now, switch,
+    // and announce only the keys whose answer moved.
+    const int layoutBefore = messageLayout();
+    const int spacingBefore = messageSpacing();
+    const int placementBefore = threadPlacement();
+    setAppearanceValue(kLayoutPreset, preset);
+    Q_EMIT layoutPresetChanged();
+    if (messageLayout() != layoutBefore)
+        Q_EMIT messageLayoutChanged();
+    if (messageSpacing() != spacingBefore)
+        Q_EMIT messageSpacingChanged();
+    if (threadPlacement() != placementBefore)
+        Q_EMIT threadPlacementChanged();
+}
+
+namespace {
+const char *const kNhekoOverrideKeys[] = {
+    kNhekoMessageLayout, kNhekoMessageSpacing, kNhekoThreadPlacement,
+};
+} // namespace
+
+bool SettingsManager::layoutPresetCustomized() const
+{
+    if (layoutPreset() != kLayoutPresetNhekoCompact)
+        return false;
+    for (const char *key : kNhekoOverrideKeys) {
+        if (accountScopedValue(key, QVariant()).isValid())
+            return true;
+    }
+    return false;
+}
+
+bool SettingsManager::presetSuppliesValue(const QString &property) const
+{
+    if (layoutPreset() != kLayoutPresetNhekoCompact)
+        return false;
+    const char *key = property == QLatin1String("messageLayout")
+        ? kNhekoMessageLayout
+        : property == QLatin1String("messageSpacing") ? kNhekoMessageSpacing
+        : property == QLatin1String("threadPlacement") ? kNhekoThreadPlacement
+        : nullptr;
+    return key && !accountScopedValue(key, QVariant()).isValid();
+}
+
+void SettingsManager::resetLayoutPresetOverrides()
+{
+    if (layoutPreset() != kLayoutPresetNhekoCompact)
+        return;
+    const int layoutBefore = messageLayout();
+    const int spacingBefore = messageSpacing();
+    const int placementBefore = threadPlacement();
+    const bool wasCustomized = layoutPresetCustomized();
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    for (const char *key : kNhekoOverrideKeys) {
+        m_store->remove(slug.isEmpty() ? QString::fromLatin1(key)
+                                       : accountKey(slug, key));
+    }
+    if (wasCustomized)
+        Q_EMIT layoutPresetChanged();
+    if (messageLayout() != layoutBefore)
+        Q_EMIT messageLayoutChanged();
+    if (messageSpacing() != spacingBefore)
+        Q_EMIT messageSpacingChanged();
+    if (threadPlacement() != placementBefore)
+        Q_EMIT threadPlacementChanged();
 }
 
 int SettingsManager::roomNavigationLayout() const
@@ -1881,6 +1978,17 @@ void SettingsManager::setMessageLayout(int layout)
 {
     if (layout < 0 || layout > kMaxMessageLayout)
         layout = 0;
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        // The profile's override; the Lightning layout stays as it was.
+        const bool wasCustomized = layoutPresetCustomized();
+        const bool moved = messageLayout() != layout;
+        setAccountScopedValue(kNhekoMessageLayout, layout);
+        if (!wasCustomized)
+            Q_EMIT layoutPresetChanged();
+        if (moved)
+            Q_EMIT messageLayoutChanged();
+        return;
+    }
     if (messageLayout() == layout)
         return;
     setAppearanceValue(kMessageLayout, layout);
@@ -4036,6 +4144,14 @@ void SettingsManager::setNameColorCorrection(int mode)
 
 int SettingsManager::messageSpacing() const
 {
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        const int stored =
+            accountScopedValue(kNhekoMessageSpacing, kSpacingCozy).toInt();
+        // Cozy adds nothing to the Small avatars rhythm (2 px between
+        // continuations, 6 px between senders), which is Nheko's own.
+        return (stored < kSpacingCompact || stored > kSpacingRoomy)
+            ? kSpacingCozy : stored;
+    }
     const int stored = appearanceValue(kMessageSpacing, kSpacingCozy).toInt();
     return (stored < kSpacingCompact || stored > kSpacingRoomy)
         ? kSpacingCozy : stored;
@@ -4045,6 +4161,16 @@ void SettingsManager::setMessageSpacing(int mode)
 {
     if (mode < kSpacingCompact || mode > kSpacingRoomy)
         mode = kSpacingCozy;
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        const bool wasCustomized = layoutPresetCustomized();
+        const bool moved = messageSpacing() != mode;
+        setAccountScopedValue(kNhekoMessageSpacing, mode);
+        if (!wasCustomized)
+            Q_EMIT layoutPresetChanged();
+        if (moved)
+            Q_EMIT messageSpacingChanged();
+        return;
+    }
     if (messageSpacing() == mode)
         return;
     setAppearanceValue(kMessageSpacing, mode);
@@ -4077,6 +4203,13 @@ void SettingsManager::setThreadStyle(int style)
 
 int SettingsManager::threadPlacement() const
 {
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        // The compact profile's focused thread is the main column.
+        const int stored = accountScopedValue(kNhekoThreadPlacement,
+                                              kThreadPlacementMain).toInt();
+        return stored == kThreadPlacementSide ? kThreadPlacementSide
+                                              : kThreadPlacementMain;
+    }
     const QVariant stored = appearanceValue(kThreadPlacement, QVariant());
     if (stored.isValid()) {
         bool ok = false;
@@ -4093,6 +4226,8 @@ int SettingsManager::threadPlacement() const
 
 bool SettingsManager::threadPlacementIsExplicit() const
 {
+    if (layoutPreset() == kLayoutPresetNhekoCompact)
+        return accountScopedValue(kNhekoThreadPlacement, QVariant()).isValid();
     const QVariant stored = appearanceValue(kThreadPlacement, QVariant());
     bool ok = false;
     const int value = stored.isValid() ? stored.toInt(&ok) : -1;
@@ -4104,6 +4239,16 @@ void SettingsManager::setThreadPlacement(int placement)
 {
     if (placement != kThreadPlacementMain)
         placement = kThreadPlacementSide;
+    if (layoutPreset() == kLayoutPresetNhekoCompact) {
+        const bool wasCustomized = layoutPresetCustomized();
+        const bool moved = threadPlacement() != placement;
+        setAccountScopedValue(kNhekoThreadPlacement, placement);
+        if (!wasCustomized)
+            Q_EMIT layoutPresetChanged();
+        if (moved)
+            Q_EMIT threadPlacementChanged();
+        return;
+    }
     if (threadPlacementIsExplicit() && threadPlacement() == placement)
         return;
     const int before = threadPlacement();

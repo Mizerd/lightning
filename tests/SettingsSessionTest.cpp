@@ -125,6 +125,8 @@ private Q_SLOTS:
     void gifPolicyDefaultsPersistAndClamp();
     void videoPrefetchDefaultsPersistAndValidate();
     void messageLayoutAndTextScalePersistAndClamp();
+    void layoutPresetIsAReversibleProfile();
+    void layoutPresetIsPerAccount();
     void accessibilityAndSpacingSettingsPersistAndFallBack();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void textRenderingRoundTripsAndUnknownValuesFallBack();
@@ -1288,6 +1290,109 @@ void SettingsSessionTest::mainAppliesTextRenderingBeforeAnyWindow()
         QVERIFY2(qml.contains(QStringLiteral("objectName: \"%1\"").arg(QLatin1String(anchor))),
                  anchor);
     }
+}
+
+// Settings > Appearance > Layout preset. Nheko compact is a profile for the
+// presentation keys: its own values (Small avatars, Compact spacing, threads in
+// the main view) and its own overrides, while the Lightning values are never
+// written -- switching back restores them exactly. Typography and colours are
+// not presentation keys.
+void SettingsSessionTest::layoutPresetIsAReversibleProfile()
+{
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.layoutPreset(), 0);
+        settings.setMessageLayout(1);
+        settings.setMessageSpacing(SettingsManager::kSpacingRoomy);
+        settings.setTextScale(120);
+        settings.setTheme(SettingsManager::MossLightTheme);
+        QCOMPARE(settings.threadPlacement(), 0);
+
+        QSignalSpy layoutSpy(&settings, &SettingsManager::messageLayoutChanged);
+        QSignalSpy spacingSpy(&settings, &SettingsManager::messageSpacingChanged);
+        QSignalSpy placementSpy(&settings,
+                                &SettingsManager::threadPlacementChanged);
+        QSignalSpy scaleSpy(&settings, &SettingsManager::textScaleChanged);
+        settings.setLayoutPreset(1);
+        QCOMPARE(settings.layoutPreset(), 1);
+        QCOMPARE(settings.messageLayout(),
+                 SettingsManager::kMessageLayoutSmallAvatars);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+        QCOMPARE(settings.threadPlacement(),
+                 SettingsManager::kThreadPlacementMain);
+        // One transaction: each moved key announced once.
+        QCOMPARE(layoutSpy.count(), 1);
+        QCOMPARE(spacingSpy.count(), 1);
+        QCOMPARE(placementSpy.count(), 1);
+        // Typography and palette untouched.
+        QCOMPARE(settings.textScale(), 120);
+        QCOMPARE(scaleSpy.count(), 0);
+        QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+        QVERIFY(!settings.layoutPresetCustomized());
+        QVERIFY(settings.presetSuppliesValue(QStringLiteral("messageSpacing")));
+
+        // A change while the preset is selected customizes the preset only.
+        settings.setMessageSpacing(SettingsManager::kSpacingCompact);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCompact);
+        QVERIFY(settings.layoutPresetCustomized());
+        QVERIFY(!settings.presetSuppliesValue(QStringLiteral("messageSpacing")));
+        QVERIFY(settings.presetSuppliesValue(QStringLiteral("messageLayout")));
+
+        // Back to Lightning: exactly what was there.
+        settings.setLayoutPreset(0);
+        QCOMPARE(settings.messageLayout(), 1);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingRoomy);
+        QCOMPARE(settings.threadPlacement(), 0);
+        QVERIFY(!settings.layoutPresetCustomized());
+        QVERIFY(!settings.presetSuppliesValue(QStringLiteral("messageLayout")));
+
+        // The preset remembers its override, and Reset drops only those.
+        settings.setLayoutPreset(1);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCompact);
+        settings.resetLayoutPresetOverrides();
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+        QVERIFY(!settings.layoutPresetCustomized());
+        QCOMPARE(settings.textScale(), 120);
+        settings.setThreadPlacement(0);
+    }
+    SettingsManager reopened;
+    QCOMPARE(reopened.layoutPreset(), 1);
+    QCOMPARE(reopened.threadPlacement(), 0);
+    QCOMPARE(reopened.messageLayout(),
+             SettingsManager::kMessageLayoutSmallAvatars);
+    reopened.setLayoutPreset(0);
+    QCOMPARE(reopened.messageLayout(), 1);
+    QCOMPARE(reopened.messageSpacing(), SettingsManager::kSpacingRoomy);
+}
+
+void SettingsSessionTest::layoutPresetIsPerAccount()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+    settings.setActiveAccountUserId(alice);
+    settings.setLayoutPreset(1);
+    settings.setMessageSpacing(SettingsManager::kSpacingRoomy);
+    QSignalSpy presetSpy(&settings, &SettingsManager::layoutPresetChanged);
+    settings.setActiveAccountUserId(bob);
+    QVERIFY(presetSpy.count() >= 1);
+    QCOMPARE(settings.layoutPreset(), 0);
+    QCOMPARE(settings.messageLayout(), 0);
+    QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+    settings.setLayoutPreset(1);
+    // Alice's override is hers.
+    QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.layoutPreset(), 1);
+    QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingRoomy);
 }
 
 void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()

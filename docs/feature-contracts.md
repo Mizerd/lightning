@@ -782,6 +782,27 @@ backend capability checks and honest live-test status.
     thread -- the panel's key, so a draft follows its thread between
     placements). Leaving edit mode (cancel or a sent edit) restores the
     pre-edit draft. Live homeserver/Element interop of inline mode: NOT TESTED.
+- **Layout preset (2026-10-25), Settings > Appearance > Layout preset:
+  Lightning / Nheko compact.** `layoutPreset` (account-scoped, synced) is a
+  PROFILE for the presentation keys `messageLayout`, `messageSpacing` and
+  `threadPlacement`: in Nheko compact their getters answer the profile's own
+  override (`ui/nhekoCompact/*`, account-scoped, never synced or exported)
+  else the preset's value (Small avatars, Cozy spacing, threads in the main
+  view), and their setters write that override. The Lightning values are
+  never written by the preset, so switching back restores them exactly; a
+  preset change announces only the keys whose answer moved (one transaction).
+  `layoutPresetCustomized`, `presetSuppliesValue(key)` and
+  `resetLayoutPresetOverrides()` drive the Settings hint, per-control origin
+  label (`PresetOriginLabel`) and Reset. Fonts, text scale, palette, privacy,
+  notification and media choices are not presentation keys. Message layout 3
+  "Small avatars" (also selectable on its own): flat rows, a 20 px avatar in
+  the sender header ABOVE the body (`senderHeaderAvatar`), no gutter avatar,
+  2 px between continuations and 6 px between senders at Cozy, and the user's
+  own text size (unlike Compact, which drops avatars and uses 13 px). The
+  thread panel follows it. NOT YET in the preset (Part 2 ledger): room-list,
+  rail, header, composer and dialog density; the one-hour grouping window;
+  measured Nheko parity (NOT TESTED). Exporting while the preset is selected
+  writes effective values, and an import applies them to the selected profile.
 - **Thread panel parity (2026-10-23).** The panel composer has the room
   composer's `:shortcode` completion popup and `:alias: ` auto-convert
   through the SAME C++ rules (`MessageComposer::emojiCompletionsForText`,

@@ -1087,6 +1087,7 @@ set(APP_QML_FILES
     qml/IconButton.qml
     qml/AppButton.qml
     qml/SegmentedControl.qml
+    qml/PresetOriginLabel.qml
     qml/AppTextField.qml
     qml/AppComboBox.qml
     qml/AppSwitch.qml

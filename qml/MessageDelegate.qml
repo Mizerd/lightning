@@ -222,27 +222,38 @@ Item {
     readonly property bool deletedFollower:
         model.redacted === true && model.deletedGroupLeader === false
 
-    // 0 Modern, 1 Bubbles, 2 Compact. The thread panel always uses Modern;
-    // Bubbles applies only to direct-message timelines.
+    // 0 Modern, 1 Bubbles, 2 Compact, 3 Small avatars. The thread panel uses
+    // Modern, or Small avatars when that is the layout (it has no Bubbles or
+    // avatarless rows); Bubbles applies only to direct-message timelines.
     readonly property int timelineLayout:
-        inThreadPanel ? 0 : app.settings.messageLayout
+        inThreadPanel ? (app.settings.messageLayout === 3 ? 3 : 0)
+                      : app.settings.messageLayout
     property bool isDirectRoom: root.timelineView
                                 && root.timelineView.isDirectRoom === true
     readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom
     readonly property bool compactMode: timelineLayout === 2
+    // Nheko's small-avatar arrangement: flat rows, a small avatar beside the
+    // sender name ABOVE the first body, no permanent avatar gutter, and a
+    // tight continuation rhythm. Unlike Compact it keeps an avatar and the
+    // user's text size.
+    readonly property bool smallAvatarMode: timelineLayout === 3
+    readonly property int headerAvatarSize: 20
     readonly property real bubblePad: bubbleMode ? 10 : 0
 
     // Group leaders get a larger gap than continuation lines. Compact stays
     // dense.
     // Settings > Appearance > Message spacing moves both gaps by a fixed
     // amount (Cozy adds nothing); a gap never goes negative.
+    // Small avatars: Nheko's 2 px list rhythm between continuations, and a
+    // group gap that separates senders without the Modern band.
     readonly property real messageTopSpacing: showsIdentity
-        ? Math.max(0, (compactMode ? 2 : AppTheme.spacingM)
+        ? Math.max(0, (compactMode ? 2 : smallAvatarMode ? 6
+                                       : AppTheme.spacingM)
                       + AppTheme.messageGroupGapExtra)
-        : Math.max(0, (compactMode ? 0 : 1)
+        : Math.max(0, (compactMode ? 0 : smallAvatarMode ? 2 : 1)
                       + AppTheme.messageContinuationGapExtra)
-    readonly property real avatarGutterWidth: compactMode ? 8
-                                              : (bubbleMode ? 44 : 40)
+    readonly property real avatarGutterWidth: (compactMode || smallAvatarMode)
+                                              ? 8 : (bubbleMode ? 44 : 40)
 
     // On-screen check for skeleton shimmer and GIF playback. Settable: in the
     // room timeline this item sits inside a per-row Loader (its own y is 0), so
@@ -1736,12 +1747,16 @@ Item {
                 x: 0
                 width: root.avatarGutterWidth
                 height: parent.height
-                implicitHeight: root.showsIdentity ? 34 : bodyLabel.implicitHeight
+                // Small avatars has no gutter avatar, so the gutter must not
+                // hold a short identity row open at the 34 px avatar height.
+                implicitHeight: root.showsIdentity && !root.smallAvatarMode
+                                ? 34 : bodyLabel.implicitHeight
 
                 Avatar {
                     objectName: "senderAvatar"
                     anchors.top: parent.top
                     visible: root.showsIdentity && !root.compactMode
+                             && !root.smallAvatarMode
                              && !(root.bubbleMode && model.isOwn === true)
                     onScreen: root.rowOnScreen
                     size: 32
@@ -1775,7 +1790,8 @@ Item {
                     // While selecting the gutter belongs to the selection
                     // circle.
                     active: !root.showsIdentity && rowHover.hovered
-                            && !root.compactMode && !root.selectionMode
+                            && !root.compactMode && !root.smallAvatarMode
+                            && !root.selectionMode
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
                         // The app-wide clock format (Settings -> Appearance),
@@ -1949,6 +1965,32 @@ Item {
                         id: identityHeader
                         objectName: "senderIdentityHeader"
                         spacing: 6
+                        // Small avatars: the sender's avatar rides in the
+                        // header, above the body, instead of in a gutter.
+                        Loader {
+                            active: root.smallAvatarMode
+                            visible: active
+                            Layout.alignment: Qt.AlignVCenter
+                            sourceComponent: Avatar {
+                                objectName: "senderHeaderAvatar"
+                                onScreen: root.rowOnScreen
+                                size: root.headerAvatarSize
+                                mxc: model.senderAvatarMxc || ""
+                                name: model.senderDisplayName
+                                      || model.senderInitials
+                                colorKey: model.sender || ""
+                                Accessible.name: qsTr("Avatar for %1").arg(
+                                    model.senderDisplayName || model.sender)
+                                TapHandler {
+                                    enabled: root.rowActionsEnabled
+                                    acceptedButtons: Qt.LeftButton
+                                    onTapped: root.openSenderProfileForRow(parent)
+                                }
+                                HoverHandler {
+                                    cursorShape: Qt.PointingHandCursor
+                                }
+                            }
+                        }
                         Label {
                             id: nameLabel
                             objectName: "senderName"

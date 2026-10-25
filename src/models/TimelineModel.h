@@ -299,6 +299,14 @@ public:
     QString threadFilterRootId() const { return m_threadFilterRootId; }
     void setThreadFilterRootId(const QString &rootEventId);
     bool hideThreadReplies() const { return m_hideThreadReplies; }
+    // Visual sender grouping: consecutive messages of one sender share one
+    // identity header while each follows the previous within this window
+    // (and on the same day, in the same thread context). A presentation
+    // policy only -- it changes no history, membership or receipt. Default
+    // 300 s (Element/Discord); the Nheko compact preset uses Nheko's hour.
+    static constexpr int kDefaultSenderGroupWindowSeconds = 5 * 60;
+    int senderGroupWindowSeconds() const { return m_senderGroupWindowSeconds; }
+    void setSenderGroupWindowSeconds(int seconds);
     void setHideThreadReplies(bool hide);
     // Leave the one-thread view (hideThreadReplies, a preference, stays).
     Q_INVOKABLE void clearThreadFilters();
@@ -765,4 +773,5 @@ private:
     bool m_threadRepliesInline = false;
     QString m_threadFilterRootId;
     bool m_hideThreadReplies = false;
+    int m_senderGroupWindowSeconds = kDefaultSenderGroupWindowSeconds;
 };

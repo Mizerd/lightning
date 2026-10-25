@@ -187,6 +187,7 @@ private Q_SLOTS:
     void senderIdentityRolesUseSdkProfileAndSafeAvatarMxc();
     void senderGroupingBoundariesAreDeterministic();
     void readMarkerDoesNotBreakSenderGroupButVisibleRowsDo();
+    void senderGroupsBreakAtThreadContextAndFollowTheWindowPolicy();
     void anUndecryptableThreadReplyIsANoticeNotAMessage();
     void mediaAndPaginationPreserveSenderGrouping();
     void groupingRefreshCoalescesAcrossPrependBurst();
@@ -1806,6 +1807,42 @@ void TimelineModelDiffTest::senderGroupingBoundariesAreDeterministic()
     QVERIFY(m_model->data(m_model->index(0), TimelineModel::IsOwnRole).toBool());
     QVERIFY(m_model->data(m_model->index(0), TimelineModel::BeginsSenderGroupRole).toBool());
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+}
+
+// One person's room message and their reply in a thread are different
+// conversations in a room that interleaves thread replies: each keeps its own
+// header. And the grouping window is a presentation policy (Nheko compact uses
+// an hour) that regroups every row without touching history.
+void TimelineModelDiffTest::senderGroupsBreakAtThreadContextAndFollowTheWindowPolicy()
+{
+    const QDateTime base(QDate(2026, 7, 13), QTime(12, 0), QTimeZone::UTC);
+    auto room = makeEvent(QStringLiteral("$room"), QStringLiteral("in the room"));
+    room.timestamp = base;
+    auto inThread = makeEvent(QStringLiteral("$reply"), QStringLiteral("in a thread"));
+    inThread.timestamp = base.addSecs(30);
+    inThread.threadRootId = QStringLiteral("$root");
+    auto inThreadToo = makeEvent(QStringLiteral("$reply2"), QStringLiteral("same thread"));
+    inThreadToo.timestamp = base.addSecs(40);
+    inThreadToo.threadRootId = QStringLiteral("$root");
+    auto later = makeEvent(QStringLiteral("$later"), QStringLiteral("twenty minutes on"));
+    later.timestamp = inThreadToo.timestamp.addSecs(20 * 60);
+    later.threadRootId = QStringLiteral("$root");
+    m_client->mirror = { room, inThread, inThreadToo, later };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QVERIFY2(m_model->data(m_model->index(1), TimelineModel::BeginsSenderGroupRole).toBool(),
+             "a thread reply after the same sender's room message must start a group");
+    QVERIFY(m_model->data(m_model->index(2), TimelineModel::ContinuesSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(3), TimelineModel::BeginsSenderGroupRole).toBool());
+
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    m_model->setSenderGroupWindowSeconds(60 * 60);
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(m_model->data(m_model->index(3), TimelineModel::ContinuesSenderGroupRole).toBool());
+    // The thread-context break holds whatever the window.
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::BeginsSenderGroupRole).toBool());
+    m_model->setSenderGroupWindowSeconds(TimelineModel::kDefaultSenderGroupWindowSeconds);
+    QVERIFY(m_model->data(m_model->index(3), TimelineModel::BeginsSenderGroupRole).toBool());
 }
 
 void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()

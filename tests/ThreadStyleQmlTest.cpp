@@ -6,6 +6,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QFile>
+#include <QFont>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -400,6 +401,64 @@ ApplicationWindow {
         QTRY_VERIFY(!item("roomColumn")->isVisible());
         // The style still keeps replies out of the room.
         QCOMPARE(repliesIn(root).size(), 0);
+    }
+
+    // Nheko compact in one click: the room renders in Small avatars -- a 20 px
+    // avatar in the sender header above the body, no gutter avatar, 2 px
+    // between continuations -- and the text size is the user's own.
+    void nhekoCompactPresetRendersSmallAvatarRows()
+    {
+        openDevRoom();
+        const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
+        QTRY_VERIFY(rowHeight(later) > 0);
+        QQuickItem *row = rowFor(later);
+        QVERIFY(row);
+        const qreal bodyPixelSizeBefore = [&] {
+            const auto bodies = itemsNamed(QStringLiteral("messageBody"), row);
+            return bodies.isEmpty() ? -1.0
+                                    : bodies.first()->property("font")
+                                          .value<QFont>().pixelSize() * 1.0;
+        }();
+
+        QVERIFY(m_controller->settings()->setProperty("layoutPreset", 1));
+        QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 3);
+        // Every identity row: header avatar shown, gutter avatar hidden.
+        int identityRows = 0;
+        int continuationRows = 0;
+        for (const TimelineEvent &e : timeline()->events()) {
+            QQuickItem *r = rowFor(e.eventId);
+            if (!r || r->height() <= 0 || e.isVirtual())
+                continue;
+            const bool identity = r->property("showsIdentity").toBool();
+            const auto gutter = itemsNamed(QStringLiteral("senderAvatar"), r);
+            for (QQuickItem *g : gutter)
+                QVERIFY2(!g->isVisible(), "Small avatars draws no gutter avatar");
+            if (identity) {
+                const auto head = itemsNamed(QStringLiteral("senderHeaderAvatar"), r);
+                if (head.isEmpty())
+                    continue; // a state/notice row has no sender header
+                QVERIFY(head.first()->isVisible());
+                QCOMPARE(head.first()->width(), 20.0);
+                ++identityRows;
+            } else if (r->property("messageTopSpacing").isValid()
+                       && !r->property("isVirtualRow").toBool()) {
+                QCOMPARE(r->property("messageTopSpacing").toReal(), 2.0);
+                ++continuationRows;
+            }
+        }
+        QVERIFY2(identityRows >= 2, qPrintable(QString::number(identityRows)));
+        QVERIFY2(continuationRows >= 1, qPrintable(QString::number(continuationRows)));
+        // Typography preserved.
+        row = rowFor(later);
+        const auto bodies = itemsNamed(QStringLiteral("messageBody"), row);
+        if (bodyPixelSizeBefore > 0 && !bodies.isEmpty())
+            QCOMPARE(bodies.first()->property("font").value<QFont>().pixelSize() * 1.0,
+                     bodyPixelSizeBefore);
+
+        // Back to Lightning: Modern rows again.
+        QVERIFY(m_controller->settings()->setProperty("layoutPreset", 0));
+        QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 0);
+        QTRY_VERIFY(itemsNamed(QStringLiteral("senderHeaderAvatar")).isEmpty());
     }
 
     void headerSwitchHidesThreadRepliesAndPersists()

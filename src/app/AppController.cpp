@@ -532,6 +532,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(AppLocale::instance(), &AppLocale::changed,
             m_eventContext->model(), &TimelineModel::retranslate);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
+    // Sender grouping window: a presentation policy of the layout preset
+    // (Nheko compact repeats a sender's header only after an hour, as Nheko
+    // does; Lightning keeps five minutes). Both conversation models follow.
+    const auto applySenderGrouping = [this] {
+        const int window =
+            m_settings->layoutPreset() == SettingsManager::kLayoutPresetNhekoCompact
+            ? 60 * 60 : TimelineModel::kDefaultSenderGroupWindowSeconds;
+        m_timeline->setSenderGroupWindowSeconds(window);
+        if (m_thread && m_thread->model())
+            m_thread->model()->setSenderGroupWindowSeconds(window);
+    };
+    applySenderGrouping();
+    connect(m_settings.get(), &SettingsManager::layoutPresetChanged, this,
+            applySenderGrouping);
     // The rich composer bridge serves both composers.
     m_richComposer->setThread(m_thread.get());
     m_conversations= std::make_unique<ConversationController>(this);
