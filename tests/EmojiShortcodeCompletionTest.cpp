@@ -26,6 +26,7 @@ public:
     explicit RecordingClient(QObject *parent = nullptr) : MatrixClient(parent) {}
 
     QStringList sentBodies;
+    QList<QVariantMap> sentSpecs;
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -59,8 +60,8 @@ public:
     void sendReply(const QString &, const QString &, const QString &) override {}
     void editMessage(const QString &, const QString &, const QString &) override {}
     void sendTextMessage(const QString &, const QString &body,
-                         const QStringList &, const QVariantMap &) override
-    { sentBodies.append(body); }
+                         const QStringList &, const QVariantMap &spec) override
+    { sentBodies.append(body); sentSpecs.append(spec); }
     void sendReply(const QString &, const QString &, const QString &body,
                    const QStringList &, const QVariantMap &) override
     { sentBodies.append(body); }
@@ -326,6 +327,88 @@ private Q_SLOTS:
         m_composer->send();
         QCOMPARE(m_client->sentBodies,
                  QStringList{ QStringLiteral("`:thumbsup:` literal") });
+    }
+
+    // ── Explicit selection (Matrix v1.19 image packs) ─────────────────────
+
+    QVariantMap row(const QString &key, const QString &url, const QString &body)
+    {
+        return QVariantMap{ { QStringLiteral("key"), key },
+                            { QStringLiteral("shortcode"), key },
+                            { QStringLiteral("url"), url },
+                            { QStringLiteral("body"), body } };
+    }
+
+    void aChosenImageIsSentNotWhicheverPackOwnsTheShortcodeLater()
+    {
+        // PACK-LTN-023/024, PACK-PRO-032: two packs have `:blob_wave:`; the
+        // user picked the second. The send-time resolver (standing in for
+        // "today's packs") would say mxc://x/1 - or nothing when ambiguous.
+        m_composer->setText(QStringLiteral("hi :blob"));
+        const int pos = m_composer->acceptEmoticonCompletionAt(
+            8, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"),
+                   QStringLiteral("A waving blob")));
+        QCOMPARE(pos, 19);
+        QCOMPARE(m_composer->text(), QStringLiteral("hi :blob_wave: "));
+        QCOMPARE(m_composer->selectedEmoticons().size(), 1);
+        m_composer->send();
+        QCOMPARE(m_client->sentSpecs.size(), 1);
+        const QVariantMap chosen = m_client->sentSpecs.at(0)
+            .value(QStringLiteral("emoticons")).toMap()
+            .value(QStringLiteral(":blob_wave:")).toMap();
+        QCOMPARE(chosen.value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/2"));
+        QCOMPARE(chosen.value(QStringLiteral("body")).toString(),
+                 QStringLiteral("A waving blob"));
+        // A send retires the selection with the text.
+        QVERIFY(m_composer->selectedEmoticons().isEmpty());
+    }
+
+    void editingInsideAChosenTokenMakesItLiteralAndTypingAroundItKeepsIt()
+    {
+        m_composer->setText(QStringLiteral(":blob"));
+        m_composer->acceptEmoticonCompletionAt(
+            5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
+        // Typing before and after shifts the range; the image survives.
+        m_composer->setText(QStringLiteral("so :blob_wave: yes"));
+        QCOMPARE(m_composer->selectedEmoticons().size(), 1);
+        QCOMPARE(m_composer->selectedEmoticons().at(0).toMap()
+                     .value(QStringLiteral("start")).toInt(), 3);
+        // Editing inside it drops the selection: it is literal text now.
+        m_composer->setText(QStringLiteral("so :blob_wavy: yes"));
+        QVERIFY(m_composer->selectedEmoticons().isEmpty());
+    }
+
+    void aSelectionSurvivesARoomRoundTripInMemoryAndNeverReachesTheThreadComposer()
+    {
+        // PACK-LTN-025 (in-memory half), PACK-CTX-003: the selection belongs
+        // to this room's draft, and the shared send pass used by the thread
+        // composer never applies it.
+        m_composer->setText(QStringLiteral(":blob"));
+        m_composer->acceptEmoticonCompletionAt(
+            5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
+        QString body = QStringLiteral(":blob_wave:");
+        QVariantMap spec;
+        m_composer->applyOutgoingEmoji(body, spec);
+        QCOMPARE(spec.value(QStringLiteral("emoticons")).toMap()
+                     .value(QStringLiteral(":blob_wave:")).toString(),
+                 QStringLiteral("mxc://x/1"));  // the typed rule, not the choice
+        m_composer->setRoomId(QStringLiteral("!other:example.org"));
+        QVERIFY(m_composer->selectedEmoticons().isEmpty());
+        m_composer->setRoomId(kRoom);
+        // The draft store is absent in this fixture, so the text did not come
+        // back and neither may a selection without its text.
+        QVERIFY(m_composer->selectedEmoticons().isEmpty());
+    }
+
+    void anAmbiguousTypedShortcodeStaysLiteral()
+    {
+        // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);
+        // nothing is substituted rather than picking the first pack.
+        m_composer->setEmoticonResolver([](const QString &) { return QString(); });
+        m_composer->setText(QStringLiteral("x :blob_wave: y"));
+        m_composer->send();
+        QCOMPARE(m_client->sentSpecs.size(), 1);
+        QVERIFY(!m_client->sentSpecs.at(0).contains(QStringLiteral("emoticons")));
     }
 
 private:

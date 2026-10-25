@@ -742,8 +742,8 @@ Item {
             var pos = entry.kind === "unicode"
                 ? app.composer.acceptUnicodeEmojiCompletionAt(
                       editor.cursorPosition, entry.emoji)
-                : app.composer.acceptEmojiCompletionAt(
-                      editor.cursorPosition, entry.shortcode)
+                : app.composer.acceptEmoticonCompletionAt(
+                      editor.cursorPosition, entry)
             if (pos >= 0)
                 editor.cursorPosition = pos
             emojiPopup.close()

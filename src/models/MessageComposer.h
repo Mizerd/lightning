@@ -201,6 +201,16 @@ public:
     /// the new cursor position, or -1 when there was nothing to replace.
     Q_INVOKABLE int acceptEmojiCompletionAt(int cursorPos,
                                             const QString &shortcode);
+    /// As acceptEmojiCompletionAt for a CUSTOM image row (findEmoticons'
+    /// shape), and records the exact image chosen (url, description, key)
+    /// against the inserted `:shortcode:` range. Sending uses that image, not
+    /// whichever pack happens to own the shortcode at send time; an edit
+    /// inside the range turns it back into literal text.
+    Q_INVOKABLE int acceptEmoticonCompletionAt(int cursorPos,
+                                               const QVariantMap &entry);
+    /// The live selections, [{text, url, body, key, start, length}], for
+    /// presentation and tests. Never persisted to disk.
+    Q_INVOKABLE QVariantList selectedEmoticons() const;
     /// Replace the `:token` under the caret with `emoji ` (the character
     /// itself, already skin-tone adjusted by the caller) and return the new
     /// cursor position, or -1 when there was nothing to replace. Records the
@@ -483,6 +493,27 @@ private:
     QString m_replyThreadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;
+    // Custom images the user explicitly chose, by the `:shortcode:` range they
+    // occupy in m_text. Kept in memory only (per room while switching rooms,
+    // dropped at logout), so an encrypted-room draft's selections never reach
+    // disk.
+    struct EmoticonRef {
+        QString displayText;  // ":shortcode:"
+        QString url;
+        QString body;
+        QString key;
+        int start = 0;
+        int length = 0;
+    };
+    QList<EmoticonRef> m_emoticonRefs;
+    QHash<QString, QList<EmoticonRef>> m_emoticonRefsByRoom;
+    static QList<EmoticonRef> shiftEmoticonRefs(const QList<EmoticonRef> &refs,
+                                                const QString &oldText,
+                                                const QString &newText);
+    // ":shortcode:" -> {url, body} for the live selections.
+    QVariantMap selectedEmoticonMap() const;
+    void applyOutgoingEmojiWith(QString &body, QVariantMap &bodySpec,
+                                const QVariantMap &selected) const;
     QString m_commandError;
     QVariantMap m_commandPermissions;
     // Voice send ops in flight, each with the recording file it owns and its

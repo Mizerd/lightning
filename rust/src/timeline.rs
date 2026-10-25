@@ -5951,10 +5951,21 @@ pub(crate) struct SendBodySpec {
     pub(crate) html: String,
     /// true = m.emote (the /me lane), false = m.text.
     pub(crate) emote: bool,
-    /// MSC2545 inline custom emoji: `:shortcode:` -> `mxc://…` for shortcodes
-    /// the composer recognised. Substituted here because the default path is
-    /// markdown, and C++ building `<img>` would force `format: html`.
-    pub(crate) emoticons: Vec<(String, String)>,
+    /// Inline custom emoji (Matrix v1.19 image packs): one entry per
+    /// `:shortcode:` the composer bound to an image. Substituted here because
+    /// the default path is markdown, and C++ building `<img>` would force
+    /// `format: html`.
+    pub(crate) emoticons: Vec<OutgoingEmoticon>,
+}
+
+/// One selected inline image: the `:shortcode:` text it replaces, the exact
+/// mxc the user chose, and the image's description (`alt`; v1.19: the image's
+/// `body`, falling back to the shortcode). `title` is the shortcode.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OutgoingEmoticon {
+    pub code: String,
+    pub mxc: String,
+    pub alt: String,
 }
 
 impl Default for SendBodySpec {
@@ -5995,22 +6006,46 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
         "emote" => true,
         _ => return Err("Unknown body msgtype.".to_owned()),
     };
-    // ":code:" -> "mxc://…". Non-mxc values are dropped, not refused: one bad
-    // pack entry must not block the message.
-    let mut emoticons: Vec<(String, String)> = Vec::new();
+    // ":code:" -> "mxc://…" or {"url": "mxc://…", "body": "description"}.
+    // A value that is not a structurally valid mxc is dropped, not refused: one
+    // bad pack entry must not block the message.
+    let mut emoticons: Vec<OutgoingEmoticon> = Vec::new();
     if let Some(map) = value.get("emoticons").and_then(|v| v.as_object()) {
         for (code, target) in map {
-            let Some(mxc) = target.as_str() else { continue };
-            if !mxc.starts_with("mxc://") || mxc.len() <= "mxc://".len() {
+            let (mxc, body) = match target {
+                serde_json::Value::String(mxc) => (mxc.as_str(), ""),
+                serde_json::Value::Object(o) => (
+                    o.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                    o.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                ),
+                _ => continue,
+            };
+            if !crate::stickers::is_valid_mxc(mxc) {
                 continue;
             }
             if code.len() < 3 || !code.starts_with(':') || !code.ends_with(':') {
                 continue;
             }
-            emoticons.push((code.clone(), mxc.to_owned()));
+            // One line, bounded: a description is an attribute, not a document.
+            let body: String = body
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(160)
+                .collect();
+            let alt = if body.is_empty() {
+                code.trim_matches(':').to_owned()
+            } else {
+                body
+            };
+            emoticons.push(OutgoingEmoticon { code: code.clone(), mxc: mxc.to_owned(), alt });
         }
         // Longest first, so `:blob_wave:` is not eaten by `:blob:`.
-        emoticons.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        emoticons.sort_by(|a, b| b.code.len().cmp(&a.code.len()));
     }
     Ok(SendBodySpec { format, html, emote, emoticons })
 }
@@ -6021,7 +6056,7 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
 /// Not inside a tag (attributes contain colons), not inside `<code>`/`<pre>`,
 /// and not inside a URL run (`http://host/:foo:`). The plain body keeps the
 /// shortcodes, which is the fallback MSC2545 asks for.
-fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
+fn substitute_emoticons(html: &str, emoticons: &[OutgoingEmoticon]) -> String {
     if emoticons.is_empty() {
         return html.to_owned();
     }
@@ -6049,7 +6084,8 @@ fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
         }
         if literal_depth == 0 && bytes[i] == b':' {
             let mut matched = false;
-            for (code, mxc) in emoticons {
+            for emoticon in emoticons {
+                let (code, mxc) = (&emoticon.code, &emoticon.mxc);
                 if html[i..].starts_with(code.as_str()) {
                     // Not inside a URL run: look back for a scheme separator with no
                     // whitespace since. Bytes, not chars: 160 bytes back can land inside a
@@ -6067,11 +6103,14 @@ fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
                     if in_url {
                         break;
                     }
+                    // v1.19: alt is the image's description (falling back to
+                    // the shortcode), title the shortcode, height 32 for
+                    // older receivers; both attributes escaped.
                     let label = code.trim_matches(':');
                     out.push_str("<img data-mx-emoticon src=\"");
-                    out.push_str(mxc);
+                    out.push_str(&html_escape_attr(mxc));
                     out.push_str("\" alt=\"");
-                    out.push_str(&html_escape_attr(code));
+                    out.push_str(&html_escape_attr(&emoticon.alt));
                     out.push_str("\" title=\"");
                     out.push_str(&html_escape_attr(label));
                     out.push_str("\" height=\"32\">");
@@ -7368,7 +7407,8 @@ mod tests {
     fn an_emoticon_scan_does_not_panic_on_a_long_multibyte_body() {
         // 160 bytes back from the end lands mid code point for 3-byte characters.
         let body = "\u{65e5}".repeat(54);
-        let emoticons = vec![(":tada:".to_owned(), "mxc://x/y".to_owned())];
+        let emoticons = vec![super::OutgoingEmoticon {
+            code: ":tada:".to_owned(), mxc: "mxc://x/y".to_owned(), alt: "tada".to_owned() }];
         let out = substitute_emoticons(&format!("{body}:tada:"), &emoticons);
         assert!(out.contains("mxc://x/y"), "the emoticon was not substituted");
     }
@@ -8180,10 +8220,42 @@ mod tests {
                         "{}", formatted.body);
                 assert!(formatted.body.contains("mxc://e.org/blob"),
                         "{}", formatted.body);
-                assert!(!formatted.body.contains(":blob:")
-                            || formatted.body.contains("alt=\":blob:\""),
+                assert!(!formatted.body.contains(":blob:"),
                         "the shortcode text was left beside the image: {}",
                         formatted.body);
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// PACK-LTN-026 / PACK-PRO-028: alt carries the selected image's
+    /// description, title the shortcode; both escaped; a non-mxc or malformed
+    /// target never reaches the event.
+    #[test]
+    fn a_selected_image_sends_its_description_as_alt_and_shortcode_as_title() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(
+            r#"{"format":"markdown","emoticons":{
+                ":Cat_Wave:":{"url":"mxc://packs.example.org/catWave","body":"A cat \"waving\" <hello> & bye"},
+                ":plain:":"mxc://e.org/plain",
+                ":evil:":{"url":"https://tracker.example/x.png","body":"x"},
+                ":bad:":{"url":"mxc://e.org/a/b?c","body":"x"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.emoticons.len(), 2, "{:?}", spec.emoticons);
+        match composed_content("Hello :Cat_Wave: :plain: :evil:", &spec).msgtype {
+            MessageType::Text(text) => {
+                assert_eq!(text.body, "Hello :Cat_Wave: :plain: :evil:");
+                let html = text.formatted.expect("formatted").body;
+                assert!(html.contains(r#"src="mxc://packs.example.org/catWave""#), "{html}");
+                assert!(html.contains(
+                    r#"alt="A cat &quot;waving&quot; &lt;hello&gt; &amp; bye""#), "{html}");
+                assert!(html.contains(r#"title="Cat_Wave""#), "{html}");
+                assert!(html.contains(r#"height="32""#), "{html}");
+                // No body: the shortcode is the description.
+                assert!(html.contains(r#"alt="plain" title="plain""#), "{html}");
+                assert!(!html.contains("tracker.example"), "{html}");
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
@@ -8213,7 +8285,8 @@ mod tests {
     #[test]
     fn shortcodes_are_left_alone_where_they_are_not_emoji() {
         use super::substitute_emoticons;
-        let map = vec![(":blob:".to_owned(), "mxc://e.org/blob".to_owned())];
+        let map = vec![super::OutgoingEmoticon {
+            code: ":blob:".to_owned(), mxc: "mxc://e.org/blob".to_owned(), alt: "blob".to_owned() }];
 
         // Inside a code span or block: literal.
         for literal in [

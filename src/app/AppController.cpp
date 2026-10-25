@@ -738,9 +738,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         [this](const QString &prefix, int limit) {
             return m_stickers->findEmoticons(prefix, limit);
         });
+    // A typed (not chosen) `:shortcode:` resolves only when unambiguous; a
+    // chosen one carries its exact image (MessageComposer selections).
     m_composer->setEmoticonResolver([this](const QString &shortcode) {
-        const QVariantMap found = m_stickers->emoticon(shortcode);
-        return found.value(QStringLiteral("url")).toString();
+        return m_stickers->uniqueEmoticonUrl(shortcode);
     });
     // Standard Unicode emoji in the same `:query` popup (":thumbs" -> 👍),
     // merged with the custom packs above by MessageComposer::emojiCompletionsAt.

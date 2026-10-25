@@ -112,6 +112,13 @@ void MessageComposer::restoreDraft()
     m_restoringDraft = true;
     m_text = draft.value(QStringLiteral("text")).toString();
     m_mentionRefs.clear();
+    // Selections live in memory only; restore those still matching the text.
+    m_emoticonRefs.clear();
+    for (const EmoticonRef &ref : m_emoticonRefsByRoom.take(m_roomId)) {
+        if (ref.start >= 0 && ref.start + ref.length <= m_text.size()
+            && m_text.mid(ref.start, ref.length) == ref.displayText)
+            m_emoticonRefs.append(ref);
+    }
     const QVariantList refs = draft.value(QStringLiteral("mentions")).toList();
     for (const QVariant &value : refs) {
         const QVariantMap map = value.toMap();
@@ -186,6 +193,8 @@ void MessageComposer::setClient(MatrixClient *client)
                 Q_EMIT textChanged();
             }
             m_mentionRefs.clear();
+            m_emoticonRefs.clear();
+            m_emoticonRefsByRoom.clear();
             Q_EMIT mentionRangesChanged();
             Q_EMIT roomIdChanged();
             updateCanSend();
@@ -652,6 +661,7 @@ void MessageComposer::setText(const QString &t)
     // Keep mention ranges in sync with ordinary edits; a ref whose slice no
     // longer matches is dropped.
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
+    m_emoticonRefs = shiftEmoticonRefs(m_emoticonRefs, m_text, t);
     m_text = t;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
@@ -698,6 +708,9 @@ void MessageComposer::setRoomId(const QString &r)
         }
     }
     m_attachments->clearAll();
+    if (!m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
+        m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
+    m_emoticonRefs.clear();
     m_roomId = r;
     m_text.clear();
     m_mentionRefs.clear();
@@ -930,7 +943,7 @@ void MessageComposer::sendComposed(const QString &body,
     // already ran in sendInternal and is idempotent.
     QString outBody = body;
     QVariantMap bodySpec = bodySpecIn;
-    applyOutgoingEmoji(outBody, bodySpec);
+    applyOutgoingEmojiWith(outBody, bodySpec, selectedEmoticonMap());
     if (!m_threadRootId.isEmpty()) {
         // Thread replies. The HTTP backend falls back to sendReply.
         m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), outBody,
@@ -1319,11 +1332,27 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
 void MessageComposer::applyOutgoingEmoji(QString &body,
                                          QVariantMap &bodySpec) const
 {
+    // No selections: this entry point also serves the THREAD composer, whose
+    // text is not m_text, so this composer's selections must never apply.
+    applyOutgoingEmojiWith(body, bodySpec, QVariantMap());
+}
+
+void MessageComposer::applyOutgoingEmojiWith(QString &body,
+                                             QVariantMap &bodySpec,
+                                             const QVariantMap &selected) const
+{
     // The "or send" half of the Unicode auto-convert, for the markdown lane
     // only (an html body is already what the user saw).
     if (m_emojiAutoConvert && !bodySpec.contains(QStringLiteral("format")))
         body = convertUnicodeShortcodesForSend(body);
-    const QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
+    // Typed `:shortcode:`s resolve only when exactly one usable image has that
+    // key (the resolver's rule); an explicit selection always wins for its
+    // text, and is never re-resolved against today's packs.
+    QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
+    for (auto it = selected.cbegin(); it != selected.cend(); ++it) {
+        if (body.contains(it.key()))
+            emoticons.insert(it.key(), it.value());
+    }
     if (emoticons.isEmpty())
         return;
     if (!bodySpec.contains(QStringLiteral("format")))
@@ -1343,6 +1372,96 @@ int MessageComposer::acceptEmojiCompletionAt(int cursorPos,
     next.replace(token.first, token.second, replacement);
     setText(next);
     return token.first + replacement.length();
+}
+
+int MessageComposer::acceptEmoticonCompletionAt(int cursorPos,
+                                                const QVariantMap &entry)
+{
+    const QString key = entry.value(QStringLiteral("key"),
+                                    entry.value(QStringLiteral("shortcode")))
+                            .toString();
+    const QString url = entry.value(QStringLiteral("url")).toString();
+    const auto token = emojiTokenAt(m_text, cursorPos);
+    if (token.first < 0 || key.isEmpty() || !url.startsWith(QLatin1String("mxc://")))
+        return -1;
+    const QString code = QLatin1Char(':') + key + QLatin1Char(':');
+    QString next = m_text;
+    next.replace(token.first, token.second, code + QLatin1Char(' '));
+    setText(next);
+    EmoticonRef ref;
+    ref.displayText = code;
+    ref.url = url;
+    ref.body = entry.value(QStringLiteral("body")).toString();
+    ref.key = key;
+    ref.start = token.first;
+    ref.length = code.length();
+    // One image per shortcode text in a message: a later choice for the same
+    // text replaces an earlier one everywhere it appears.
+    for (EmoticonRef &existing : m_emoticonRefs) {
+        if (existing.displayText == code) {
+            existing.url = ref.url;
+            existing.body = ref.body;
+        }
+    }
+    m_emoticonRefs.append(ref);
+    return token.first + code.length() + 1;
+}
+
+QVariantList MessageComposer::selectedEmoticons() const
+{
+    QVariantList out;
+    for (const EmoticonRef &ref : m_emoticonRefs) {
+        out.append(QVariantMap{
+            { QStringLiteral("text"), ref.displayText },
+            { QStringLiteral("url"), ref.url },
+            { QStringLiteral("body"), ref.body },
+            { QStringLiteral("key"), ref.key },
+            { QStringLiteral("start"), ref.start },
+            { QStringLiteral("length"), ref.length },
+        });
+    }
+    return out;
+}
+
+QVariantMap MessageComposer::selectedEmoticonMap() const
+{
+    QVariantMap out;
+    for (const EmoticonRef &ref : m_emoticonRefs) {
+        out.insert(ref.displayText, QVariantMap{
+            { QStringLiteral("url"), ref.url },
+            { QStringLiteral("body"), ref.body },
+        });
+    }
+    return out;
+}
+
+QList<MessageComposer::EmoticonRef>
+MessageComposer::shiftEmoticonRefs(const QList<EmoticonRef> &refs,
+                                   const QString &oldText,
+                                   const QString &newText)
+{
+    if (refs.isEmpty())
+        return {};
+    // The mention rule, reused: kept before the edit, shifted after it,
+    // dropped (back to literal text) when the edit touches its range.
+    QList<mention::MentionRef> ranges;
+    ranges.reserve(refs.size());
+    for (int i = 0; i < refs.size(); ++i) {
+        mention::MentionRef r;
+        r.userId = QString::number(i);
+        r.displayText = refs.at(i).displayText;
+        r.start = refs.at(i).start;
+        r.length = refs.at(i).length;
+        ranges.append(r);
+    }
+    QList<EmoticonRef> out;
+    for (const mention::MentionRef &moved :
+         mention::shiftRefs(ranges, oldText, newText)) {
+        EmoticonRef ref = refs.at(moved.userId.toInt());
+        ref.start = moved.start;
+        out.append(ref);
+    }
+    return out;
 }
 
 int MessageComposer::acceptUnicodeEmojiCompletionAt(int cursorPos,
@@ -1407,6 +1526,8 @@ void MessageComposer::clear()
     if (m_drafts && !m_roomId.isEmpty())
         m_drafts->clear(draftKey());
     m_mentionRefs.clear();
+    m_emoticonRefs.clear();
+    m_emoticonRefsByRoom.remove(m_roomId);
     Q_EMIT mentionRangesChanged();
     if (m_text.isEmpty()) return;
     m_text.clear();

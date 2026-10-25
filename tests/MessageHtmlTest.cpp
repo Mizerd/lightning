@@ -607,6 +607,41 @@ private Q_SLOTS:
         QVERIFY2(!rebuilt.contains(QStringLiteral("class")), qPrintable(rebuilt));
     }
 
+    // Matrix v1.19: alt is the description, title the shortcode; kept apart
+    // (the old sanitizer copied alt over title, so a screen reader and the
+    // hover both got one of them). Malformed mxc shapes render nothing.
+    void anEmoticonKeepsItsDescriptionAndShortcodeApart()
+    {
+        const QString kept = sanitize(QStringLiteral(
+            "<img data-mx-emoticon src=\"mxc://packs.example.org/catWave\" "
+            "alt=\"A cat &quot;waving&quot; hello\" title=\"Cat_Wave\" height=\"32\" />"));
+        QVERIFY2(kept.contains(QStringLiteral("alt=\"A cat &quot;waving&quot; hello\"")),
+                 qPrintable(kept));
+        QVERIFY2(kept.contains(QStringLiteral("title=\"Cat_Wave\"")), qPrintable(kept));
+        // Not cached yet: the shortcode stands in, not the long description.
+        const QString pending = MessageHtml::resolveInlineImages(
+            kept, [](const QString &) { return QString(); });
+        QVERIFY2(pending.contains(QStringLiteral(":Cat_Wave:")), qPrintable(pending));
+        QVERIFY2(!pending.contains(QStringLiteral("waving")), qPrintable(pending));
+        // The marker's VALUE is irrelevant; its presence is what counts.
+        for (const QString &marker : { QStringLiteral("data-mx-emoticon"),
+                                       QStringLiteral("data-mx-emoticon=\"\""),
+                                       QStringLiteral("data-mx-emoticon=\"no\"") }) {
+            const QString out = sanitize(QStringLiteral("<img ") + marker
+                + QStringLiteral(" src=\"mxc://e.org/b\" alt=\"b\">"));
+            QVERIFY2(out.contains(QStringLiteral("mxc://e.org/b")), qPrintable(out));
+        }
+        for (const QString &bad : { QStringLiteral("mxc://e.org/a/b"),
+                                    QStringLiteral("mxc://e.org/a?x=1"),
+                                    QStringLiteral("mxc://e.org/a#f"),
+                                    QStringLiteral("mxc://e.org/.."),
+                                    QStringLiteral("mxc://user@e.org/a") }) {
+            const QString out = sanitize(QStringLiteral("<img data-mx-emoticon src=\"")
+                + bad + QStringLiteral("\">"));
+            QVERIFY2(!out.contains(QStringLiteral("<img")), qPrintable(bad + " -> " + out));
+        }
+    }
+
     // resolveInlineImages() is a separate render-only step: sanitize() keeps
     // the mxc, so the edit path never sends a local image:// URL.
     void resolvingAnEmojiNeverChangesWhatAnEditWouldSend()

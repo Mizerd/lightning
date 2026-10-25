@@ -1006,25 +1006,45 @@ QString MessageHtml::sanitize(
                 || src.length() <= int(sizeof("mxc://") - 1)) {
                 continue;   // unaddressable, or not ours to fetch
             }
-            // An mxc URI has no query, fragment or credentials; a value with
-            // any of those is not one.
-            if (src.contains(QLatin1Char('"')) || src.contains(QLatin1Char('<'))
-                || src.contains(QLatin1Char('>')) || src.contains(QLatin1Char(' '))) {
-                continue;
+            // An mxc URI is `mxc://<server>/<media id>` and the media id is
+            // ASCII alphanumerics, `_` and `-` only: no extra path, query,
+            // fragment, credentials or traversal (PACK-PRO-027).
+            {
+                static const QRegularExpression mxcShape(QStringLiteral(
+                    "^mxc://[A-Za-z0-9.:\\[\\]-]+/[A-Za-z0-9_-]+$"));
+                if (!mxcShape.match(src).hasMatch())
+                    continue;
             }
-            // The shortcode is remote text shown on hover and read by assistive
-            // technology: escaped and bounded.
-            QString alt = extractAttr(t.raw, QStringLiteral("alt"));
+            // Matrix v1.19: `alt` is the image's description and `title` its
+            // shortcode. Both are remote text shown on hover and read by
+            // assistive technology: kept separate, escaped and bounded.
+            // Attribute text arrives entity-encoded (a sender escapes quotes);
+            // decode the five XML entities once so re-escaping below does not
+            // turn `&quot;` into visible "&quot;" for a screen reader.
+            const auto decoded = [](QString v) {
+                v.replace(QLatin1String("&quot;"), QLatin1String("\""));
+                v.replace(QLatin1String("&#39;"), QLatin1String("'"));
+                v.replace(QLatin1String("&apos;"), QLatin1String("'"));
+                v.replace(QLatin1String("&lt;"), QLatin1String("<"));
+                v.replace(QLatin1String("&gt;"), QLatin1String(">"));
+                return v;
+            };
+            QString title = decoded(extractAttr(t.raw, QStringLiteral("title")));
+            QString alt = decoded(extractAttr(t.raw, QStringLiteral("alt")));
             if (alt.isEmpty())
-                alt = extractAttr(t.raw, QStringLiteral("title"));
-            alt.truncate(64);
+                alt = title;
+            if (title.isEmpty())
+                title = alt;
+            alt.truncate(160);
+            title.truncate(100);
             out += QStringLiteral("<img data-mx-emoticon src=\"")
                 + src.toHtmlEscaped() + QStringLiteral("\"");
-            if (!alt.isEmpty()) {
+            if (!alt.isEmpty())
                 out += QStringLiteral(" alt=\"") + alt.toHtmlEscaped()
-                    + QStringLiteral("\" title=\"") + alt.toHtmlEscaped()
                     + QStringLiteral("\"");
-            }
+            if (!title.isEmpty())
+                out += QStringLiteral(" title=\"") + title.toHtmlEscaped()
+                    + QStringLiteral("\"");
             // The sender's `height` is not honoured: a fixed inline size keeps
             // a remote emoticon from taking over the reader's message list.
             out += QStringLiteral(" height=\"20\" width=\"20\">");
@@ -1343,11 +1363,23 @@ QString MessageHtml::resolveInlineImages(
         if (source.isEmpty()) {
             // Not cached yet: show the shortcode rather than a broken-image
             // glyph; the fetch just started will re-render this.
+            // The SHORTCODE (title) as `:code:`, short like the glyph it stands
+            // for; the description (alt) only when no shortcode was sent.
             static const QRegularExpression altRe(
-                QStringLiteral("alt=\"([^\"]*)\""),
+                QStringLiteral("\\balt=\"([^\"]*)\""),
                 QRegularExpression::CaseInsensitiveOption);
+            static const QRegularExpression titleRe(
+                QStringLiteral("\\btitle=\"([^\"]*)\""),
+                QRegularExpression::CaseInsensitiveOption);
+            const auto title = titleRe.match(m.captured(2));
             const auto alt = altRe.match(m.captured(2));
-            out += alt.hasMatch() ? alt.captured(1) : QString();
+            if (title.hasMatch() && !title.captured(1).isEmpty()) {
+                const QString code = title.captured(1);
+                out += code.startsWith(QLatin1Char(':'))
+                    ? code : QLatin1Char(':') + code + QLatin1Char(':');
+            } else {
+                out += alt.hasMatch() ? alt.captured(1) : QString();
+            }
             continue;
         }
         out += QStringLiteral("<img src=\"") + source.toHtmlEscaped()
