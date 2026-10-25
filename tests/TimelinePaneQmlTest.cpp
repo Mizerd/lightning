@@ -10764,6 +10764,52 @@ private Q_SLOTS:
             timeline->property("diagNavigationLandings").toInt(), 1, 5000);
     }
 
+    // SC09: pressing the scroll bar's handle without moving it is the reader
+    // taking the view. Only movement used to cancel a pending landing, so a
+    // jump could still land under a handle held still.
+    void aScrollBarPressWithoutMovementAbandonsAPendingLanding()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QCoreApplication::processEvents();
+        QQuickItem *pane = timeline;
+        while (pane->parentItem() && !pane->findChild<QQuickItem *>(
+                   QStringLiteral("timelineScrollBar")))
+            pane = pane->parentItem();
+        auto *bar = pane->findChild<QQuickItem *>(
+            QStringLiteral("timelineScrollBar"));
+        QVERIFY(bar != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(bar->isVisible(), 5000);
+
+        QQmlExpression arm(qmlContext(timeline), timeline,
+                           QStringLiteral("beginNavigationLanding(50, 0, true)"));
+        arm.evaluate();
+        QVERIFY2(!arm.hasError(), arm.error().toString().toUtf8().constData());
+        QVERIFY2(!timeline->property("navigationPendingId").toString().isEmpty(),
+                 "the landing did not stay pending, so this case would pass "
+                 "vacuously");
+
+        const double size = bar->property("size").toDouble();
+        const double position = bar->property("position").toDouble();
+        const QPoint grab = bar->mapToScene(
+            QPointF(bar->width() / 2, (position + size / 2) * bar->height()))
+                                .toPoint();
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, grab);
+        QTRY_VERIFY(bar->property("pressed").toBool());
+        QCOMPARE(timeline->property("navigationPendingId").toString(),
+                 QString());
+        QTest::qWait(300);
+        QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, grab);
+    }
+
     // The opt-in incident recorder sees the main timeline's position writes
     // with their writer: an untagged snap from deep in the view to the oldest
     // loaded edge is reported (the user's "teleport to the top" shape),

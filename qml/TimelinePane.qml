@@ -6086,6 +6086,11 @@ Rectangle {
                 onPressedChanged: {
                     if (pressed) {
                         timeline.diagNoteInput("scrollbar")
+                        // A press is already the reader taking the view
+                        // (SC09): a pending jump or restore must not land
+                        // under a handle held still, then fight the drag.
+                        timeline.cancelWheelMotion()
+                        timeline.noteReaderTookControl()
                         timeline.beginExplicitTopApproach()
                     } else {
                         // A drag ends like any gesture: the settle saves the
