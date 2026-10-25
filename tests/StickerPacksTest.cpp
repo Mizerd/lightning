@@ -120,6 +120,13 @@ public:
         lastFetchOp = opId;
         lastFetchDeep = deep;
     }
+    int migrateCalls = 0;
+    quint64 lastMigrateOp = 0;
+    void migrateUserStickerPack(quint64 opId) override
+    {
+        ++migrateCalls;
+        lastMigrateOp = opId;
+    }
     int createCalls = 0;
     QString createRoom, createKey, createName, createUsage;
     void createStickerRoomPack(const QString &roomId, const QString &stateKey,
@@ -1436,6 +1443,45 @@ private Q_SLOTS:
         QCOMPARE(client.editAction, QStringLiteral("set_body"));
         QCOMPARE(client.editArgA, QStringLiteral("cat"));
         QCOMPARE(client.editArgB, QStringLiteral("A sleepy cat"));
+    }
+
+    void theMigrationPreviewSplitsByUsageAndARunReportsEachStep()
+    {
+        // PACK-MIG-001/002/003: the preview comes from the snapshot (nothing
+        // is written by looking), counts each new pack, and names what must
+        // stay behind; a run is single-flight and re-reads afterwards.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap bad = image(QStringLiteral("bad key"), QStringLiteral("mxc://e/9"),
+                                true, false);
+        bad.insert(QStringLiteral("key"), QStringLiteral("bad key"));
+        bad.insert(QStringLiteral("keyValid"), false);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"), QStringLiteral("Mine"),
+                   { image(QStringLiteral("s"), kMxcA, true, false),
+                     image(QStringLiteral("e"), kMxcB, false, true),
+                     image(QStringLiteral("b"), kMxcC, true, true), bad }) });
+        const QVariantMap preview = manager.userPackMigrationPreview();
+        QCOMPARE(preview.value(QStringLiteral("stickers")).toInt(), 1);
+        QCOMPARE(preview.value(QStringLiteral("emoji")).toInt(), 1);
+        QCOMPARE(preview.value(QStringLiteral("both")).toInt(), 1);
+        QCOMPARE(preview.value(QStringLiteral("invalid")).toInt(), 1);
+        QCOMPARE(client.migrateCalls, 0);
+
+        QSignalSpy done(&manager, &StickerPackManager::migrationFinished);
+        manager.migrateUserPack();
+        manager.migrateUserPack();
+        QCOMPARE(client.migrateCalls, 1);
+        QVERIFY(manager.migrating());
+        const int fetches = client.fetchCalls;
+        Q_EMIT client.stickerPackMigrated(client.lastMigrateOp, false,
+                                          QStringLiteral("network"),
+                                          { { QStringLiteral("packs"), 2 } });
+        QCOMPARE(done.count(), 1);
+        QVERIFY(!manager.migrating());
+        // Part-way still re-reads, so the packs that did land show up.
+        QCOMPARE(client.fetchCalls, fetches + 1);
     }
 
     void shortcodeErrorsSayWhy()

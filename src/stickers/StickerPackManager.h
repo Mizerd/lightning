@@ -81,6 +81,8 @@ class StickerPackManager : public QObject
     // A room-pack enable/disable is in flight. One at a time: concurrent
     // read-modify-writes of the same account-data event would race.
     Q_PROPERTY(bool togglingRoomPack READ togglingRoomPack NOTIFY stateChanged)
+    // The older-format pack is being copied into standard packs.
+    Q_PROPERTY(bool migrating READ migrating NOTIFY stateChanged)
     // A pack export, a pack import or a multi-emoji save is running. One at a
     // time; every other write waits.
     Q_PROPERTY(bool transferring READ transferring NOTIFY stateChanged)
@@ -196,6 +198,16 @@ public:
     Q_INVOKABLE void createRoomPack(const QString &roomId, const QString &name,
                                     const QString &usage);
     Q_INVOKABLE bool canCreateRoomPack(const QString &roomId) const;
+    // What moving the account's older-format pack into standard packs would
+    // do, from the loaded snapshot: {emoji, stickers, both, invalid, total}
+    // (image counts per new pack; `invalid` names that must stay behind until
+    // renamed). Empty when there is no such pack.
+    Q_INVOKABLE QVariantMap userPackMigrationPreview() const;
+    // Runs it (creates the private "My emoji and stickers" room the first
+    // time, writes the packs, subscribes). Reports on migrationFinished. The
+    // older pack is left as it is.
+    Q_INVOKABLE void migrateUserPack();
+    bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
     // What the last snapshot knew about its own sources (see
@@ -307,6 +319,8 @@ Q_SIGNALS:
     // A room-pack enable/disable finished. `category` is empty on success.
     void roomPackToggleFinished(bool ok, const QString &category,
                                 bool enabled);
+    void migrationFinished(bool ok, const QString &category,
+                           const QVariantMap &detail);
     // An export, import or multi-emoji save finished. `kind` is "export",
     // "import" or "emoji". `added` counts images written (export: into the
     // file), `skipped` those already there or refused as unusable, `failed`
@@ -434,6 +448,7 @@ private:
     // "account" or "room": both saves share one slot and one report.
     QString m_saveScope;
     quint64 m_roomsOp = 0;
+    quint64 m_migrateOp = 0;
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;

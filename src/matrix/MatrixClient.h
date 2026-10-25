@@ -649,6 +649,10 @@ public:
     {
         Q_UNUSED(roomId); Q_UNUSED(opId); Q_UNUSED(deep);
     }
+    // Copy the legacy personal pack into standard packs in the account's
+    // private pack-home room and subscribe to them. Reports on
+    // stickerPackMigrated.
+    virtual void migrateUserStickerPack(quint64 opId) { Q_UNUSED(opId); }
     // Create a new, empty stable room pack (m.room.image_pack) under
     // `stateKey`. Reports on stickerPackEditFinished (shortcode = state key).
     virtual void createStickerRoomPack(const QString &roomId,
@@ -2216,6 +2220,10 @@ Q_SIGNALS:
     void stickerPackRoomsSet(quint64 opId, bool ok, const QString &category,
                              const QString &roomId, const QString &stateKey,
                              bool enabled, const QString &mirror);
+    // The legacy personal pack migration's outcome. `detail`: roomId, created,
+    // duplicates, packs, invalid, subscribed (each step's real result).
+    void stickerPackMigrated(quint64 opId, bool ok, const QString &category,
+                             const QVariantMap &detail);
     // Packs or subscriptions changed in sync. Empty `roomId`: account data.
     void stickerPacksChanged(const QString &roomId);
     // Publishing the user's own presence failed (coarse category); diagnostics

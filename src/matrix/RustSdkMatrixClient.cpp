@@ -4652,6 +4652,18 @@ void RustSdkMatrixClient::sendSticker(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::migrateUserStickerPack(quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT stickerPackMigrated(opId, false, QStringLiteral("rejected"), {});
+        return;
+    }
+    const QString result =
+        takeRustString(mx_rust_stickers_migrate_user_pack(m_rustHandle, opId));
+    if (!result.isEmpty())
+        Q_EMIT stickerPackMigrated(opId, false, QStringLiteral("rejected"), {});
+}
+
 void RustSdkMatrixClient::createStickerRoomPack(const QString &roomId,
                                                 const QString &stateKey,
                                                 const QString &name,
@@ -12596,6 +12608,21 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("state_key")).toString(),
             event.value(QStringLiteral("enabled")).toBool(false),
             event.value(QStringLiteral("mirror")).toString());
+        return true;
+    }
+    if (type == QLatin1String("sticker_pack_migration")) {
+        Q_EMIT stickerPackMigrated(
+            static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(),
+            QVariantMap{
+                { QStringLiteral("roomId"), event.value(QStringLiteral("room_id")).toString() },
+                { QStringLiteral("created"), event.value(QStringLiteral("created")).toBool() },
+                { QStringLiteral("duplicates"), event.value(QStringLiteral("duplicates")).toInt() },
+                { QStringLiteral("packs"), event.value(QStringLiteral("packs")).toInt() },
+                { QStringLiteral("invalid"), event.value(QStringLiteral("invalid")).toInt() },
+                { QStringLiteral("subscribed"), event.value(QStringLiteral("subscribed")).toBool() },
+            });
         return true;
     }
     if (type == QLatin1String("sticker_packs_changed")) {

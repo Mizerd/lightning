@@ -2655,6 +2655,311 @@ async fn add_to_user_pack_inner(
 }
 
 // ---------------------------------------------------------------------------
+// Standards-native personal packs ("My packs") and migrating the legacy
+// personal pack into them
+// ---------------------------------------------------------------------------
+//
+// Matrix v1.19 has NO stable personal account-data pack. Lightning's product
+// design: one private, invite-only room owned by the account holds the
+// account's packs as ordinary `m.room.image_pack` state, referenced by
+// `m.image_pack.rooms`. Not a new room type and not an `m.*` event: the room is
+// marked only by an owned-namespace key in its creation content, and found
+// again through owned-namespace account data (the journal). Pack state and the
+// images are NOT end-to-end encrypted by being in a private room.
+
+/// Owned-namespace account data: which room is this account's pack home.
+pub(crate) const PACK_HOME_TYPE: &str = "org.lightning_matrix.image_pack_home";
+/// Owned-namespace key in the home room's `m.room.create` content.
+pub(crate) const PACK_HOME_MARKER: &str = "org.lightning_matrix.image_pack_home";
+
+/// Which standard pack a legacy image goes to when migrating. Legacy packs
+/// can give each image its own usage; a stable pack cannot, so a mixed
+/// collection is split into at most three packs (the product default the
+/// campaign asks for) and none of them is broadened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Partition {
+    Emoji,
+    Stickers,
+    Both,
+}
+
+impl Partition {
+    pub(crate) fn state_key(self) -> &'static str {
+        match self {
+            Partition::Emoji => "emoji",
+            Partition::Stickers => "stickers",
+            Partition::Both => "emoji-and-stickers",
+        }
+    }
+    fn usage(self) -> &'static str {
+        match self {
+            Partition::Emoji => "emoticon",
+            Partition::Stickers => "sticker",
+            Partition::Both => "both",
+        }
+    }
+}
+
+/// The migration plan, pure: legacy content in, one stable content per
+/// non-empty partition out, plus the keys that cannot go (outside the v1.19
+/// grammar: they stay in the untouched legacy pack and are listed for
+/// repair). Image entries are copied as they are (url, body, info, unknown
+/// fields) minus the legacy per-image `usage`, which the partition now
+/// carries pack-wide. The pack's attribution and avatar travel too.
+pub(crate) struct MigrationPlan {
+    pub packs: Vec<(Partition, Value)>,
+    pub invalid_keys: Vec<String>,
+}
+
+pub(crate) fn plan_user_pack_migration(legacy: &Value, base_name: &str) -> MigrationPlan {
+    let pack_info = legacy.get("pack").and_then(|p| p.as_object());
+    let pack_usage = parse_usage(pack_info.and_then(|p| p.get("usage")));
+    let mut parts: BTreeMap<Partition, serde_json::Map<String, Value>> = BTreeMap::new();
+    let mut invalid_keys = Vec::new();
+    if let Some(images) = legacy.get("images").and_then(|v| v.as_object()) {
+        for (key, entry) in images {
+            let Some(object) = entry.as_object() else { continue };
+            if !object.get("url").and_then(|v| v.as_str()).is_some_and(is_valid_mxc) {
+                continue;
+            }
+            if !is_valid_shortcode(key) {
+                invalid_keys.push(key.clone());
+                continue;
+            }
+            let (emoticon, sticker) =
+                resolve_usage(&parse_usage(object.get("usage")), &pack_usage);
+            let partition = match (emoticon, sticker) {
+                (true, false) => Partition::Emoji,
+                (false, true) => Partition::Stickers,
+                _ => Partition::Both,
+            };
+            let mut copy = object.clone();
+            copy.remove("usage");
+            parts.entry(partition).or_default().insert(key.clone(), Value::Object(copy));
+        }
+    }
+    let mut packs = Vec::new();
+    for (partition, images) in parts {
+        let mut content = new_stable_pack_content("", partition.usage());
+        let suffix = match partition {
+            Partition::Emoji => "emoji",
+            Partition::Stickers => "stickers",
+            Partition::Both => "emoji and stickers",
+        };
+        let name = if base_name.trim().is_empty() {
+            format!("My {suffix}")
+        } else {
+            format!("{} ({suffix})", one_line(base_name, MAX_PACK_NAME_CHARS - 24))
+        };
+        let pack = content
+            .as_object_mut()
+            .expect("object")
+            .entry("pack")
+            .or_insert_with(|| json!({}));
+        pack["display_name"] = json!(name);
+        if let Some(info) = pack_info {
+            for field in ["attribution", "avatar_url"] {
+                if let Some(v) = info.get(field) {
+                    pack[field] = v.clone();
+                }
+            }
+        }
+        content["images"] = Value::Object(images);
+        packs.push((partition, content));
+    }
+    MigrationPlan { packs, invalid_keys }
+}
+
+/// Resume rule, pure: writing a partition onto a record that already exists
+/// (an interrupted earlier run, or another device) adds only the images it
+/// lacks, by exact key; nothing there is overwritten or removed.
+pub(crate) fn merge_for_resume(existing: PackRead, planned: Value) -> Result<Value, String> {
+    match existing {
+        PackRead::Absent => Ok(planned),
+        PackRead::Failed(category) => Err(category),
+        PackRead::Found(mut current) => {
+            if current.get("images").and_then(|v| v.as_object()).is_none() {
+                current["images"] = json!({});
+            }
+            let images = current["images"].as_object_mut().ok_or("rejected")?;
+            if let Some(planned_images) = planned.get("images").and_then(|v| v.as_object()) {
+                for (key, entry) in planned_images {
+                    images.entry(key.clone()).or_insert_with(|| entry.clone());
+                }
+            }
+            if current.get("pack").is_none() {
+                if let Some(pack) = planned.get("pack") {
+                    current["pack"] = pack.clone();
+                }
+            }
+            Ok(current)
+        }
+    }
+}
+
+/// Which of the account's joined rooms carry the home marker, lowest id
+/// first. More than one means two devices (or a lost create response) made
+/// homes; they are reported, never deleted.
+async fn marked_home_rooms(client: &matrix_sdk::Client) -> Vec<String> {
+    let mut out = Vec::new();
+    for room in client.joined_rooms() {
+        let Ok(Some(raw)) = room.get_state_event(StateEventType::RoomCreate, "").await else {
+            continue;
+        };
+        let json = match &raw {
+            RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+            RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&json) else { continue };
+        if value["content"].get(PACK_HOME_MARKER).is_some_and(|v| v == &json!(true)) {
+            out.push(room.room_id().to_string());
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Find this account's pack home, creating it only when nothing says one
+/// exists. Order: the journal's room if joined; else a joined room carrying
+/// the marker (a create whose response was lost, or another device's); else
+/// create one, writing the journal right after. Returns (room id, created,
+/// duplicate count).
+async fn ensure_pack_home(client: &matrix_sdk::Client) -> Result<(String, bool, usize), String> {
+    use matrix_sdk::ruma::api::client::room::create_room;
+    use matrix_sdk::ruma::api::client::room::Visibility;
+
+    let journal = read_global_account_data(client, PACK_HOME_TYPE).await;
+    let marked = marked_home_rooms(client).await;
+    let duplicates = marked.len().saturating_sub(1);
+    if let Some(room_id) = journal
+        .as_ref()
+        .and_then(|j| j.get("room_id"))
+        .and_then(|v| v.as_str())
+    {
+        if joined_room(client, room_id).is_ok() {
+            return Ok((room_id.to_owned(), false, duplicates));
+        }
+    }
+    if let Some(room_id) = marked.first() {
+        write_account_data(client, PACK_HOME_TYPE, &json!({ "room_id": room_id, "version": 1 }))
+            .await?;
+        return Ok((room_id.clone(), false, duplicates));
+    }
+    let creation: matrix_sdk::ruma::serde::Raw<create_room::v3::CreationContent> =
+        matrix_sdk::ruma::serde::Raw::from_json_string(
+            json!({ PACK_HOME_MARKER: true }).to_string(),
+        )
+        .map_err(|_| "rejected".to_owned())?;
+    let mut request = create_room::v3::Request::new();
+    request.name = Some("My emoji and stickers".to_owned());
+    request.topic = Some(
+        "Lightning keeps your own emoji and sticker packs here. Pack images are \
+         regular Matrix media, visible to the hosting server."
+            .to_owned(),
+    );
+    request.preset = Some(create_room::v3::RoomPreset::PrivateChat);
+    request.visibility = Visibility::Private;
+    request.creation_content = Some(creation);
+    // Once, never retried: a retried create makes a second room.
+    let room_id = client
+        .send(request)
+        .with_request_config(crate::rooms::create_request_config())
+        .await
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?
+        .room_id;
+    write_account_data(
+        client,
+        PACK_HOME_TYPE,
+        &json!({ "room_id": room_id.as_str(), "version": 1 }),
+    )
+    .await?;
+    Ok((room_id.to_string(), true, duplicates))
+}
+
+/// Copy the legacy personal pack into standard packs in the account's pack
+/// home and subscribe to them. Each step's real outcome is reported
+/// (`home`, `written`, `subscribed`); a failure part-way leaves everything
+/// already done in place, and running it again resumes (the home is found
+/// again, existing records only gain missing images, subscribing twice is a
+/// no-op). The legacy pack is never modified.
+///
+/// Answers `sticker_pack_migration { op_id, lifecycle, ok, category,
+/// room_id, created, duplicates, packs, invalid, subscribed }`.
+pub(crate) fn migrate_user_pack(bridge: &RustClient, op_id: u64) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut report = json!({
+            "type": "sticker_pack_migration",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "ok": false,
+            "category": "",
+            "room_id": "",
+            "created": false,
+            "duplicates": 0,
+            "packs": 0,
+            "invalid": 0,
+            "subscribed": false,
+        });
+        let outcome: Result<(), String> = async {
+            let legacy = base_for_edit(account_data_read(
+                client
+                    .account()
+                    .fetch_account_data(GlobalAccountDataEventType::from(USER_EMOTES))
+                    .await,
+            ))?;
+            let name = legacy
+                .get("pack")
+                .and_then(|p| p.get("display_name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let plan = plan_user_pack_migration(&legacy, &name);
+            report["invalid"] = json!(plan.invalid_keys.len());
+            if plan.packs.is_empty() {
+                return Err("no_images".to_owned());
+            }
+            let (room_id, created, duplicates) = ensure_pack_home(&client).await?;
+            report["room_id"] = json!(room_id);
+            report["created"] = json!(created);
+            report["duplicates"] = json!(duplicates);
+            let room = joined_room(&client, &room_id).map_err(|_| "unknown_room".to_owned())?;
+            let mut written = Vec::new();
+            for (partition, content) in plan.packs {
+                let key = partition.state_key();
+                let existing =
+                    read_one_room_pack(&client, &room_id, key, Namespace::Stable).await.0;
+                let content = merge_for_resume(existing, content)?;
+                let sent = room.send_state_event_raw(STABLE_ROOM_PACK, key, content).await;
+                forget_room(&client, &room_id);
+                sent.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+                written.push(key);
+                report["packs"] = json!(written.len());
+            }
+            for key in &written {
+                set_room_pack_enabled_inner(&client, &room_id, key, true, Namespace::Stable)
+                    .await?;
+            }
+            report["subscribed"] = json!(true);
+            Ok(())
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match outcome {
+            Ok(()) => report["ok"] = json!(true),
+            Err(category) => report["category"] = json!(category),
+        }
+        enqueue(&events, report);
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Live changes
 // ---------------------------------------------------------------------------
 
@@ -3925,6 +4230,61 @@ mod tests {
             assert_eq!(from_b, vec![a.to_string()]);
             drop(server);
         });
+    }
+
+    #[test]
+    fn a_mixed_legacy_pack_is_split_without_broadening_or_losing_anything() {
+        // PACK-PRO-014, PACK-LTN-005, PACK-MIG-003.
+        let legacy = json!({
+            "pack": { "display_name": "Mine", "attribution": "me", "usage": ["sticker"] },
+            "images": {
+                "wave": { "url": "mxc://e/1", "usage": ["emoticon"], "body": "Wave" },
+                "cat": { "url": "mxc://e/2" },
+                "both": { "url": "mxc://e/3", "usage": ["sticker", "emoticon"],
+                          "info": { "w": 64 }, "x-extra": 1 },
+                "bad key": { "url": "mxc://e/4" },
+                "nourl": { "body": "x" },
+            }
+        });
+        let plan = plan_user_pack_migration(&legacy, "Mine");
+        assert_eq!(plan.invalid_keys, vec!["bad key".to_owned()]);
+        let by: BTreeMap<Partition, &Value> = plan.packs.iter().map(|(p, c)| (*p, c)).collect();
+        assert_eq!(by.len(), 3);
+        // Inherited pack usage `sticker`: `cat` is a sticker, not broadened.
+        assert!(by[&Partition::Stickers]["images"].get("cat").is_some());
+        assert_eq!(by[&Partition::Stickers]["pack"]["usage"], json!(["sticker"]));
+        let wave = &by[&Partition::Emoji]["images"]["wave"];
+        assert_eq!(wave["body"], json!("Wave"));
+        assert!(wave.get("usage").is_none(), "no per-image usage in a stable pack");
+        assert_eq!(by[&Partition::Emoji]["pack"]["usage"], json!(["emoticon"]));
+        let both = &by[&Partition::Both];
+        assert!(both["pack"].get("usage").is_none(), "both = absent usage");
+        assert_eq!(both["images"]["both"]["info"]["w"], json!(64));
+        assert_eq!(both["images"]["both"]["x-extra"], json!(1));
+        assert_eq!(both["pack"]["attribution"], json!("me"));
+        assert_eq!(both["pack"]["display_name"], json!("Mine (emoji and stickers)"));
+        // Every planned pack is a valid stable document; the plan read the
+        // legacy value without changing it.
+        for (_, content) in &plan.packs {
+            assert!(content["images"].is_object());
+        }
+        assert!(legacy["images"]["wave"].get("usage").is_some());
+    }
+
+    #[test]
+    fn resuming_a_migration_adds_only_what_is_missing() {
+        // PACK-PRO-052, PACK-MIG-011/012.
+        let planned = json!({ "pack": { "display_name": "P" },
+                              "images": { "a": { "url": "mxc://e/1" }, "b": { "url": "mxc://e/2" } } });
+        assert_eq!(merge_for_resume(PackRead::Absent, planned.clone()).unwrap(), planned);
+        let existing = json!({ "pack": { "display_name": "Renamed" },
+                               "images": { "a": { "url": "mxc://e/9", "body": "edited" } } });
+        let merged = merge_for_resume(PackRead::Found(existing), planned.clone()).unwrap();
+        assert_eq!(merged["images"]["a"]["url"], json!("mxc://e/9"), "not overwritten");
+        assert_eq!(merged["images"]["b"]["url"], json!("mxc://e/2"));
+        assert_eq!(merged["pack"]["display_name"], json!("Renamed"));
+        assert_eq!(merge_for_resume(PackRead::Failed("network".into()), planned).unwrap_err(),
+                   "network");
     }
 
     // ---- remembering a server "not found" -------------------------------

@@ -61,6 +61,7 @@ Dialog {
         nameField.text = name
         renamingKey = null
         describingKey = null
+        confirmingMigrate = false
         confirmingDelete = false
         removingKey = null
         open()
@@ -94,6 +95,8 @@ Dialog {
     /// Not undoable: Matrix has no delete verb for either store, so the pack is
     /// emptied and its name dropped.
     property bool confirmingDelete: false
+    /// Move to standard packs takes two clicks; the second shows the plan.
+    property bool confirmingMigrate: false
 
     // Export / import outcomes, in the same notice line as an edit's.
     Connections {
@@ -128,6 +131,26 @@ Dialog {
 
     Connections {
         target: root.stickers
+        function onMigrationFinished(ok, category, detail) {
+            root.noticeIsError = !ok
+            if (ok)
+                root.notice = qsTr("Copied into %n standard pack(s) and turned "
+                                   + "on everywhere. Your older pack is still "
+                                   + "here.", "", detail.packs)
+            else if (detail && detail.packs > 0)
+                root.notice = qsTr("Partly done: %n pack(s) were written but "
+                                   + "not all steps finished. Try again to "
+                                   + "complete it; nothing is copied twice.",
+                                   "", detail.packs)
+            else if (category === "forbidden")
+                root.notice = qsTr("Your server did not allow creating the "
+                                   + "room. Your older pack still works.")
+            else if (category === "no_images")
+                root.notice = qsTr("There is nothing to copy yet.")
+            else
+                root.notice = qsTr("That did not work. Your older pack is "
+                                   + "unchanged; try again later.")
+        }
         function onEditFinished(ok, category, shortcode) {
             root.renamingKey = null
             root.describingKey = null
@@ -237,6 +260,81 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
             text: qsTr("This pack uses an older format. Changes are saved in "
                        + "that format so older apps keep working.")
+        }
+
+        // The account's own pack is the older personal format, which the
+        // current Matrix standard has no equivalent for. Moving it copies its
+        // images into standard packs in a private room of yours, then turns
+        // them on; this pack stays as it is (MIG-001/002).
+        ColumnLayout {
+            objectName: "stickerPackMigrateBox"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing4
+            visible: root.packId === "user"
+            readonly property var preview: root.stickers && root.packId === "user"
+                && root.stickers.revision >= 0
+                ? root.stickers.userPackMigrationPreview() : ({})
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+                text: qsTr("This is your older-format pack. You can copy it "
+                           + "into standard packs that other apps and your "
+                           + "other devices understand. The first time, this "
+                           + "creates a private room named \"My emoji and "
+                           + "stickers\" to hold them. This pack is kept.")
+            }
+            Label {
+                objectName: "stickerPackMigratePreview"
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                visible: root.confirmingMigrate
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.textMeta
+                text: {
+                    var p = parent.preview || {}
+                    var parts = []
+                    if (p.emoji > 0)
+                        parts.push(qsTr("%n emoji-only image(s)", "", p.emoji))
+                    if (p.stickers > 0)
+                        parts.push(qsTr("%n sticker-only image(s)", "", p.stickers))
+                    if (p.both > 0)
+                        parts.push(qsTr("%n image(s) used as both", "", p.both))
+                    var text = qsTr("New packs: %1.").arg(parts.join(", "))
+                    if (p.invalid > 0)
+                        text += " " + qsTr("%n image(s) with invalid names stay "
+                                           + "here until renamed.", "", p.invalid)
+                    return text
+                }
+            }
+            RowLayout {
+                spacing: AppTheme.spacing8
+                AppButton {
+                    objectName: "stickerPackMigrateButton"
+                    text: root.confirmingMigrate ? qsTr("Copy into standard packs")
+                                                 : qsTr("Move to standard packs…")
+                    kind: root.confirmingMigrate ? "primary" : "ghost"
+                    size: "sm"
+                    enabled: !root.busy && !root.transferring
+                             && root.stickers && !root.stickers.migrating
+                    onClicked: {
+                        if (root.confirmingMigrate) {
+                            root.confirmingMigrate = false
+                            root.stickers.migrateUserPack()
+                        } else {
+                            root.confirmingMigrate = true
+                        }
+                    }
+                }
+                AppButton {
+                    visible: root.confirmingMigrate
+                    text: qsTr("Cancel")
+                    kind: "ghost"
+                    size: "sm"
+                    onClicked: root.confirmingMigrate = false
+                }
+            }
         }
 
         // Not manageable: say why once.

@@ -100,6 +100,18 @@ void StickerPackManager::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::stickerPacksChanged, this,
                 &StickerPackManager::onPacksChanged);
+        connect(m_client, &MatrixClient::stickerPackMigrated, this,
+                [this](quint64 opId, bool ok, const QString &category,
+                       const QVariantMap &detail) {
+                    if (opId == 0 || opId != m_migrateOp)
+                        return;
+                    m_migrateOp = 0;
+                    // Whatever landed is re-read, success or part-way.
+                    m_stale = true;
+                    refresh();
+                    emitStateChanged();
+                    Q_EMIT migrationFinished(ok, category, detail);
+                });
         // Export fetches pack images by their own op ids; every other op id
         // is ignored here.
         connect(m_client, &MatrixClient::mediaReady, this,
@@ -673,6 +685,45 @@ void StickerPackManager::setPackUsage(const QString &packId,
     editPack(packId, QStringLiteral("set_usage"), usage, QString());
 }
 
+QVariantMap StickerPackManager::userPackMigrationPreview() const
+{
+    const int row = m_packs->indexOfPack(QStringLiteral("user"));
+    if (row < 0)
+        return {};
+    int emoji = 0, stickersOnly = 0, both = 0, invalid = 0;
+    for (const stickers::PackImage &image : m_packs->packs().at(row).images) {
+        if (!image.keyValid) {
+            ++invalid;
+            continue;
+        }
+        if (image.isEmoticon && !image.isSticker)
+            ++emoji;
+        else if (image.isSticker && !image.isEmoticon)
+            ++stickersOnly;
+        else
+            ++both;
+    }
+    return QVariantMap{
+        { QStringLiteral("emoji"), emoji },
+        { QStringLiteral("stickers"), stickersOnly },
+        { QStringLiteral("both"), both },
+        { QStringLiteral("invalid"), invalid },
+        { QStringLiteral("total"), emoji + stickersOnly + both + invalid },
+    };
+}
+
+void StickerPackManager::migrateUserPack()
+{
+    if (!m_client || !available() || m_migrateOp != 0 || m_editOp != 0
+        || m_transfer.active)
+        return;
+    if (m_packs->indexOfPack(QStringLiteral("user")) < 0)
+        return;
+    m_migrateOp = m_nextOpId++;
+    m_client->migrateUserStickerPack(m_migrateOp);
+    emitStateChanged();
+}
+
 bool StickerPackManager::canCreateRoomPack(const QString &roomId) const
 {
     return available() && !roomId.isEmpty() && m_loaded
@@ -860,6 +911,7 @@ void StickerPackManager::onLoggedOut()
     m_editOp = 0;
     m_saveScope.clear();
     m_roomsOp = 0;
+    m_migrateOp = 0;
     m_refreshOwed = false;
     m_refreshOwedDeep = false;
     m_deepRoomId.clear();

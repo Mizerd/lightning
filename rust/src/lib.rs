@@ -8004,6 +8004,21 @@ pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
     })
 }
 
+/// Copy the account's legacy personal pack into standard packs in its private
+/// pack-home room (created once, found again by the journal or its marker) and
+/// subscribe to them. The legacy pack is not modified. Answers on
+/// `sticker_pack_migration`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_migrate_user_pack(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        stickers::migrate_user_pack(bridge, op_id).map(|_| String::new())
+    })
+}
+
 /// Parse an FFI namespace argument; anything but `stable`/`legacy` refuses.
 fn pack_namespace(text: &str) -> Result<stickers::Namespace, String> {
     stickers::Namespace::parse(text).ok_or_else(|| "unknown pack namespace".to_owned())

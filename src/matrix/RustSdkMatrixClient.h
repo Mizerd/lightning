@@ -388,6 +388,7 @@ public:
     bool supportsStickerPacks() const override { return true; }
     void fetchStickerPacks(const QString &roomId, quint64 opId,
                            bool deep) override;
+    void migrateUserStickerPack(quint64 opId) override;
     void createStickerRoomPack(const QString &roomId, const QString &stateKey,
                                const QString &name, const QString &usage,
                                quint64 opId) override;
