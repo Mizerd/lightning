@@ -4326,6 +4326,14 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
                                             | GST_BUFFER_COPY_META),
                          0, -1);
     gst_buffer_append_memory(out, full);
+    // The copy above does not always carry the video meta (its transform
+    // refuses some regions), and the stride is what the uploader reads by.
+    if (!gst_buffer_get_video_meta(out)) {
+        gst_buffer_add_video_meta_full(out, meta->flags, meta->format,
+                                       meta->width, meta->height,
+                                       meta->n_planes, meta->offset,
+                                       meta->stride);
+    }
     gst_buffer_add_parent_buffer_meta(out, buffer);
     return out;
 #else
