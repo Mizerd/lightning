@@ -5511,9 +5511,9 @@ private slots:
     {
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
+        // One element: the source is spliced in front of `name=capsrc`.
         engine.setVideoSourceForTest(QStringLiteral(
-            "videotestsrc is-live=true ! video/x-raw,width=1920,height=1080,"
-            "framerate=30/1"));
+            "videotestsrc is-live=true pattern=smpte"));
         engine.start();
         engine.setShareQuality(1080, 30, 0);
         const QString cid = QStringLiteral("cid-live-quality");
@@ -5525,24 +5525,38 @@ private slots:
         QVERIFY2(limits, "the share's limits capsfilter is not addressable");
         QVERIFY(enc);
         GstPad *pad = gst_element_get_static_pad(limits, "src");
-        auto shape = [pad]() {
-            int w = 0, h = 0, n = 0, d = 1;
+        // The test source is small (the ranges never upscale), so the picture
+        // size cannot move; the ceiling is read back from the filter itself
+        // and the rate from what actually flows.
+        auto shape = [pad, limits]() {
+            int n = 0, d = 1;
             if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
-                const GstStructure *st = gst_caps_get_structure(caps, 0);
-                gst_structure_get_int(st, "width", &w);
-                gst_structure_get_int(st, "height", &h);
-                gst_structure_get_fraction(st, "framerate", &n, &d);
+                gst_structure_get_fraction(gst_caps_get_structure(caps, 0),
+                                           "framerate", &n, &d);
                 gst_caps_unref(caps);
             }
-            return QList<int>{w, h, d ? n / d : 0};
+            GstCaps *set = nullptr;
+            g_object_get(limits, "caps", &set, nullptr);
+            gchar *text = set ? gst_caps_to_string(set) : nullptr;
+            const QString ceiling = QString::fromUtf8(text ? text : "");
+            g_free(text);
+            if (set)
+                gst_caps_unref(set);
+            return QString::number(d ? n / d : 0) + QLatin1Char('/')
+                   + (ceiling.contains(QStringLiteral("height=(int)[ 1, 720 ]"))
+                          ? QStringLiteral("720")
+                          : ceiling.contains(
+                                QStringLiteral("height=(int)[ 1, 1080 ]"))
+                              ? QStringLiteral("1080")
+                              : ceiling);
         };
-        QTRY_COMPARE_WITH_TIMEOUT(shape(), (QList<int>{1920, 1080, 30}), 8000);
+        QTRY_COMPARE_WITH_TIMEOUT(shape(), QStringLiteral("30/1080"), 8000);
         gint before = 0;
         g_object_get(enc, "target-bitrate", &before, nullptr);
 
         engine.setShareQuality(720, 15, 0);
         QVERIFY(engine.applyShareQualityLive(cid));
-        QTRY_COMPARE_WITH_TIMEOUT(shape(), (QList<int>{1280, 720, 15}), 8000);
+        QTRY_COMPARE_WITH_TIMEOUT(shape(), QStringLiteral("15/720"), 8000);
         gint after = 0;
         g_object_get(enc, "target-bitrate", &after, nullptr);
         QVERIFY2(after < before, "the encoder bitrate did not follow the "
