@@ -99,6 +99,70 @@ ColumnLayout {
                 Accessible.description: qsTr(
                     "Load the picture a stranger set on a room that invites you")
             }
+            // Server-side invitation blocking (spec v1.18
+            // m.invite_permission_config, or MSC4380). Offered only when the
+            // homeserver says it implements it: on any other server a switch
+            // could only hide invitations, while people could still send them.
+            // Muting invitation notifications is a separate push rule
+            // (Notifications), and ignoring a person is per person.
+            SettingsCheckBox {
+                id: allowInvitesCheck
+                objectName: "allowInvitesCheck"
+                palette.windowText: AppTheme.stormText
+                readonly property string policyState: section.prefs
+                    ? section.prefs.invitePolicyState : "unknown"
+                enabled: policyState === "ready" && !section.prefs.invitePolicyPending
+                text: qsTr("Allow incoming room invitations")
+                checked: section.prefs ? !section.prefs.invitesBlocked : true
+                onToggled: {
+                    section.prefs.setInvitesBlocked(!checked)
+                    // The account's confirmed value, never the click: a refused
+                    // write puts the box back.
+                    checked = Qt.binding(function () {
+                        return section.prefs ? !section.prefs.invitesBlocked : true
+                    })
+                }
+                Accessible.description: allowInvitesHint.text
+            }
+            Label {
+                id: allowInvitesHint
+                objectName: "allowInvitesHint"
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing4
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                color: !!section.prefs && section.prefs.invitePolicyWriteFailed
+                       ? AppTheme.stormDanger : AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textMeta
+                text: {
+                    var st = allowInvitesCheck.policyState
+                    if (st === "unsupported")
+                        return qsTr("Your homeserver does not support blocking "
+                                    + "invitations, so this cannot be changed here. "
+                                    + "You can still mute invitation notifications "
+                                    + "or ignore a person.")
+                    if (st === "offline")
+                        return qsTr("Could not ask your homeserver whether it can "
+                                    + "block invitations. Try again when you are "
+                                    + "connected.")
+                    if (st === "unknown")
+                        return qsTr("Checking whether your homeserver can block "
+                                    + "invitations…")
+                    if (section.prefs && section.prefs.invitePolicyPending)
+                        return qsTr("Saving…")
+                    if (section.prefs && section.prefs.invitePolicyWriteFailed)
+                        return qsTr("Could not save this to your account. It "
+                                    + "still shows what your account holds.")
+                    return section.prefs && section.prefs.invitesBlocked
+                           ? qsTr("Your homeserver rejects new invitations to "
+                                  + "this account.")
+                           : qsTr("Turn off to have your homeserver reject new "
+                                  + "invitations to this account. Saved in your "
+                                  + "account, so other apps follow it.")
+                }
+            }
             Label {
                 objectName: "mediaPreviewWriteFailed"
                 Layout.fillWidth: true

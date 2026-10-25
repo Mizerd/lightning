@@ -1103,6 +1103,11 @@ public:
     virtual void writeAccountPref(const QString &prefType,
                                   const QVariantMap &content)
     { Q_UNUSED(prefType); Q_UNUSED(content); }
+    // What the homeserver advertises for the incoming-invite policy (spec
+    // v1.18 m.invite_permission_config / MSC4380), answered on
+    // invitePolicySupportReceived. A backend without it never answers, and
+    // the setting stays "unknown" (never offered as working).
+    virtual void requestInvitePolicySupport() {}
     // Edit history and event source, answered on editHistoryReceived /
     // eventSourceReceived. Display data held only while a dialog is open; never
     // cached.
@@ -2267,6 +2272,8 @@ Q_SIGNALS:
     void accountPrefChanged(const QString &prefType);
     void accountPrefWritten(const QString &prefType, bool ok,
                             const QString &category);
+    // `ok` false: /versions could not be read (offline), not "unsupported".
+    void invitePolicySupportReceived(bool ok, bool stable, bool unstable);
     // `revisions` is [{eventId, sender, timestamp(QDateTime), body,
     // formattedBody, redacted, undecryptable, isOriginal, isLatest}] in
     // chronological order; `encryption` is {encrypted, senderKey, senderDevice,

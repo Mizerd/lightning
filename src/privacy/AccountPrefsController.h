@@ -44,6 +44,18 @@ class AccountPrefsController : public QObject
     Q_PROPERTY(bool inviteAvatarsAllowed READ inviteAvatarsAllowed NOTIFY changed)
     // The last write failed; the displayed value is still the account's.
     Q_PROPERTY(bool writeFailed READ writeFailed NOTIFY changed)
+    // Incoming-invite policy (spec v1.18 m.invite_permission_config, or
+    // MSC4380): "unknown" until the server and the account have answered,
+    // "offline" when /versions could not be read, "unsupported" when the
+    // server implements neither form (the setting is then NOT offered: a
+    // switch that only hid invitations would claim a rejection the server
+    // never performs), "ready" otherwise.
+    Q_PROPERTY(QString invitePolicyState READ invitePolicyState NOTIFY changed)
+    // What the ACCOUNT holds now (either form blocking counts), never the
+    // optimistic value of a write in flight.
+    Q_PROPERTY(bool invitesBlocked READ invitesBlocked NOTIFY changed)
+    Q_PROPERTY(bool invitePolicyPending READ invitePolicyPending NOTIFY changed)
+    Q_PROPERTY(bool invitePolicyWriteFailed READ invitePolicyWriteFailed NOTIFY changed)
 
 public:
     explicit AccountPrefsController(QObject *parent = nullptr);
@@ -65,6 +77,14 @@ public:
     // Optimistic: the new value shows at once and a failed write reverts it.
     Q_INVOKABLE void setMediaPreviews(const QString &mode);
     Q_INVOKABLE void setInviteAvatars(bool on);
+    // Block (true) or allow (false) incoming invitations, server-side. Only
+    // when invitePolicyState is "ready" and no write is pending.
+    Q_INVOKABLE void setInvitesBlocked(bool block);
+
+    QString invitePolicyState() const;
+    bool invitesBlocked() const;
+    bool invitePolicyPending() const { return m_invitePending > 0; }
+    bool invitePolicyWriteFailed() const { return m_inviteWriteFailed; }
 
     // (Re-)read both from the account.
     void refresh();
@@ -98,4 +118,16 @@ private:
     QTimer m_emojiRetry;
     int m_emojiAttempts = 0;
     bool m_emojiWriteFailed = false;
+
+    // Incoming-invite policy.
+    bool m_inviteSupportKnown = false;
+    bool m_inviteSupportOk = false;
+    bool m_inviteStable = false;
+    bool m_inviteUnstable = false;
+    bool m_inviteStableRead = false;
+    bool m_inviteUnstableRead = false;
+    QVariantMap m_inviteStableContent;
+    QVariantMap m_inviteUnstableContent;
+    int m_invitePending = 0;
+    bool m_inviteWriteFailed = false;
 };

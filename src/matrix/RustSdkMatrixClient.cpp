@@ -10291,6 +10291,19 @@ void RustSdkMatrixClient::writeAccountPref(const QString &prefType,
     }
 }
 
+void RustSdkMatrixClient::requestInvitePolicySupport()
+{
+    if (!m_rustHandle)
+        return;
+    const QString refused =
+        takeRustString(mx_rust_invite_policy_support(m_rustHandle));
+    if (!refused.isEmpty()) {
+        qCWarning(lcRust) << "invite policy support probe refused:"
+                          << refused.left(80);
+        Q_EMIT invitePolicySupportReceived(false, false, false);
+    }
+}
+
 void RustSdkMatrixClient::requestRoomVersions()
 {
     if (!m_rustHandle)
@@ -13588,6 +13601,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     if (type == QLatin1String("account_pref_changed")) {
         Q_EMIT accountPrefChanged(
             event.value(QStringLiteral("pref_type")).toString());
+        return true;
+    }
+    if (type == QLatin1String("invite_policy_support")) {
+        Q_EMIT invitePolicySupportReceived(
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("stable")).toBool(false),
+            event.value(QStringLiteral("unstable")).toBool(false));
         return true;
     }
     if (type == QLatin1String("account_pref_written")) {

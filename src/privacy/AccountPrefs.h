@@ -39,6 +39,40 @@ QVariantMap composeMediaPreview(const QVariantMap &existing,
 // private room (here: encrypted or a direct message) only.
 bool collapsesMedia(const QString &mediaPreviews, bool roomIsPrivate);
 
+// ---- incoming-invite policy (spec v1.18 / MSC4380) --------------------------
+//
+// Server-side rejection of invitations, honoured only by a homeserver that
+// implements it (AccountPrefsController asks /versions first). Not the same
+// thing as the invite push rule (notification only) or ignoring a user.
+
+inline constexpr auto kInvitePermissionType = "m.invite_permission_config";
+inline constexpr auto kInvitePermissionUnstableType =
+    "org.matrix.msc4380.invite_permission_config";
+
+// Stable: `default_action` "block" blocks; missing, invalid or unknown values
+// mean "receive invites as normal" (the spec's wording).
+bool stableInvitePolicyBlocks(const QVariantMap &content);
+// MSC4380: `block_all` true blocks; anything else does not.
+bool unstableInvitePolicyBlocks(const QVariantMap &content);
+
+struct AccountDataWrite {
+    QString type;
+    QVariantMap content;
+};
+
+// The writes that make the account's policy `block` (or allow-all), given
+// what the server supports and what each type holds now. Fields this build
+// does not own are kept. Allowing clears a block in EITHER form, so a stale
+// rule cannot stay active behind a switch that says invites are allowed;
+// blocking writes the stable form when the server supports it, the MSC4380
+// form otherwise. Empty when nothing needs to change, or neither form is
+// supported (the setting is then not offered at all).
+QList<AccountDataWrite> composeInvitePolicy(bool stableSupported,
+                                            bool unstableSupported,
+                                            const QVariantMap &stableContent,
+                                            const QVariantMap &unstableContent,
+                                            bool block);
+
 // ---- m.recent_emoji --------------------------------------------------------
 
 // One stable `m.recent_emoji` entry. `extra` holds any other fields the entry

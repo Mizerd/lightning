@@ -638,6 +638,7 @@ public:
     void readAccountPref(const QString &prefType) override;
     void writeAccountPref(const QString &prefType,
                           const QVariantMap &content) override;
+    void requestInvitePolicySupport() override;
     // Room upgrade.
     void requestRoomVersions() override;
     quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override;

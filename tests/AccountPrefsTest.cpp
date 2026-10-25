@@ -29,6 +29,8 @@ class FakePrefsClient : public MockMatrixClient
 public:
     using MockMatrixClient::MockMatrixClient;
     void readAccountPref(const QString &type) override { reads << type; }
+    void requestInvitePolicySupport() override { ++supportProbes; }
+    int supportProbes = 0;
     void writeAccountPref(const QString &type, const QVariantMap &content) override
     {
         writes.append({ type, content });
@@ -243,6 +245,87 @@ private Q_SLOTS:
     // "off". inviteAvatars keeps the MSC default (on) for display of the
     // setting; inviteAvatarsAllowed, which every invitation surface reads, is
     // false until the account's own copy is known.
+    // Master prompt Part 6, 6 (UI-045/046/047): the incoming-invite policy.
+    void invitePolicyComposesTheRightWritesAndClearsEveryBlock()
+    {
+        using AccountPrefs::composeInvitePolicy;
+        const QVariantMap none;
+        // Neither form supported: nothing is written (the setting is hidden).
+        QVERIFY(composeInvitePolicy(false, false, none, none, true).isEmpty());
+        // Stable preferred; unknown fields kept.
+        auto w = composeInvitePolicy(true, true, { { "extra", 1 } }, none, true);
+        QCOMPARE(w.size(), 1);
+        QCOMPARE(w.first().type, QStringLiteral("m.invite_permission_config"));
+        QCOMPARE(w.first().content.value("default_action").toString(), QStringLiteral("block"));
+        QCOMPARE(w.first().content.value("extra").toInt(), 1);
+        // Unstable only.
+        w = composeInvitePolicy(false, true, none, none, true);
+        QCOMPARE(w.size(), 1);
+        QCOMPARE(w.first().type, QStringLiteral("org.matrix.msc4380.invite_permission_config"));
+        QCOMPARE(w.first().content.value("block_all").toBool(), true);
+        // Allow-all clears BOTH forms, even the one the server no longer
+        // advertises, so no stale rule keeps rejecting.
+        w = composeInvitePolicy(true, false, { { "default_action", "block" } },
+                                { { "block_all", true } }, false);
+        QCOMPARE(w.size(), 2);
+        QVERIFY(!w.at(0).content.contains("default_action"));
+        QCOMPARE(w.at(1).content.value("block_all").toBool(), false);
+        // Nothing to do when the account already says so.
+        QVERIFY(composeInvitePolicy(true, false, { { "default_action", "block" } },
+                                    none, true).isEmpty());
+        QVERIFY(composeInvitePolicy(true, true, none, none, false).isEmpty());
+        // Unknown values allow (the spec), a string "true" is not block_all.
+        QVERIFY(!AccountPrefs::stableInvitePolicyBlocks({ { "default_action", "Block" } }));
+        QVERIFY(!AccountPrefs::unstableInvitePolicyBlocks({ { "block_all", "true" } }));
+    }
+
+    void theInvitePolicyIsOfferedOnlyWhenTheServerSupportsIt()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        c.refresh();
+        QVERIFY(client.supportProbes > 0);
+        QVERIFY(client.reads.contains(QStringLiteral("m.invite_permission_config")));
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("unknown"));
+        c.setInvitesBlocked(true);
+        QVERIFY(client.writes.isEmpty());
+
+        Q_EMIT client.invitePolicySupportReceived(true, false, false);
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("unsupported"));
+        Q_EMIT client.invitePolicySupportReceived(false, false, false);
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("offline"));
+        Q_EMIT client.invitePolicySupportReceived(true, true, false);
+        // Supported, but the account's copies are not read yet.
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("unknown"));
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), false, {});
+        Q_EMIT client.accountPrefRead(
+            QStringLiteral("org.matrix.msc4380.invite_permission_config"), true,
+            { { "block_all", true } });
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("ready"));
+        // A residual unstable block shows as blocked.
+        QVERIFY(c.invitesBlocked());
+
+        client.writes.clear();
+        client.reads.clear();
+        c.setInvitesBlocked(false);
+        QCOMPARE(client.writes.size(), 1);
+        QVERIFY(c.invitePolicyPending());
+        // A second request while pending is refused.
+        c.setInvitesBlocked(true);
+        QCOMPARE(client.writes.size(), 1);
+        // The switch keeps the CONFIRMED value until the account says so.
+        QVERIFY(c.invitesBlocked());
+        Q_EMIT client.accountPrefWritten(
+            QStringLiteral("org.matrix.msc4380.invite_permission_config"), false,
+            QStringLiteral("forbidden"));
+        QVERIFY(!c.invitePolicyPending());
+        QVERIFY(c.invitePolicyWriteFailed());
+        QVERIFY(c.invitesBlocked());
+        QVERIFY(client.reads.contains(
+            QStringLiteral("org.matrix.msc4380.invite_permission_config")));
+    }
+
     void inviteAvatarsAreFailClosedUntilTheAccountAnswers()
     {
         FakePrefsClient client;

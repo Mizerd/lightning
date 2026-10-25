@@ -995,6 +995,13 @@ char *mx_rust_account_pref_read(void *client, const char *pref_type);
 char *mx_rust_account_pref_write(void *client, const char *pref_type,
                                  const char *content_json);
 /*
+ * Incoming-invite policy support (rust/src/accountprefs.rs), from /versions:
+ *   {"type":"invite_policy_support","ok","stable","unstable"}.
+ * The policy itself is read and written as the account preferences
+ * m.invite_permission_config / org.matrix.msc4380.invite_permission_config.
+ */
+char *mx_rust_invite_policy_support(void *client);
+/*
  * Personal chat backgrounds kept on the homeserver (rust/src/bgsync.rs):
  * global account data org.lightning_matrix.backgrounds (scope "", the
  * every-room default) and room account data

@@ -43,6 +43,14 @@ void AccountPrefsController::setClient(MatrixClient *client)
             [this](const QString &type, bool ok, const QString &) {
         onWritten(type, ok);
     });
+    connect(m_client, &MatrixClient::invitePolicySupportReceived, this,
+            [this](bool ok, bool stable, bool unstable) {
+        m_inviteSupportKnown = true;
+        m_inviteSupportOk = ok;
+        m_inviteStable = ok && stable;
+        m_inviteUnstable = ok && unstable;
+        Q_EMIT changed();
+    });
     // The SDK's store holds the account data from the last session, so a
     // read right after sign-in answers at once; the second one, after the
     // first sync, picks up what changed while this device was away.
@@ -85,6 +93,16 @@ void AccountPrefsController::reset()
     m_emojiContent.clear();
     m_emojiRead = false;
     m_emojiPending.clear();
+    m_inviteSupportKnown = false;
+    m_inviteSupportOk = false;
+    m_inviteStable = false;
+    m_inviteUnstable = false;
+    m_inviteStableRead = false;
+    m_inviteUnstableRead = false;
+    m_inviteStableContent.clear();
+    m_inviteUnstableContent.clear();
+    m_invitePending = 0;
+    m_inviteWriteFailed = false;
     Q_EMIT changed();
 }
 
@@ -94,6 +112,47 @@ void AccountPrefsController::refresh()
         return;
     m_client->readAccountPref(QString::fromLatin1(kMediaPreviewType));
     m_client->readAccountPref(QString::fromLatin1(kRecentEmojiType));
+    m_client->readAccountPref(QString::fromLatin1(kInvitePermissionType));
+    m_client->readAccountPref(QString::fromLatin1(kInvitePermissionUnstableType));
+    m_client->requestInvitePolicySupport();
+}
+
+QString AccountPrefsController::invitePolicyState() const
+{
+    if (!m_inviteSupportKnown)
+        return QStringLiteral("unknown");
+    if (!m_inviteSupportOk)
+        return QStringLiteral("offline");
+    if (!m_inviteStable && !m_inviteUnstable)
+        return QStringLiteral("unsupported");
+    // A write composed before both forms were read could drop a field or
+    // leave a stale block behind.
+    if (!m_inviteStableRead || !m_inviteUnstableRead)
+        return QStringLiteral("unknown");
+    return QStringLiteral("ready");
+}
+
+bool AccountPrefsController::invitesBlocked() const
+{
+    return stableInvitePolicyBlocks(m_inviteStableContent)
+           || unstableInvitePolicyBlocks(m_inviteUnstableContent);
+}
+
+void AccountPrefsController::setInvitesBlocked(bool block)
+{
+    if (!m_client || invitePolicyState() != QLatin1String("ready")
+        || m_invitePending > 0)
+        return;
+    const QList<AccountDataWrite> writes = composeInvitePolicy(
+        m_inviteStable, m_inviteUnstable, m_inviteStableContent,
+        m_inviteUnstableContent, block);
+    if (writes.isEmpty())
+        return;
+    m_inviteWriteFailed = false;
+    m_invitePending = int(writes.size());
+    Q_EMIT changed();
+    for (const AccountDataWrite &w : writes)
+        m_client->writeAccountPref(w.type, w.content);
 }
 
 bool AccountPrefsController::collapsesMedia(bool roomIsPrivate) const
@@ -136,6 +195,18 @@ void AccountPrefsController::writeMedia(const MediaPreview &next)
 void AccountPrefsController::onRead(const QString &type, bool present,
                                     const QVariantMap &content)
 {
+    if (type == QLatin1String(kInvitePermissionType)) {
+        m_inviteStableContent = present ? content : QVariantMap();
+        m_inviteStableRead = true;
+        Q_EMIT changed();
+        return;
+    }
+    if (type == QLatin1String(kInvitePermissionUnstableType)) {
+        m_inviteUnstableContent = present ? content : QVariantMap();
+        m_inviteUnstableRead = true;
+        Q_EMIT changed();
+        return;
+    }
     if (type == QLatin1String(kMediaPreviewType)) {
         m_mediaContent = present ? content : QVariantMap();
         m_mediaConfirmed = present ? parseMediaPreview(content) : MediaPreview();
@@ -203,6 +274,19 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
                 m_emojiRetry.start();
             }
         }
+        return;
+    }
+    if (type == QLatin1String(kInvitePermissionType)
+        || type == QLatin1String(kInvitePermissionUnstableType)) {
+        if (m_invitePending > 0)
+            --m_invitePending;
+        if (!ok)
+            m_inviteWriteFailed = true;
+        // The switch shows what the account holds: re-read what was written
+        // (a failure included, in case part of it landed).
+        if (m_client)
+            m_client->readAccountPref(type);
+        Q_EMIT changed();
         return;
     }
     if (type != QLatin1String(kMediaPreviewType))

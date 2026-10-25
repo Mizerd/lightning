@@ -84,6 +84,56 @@ constexpr int kMaxEmojiChars = 256;
 
 } // namespace
 
+bool stableInvitePolicyBlocks(const QVariantMap &content)
+{
+    return content.value(QStringLiteral("default_action")).toString()
+           == QLatin1String("block");
+}
+
+bool unstableInvitePolicyBlocks(const QVariantMap &content)
+{
+    const QVariant v = content.value(QStringLiteral("block_all"));
+    return v.typeId() == QMetaType::Bool && v.toBool();
+}
+
+QList<AccountDataWrite> composeInvitePolicy(bool stableSupported,
+                                            bool unstableSupported,
+                                            const QVariantMap &stableContent,
+                                            const QVariantMap &unstableContent,
+                                            bool block)
+{
+    QList<AccountDataWrite> out;
+    if (!stableSupported && !unstableSupported)
+        return out;
+    if (block) {
+        if (stableSupported) {
+            if (!stableInvitePolicyBlocks(stableContent)) {
+                QVariantMap next = stableContent;
+                next.insert(QStringLiteral("default_action"), QStringLiteral("block"));
+                out.append({ QString::fromLatin1(kInvitePermissionType), next });
+            }
+        } else if (!unstableInvitePolicyBlocks(unstableContent)) {
+            QVariantMap next = unstableContent;
+            next.insert(QStringLiteral("block_all"), true);
+            out.append({ QString::fromLatin1(kInvitePermissionUnstableType), next });
+        }
+        return out;
+    }
+    // Allow-all: clear every form that blocks, supported or not, so nothing
+    // stale keeps rejecting invitations.
+    if (stableInvitePolicyBlocks(stableContent)) {
+        QVariantMap next = stableContent;
+        next.remove(QStringLiteral("default_action"));
+        out.append({ QString::fromLatin1(kInvitePermissionType), next });
+    }
+    if (unstableInvitePolicyBlocks(unstableContent)) {
+        QVariantMap next = unstableContent;
+        next.insert(QStringLiteral("block_all"), false);
+        out.append({ QString::fromLatin1(kInvitePermissionUnstableType), next });
+    }
+    return out;
+}
+
 QList<EmojiCount> parseRecentEmoji(const QVariantMap &content)
 {
     QList<EmojiCount> out;

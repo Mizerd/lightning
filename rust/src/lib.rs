@@ -7839,6 +7839,17 @@ pub unsafe extern "C" fn mx_rust_account_pref_write(
     })
 }
 
+/// What the homeserver advertises for the incoming-invite policy
+/// (`accountprefs.rs`): result event `invite_policy_support { stable,
+/// unstable, ok, lifecycle }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_invite_policy_support(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        accountprefs::invite_policy_support(bridge).map(|_| String::new())
+    })
+}
+
 /// Read this account's personal backgrounds kept in account data
 /// (`bgsync.rs`). `scope` is "" (the every-room default), a room id, or "*"
 /// for the default and every joined room. Result event: `personal_backgrounds
