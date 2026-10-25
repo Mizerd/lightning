@@ -1269,6 +1269,7 @@ void StickerPackManager::exportPack(const QString &packId,
     }
     beginTransfer(QStringLiteral("export"), pack.displayName,
                   int(pack.images.size()));
+    m_transfer.frozen = pack;
     m_transfer.packId = packId;
     m_transfer.destination = dest;
     m_transfer.bytes.resize(pack.images.size());
@@ -1279,13 +1280,9 @@ void StickerPackManager::pumpExport()
 {
     if (!m_transfer.active || m_transfer.kind != QLatin1String("export"))
         return;
-    const int row = m_packs->indexOfPack(m_transfer.packId);
-    if (row < 0) {
-        // The pack vanished from the snapshot while exporting.
-        finishTransfer(false, QStringLiteral("not_found"));
-        return;
-    }
-    const QList<stickers::PackImage> images = m_packs->packs().at(row).images;
+    // The frozen manifest, not the live model: a refresh mid-export changes
+    // nothing about what this export is.
+    const QList<stickers::PackImage> &images = m_transfer.frozen.images;
     // A few at a time: enough to hide latency, few enough not to flood the
     // media queue the timeline shares.
     constexpr int kInFlight = 3;
@@ -1332,10 +1329,9 @@ void StickerPackManager::onMediaFetchFailed(quint64 opId)
 
 void StickerPackManager::finishExport()
 {
-    const int row = m_packs->indexOfPack(m_transfer.packId);
     stickers::archive::Pack out;
-    if (row >= 0) {
-        const stickers::Pack &pack = m_packs->packs().at(row);
+    {
+        const stickers::Pack &pack = m_transfer.frozen;
         out.name = pack.displayName;
         out.attribution = pack.attribution;
         for (int i = 0; i < pack.images.size() && i < m_transfer.bytes.size();

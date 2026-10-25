@@ -331,7 +331,12 @@ private:
         int index = 0;        // next item for a batch
         quint64 op = 0;       // the batch item in flight
         QSet<QString> taken;  // exact keys already in the pack (case-sensitive)
-        // Export.
+        // Export. `frozen` is the pack AS IT WAS when the export started (name,
+        // attribution, every image's exact key, url, body and usage): fetches
+        // and the archive are built from it, never from the live model, so a
+        // sync that adds, removes or reorders images mid-download cannot pair
+        // one image's bytes with another's name (PACK-LTN-035).
+        stickers::Pack frozen;
         QString packId;
         QString destination;
         QHash<quint64, int> pending;  // fetch op -> image index

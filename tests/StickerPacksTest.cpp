@@ -1609,6 +1609,62 @@ private Q_SLOTS:
         QCOMPARE(read.pack.images[1].usage, QStringLiteral("emoticon"));
     }
 
+    void anExportIsAFrozenSnapshotWhateverSyncDoesMeanwhile()
+    {
+        // PACK-LTN-035: the old export re-read the LIVE model on every batch
+        // and paired bytes with whatever row now sat at that index, so a sync
+        // that reordered or removed images mid-download put one image's bytes
+        // under another's name (or indexed past the allocation).
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        auto img = [](const QString &code, int n) {
+            return image(code, QStringLiteral("mxc://example.org/%1").arg(n), true, false);
+        };
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"), QStringLiteral("Mine"),
+                   { img(QStringLiteral("a"), 1), img(QStringLiteral("b"), 2),
+                     img(QStringLiteral("c"), 3), img(QStringLiteral("d"), 4) }) });
+        QTemporaryDir dir;
+        const QString zipPath = dir.filePath(QStringLiteral("frozen.zip"));
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
+        QCOMPARE(client.mxcFetches.size(), 3);  // three in flight
+
+        // Sync lands: reordered, one removed, one added, renamed pack.
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"), QStringLiteral("Renamed"),
+                   { img(QStringLiteral("z"), 9), img(QStringLiteral("d"), 4),
+                     img(QStringLiteral("b"), 2) }) });
+
+        auto bytesFor = [](const QString &mxc) {
+            return QByteArray("\x89PNG\r\n\x1A\n", 8) + mxc.toUtf8() + QByteArray(16, 'x');
+        };
+        // Answer every fetch, in reverse order, by the mxc it asked for.
+        for (int round = 0; round < 3 && finished.isEmpty(); ++round) {
+            const auto fetches = client.mxcFetches;
+            for (int i = fetches.size() - 1; i >= 0; --i)
+                Q_EMIT client.mediaReady(fetches[i].first, fetches[i].second, 0,
+                                         bytesFor(fetches[i].second),
+                                         QStringLiteral("image/png"), QString());
+        }
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(1).toBool());
+        QTemporaryDir work;
+        const auto read = stickers::archive::readArchive(zipPath, work.path());
+        QCOMPARE(int(read.error), int(stickers::archive::ReadError::None));
+        QCOMPARE(read.pack.name, QStringLiteral("Mine"));
+        QStringList codes;
+        for (const auto &entry : read.pack.images) {
+            codes << entry.shortcode;
+            QFile f(entry.path);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const int n = QStringList{ "a", "b", "c", "d" }.indexOf(entry.shortcode) + 1;
+            QCOMPARE(f.readAll(), bytesFor(QStringLiteral("mxc://example.org/%1").arg(n)));
+        }
+        QCOMPARE(codes, (QStringList{ "a", "b", "c", "d" }));
+    }
+
     void anExportWhereSomeImagesFailStillReportsHonestly()
     {
         FakeClient client;
