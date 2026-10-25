@@ -423,6 +423,109 @@ private Q_SLOTS:
         QVERIFY(thread.text().isEmpty());
     }
 
+    // Inline thread focus retargets the ROOM composer (setThreadTargetRootId)
+    // instead of opening the thread panel. Each conversation keeps its own
+    // draft: room text must not ride into thread A (and be sent there), A's
+    // text must not appear in B, and the thread key is the one the panel
+    // uses, so a draft follows the thread between placements.
+    void inlineThreadTargetsKeepPerConversationDrafts()
+    {
+        DraftFakeSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        activateAccount(settings, QStringLiteral("@alice:mock.local"));
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        DraftStore store;
+        store.setSettings(&settings);
+        store.setClient(&client);
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setDraftStore(&store);
+
+        composer.setRoomId(kPlainRoom);
+        composer.setText(QStringLiteral("room text"));
+        composer.beginReply(QStringLiteral("$target"),
+                            QStringLiteral("Bob"),
+                            QStringLiteral("the original"),
+                            QStringLiteral("$target"));
+
+        composer.setThreadTargetRootId(QStringLiteral("$rootA"));
+        QVERIFY2(composer.text().isEmpty(),
+                 "the room draft followed the composer into thread A");
+        QVERIFY2(composer.replyingToEventId().isEmpty(),
+                 "the room's reply chip followed the composer into thread A");
+        QCOMPARE(composer.draftKey(),
+                 MatrixClient::threadTimelineId(kPlainRoom,
+                                                QStringLiteral("$rootA")));
+        composer.setText(QStringLiteral("thread A text"));
+
+        composer.setThreadTargetRootId(QStringLiteral("$rootB"));
+        QVERIFY2(composer.text().isEmpty(),
+                 "thread A's draft appeared in thread B");
+        composer.setText(QStringLiteral("thread B text"));
+
+        composer.setThreadTargetRootId(QStringLiteral("$rootA"));
+        QCOMPARE(composer.text(), QStringLiteral("thread A text"));
+
+        composer.setThreadTargetRootId(QString());
+        QCOMPARE(composer.text(), QStringLiteral("room text"));
+        QCOMPARE(composer.replyingToEventId(), QStringLiteral("$target"));
+
+        // Leaving the room while focused on B keeps B's draft under B's key.
+        composer.setThreadTargetRootId(QStringLiteral("$rootB"));
+        composer.setRoomId(kEncryptedRoom);
+        QVERIFY(composer.threadTargetRootId().isEmpty());
+        composer.setRoomId(kPlainRoom);
+        QCOMPARE(composer.text(), QStringLiteral("room text"));
+
+        // The thread panel reads the same key: B's inline draft is there.
+        ThreadController thread;
+        thread.setClient(&client);
+        thread.setDraftStore(&store);
+        thread.openThread(kPlainRoom, QStringLiteral("$rootB"));
+        QCOMPARE(thread.text(), QStringLiteral("thread B text"));
+    }
+
+    // Editing replaces the composer text with the edited body; leaving edit
+    // mode -- cancel or a sent edit -- must give the conversation its own
+    // draft back rather than an empty composer (and never retire that draft).
+    void leavingEditModeRestoresThePreEditDraft()
+    {
+        DraftFakeSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        activateAccount(settings, QStringLiteral("@alice:mock.local"));
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        DraftStore store;
+        store.setSettings(&settings);
+        store.setClient(&client);
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setDraftStore(&store);
+
+        composer.setRoomId(kPlainRoom);
+        // Typed just now: the debounce has not fired yet.
+        composer.setText(QStringLiteral("half-written reply"));
+        composer.beginEdit(QStringLiteral("$edited"),
+                           QStringLiteral("old message body"));
+        QCOMPARE(composer.text(), QStringLiteral("old message body"));
+        composer.cancelReplyOrEdit();
+        QCOMPARE(composer.text(), QStringLiteral("half-written reply"));
+
+        composer.beginEdit(QStringLiteral("$edited"),
+                           QStringLiteral("old message body"));
+        composer.setText(QStringLiteral("new message body"));
+        composer.send();
+        QVERIFY(!composer.isEditing());
+        QCOMPARE(composer.text(), QStringLiteral("half-written reply"));
+        QCOMPARE(store.load(kPlainRoom)
+                     .value(QStringLiteral("text"))
+                     .toString(),
+                 QStringLiteral("half-written reply"));
+    }
+
     void accountsAreIsolated()
     {
         DraftFakeSecretStore secrets;

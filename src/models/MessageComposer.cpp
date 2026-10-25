@@ -90,14 +90,23 @@ void MessageComposer::saveDraftNow()
         }
         draft.insert(QStringLiteral("mentions"), refs);
     }
-    m_drafts->save(m_roomId, m_roomId, draft);
+    m_drafts->save(draftKey(), m_roomId, draft);
+}
+
+QString MessageComposer::draftKey() const
+{
+    if (m_roomId.isEmpty())
+        return {};
+    if (m_threadTargetRootId.isEmpty())
+        return m_roomId;
+    return MatrixClient::threadTimelineId(m_roomId, m_threadTargetRootId);
 }
 
 void MessageComposer::restoreDraft()
 {
     if (!m_drafts || m_roomId.isEmpty())
         return;
-    const QVariantMap draft = m_drafts->load(m_roomId);
+    const QVariantMap draft = m_drafts->load(draftKey());
     if (DraftStore::draftIsEmpty(draft))
         return;
     m_restoringDraft = true;
@@ -549,8 +558,34 @@ void MessageComposer::setThreadTargetRootId(const QString &rootEventId)
 {
     if (m_threadTargetRootId == rootEventId)
         return;
+    // Save the outgoing conversation's draft under its own key before the key
+    // changes, exactly as setRoomId does for a room change. An edit in
+    // progress is abandoned (its pre-edit draft comes back and is saved with
+    // the rest); a reply chip belongs to the draft and travels with it.
+    m_draftDebounce.stop();
+    if (!m_editingEventId.isEmpty())
+        cancelReplyOrEdit();
+    m_draftDebounce.stop();
+    saveDraftNow();
+    const bool hadReply = !m_replyingToEventId.isEmpty();
+    m_replyingToEventId.clear();
+    m_replyingToSender.clear();
+    m_replyingToPreview.clear();
+    m_replyingToMediaKey.clear();
+    m_replyThreadRootId.clear();
     m_threadTargetRootId = rootEventId;
+    m_text.clear();
+    m_mentionRefs.clear();
+    restoreDraft();
+    setCommandError(QString());
+    if (hadReply || !m_replyingToEventId.isEmpty())
+        Q_EMIT replyStateChanged();
     Q_EMIT threadStateChanged();
+    Q_EMIT commandCompletionsChanged();
+    Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
+    updateCanSend();
+    refreshTypingState();
 }
 
 QString MessageComposer::sendThreadRootId() const
@@ -643,7 +678,12 @@ void MessageComposer::setRoomId(const QString &r)
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
     // A thread target names a thread of the room being left; never carry it.
-    setThreadTargetRootId(QString());
+    // Dropped directly: the outgoing draft was saved above under its own key,
+    // and the incoming room's draft is restored below.
+    if (!m_threadTargetRootId.isEmpty()) {
+        m_threadTargetRootId.clear();
+        Q_EMIT threadStateChanged();
+    }
     // cancelReplyOrEdit may have re-armed the debounce.
     m_draftDebounce.stop();
     // Queued attachments belong to their room; dispatched ones continue in the
@@ -950,9 +990,14 @@ bool MessageComposer::refuseIfTooLarge(const QString &body, const QString &html)
 
 void MessageComposer::finishSuccessfulSend()
 {
+    // A sent edit leaves edit mode the same way a cancelled one does: the
+    // conversation's pre-edit draft comes back. Only an ordinary send retires
+    // the draft.
+    const bool wasEditing = !m_editingEventId.isEmpty();
     stopTyping();
     cancelReplyOrEdit();
-    clear();
+    if (!wasEditing)
+        clear();
 }
 
 bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
@@ -1360,7 +1405,7 @@ void MessageComposer::clear()
     // resurrect it.
     m_draftDebounce.stop();
     if (m_drafts && !m_roomId.isEmpty())
-        m_drafts->clear(m_roomId);
+        m_drafts->clear(draftKey());
     m_mentionRefs.clear();
     Q_EMIT mentionRangesChanged();
     if (m_text.isEmpty()) return;
@@ -1445,6 +1490,13 @@ void MessageComposer::beginEdit(const QString &eventId,
                                  const QString &sanitizedHtml,
                                  const QString &timelineId)
 {
+    // Flush the conversation's draft before the text is replaced: edit mode
+    // never saves, so a pending debounce would otherwise lose the last second
+    // of typing, and cancelling must find the draft to restore.
+    if (m_editingEventId.isEmpty()) {
+        m_draftDebounce.stop();
+        saveDraftNow();
+    }
     m_editingTimelineId = timelineId;
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
@@ -1513,8 +1565,13 @@ void MessageComposer::cancelReplyOrEdit()
     m_mentionRefs.clear();
     Q_EMIT mentionRangesChanged();
     if (wasEditing) {
+        // The edited body was never a draft; the conversation's own draft
+        // (flushed by beginEdit) comes back in its place.
         m_text.clear();
+        m_mentionRefs.clear();
+        restoreDraft();
         Q_EMIT textChanged();
+        Q_EMIT mentionRangesChanged();
         updateCanSend();
     }
     if (wasReplying) Q_EMIT replyStateChanged();

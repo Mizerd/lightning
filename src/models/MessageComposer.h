@@ -118,7 +118,17 @@ public:
     bool isEditing()  const { return !m_editingEventId.isEmpty(); }
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
     QString threadTargetRootId() const { return m_threadTargetRootId; }
+    // Retargets the composer at one thread of the current room (the inline
+    // thread focus) or back at the room. Each conversation keeps its own
+    // draft: the outgoing one is saved under its own key and the incoming
+    // one restored, so room text never sends into a thread and thread A's
+    // text never appears in thread B.
     void setThreadTargetRootId(const QString &rootEventId);
+    // The DraftStore key of the conversation this composer writes to: the
+    // room id, or MatrixClient::threadTimelineId(room, root) while targeting a
+    // thread -- the same key the thread panel uses, so a thread's draft
+    // follows it between the panel and the main column. Never a wire id.
+    QString draftKey() const;
     QString sendThreadRootId() const;
 
     bool canSend() const;
@@ -494,7 +504,8 @@ private:
 
     // Drafts. The debounce is stopped before every room change and the save
     // reads the current room, so a stale timer never writes under another
-    // room's key. Edit mode never saves.
+    // room's key. Edit mode never saves: beginEdit flushes the pre-edit
+    // draft first, and leaving edit mode (cancel or a sent edit) restores it.
     void saveDraftNow();
     void restoreDraft();
     class DraftStore *m_drafts = nullptr;
