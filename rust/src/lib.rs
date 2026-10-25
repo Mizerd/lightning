@@ -8334,15 +8334,14 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
         // Unknown actions are refused, never defaulted, so a typo cannot delete a
         // pack.
         let edit = match action.as_str() {
-            "remove_image" => {
-                if arg_a.is_empty() {
-                    return Err("no shortcode given".to_owned());
-                }
-                stickers::PackEdit::RemoveImage { shortcode: arg_a }
-            }
+            // `arg_a` is the image's exact `images` key, which may legitimately be
+            // empty or otherwise malformed in a pack another client wrote; such an
+            // image must stay removable and renamable (Matrix v1.19 asks clients
+            // to let users repair them). The transforms report `not_found`.
+            "remove_image" => stickers::PackEdit::RemoveImage { key: arg_a },
             "rename_image" => {
-                if arg_a.is_empty() || arg_b.is_empty() {
-                    return Err("rename needs both shortcodes".to_owned());
+                if arg_b.is_empty() {
+                    return Err("rename needs a new shortcode".to_owned());
                 }
                 stickers::PackEdit::RenameImage { from: arg_a, to: arg_b }
             }

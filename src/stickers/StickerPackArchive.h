@@ -68,9 +68,18 @@ struct ReadResult {
 // owns) and returns the validated pack. Image `path`s point inside `workDir`.
 ReadResult readArchive(const QString &zipPath, const QString &workDir);
 
-// The same repair the backend applies to a shortcode (rust sanitize_shortcode):
-// MSC2545's alphabet [a-zA-Z0-9-_], illegal runs collapse to one `_`, at most
-// 64 characters, separators trimmed from both ends.
+// Matrix v1.19's shortcode grammar, `^[A-Za-z0-9_-]{1,100}$`, case-sensitive
+// (rust is_valid_shortcode). The validator for new and renamed keys.
+bool isValidShortcode(const QString &key);
+
+// The key a NEW image gets for requested text: the text itself when it is
+// already valid, otherwise sanitizeShortcode()'s suggestion (rust
+// propose_shortcode).
+QString proposeShortcode(const QString &requested);
+
+// Turns arbitrary text (a file name, a body) into a SUGGESTED shortcode (rust
+// sanitize_shortcode): illegal runs collapse to one `_`, at most 100
+// characters, separators trimmed. Never applied to an existing key.
 QString sanitizeShortcode(const QString &raw);
 
 }  // namespace stickers::archive

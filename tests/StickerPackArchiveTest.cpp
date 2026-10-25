@@ -120,7 +120,53 @@ private Q_SLOTS:
         QCOMPARE(sanitizeShortcode(QStringLiteral("café")), QStringLiteral("caf"));
         QCOMPARE(sanitizeShortcode(QStringLiteral("a--b")), QStringLiteral("a--b"));
         QCOMPARE(sanitizeShortcode(QString()), QString());
-        QVERIFY(sanitizeShortcode(QString(200, QLatin1Char('a'))).size() <= 64);
+        QVERIFY(sanitizeShortcode(QString(200, QLatin1Char('a'))).size() <= 100);
+    }
+
+    void validKeysTravelExactlyThroughAnArchive()
+    {
+        // PACK-LTN-008: export used to repair every key (so `hello__world`
+        // came back as `hello_world`) and import folded case, refusing `cat`
+        // next to `Cat`.
+        QVERIFY(isValidShortcode(QStringLiteral("hello__world")));
+        QVERIFY(isValidShortcode(QString(100, QLatin1Char('x'))));
+        QVERIFY(!isValidShortcode(QString(101, QLatin1Char('x'))));
+        QVERIFY(!isValidShortcode(QStringLiteral("a b")));
+        QCOMPARE(proposeShortcode(QStringLiteral("hello__world")),
+                 QStringLiteral("hello__world"));
+        QCOMPARE(proposeShortcode(QStringLiteral("my cat.png")),
+                 QStringLiteral("my_cat_png"));
+
+        Pack pack;
+        pack.name = QStringLiteral("Exact");
+        const QString longKey(100, QLatin1Char('k'));
+        for (const QString &code : { QStringLiteral("hello__world"),
+                                     QStringLiteral("Cat"), QStringLiteral("cat"),
+                                     QStringLiteral("_cat_"), longKey }) {
+            Image image;
+            image.shortcode = code;
+            image.data = kPng;
+            pack.images.append(image);
+        }
+        int skipped = -1;
+        const QByteArray zip = buildArchive(pack, &skipped);
+        QCOMPARE(skipped, 0);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString zipPath = dir.filePath(QStringLiteral("p.zip"));
+        QFile f(zipPath);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(zip);
+        f.close();
+        QTemporaryDir work;
+        const ReadResult read = readArchive(zipPath, work.path());
+        QCOMPARE(int(read.error), int(ReadError::None));
+        QStringList codes;
+        for (const Image &image : read.pack.images)
+            codes << image.shortcode;
+        QCOMPARE(codes, (QStringList{ QStringLiteral("hello__world"),
+                                      QStringLiteral("Cat"), QStringLiteral("cat"),
+                                      QStringLiteral("_cat_"), longKey }));
     }
 
     void aPackSurvivesAWriteAndARead()
@@ -276,13 +322,13 @@ private Q_SLOTS:
         const QByteArray zip = zipOf({
             {"pack.json", manifest({
                  imageEntry(QStringLiteral("Cat Face!"), QStringLiteral("images/a.png")),
-                 imageEntry(QStringLiteral("cat_face"), QStringLiteral("images/b.png")),
+                 imageEntry(QStringLiteral("Cat_Face"), QStringLiteral("images/b.png")),
                  imageEntry(QStringLiteral("???"), QStringLiteral("images/c.png"))})},
             {"images/a.png", kPng}, {"images/b.png", kPng}, {"images/c.png", kJpg},
         });
         const ReadResult r = readArchive(writeTemp(dir, QStringLiteral("n.zip"), zip), work.path());
         QCOMPARE(int(r.error), int(ReadError::None));
-        QCOMPARE(r.refused, 1);  // b clashes with a, case-insensitively
+        QCOMPARE(r.refused, 1);  // b clashes with a exactly (case-sensitive)
         QCOMPARE(r.pack.images.size(), 2);
         QCOMPARE(r.pack.images[0].shortcode, QStringLiteral("Cat_Face"));
         // An unusable name falls back to the file's own.

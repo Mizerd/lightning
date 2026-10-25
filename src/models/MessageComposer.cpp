@@ -846,7 +846,7 @@ QVariantMap resolveShortcodes(
     if (!resolve || !body.contains(QLatin1Char(':')))
         return found;
     static const QRegularExpression re(
-        QStringLiteral(":([a-zA-Z0-9_+-]{1,64}):"));
+        QStringLiteral(":([a-zA-Z0-9_+-]{1,100}):"));
     auto it = re.globalMatch(body);
     while (it.hasNext()) {
         const auto m = it.next();
@@ -886,7 +886,7 @@ QString MessageComposer::convertUnicodeShortcodesForSend(const QString &text) co
     if (!m_unicodeShortcodeResolver || !text.contains(QLatin1Char(':')))
         return text;
     static const QRegularExpression re(
-        QStringLiteral(":([a-zA-Z0-9_+-]{1,64}):"));
+        QStringLiteral(":([a-zA-Z0-9_+-]{1,100}):"));
     QString out;
     out.reserve(text.size());
     int last = 0;

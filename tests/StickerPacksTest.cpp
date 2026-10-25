@@ -1042,7 +1042,7 @@ private Q_SLOTS:
         QVERIFY(client.editArgA.isEmpty());
     }
 
-    void arenameNeedsBothNamesAndAnEmptyTargetIsRefusedLocally()
+    void arenameNeedsATargetButAnEmptySourceKeyIsARealKey()
     {
         FakeClient client;
         StickerPackManager manager;
@@ -1053,14 +1053,22 @@ private Q_SLOTS:
                    { image(QStringLiteral("cat"), kMxcA, true, false) }) });
 
         manager.renameImageInPack(QStringLiteral("user"), QStringLiteral("cat"),
-                                  QStringLiteral("   "));
+                                  QString());
+        QCOMPARE(client.editCalls, 0);
+
+        // "" is a key a malformed pack can hold; repairing it must reach the
+        // backend (which answers not_found when there is no such key).
         manager.renameImageInPack(QStringLiteral("user"), QString(),
                                   QStringLiteral("dog"));
-        QCOMPARE(client.editCalls, 0);
+        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editArgA, QString());
+        Q_EMIT client.stickerPackEditFinished(client.lastEditOp, false,
+                                              QStringLiteral("not_found"),
+                                              QString());
 
         manager.renameImageInPack(QStringLiteral("user"), QStringLiteral("cat"),
                                   QStringLiteral("kitty"));
-        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editCalls, 2);
         QCOMPARE(client.editAction, QStringLiteral("rename_image"));
         QCOMPARE(client.editArgA, QStringLiteral("cat"));
         QCOMPARE(client.editArgB, QStringLiteral("kitty"));
@@ -1247,6 +1255,51 @@ private Q_SLOTS:
         QCOMPARE(client.uploadUsage, QStringLiteral("sticker"));
     }
 
+    void editsCarryTheExactKeyNotTheDisplayedName()
+    {
+        // PACK-LTN-006: the editor used to send the DISPLAYED (repaired)
+        // shortcode, so removing `hello__world` asked for `hello_world`.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap odd = image(QStringLiteral("bad key"), kMxcB, true, false);
+        odd.insert(QStringLiteral("key"), QStringLiteral("bad key"));
+        odd.insert(QStringLiteral("keyValid"), false);
+        QVariantMap exact = image(QStringLiteral("hello__world"), kMxcA, true, true);
+        exact.insert(QStringLiteral("key"), QStringLiteral("hello__world"));
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { exact, odd,
+                     image(QStringLiteral("hello_world"), kMxcC, true, true) }) });
+        manager.setSelectedPackId(QStringLiteral("user"));
+
+        StickerImageModel *rows = manager.editorImages();
+        QCOMPARE(rows->rowCount(), 3);
+        QHash<QString, bool> validity;
+        const int keyRole = rows->roleNames().key("key");
+        const int validRole = rows->roleNames().key("keyValid");
+        QVERIFY(keyRole > 0 && validRole > 0);
+        for (int i = 0; i < rows->rowCount(); ++i)
+            validity.insert(rows->data(rows->index(i), keyRole).toString(),
+                            rows->data(rows->index(i), validRole).toBool());
+        QCOMPARE(validity.value(QStringLiteral("hello__world")), true);
+        QCOMPARE(validity.value(QStringLiteral("bad key"), true), false);
+
+        manager.removeImageFromPack(QStringLiteral("user"),
+                                    QStringLiteral("hello__world"));
+        QCOMPARE(client.editArgA, QStringLiteral("hello__world"));
+
+        // An invalid key is never offered as typed text, and lookup by text is
+        // exact-case.
+        const QVariantList completions = manager.findEmoticons(QString(), 10);
+        for (const QVariant &row : completions)
+            QVERIFY(row.toMap().value(QStringLiteral("key")).toString()
+                    != QStringLiteral("bad key"));
+        QVERIFY(!manager.emoticon(QStringLiteral("hello__world")).isEmpty());
+        QVERIFY(manager.emoticon(QStringLiteral("HELLO__WORLD")).isEmpty());
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;
@@ -1271,20 +1324,27 @@ private Q_SLOTS:
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("caf\u00e9"))
                     .contains(QStringLiteral("letters")));
-        // Legal characters the backend would still change: say so rather than
-        // saving a different name.
+        // Matrix v1.19 allows these; the old 64-char / no-`__` / no-leading
+        // separator rules were Lightning's own and refused valid names
+        // (PACK-PRO-006, PACK-LTN-007).
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
-                                       QStringLiteral("-cat"))
-                    .contains(QStringLiteral("start or end")));
+                                       QStringLiteral("-cat")).isEmpty());
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
-                                       QStringLiteral("a__b"))
-                    .contains(QStringLiteral("start or end")));
-        QVERIFY(!manager.shortcodeError(user, QStringLiteral("cat"),
-                                        QString(65, QLatin1Char('a'))).isEmpty());
-        // Another image in the pack, any case.
+                                       QStringLiteral("a__b")).isEmpty());
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
-                                       QStringLiteral("WAVE"))
+                                       QString(65, QLatin1Char('a'))).isEmpty());
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QString(100, QLatin1Char('a'))).isEmpty());
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QString(101, QLatin1Char('a')))
+                    .contains(QStringLiteral("100")));
+        // Another image in the pack: exact and case-sensitive, so `WAVE` is
+        // a different name from `wave` (PACK-PRO-005).
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("wave"))
                     .contains(QStringLiteral("already")));
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("WAVE")).isEmpty());
         // The same name in ANOTHER pack is fine.
         QVERIFY(manager.shortcodeError(QStringLiteral("room:!r:example.org:"),
                                        QStringLiteral("dog"),

@@ -16,7 +16,15 @@ namespace stickers {
 
 struct PackImage
 {
-    // The `images` map key, repaired to MSC2545's own `[a-zA-Z0-9-_]+`.
+    // The EXACT `images` map key: the image's identity. Every edit names this
+    // (never `shortcode`), so `hello__world`, `Cat` vs `cat` and 65-100 byte
+    // keys are addressed as themselves.
+    QString key;
+    // Whether `key` satisfies Matrix v1.19's grammar `[A-Za-z0-9_-]{1,100}`.
+    // An invalid received key is still listed and can be removed or renamed,
+    // but is never offered as a typed `:shortcode:`.
+    bool keyValid = true;
+    // Display text: `key` when valid, otherwise a one-line rendering of it.
     QString shortcode;
     // Always a syntactically valid mxc:// URI, or the image would not exist.
     QString url;

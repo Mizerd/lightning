@@ -31,6 +31,9 @@ public:
         // width/height as a ratio for stable grid sizing; 1.0 when the pack
         // declared no dimensions, which is common.
         AspectRole,
+        // The exact `images` key (identity) and whether it is grammar-valid.
+        KeyRole,
+        KeyValidRole,
     };
 
     explicit StickerImageModel(QObject *parent = nullptr);

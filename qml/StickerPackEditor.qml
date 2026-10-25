@@ -54,9 +54,9 @@ Dialog {
         root.notice = ""
         root.noticeIsError = false
         nameField.text = name
-        renamingShortcode = ""
+        renamingKey = null
         confirmingDelete = false
-        removingShortcode = ""
+        removingKey = null
         open()
     }
 
@@ -65,12 +65,14 @@ Dialog {
             restoreTo.forceActiveFocus(Qt.TabFocusReason)
     }
 
-    /// The image whose Remove was pressed once; the second press removes it.
-    property string removingShortcode: ""
+    /// The image whose Remove was pressed once, by its EXACT key (`null` when
+    /// none: "" is itself a key a malformed pack can hold); the second press
+    /// removes it.
+    property var removingKey: null
 
-    /// The image being renamed, by current shortcode. One at a time, in place,
-    /// so only one field competes for Return.
-    property string renamingShortcode: ""
+    /// The image being renamed, by exact key (`null` when none). One at a
+    /// time, in place, so only one field competes for Return.
+    property var renamingKey: null
     /// Why the name being typed cannot be used, "" when it can. Fed by the one
     /// visible rename field so the reason shows once, in the notice area.
     property string renameProblem: ""
@@ -113,8 +115,8 @@ Dialog {
     Connections {
         target: root.stickers
         function onEditFinished(ok, category, shortcode) {
-            root.renamingShortcode = ""
-            root.removingShortcode = ""
+            root.renamingKey = null
+            root.removingKey = null
             root.confirmingDelete = false
             root.noticeIsError = !ok
             if (ok) {
@@ -212,7 +214,7 @@ Dialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            visible: root.renamingShortcode.length > 0
+            visible: root.renamingKey.length > 0
                      && root.renameProblem.length > 0
             text: root.renameProblem
             color: AppTheme.danger
@@ -256,6 +258,8 @@ Dialog {
                 id: imageRow
                 required property int index
                 required property string shortcode
+                required property string key
+                required property bool keyValid
                 required property string url
                 required property bool isEmoticon
                 required property bool isSticker
@@ -306,19 +310,34 @@ Dialog {
                     Label {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        visible: root.renamingShortcode !== imageRow.shortcode
+                        visible: root.renamingKey !== imageRow.key
                         // A shortcode is remote text: never markup.
                         textFormat: Text.PlainText
                         text: ":" + imageRow.shortcode + ":"
                         color: AppTheme.textPrimary
                         elide: Label.ElideRight
                     }
+                    // A key another client wrote outside the shortcode rules:
+                    // shown as it is (never silently renamed), with the reason
+                    // and a Rename to repair it.
+                    Label {
+                        objectName: "stickerInvalidKeyBadge"
+                        visible: !imageRow.keyValid
+                                 && root.renamingKey !== imageRow.key
+                        textFormat: Text.PlainText
+                        text: qsTr("Invalid name")
+                        color: AppTheme.danger
+                        font.pixelSize: AppTheme.textMeta
+                        Accessible.description: qsTr(
+                            "This name cannot be typed as a shortcode. "
+                            + "Rename it to repair it.")
+                    }
                     AppTextField {
                         id: renameField
                         objectName: "stickerRenameField"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        visible: root.renamingShortcode === imageRow.shortcode
+                        visible: root.renamingKey === imageRow.key
                         enabled: visible && !root.busy
                         // Why this name cannot be used, from the same rules
                         // the backend applies, so the answer is a sentence
@@ -326,7 +345,7 @@ Dialog {
                         readonly property string problem:
                             visible && root.stickers
                                 ? root.stickers.shortcodeError(
-                                      root.packId, imageRow.shortcode, text)
+                                      root.packId, imageRow.key, text)
                                 : ""
                         color: problem.length > 0 ? AppTheme.danger
                                                   : AppTheme.textPrimary
@@ -340,20 +359,24 @@ Dialog {
                         // The first Escape cancels the edit; the dialog stays
                         // (C41-F10).
                         Keys.onEscapePressed: (event) => {
-                            root.renamingShortcode = ""
+                            root.renamingKey = null
                             event.accepted = true
                         }
                         onActiveFocusChanged: if (activeFocus) imageRow.reveal()
                         onVisibleChanged: {
                             if (visible) {
-                                text = imageRow.shortcode
+                                // A malformed key starts from a suggested
+                                // repair; a valid one from itself.
+                                text = imageRow.keyValid
+                                    ? imageRow.key
+                                    : root.stickers.sanitizeShortcode(imageRow.key)
                                 forceActiveFocus()
                                 selectAll()
                             }
                         }
                         onAccepted: if (problem.length === 0)
                             root.stickers.renameImageInPack(
-                                root.packId, imageRow.shortcode, text)
+                                root.packId, imageRow.key, text)
                     }
 
                     // Which kind the image is, so a pack's emoji are not
@@ -370,21 +393,21 @@ Dialog {
 
                     AppButton {
                         onActiveFocusChanged: if (activeFocus) imageRow.reveal()
-                        text: root.renamingShortcode === imageRow.shortcode
+                        text: root.renamingKey === imageRow.key
                               ? qsTr("Save") : qsTr("Rename")
                         kind: "ghost"
                         size: "sm"
                         visible: root.canManage
                         enabled: !root.busy
-                                 && (root.renamingShortcode !== imageRow.shortcode
+                                 && (root.renamingKey !== imageRow.key
                                      || renameField.problem.length === 0)
                         onClicked: {
-                            if (root.renamingShortcode === imageRow.shortcode)
+                            if (root.renamingKey === imageRow.key)
                                 root.stickers.renameImageInPack(
-                                    root.packId, imageRow.shortcode,
+                                    root.packId, imageRow.key,
                                     renameField.text)
                             else
-                                root.renamingShortcode = imageRow.shortcode
+                                root.renamingKey = imageRow.key
                         }
                     }
                     AppButton {
@@ -393,7 +416,7 @@ Dialog {
                         // Two presses, like Delete pack: a removal is not
                         // undoable and sat one stray click away (C41-D03).
                         readonly property bool armed:
-                            root.removingShortcode === imageRow.shortcode
+                            root.removingKey === imageRow.key
                         text: armed ? qsTr("Confirm remove") : qsTr("Remove")
                         kind: armed ? "danger" : "ghost"
                         size: "sm"
@@ -402,9 +425,9 @@ Dialog {
                         onClicked: {
                             if (armed)
                                 root.stickers.removeImageFromPack(
-                                    root.packId, imageRow.shortcode)
+                                    root.packId, imageRow.key)
                             else
-                                root.removingShortcode = imageRow.shortcode
+                                root.removingKey = imageRow.key
                         }
                     }
                 }

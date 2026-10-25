@@ -44,9 +44,10 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     for (const QVariant &value : images) {
         const stickers::PackImage image =
             stickers::PackImage::fromVariantMap(value.toMap());
-        // The Rust parser requires both; drop malformed rows rather than show
-        // an unusable tile.
-        if (image.url.isEmpty() || image.shortcode.isEmpty())
+        // The Rust parser requires a url. The key may be empty or malformed in
+        // a pack another client wrote: such a row stays (identified by its
+        // exact key) so it can be inspected, removed or renamed.
+        if (image.url.isEmpty())
             continue;
         pack.images.append(image);
     }
@@ -389,18 +390,18 @@ void StickerPackManager::editPack(const QString &packId, const QString &action,
 }
 
 void StickerPackManager::removeImageFromPack(const QString &packId,
-                                             const QString &shortcode)
+                                             const QString &key)
 {
-    if (shortcode.isEmpty())
-        return;
-    editPack(packId, QStringLiteral("remove_image"), shortcode, QString());
+    // An empty key is a real (malformed) key another client may have written,
+    // and must stay removable: the backend answers not_found when absent.
+    editPack(packId, QStringLiteral("remove_image"), key, QString());
 }
 
 void StickerPackManager::renameImageInPack(const QString &packId,
                                            const QString &from,
                                            const QString &to)
 {
-    if (from.isEmpty() || to.trimmed().isEmpty())
+    if (to.isEmpty())
         return;
     editPack(packId, QStringLiteral("rename_image"), from, to);
 }
@@ -543,6 +544,9 @@ QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
                 return rows;
             if (!image.isEmoticon)
                 continue;
+            // A key outside the grammar cannot round-trip as `:key:` text.
+            if (uniqueShortcodes && !image.keyValid)
+                continue;
             if (!prefix.isEmpty()
                 && !image.shortcode.startsWith(prefix, Qt::CaseInsensitive))
                 continue;
@@ -580,7 +584,7 @@ QVariantMap StickerPackManager::emoticon(const QString &shortcode) const
         return {};
     for (const stickers::Pack &pack : m_packs->packs()) {
         for (const stickers::PackImage &image : pack.images) {
-            if (image.isEmoticon && image.shortcode == shortcode) {
+            if (image.isEmoticon && image.keyValid && image.key == shortcode) {
                 QVariantMap row = image.toVariantMap();
                 row.insert(QStringLiteral("packName"), pack.displayName);
                 return row;
@@ -744,28 +748,22 @@ QString StickerPackManager::shortcodeError(const QString &packId,
                                            const QString &current,
                                            const QString &candidate) const
 {
+    // Matrix v1.19: `[A-Za-z0-9_-]{1,100}`, case-sensitive. Nothing stricter
+    // (`__`, a leading `-` and 65-100 characters are all valid) and nothing
+    // looser; the backend validates the same way and never repairs a rename.
     if (candidate.isEmpty())
         return tr("Enter a name.");
-    if (candidate.size() > 64)
-        return tr("Names can be at most 64 characters.");
-    for (const QChar c : candidate) {
-        const ushort u = c.unicode();
-        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z')
-                        || (u >= 'A' && u <= 'Z') || u == '-' || u == '_';
-        if (!ok)
-            return tr("Use only letters, numbers, - and _ (no spaces, colons "
-                      "or accents).");
-    }
-    // Everything legal in the alphabet but still changed by the repair: a
-    // leading or trailing separator, or a doubled underscore. Saying so beats
-    // saving a different name than the one typed.
-    if (stickers::archive::sanitizeShortcode(candidate) != candidate)
-        return tr("A name cannot start or end with - or _, or contain __.");
+    if (candidate.size() > 100)
+        return tr("Names can be at most 100 characters (this one has %1).")
+            .arg(candidate.size());
+    if (!stickers::archive::isValidShortcode(candidate))
+        return tr("Use only letters, numbers, - and _ (no spaces, colons "
+                  "or accents).");
     const int row = m_packs->indexOfPack(packId);
     if (row >= 0 && candidate != current) {
         for (const stickers::PackImage &image : m_packs->packs().at(row).images) {
-            if (image.shortcode.compare(candidate, Qt::CaseInsensitive) == 0
-                && image.shortcode != current)
+            // Exact: `Cat` and `cat` are two different names.
+            if (image.key == candidate && image.key != current)
                 return tr("Another image in this pack already uses that name.");
         }
     }
@@ -779,7 +777,7 @@ QSet<QString> StickerPackManager::userPackShortcodes() const
     if (row < 0)
         return taken;
     for (const stickers::PackImage &image : m_packs->packs().at(row).images)
-        taken.insert(image.shortcode.toLower());
+        taken.insert(image.key);
     return taken;
 }
 
@@ -869,7 +867,7 @@ void StickerPackManager::advanceBatch()
         }
         const BatchItem item = m_transfer.items.at(m_transfer.index++);
         if (!item.path.isEmpty()
-            && m_transfer.taken.contains(item.shortcode.toLower())) {
+            && m_transfer.taken.contains(item.shortcode)) {
             ++m_transfer.skipped;
             ++m_transfer.done;
             continue;
@@ -883,7 +881,7 @@ void StickerPackManager::advanceBatch()
         m_saveOp = opId;
         m_saveScope = QStringLiteral("account");
         m_transfer.op = opId;
-        m_transfer.taken.insert(item.shortcode.toLower());
+        m_transfer.taken.insert(item.shortcode);
         m_transferWatchdog->start();
         if (!item.path.isEmpty()) {
             m_client->uploadStickerToUserPack(item.shortcode, item.body,
@@ -976,7 +974,7 @@ void StickerPackManager::importPack(const QUrl &zipFile)
                 const QSet<QString> taken = self->userPackShortcodes();
                 int skipped = read.refused;
                 for (const stickers::archive::Image &image : read.pack.images) {
-                    if (taken.contains(image.shortcode.toLower())) {
+                    if (taken.contains(image.shortcode)) {
                         ++skipped;
                         continue;
                     }
@@ -1152,7 +1150,7 @@ void StickerPackManager::finishExport()
             if (m_transfer.bytes.at(i).isEmpty())
                 continue;
             stickers::archive::Image entry;
-            entry.shortcode = image.shortcode;
+            entry.shortcode = image.key;
             entry.body = image.body;
             entry.data = m_transfer.bytes.at(i);
             entry.usage = (image.isSticker && image.isEmoticon)

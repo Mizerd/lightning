@@ -5,6 +5,8 @@ namespace stickers {
 QVariantMap PackImage::toVariantMap() const
 {
     QVariantMap map;
+    map.insert(QStringLiteral("key"), key);
+    map.insert(QStringLiteral("keyValid"), keyValid);
     map.insert(QStringLiteral("shortcode"), shortcode);
     map.insert(QStringLiteral("url"), url);
     map.insert(QStringLiteral("body"), body);
@@ -21,6 +23,12 @@ PackImage PackImage::fromVariantMap(const QVariantMap &map)
 {
     PackImage image;
     image.shortcode = map.value(QStringLiteral("shortcode")).toString();
+    // A map without `key` (an older caller, a test fixture) names a valid key
+    // equal to its shortcode.
+    image.key = map.contains(QStringLiteral("key"))
+        ? map.value(QStringLiteral("key")).toString() : image.shortcode;
+    image.keyValid = map.contains(QStringLiteral("keyValid"))
+        ? map.value(QStringLiteral("keyValid")).toBool() : true;
     image.url = map.value(QStringLiteral("url")).toString();
     image.body = map.value(QStringLiteral("body")).toString();
     image.mimetype = map.value(QStringLiteral("mimetype")).toString();

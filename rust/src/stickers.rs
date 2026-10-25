@@ -62,9 +62,14 @@ const MAX_PACKS: usize = 64;
 /// Max images per pack (large public packs have a few hundred).
 const MAX_IMAGES_PER_PACK: usize = 512;
 
-/// Shortcode length cap. MSC2545 allows 100 bytes; 64 is stricter, and the
-/// sanitized alphabet is ASCII, so chars equal bytes.
-const MAX_SHORTCODE_CHARS: usize = 64;
+/// Shortcode length bound: Matrix v1.19's grammar is `[A-Za-z0-9_-]{1,100}`,
+/// ASCII, so bytes equal chars. Applies to NEW and renamed keys only: a
+/// received key outside the grammar is kept as identity (see `PackImage`).
+const MAX_SHORTCODE_BYTES: usize = 100;
+
+/// A received `images` key longer than this is dropped as hostile. Not a
+/// protocol number: it only keeps one absurd key from crossing the FFI.
+const MAX_RAW_KEY_BYTES: usize = 1024;
 
 /// Refused before reading the file, so a large screenshot never reaches
 /// memory or the homeserver.
@@ -106,13 +111,33 @@ fn one_line(text: &str, max_chars: usize) -> String {
     trimmed.chars().take(max_chars).collect()
 }
 
-/// Sanitize a shortcode (the key of the `images` map) to MSC2545's alphabet:
-/// `[a-zA-Z0-9-_]+`, at most 100 bytes, no colons. Illegal characters become
-/// `_`, runs collapse, and leading/trailing separators are trimmed.
-///
-/// Repaired rather than rejected, because real packs carry illegal
-/// shortcodes (Sable writes `sticker-$eventId`) and dropping them would
-/// empty other clients' packs. An empty result is dropped.
+/// True when `key` is a shortcode under Matrix v1.19's grammar:
+/// `^[A-Za-z0-9_-]{1,100}$`, case-sensitive. The ONE validator for new and
+/// renamed keys; never used to rewrite a received key.
+pub(crate) fn is_valid_shortcode(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_SHORTCODE_BYTES
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The key a NEW image gets for a requested name: the request itself when it
+/// is already a valid shortcode (exactly, case and `__` included), otherwise
+/// a sanitized suggestion. Never applied to a key that already exists.
+pub(crate) fn propose_shortcode(requested: &str) -> String {
+    let trimmed = requested.trim();
+    if is_valid_shortcode(trimmed) {
+        return trimmed.to_owned();
+    }
+    sanitize_shortcode(trimmed)
+}
+
+/// Turn arbitrary text (a file name, a sticker body) into a SUGGESTED
+/// shortcode: illegal characters become `_`, runs collapse, and
+/// leading/trailing separators are trimmed. A suggestion only: received keys
+/// are identity and are never passed through this (an image keyed
+/// `hello__world` must stay `hello__world`).
 pub(crate) fn sanitize_shortcode(raw: &str) -> String {
     let mut out = String::new();
     for c in raw.trim().chars() {
@@ -125,7 +150,7 @@ pub(crate) fn sanitize_shortcode(raw: &str) -> String {
             // produced by substitution, so its runs are kept.
             out.push('_');
         }
-        if out.len() >= MAX_SHORTCODE_CHARS {
+        if out.len() >= MAX_SHORTCODE_BYTES {
             break;
         }
     }
@@ -201,6 +226,15 @@ fn resolve_usage(
 /// One validated pack image, ready to cross the FFI.
 #[derive(Clone, Debug)]
 pub(crate) struct PackImage {
+    /// The exact `images` map key: the image's identity. Every mutation names
+    /// this, never the display text, so a received `hello__world` or a 65-100
+    /// byte key is removed or renamed as itself.
+    pub key: String,
+    /// Whether `key` satisfies the v1.19 grammar. An invalid received key is
+    /// still shown (and removable/renamable) but cannot be typed as `:key:`.
+    pub key_valid: bool,
+    /// Display text: `key` itself when valid, otherwise a one-line, bounded
+    /// rendering of it (possibly empty). A label, never an identity.
     pub shortcode: String,
     pub url: String,
     pub body: String,
@@ -250,6 +284,8 @@ impl Pack {
             "enabled_globally": self.enabled_globally,
             "can_manage": self.can_manage,
             "images": self.images.iter().map(|i| json!({
+                "key": i.key,
+                "key_valid": i.key_valid,
                 "shortcode": i.shortcode,
                 "url": i.url,
                 "body": i.body,
@@ -313,10 +349,19 @@ pub(crate) fn parse_pack_content(
             }
             let Some(entry) = entry.as_object() else { continue };
 
-            let shortcode = sanitize_shortcode(raw_code);
-            if shortcode.is_empty() {
+            // The raw key is the identity and is kept exactly; it is only
+            // dropped when absurdly long. A key outside the grammar is shown with
+            // `key_valid: false` rather than silently repaired into a different
+            // (possibly colliding) name.
+            if raw_code.len() > MAX_RAW_KEY_BYTES {
                 continue;
             }
+            let key_valid = is_valid_shortcode(raw_code);
+            let shortcode = if key_valid {
+                raw_code.clone()
+            } else {
+                one_line(raw_code, MAX_SHORTCODE_BYTES)
+            };
 
             // The one unconditional requirement of MSC2545's PackImage.
             let Some(url) = entry.get("url").and_then(|v| v.as_str()) else {
@@ -354,6 +399,8 @@ pub(crate) fn parse_pack_content(
             };
 
             images.push(PackImage {
+                key: raw_code.clone(),
+                key_valid,
                 shortcode,
                 url: url.to_owned(),
                 body,
@@ -496,11 +543,15 @@ pub(crate) fn fetch_packs(
             if seen.contains(&(enabled_room.clone(), state_key.clone())) {
                 continue;
             }
-            let Some((content, name)) =
-                read_one_room_pack(&client, &enabled_room, &state_key).await
-            else {
+            let (read, name) =
+                read_one_room_pack(&client, &enabled_room, &state_key).await;
+            let PackRead::Found(content) = read else {
                 continue;
             };
+            // A cleared pack (no `images`) is retired, not an empty pack.
+            if content.get("images").is_none() {
+                continue;
+            }
             if let Some(mut pack) = parse_pack_content(
                 &content,
                 format!("room:{enabled_room}:{state_key}"),
@@ -812,6 +863,23 @@ fn server_answer<E>(
     }
 }
 
+/// An account-data GET as a `PackRead`, for writers: `fetch_account_data`
+/// maps M_NOT_FOUND to `Ok(None)`.
+fn account_data_read<E: std::fmt::Display>(
+    fetched: Result<Option<matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnyGlobalAccountDataEventContent>>, E>,
+) -> PackRead {
+    match fetched {
+        Ok(Some(raw)) => classify_pack_read(Ok(raw.json().get())),
+        Ok(None) => PackRead::Absent,
+        Err(err) => match classify_room_error(&err.to_string()) {
+            // Not M_NOT_FOUND (that is Ok(None)): an endpoint-level 404 is a
+            // failure, not an answer about this account.
+            "not_found" => PackRead::Failed("network".to_owned()),
+            other => PackRead::Failed(other.to_owned()),
+        },
+    }
+}
+
 /// Store first, then the server. `None` means absent or unreadable; either
 /// way the source contributes nothing. A server "not found" is remembered
 /// (`AbsentAnswers`), so the next read asks nothing; an error is not.
@@ -875,17 +943,67 @@ async fn read_room_packs(
     out
 }
 
-/// One room pack by state key. Sliding sync does not deliver custom state
-/// types, so a store miss is normal and the bounded `/state` read answers
-/// (as in `banner.rs`).
+/// What reading one room pack came back as. `Absent` is the server's own
+/// M_NOT_FOUND and nothing else: a timeout, a refusal or an unparseable body
+/// says nothing about whether the pack exists, and must never be read as
+/// "empty" by a writer (a failed read followed by a full-state PUT would
+/// replace the real pack with a one-image object).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PackRead {
+    Found(Value),
+    Absent,
+    /// The coarse class (`forbidden`, `network`, `malformed`, ...).
+    Failed(String),
+}
+
+/// Classify a state GET: `Ok(body)` is the event content as text, `Err` the
+/// error's display text.
+pub(crate) fn classify_pack_read(result: Result<&str, String>) -> PackRead {
+    match result {
+        Ok(text) => match serde_json::from_str::<Value>(text) {
+            Ok(value) if value.is_object() => PackRead::Found(value),
+            _ => PackRead::Failed("malformed".to_owned()),
+        },
+        Err(message) => match classify_room_error(&message) {
+            "not_found" => PackRead::Absent,
+            other => PackRead::Failed(other.to_owned()),
+        },
+    }
+}
+
+/// The content an ADD starts from: an existing pack, or a new empty one only
+/// when the server said there is none. Any failed read refuses the write.
+pub(crate) fn base_for_add(read: PackRead) -> Result<Value, String> {
+    match read {
+        PackRead::Found(content) => Ok(content),
+        // A schema-valid empty pack: `images` is required (v1.19).
+        PackRead::Absent => Ok(json!({ "images": {} })),
+        PackRead::Failed(category) => Err(category),
+    }
+}
+
+/// The content an EDIT starts from: it edits something that must exist.
+pub(crate) fn base_for_edit(read: PackRead) -> Result<Value, String> {
+    match read {
+        PackRead::Found(content) => Ok(content),
+        PackRead::Absent => Err("not_found".to_owned()),
+        PackRead::Failed(category) => Err(category),
+    }
+}
+
+/// One room pack by state key, and the room's name (the MSC's default display
+/// name). Sliding sync does not deliver custom state types, so a store miss
+/// is normal and the bounded `/state` read answers (as in `banner.rs`).
 async fn read_one_room_pack(
     client: &matrix_sdk::Client,
     room_id: &str,
     state_key: &str,
-) -> Option<(Value, String)> {
+) -> (PackRead, String) {
     use matrix_sdk::ruma::api::client::state::get_state_event_for_key;
 
-    let room = joined_room(client, room_id).ok()?;
+    let Ok(room) = joined_room(client, room_id) else {
+        return (PackRead::Failed("unknown_room".to_owned()), String::new());
+    };
     let name = room.name().unwrap_or_default();
 
     if let Ok(Some(raw)) = room
@@ -899,7 +1017,7 @@ async fn read_one_room_pack(
         if let Ok(value) = serde_json::from_str::<Value>(&json) {
             if let Some(content) = value.get("content") {
                 if content.get("images").is_some() {
-                    return Some((content.clone(), name));
+                    return (PackRead::Found(content.clone()), name);
                 }
             }
         }
@@ -913,10 +1031,11 @@ async fn read_one_room_pack(
         StateEventType::from(ROOM_EMOTES),
         state_key.to_owned(),
     );
-    let response = client.send(request).with_request_config(config).await.ok()?;
-    let value = serde_json::from_str::<Value>(response.event_or_content.get()).ok()?;
-    value.get("images")?;
-    Some((value, name))
+    let read = match client.send(request).with_request_config(config).await {
+        Ok(response) => classify_pack_read(Ok(response.event_or_content.get())),
+        Err(err) => classify_pack_read(Err(err.to_string())),
+    };
+    (read, name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +1152,7 @@ pub(crate) fn upload_to_user_pack(
     if metadata.len() == 0 || metadata.len() > MAX_STICKER_UPLOAD_BYTES {
         return Err("sticker file size is out of range".to_owned());
     }
-    let requested = sanitize_shortcode(&shortcode);
+    let requested = propose_shortcode(&shortcode);
     let body = one_line(&body, MAX_BODY_CHARS);
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -1113,7 +1232,7 @@ pub(crate) fn add_to_user_pack(
     if !mimetype.is_empty() && !mimetype_allowed(Some(&mimetype)) {
         return Err("sticker mimetype is not a supported raster image".to_owned());
     }
-    let requested = sanitize_shortcode(&shortcode);
+    let requested = propose_shortcode(&shortcode);
     let body = one_line(&body, MAX_BODY_CHARS);
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -1182,7 +1301,7 @@ pub(crate) fn add_to_room_pack(
     if RoomId::parse(&room_id).is_err() {
         return Err("room id is not valid".to_owned());
     }
-    let requested = sanitize_shortcode(&shortcode);
+    let requested = propose_shortcode(&shortcode);
     let body = one_line(&body, MAX_BODY_CHARS);
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -1236,11 +1355,9 @@ async fn add_to_room_pack_inner(
         return Err("forbidden".to_owned());
     }
 
-    // A miss means no pack under that key yet: a normal first use.
-    let existing = match read_one_room_pack(client, room_id, state_key).await {
-        Some((content, _name)) => content,
-        None => json!({}),
-    };
+    // Only the server's own "not found" is a first use; a failed read writes
+    // nothing (PACK-LTN-017).
+    let existing = base_for_add(read_one_room_pack(client, room_id, state_key).await.0)?;
 
     let (content, code) =
         add_image_to_pack_content(existing, requested, url, body, mimetype,
@@ -1307,8 +1424,13 @@ pub(crate) fn add_image_to_pack_content(
     };
     let mut code = base.clone();
     let mut n = 2u32;
+    // Exact, case-sensitive: `Cat` and `cat` are two different keys.
     while images.contains_key(&code) {
-        code = format!("{base}-{n}");
+        let suffix = format!("-{n}");
+        // Keep the suffixed key inside the 100-byte grammar (ASCII, so any byte
+        // index is a char boundary).
+        let keep = base.len().min(MAX_SHORTCODE_BYTES - suffix.len());
+        code = format!("{}{suffix}", &base[..keep]);
         n += 1;
         if n > 999 {
             return Err("rejected".to_owned());
@@ -1350,7 +1472,8 @@ pub(crate) fn add_image_to_pack_content(
 /// state). The rules live in the pure transforms; this carries the intent
 /// to the one shared writer.
 pub(crate) enum PackEdit {
-    RemoveImage { shortcode: String },
+    /// `key` / `from` are exact `images` keys, never display text.
+    RemoveImage { key: String },
     RenameImage { from: String, to: String },
     SetName { name: String },
     /// Empty the pack by writing an empty object (no delete verb exists for
@@ -1363,8 +1486,8 @@ impl PackEdit {
     /// shortcode for a rename (empty otherwise).
     fn apply(&self, existing: Value) -> Result<(Value, String), String> {
         match self {
-            PackEdit::RemoveImage { shortcode } => {
-                remove_image_from_pack_content(existing, shortcode)
+            PackEdit::RemoveImage { key } => {
+                remove_image_from_pack_content(existing, key)
                     .map(|c| (c, String::new()))
             }
             PackEdit::RenameImage { from, to } => {
@@ -1429,13 +1552,11 @@ async fn edit_user_pack_inner(
 ) -> Result<String, String> {
     let ty = GlobalAccountDataEventType::from(USER_EMOTES);
     // Unlike the add path, a 404 is a real answer here: these operations edit
-    // something that must already exist.
-    let existing = match client.account().fetch_account_data(ty.clone()).await {
-        Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
-            .unwrap_or_else(|_| json!({})),
-        Ok(None) => return Err("not_found".to_owned()),
-        Err(err) => return Err(classify_room_error(&err.to_string()).to_owned()),
-    };
+    // something that must already exist. An unparseable body is a failed
+    // read, never an empty pack to overwrite.
+    let existing = base_for_edit(account_data_read(
+        client.account().fetch_account_data(ty.clone()).await,
+    ))?;
     let (content, code) = edit.apply(existing)?;
     let raw = matrix_sdk::ruma::serde::Raw::new(&content)
         .map_err(|_| "rejected".to_owned())?
@@ -1460,10 +1581,7 @@ async fn edit_room_pack_inner(
     if !can_manage_room_packs(client, room_id).await {
         return Err("forbidden".to_owned());
     }
-    let existing = match read_one_room_pack(client, room_id, state_key).await {
-        Some((content, _name)) => content,
-        None => return Err("not_found".to_owned()),
-    };
+    let existing = base_for_edit(read_one_room_pack(client, room_id, state_key).await.0)?;
     let (content, code) = edit.apply(existing)?;
     room.send_state_event_raw(ROOM_EMOTES, state_key, content)
         .await
@@ -1500,10 +1618,12 @@ pub(crate) fn rename_image_in_pack_content(
     from: &str,
     to: &str,
 ) -> Result<(Value, String), String> {
-    let code = sanitize_shortcode(to);
-    if code.is_empty() {
+    // A deliberate rename means exactly the name typed: validated against the
+    // grammar, never repaired into something else.
+    if !is_valid_shortcode(to) {
         return Err("invalid_shortcode".to_owned());
     }
+    let code = to.to_owned();
     if code == from {
         // Unchanged: report success, the pack is as requested.
         return Ok((existing, code));
@@ -1561,13 +1681,11 @@ async fn add_to_user_pack_inner(
 ) -> Result<String, String> {
     let ty = GlobalAccountDataEventType::from(USER_EMOTES);
 
-    // Server read. A 404 means no pack yet: a normal first use.
-    let existing = match client.account().fetch_account_data(ty.clone()).await {
-        Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
-            .unwrap_or_else(|_| json!({})),
-        Ok(None) => json!({}),
-        Err(err) => return Err(classify_room_error(&err.to_string()).to_owned()),
-    };
+    // Server read. A 404 means no pack yet: a normal first use. Anything that
+    // is not a readable object refuses the write rather than replacing it.
+    let existing = base_for_add(account_data_read(
+        client.account().fetch_account_data(ty.clone()).await,
+    ))?;
 
     // The shared transform (see add_image_to_pack_content).
     let (mut content, code) = add_image_to_pack_content(
@@ -1726,20 +1844,177 @@ mod tests {
         // Bounded.
         assert_eq!(
             sanitize_shortcode(&"a".repeat(500)).len(),
-            MAX_SHORTCODE_CHARS
+            MAX_SHORTCODE_BYTES
         );
     }
 
     #[test]
-    fn an_image_whose_shortcode_sanitizes_to_nothing_is_dropped() {
+    fn a_malformed_received_key_is_kept_as_its_own_identity() {
+        // PACK-PRO-008 / PACK-LTN-009: a key outside the grammar stays visible
+        // and addressable by its EXACT text; it is not repaired into `good`
+        // (which would then collide with the real `good`).
         let pack = parse(json!({
             "images": {
                 ":::": { "url": "mxc://example.org/5" },
+                "go od": { "url": "mxc://example.org/7" },
+                "": { "url": "mxc://example.org/8" },
                 "good": { "url": "mxc://example.org/6" }
             }
         }));
-        assert_eq!(pack.images.len(), 1);
-        assert_eq!(pack.images[0].shortcode, "good");
+        assert_eq!(pack.images.len(), 4);
+        let by_key = |k: &str| pack.images.iter().find(|i| i.key == k).expect(k);
+        assert!(by_key("good").key_valid);
+        assert_eq!(by_key("good").shortcode, "good");
+        assert!(!by_key(":::").key_valid);
+        assert!(!by_key("go od").key_valid);
+        assert_eq!(by_key("go od").shortcode, "go od");
+        assert!(!by_key("").key_valid);
+        // A hostile, absurdly long key is still dropped.
+        let long = parse(json!({ "images": {
+            "k".repeat(MAX_RAW_KEY_BYTES + 1): { "url": "mxc://example.org/1" } } }));
+        assert!(long.images.is_empty());
+    }
+
+    #[test]
+    fn stable_valid_keys_survive_exactly_including_case_runs_and_length() {
+        // PACK-PRO-005/006, PACK-LTN-006/007/008: the old reader collapsed
+        // `hello__world` to `hello_world` and truncated at 64, so an edit
+        // addressed a different (or no) image.
+        let k64 = "a".repeat(64);
+        let k65 = "b".repeat(65);
+        let k99 = "c".repeat(99);
+        let k100 = "d".repeat(100);
+        let mut images = serde_json::Map::new();
+        for (i, k) in ["hello__world", "hello_world", "Cat", "cat", "_cat_", "-cat-",
+                       "x", k64.as_str(), k65.as_str(), k99.as_str(), k100.as_str()]
+            .iter()
+            .enumerate()
+        {
+            images.insert((*k).to_owned(), json!({ "url": format!("mxc://e/{i}") }));
+        }
+        let pack = parse(json!({ "images": images }));
+        assert_eq!(pack.images.len(), 11);
+        for image in &pack.images {
+            assert!(image.key_valid, "{} should be valid", image.key);
+            assert_eq!(image.shortcode, image.key, "display must equal identity");
+        }
+        // 101 bytes is outside the grammar, but still shown, not truncated.
+        let k101 = "e".repeat(101);
+        let over = parse(json!({ "images": { k101.clone(): { "url": "mxc://e/z" } } }));
+        assert_eq!(over.images[0].key, k101);
+        assert!(!over.images[0].key_valid);
+    }
+
+    #[test]
+    fn the_shortcode_grammar_is_exactly_the_stable_one() {
+        for ok in ["a", "A", "0", "_", "-", "Cat_Wave", "hello__world", "-x-"] {
+            assert!(is_valid_shortcode(ok), "{ok}");
+        }
+        assert!(is_valid_shortcode(&"z".repeat(100)));
+        for bad in ["", "a b", "a:b", "a/b", "caf\u{e9}", "\u{1F600}", "a.b", "a+b"] {
+            assert!(!is_valid_shortcode(bad), "{bad:?}");
+        }
+        assert!(!is_valid_shortcode(&"z".repeat(101)));
+        // A valid request is taken exactly; only invalid text is suggested.
+        assert_eq!(propose_shortcode("hello__world"), "hello__world");
+        assert_eq!(propose_shortcode("Cat"), "Cat");
+        assert_eq!(propose_shortcode(" my cat.png "), "my_cat_png");
+    }
+
+    #[test]
+    fn edits_address_the_exact_key_and_never_its_neighbour() {
+        let content = json!({ "images": {
+            "hello__world": { "url": "mxc://e/a" },
+            "hello_world": { "url": "mxc://e/b" },
+            "Cat": { "url": "mxc://e/c" },
+            "cat": { "url": "mxc://e/d" },
+            "bad key": { "url": "mxc://e/f" },
+        } });
+        let removed = remove_image_from_pack_content(content.clone(), "hello__world").unwrap();
+        let images = removed["images"].as_object().unwrap();
+        assert!(!images.contains_key("hello__world"));
+        assert_eq!(images["hello_world"]["url"], json!("mxc://e/b"));
+
+        let removed = remove_image_from_pack_content(content.clone(), "Cat").unwrap();
+        assert_eq!(removed["images"]["cat"]["url"], json!("mxc://e/d"));
+        assert!(removed["images"].get("Cat").is_none());
+
+        // A malformed key is removable and repairable as itself.
+        let removed = remove_image_from_pack_content(content.clone(), "bad key").unwrap();
+        assert!(removed["images"].get("bad key").is_none());
+        let (repaired, code) =
+            rename_image_in_pack_content(content.clone(), "bad key", "good_key").unwrap();
+        assert_eq!(code, "good_key");
+        assert_eq!(repaired["images"]["good_key"]["url"], json!("mxc://e/f"));
+        assert_eq!(repaired["images"].as_object().unwrap().len(), 5);
+
+        // Collision is exact and case-sensitive: `Cat` -> `cat` is taken,
+        // `Cat` -> `CAT` is not.
+        assert_eq!(
+            rename_image_in_pack_content(content.clone(), "Cat", "cat").unwrap_err(),
+            "shortcode_taken"
+        );
+        assert!(rename_image_in_pack_content(content.clone(), "Cat", "CAT").is_ok());
+        // A rename target is validated, never repaired into another name.
+        for bad in ["has space", "a:b", "", &"q".repeat(101)] {
+            assert_eq!(
+                rename_image_in_pack_content(content.clone(), "Cat", bad).unwrap_err(),
+                "invalid_shortcode",
+                "{bad:?}"
+            );
+        }
+        // A 65-100 byte target is accepted as typed.
+        let long = "L".repeat(100);
+        let (_, code) = rename_image_in_pack_content(content, "Cat", &long).unwrap();
+        assert_eq!(code, long);
+    }
+
+    #[test]
+    fn a_suffixed_key_stays_inside_the_grammar_and_is_case_exact() {
+        let base = json!({ "images": { "Cat": { "url": "mxc://e/1" } } });
+        // `cat` is a different key from `Cat`: no suffix.
+        let (_, code) = add(base.clone(), "cat", "mxc://e/2").unwrap();
+        assert_eq!(code, "cat");
+        let (_, code) = add(base, "Cat", "mxc://e/2").unwrap();
+        assert_eq!(code, "Cat-2");
+        let long = "m".repeat(100);
+        let full = json!({ "images": { long.clone(): { "url": "mxc://e/1" } } });
+        let (_, code) = add(full, &long, "mxc://e/2").unwrap();
+        assert!(is_valid_shortcode(&code), "{code}");
+        assert!(code.ends_with("-2"));
+    }
+
+    #[test]
+    fn a_failed_read_never_becomes_an_empty_pack_to_write() {
+        // PACK-LTN-017: the old add path mapped every miss to `{}` and wrote a
+        // one-image pack over a real one whose read had merely failed.
+        assert_eq!(
+            classify_pack_read(Err("[404 / M_NOT_FOUND] Event not found".to_owned())),
+            PackRead::Absent
+        );
+        for (message, class) in [
+            ("[403 / M_FORBIDDEN] You are not in the room", "forbidden"),
+            ("operation timed out", "network"),
+            ("error sending request: connection refused", "network"),
+            ("[429 / M_LIMIT_EXCEEDED] slow down", "rate_limited"),
+        ] {
+            let read = classify_pack_read(Err(message.to_owned()));
+            assert_eq!(read, PackRead::Failed(class.to_owned()), "{message}");
+            assert_eq!(base_for_add(read.clone()).unwrap_err(), class);
+            assert_eq!(base_for_edit(read).unwrap_err(), class);
+        }
+        // An unparseable or non-object body is a failure, not a blank slate.
+        for body in ["not json", "[]", "\"x\""] {
+            let read = classify_pack_read(Ok(body));
+            assert_eq!(read, PackRead::Failed("malformed".to_owned()), "{body}");
+            assert!(base_for_add(read).is_err());
+        }
+        // Only a confirmed absence lets an add create, and it creates the
+        // schema-valid empty pack, never `{}`.
+        assert_eq!(base_for_add(PackRead::Absent).unwrap(), json!({ "images": {} }));
+        assert_eq!(base_for_edit(PackRead::Absent).unwrap_err(), "not_found");
+        let found = json!({ "images": { "a": { "url": "mxc://e/1" } }, "x-other": 1 });
+        assert_eq!(base_for_add(classify_pack_read(Ok(&found.to_string()))).unwrap(), found);
     }
 
     #[test]
@@ -2232,7 +2507,7 @@ mod tests {
                 .unwrap_err(),
             "not_found"
         );
-        // A name that sanitizes to nothing is refused before anything moves.
+        // An invalid name is refused before anything moves.
         assert_eq!(
             rename_image_in_pack_content(content, "blob", "   ").unwrap_err(),
             "invalid_shortcode"
@@ -2293,7 +2568,7 @@ mod tests {
                 "wave": { "url": "mxc://e/b" },
             }
         });
-        let (removed, _) = PackEdit::RemoveImage { shortcode: "blob".into() }
+        let (removed, _) = PackEdit::RemoveImage { key: "blob".into() }
             .apply(base.clone())
             .unwrap();
         assert_eq!(removed["images"].as_object().unwrap().len(), 1);

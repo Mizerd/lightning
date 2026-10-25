@@ -16,7 +16,7 @@ namespace {
 
 constexpr auto kFormat = "lightning.sticker-pack";
 constexpr int kVersion = 1;
-constexpr int kMaxShortcodeChars = 64;
+constexpr int kMaxShortcodeChars = 100;  // Matrix v1.19 grammar bound
 constexpr int kMaxBodyChars = 160;
 constexpr int kMaxNameChars = 80;
 constexpr int kMaxAttributionChars = 160;
@@ -131,6 +131,26 @@ QString normalizeUsage(const QString &usage)
 
 }  // namespace
 
+bool isValidShortcode(const QString &key)
+{
+    if (key.isEmpty() || key.size() > kMaxShortcodeChars)
+        return false;
+    for (const QChar c : key) {
+        const ushort u = c.unicode();
+        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z')
+                        || (u >= 'A' && u <= 'Z') || u == '-' || u == '_';
+        if (!ok)
+            return false;
+    }
+    return true;
+}
+
+QString proposeShortcode(const QString &requested)
+{
+    const QString trimmed = requested.trimmed();
+    return isValidShortcode(trimmed) ? trimmed : sanitizeShortcode(trimmed);
+}
+
 QString sanitizeShortcode(const QString &raw)
 {
     QString out;
@@ -193,15 +213,19 @@ QByteArray buildArchive(const Pack &pack, int *skipped)
             ++skippedCount;
             continue;
         }
-        const QString code = sanitizeShortcode(image.shortcode);
+        // A valid key travels exactly (case, `__`, 65-100 bytes); only a
+        // malformed one is turned into a suggestion.
+        const QString code = proposeShortcode(image.shortcode);
         if (code.isEmpty()) {
             ++skippedCount;
             continue;
         }
         ++index;
+        // The file name is a locator only (the manifest carries the exact
+        // shortcode), so it stays short enough for the reader's name rule.
         const QString file = QStringLiteral("images/%1-%2.%3")
                                  .arg(index, 4, 10, QLatin1Char('0'))
-                                 .arg(code, ext);
+                                 .arg(code.left(64), ext);
         QJsonObject obj;
         obj.insert(QStringLiteral("shortcode"), code);
         obj.insert(QStringLiteral("file"), file);
@@ -306,17 +330,18 @@ ReadResult readArchive(const QString &zipPath, const QString &workDir)
             ++result.refused;
             continue;
         }
-        QString code = sanitizeShortcode(
+        QString code = proposeShortcode(
             obj.value(QStringLiteral("shortcode")).toString());
         if (code.isEmpty())
             code = sanitizeShortcode(QFileInfo(file).completeBaseName());
         if (code.isEmpty())
             code = QStringLiteral("sticker");
-        if (seen.contains(code.toLower())) {
+        // Exact, case-sensitive: `Cat` and `cat` are two images.
+        if (seen.contains(code)) {
             ++result.refused;
             continue;
         }
-        seen.insert(code.toLower());
+        seen.insert(code);
         Image image;
         image.shortcode = code;
         image.body = oneLine(obj.value(QStringLiteral("body")).toString(),

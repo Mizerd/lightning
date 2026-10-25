@@ -12486,6 +12486,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             for (const QJsonValue &imageValue : rawImages) {
                 const QJsonObject image = imageValue.toObject();
                 QVariantMap row;
+                row.insert(QStringLiteral("key"),
+                           image.value(QStringLiteral("key")).toString());
+                row.insert(QStringLiteral("keyValid"),
+                           image.value(QStringLiteral("key_valid")).toBool(true));
                 row.insert(QStringLiteral("shortcode"),
                            image.value(QStringLiteral("shortcode")).toString());
                 row.insert(QStringLiteral("url"),

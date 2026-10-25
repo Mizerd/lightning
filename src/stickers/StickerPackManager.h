@@ -162,8 +162,10 @@ public:
     // room id and state key, and every edit is refused unless canManagePack()
     // allows it. All edits share one op slot (`m_editOp`), so the UI can
     // disable itself on `editing`.
+    // `key` / `from` are the image's EXACT `images` key (the model's `key`
+    // role), never its display shortcode.
     Q_INVOKABLE void removeImageFromPack(const QString &packId,
-                                         const QString &shortcode);
+                                         const QString &key);
     Q_INVOKABLE void renameImageInPack(const QString &packId,
                                        const QString &from, const QString &to);
     Q_INVOKABLE void renamePack(const QString &packId, const QString &name);
@@ -182,11 +184,9 @@ public:
     bool togglingRoomPack() const { return m_roomsOp != 0; }
 
     // -- Shortcode validation -----------------------------------------------
-    // The text a pack image's name must satisfy, applied the same way the
-    // backend repairs one: letters, digits, "-" and "_" only, no doubled or
-    // leading/trailing separators, at most 64 characters. Used so a rename
-    // field can say why instead of the backend quietly writing a different
-    // name.
+    // A SUGGESTED name for arbitrary text (a file name): never applied to an
+    // existing key. Validation is shortcodeError(), Matrix v1.19's grammar
+    // `[A-Za-z0-9_-]{1,100}`, case-sensitive.
     Q_INVOKABLE QString sanitizeShortcode(const QString &raw) const;
     // Why `candidate` cannot be the name of an image in `packId`, in the
     // user's words, or "" when it can. `current` is the name being renamed
@@ -311,7 +311,7 @@ private:
         QList<BatchItem> items;
         int index = 0;        // next item for a batch
         quint64 op = 0;       // the batch item in flight
-        QSet<QString> taken;  // lower-case shortcodes already in the pack
+        QSet<QString> taken;  // exact keys already in the pack (case-sensitive)
         // Export.
         QString packId;
         QString destination;

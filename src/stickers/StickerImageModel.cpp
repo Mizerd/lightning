@@ -25,6 +25,8 @@ QVariant StickerImageModel::data(const QModelIndex &index, int role) const
     case SizeRole:       return image.size;
     case IsEmoticonRole: return image.isEmoticon;
     case IsStickerRole:  return image.isSticker;
+    case KeyRole:        return image.key;
+    case KeyValidRole:   return image.keyValid;
     case AspectRole:
         // A pack that declares no dimensions is the ordinary case, so the
         // grid must have a defensible answer rather than a division by zero.
@@ -48,6 +50,8 @@ QHash<int, QByteArray> StickerImageModel::roleNames() const
         { IsEmoticonRole, "isEmoticon" },
         { IsStickerRole,  "isSticker" },
         { AspectRole,     "aspect" },
+        { KeyRole,        "key" },
+        { KeyValidRole,   "keyValid" },
     };
 }
 
