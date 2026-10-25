@@ -1413,6 +1413,31 @@ private Q_SLOTS:
         QVERIFY(manager.emoticon(QStringLiteral("HELLO__WORLD")).isEmpty());
     }
 
+    void anOpenEditorKeepsItsOwnPackWhenThePickerSelectionMoves()
+    {
+        // PACK-UX-021: the editor's rows were the manager-wide selection, so a
+        // picker tab change swapped the rows under an open editor.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        manager.setEditorPackId(QStringLiteral("room:!r:example.org:"));
+        manager.setSelectedPackId(QStringLiteral("user"));
+        StickerImageModel *rows = manager.editorImages();
+        const int keyRole = rows->roleNames().key("key");
+        QCOMPARE(rows->rowCount(), 2);
+        QCOMPARE(rows->data(rows->index(0), keyRole).toString(), QStringLiteral("dog"));
+        // A refresh keeps it on the editor's pack too.
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QCOMPARE(rows->data(rows->index(0), keyRole).toString(), QStringLiteral("dog"));
+        // A description edit names the exact key and the pack's own store.
+        manager.setImageDescription(QStringLiteral("user"), QStringLiteral("cat"),
+                                    QStringLiteral("A sleepy cat"));
+        QCOMPARE(client.editAction, QStringLiteral("set_body"));
+        QCOMPARE(client.editArgA, QStringLiteral("cat"));
+        QCOMPARE(client.editArgB, QStringLiteral("A sleepy cat"));
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;

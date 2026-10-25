@@ -163,6 +163,15 @@ void StickerPackManager::setSelectedPackId(const QString &id)
     emitStateChanged();
 }
 
+void StickerPackManager::setEditorPackId(const QString &id)
+{
+    if (m_editorPackId == id)
+        return;
+    m_editorPackId = id;
+    rebuildImages();
+    Q_EMIT selectedPackIdChanged();
+}
+
 void StickerPackManager::setUsage(const QString &usage)
 {
     const QString normalized = usage == QLatin1String("emoticon")
@@ -488,6 +497,13 @@ void StickerPackManager::renamePack(const QString &packId, const QString &name)
     // An empty name is meaningful: it clears the display name (a room pack then
     // falls back to the room's name).
     editPack(packId, QStringLiteral("set_name"), name, QString());
+}
+
+void StickerPackManager::setImageDescription(const QString &packId,
+                                             const QString &key,
+                                             const QString &description)
+{
+    editPack(packId, QStringLiteral("set_body"), key, description);
 }
 
 void StickerPackManager::deletePack(const QString &packId)
@@ -862,6 +878,7 @@ void StickerPackManager::onLoggedOut()
         m_selectedPackId.clear();
         Q_EMIT selectedPackIdChanged();
     }
+    m_editorPackId.clear();
     emitStateChanged();
 }
 
@@ -913,10 +930,17 @@ void StickerPackManager::applySnapshot(const QString &roomId,
 
 void StickerPackManager::rebuildImages()
 {
+    // The editor's rows follow ITS pack, not the picker's selection.
+    const QString editorId =
+        m_editorPackId.isEmpty() ? m_selectedPackId : m_editorPackId;
+    const int editorRow = m_packs->indexOfPack(editorId);
+    if (editorRow < 0)
+        m_editorImages->clear();
+    else
+        m_editorImages->reset(m_packs->packs().at(editorRow).images);
     const int row = m_packs->indexOfPack(m_selectedPackId);
     if (row < 0) {
         m_images->clear();
-        m_editorImages->clear();
         return;
     }
     const bool wantSticker = m_usage != QLatin1String("emoticon");
@@ -928,7 +952,6 @@ void StickerPackManager::rebuildImages()
             narrowed.append(image);
     }
     m_images->reset(narrowed);
-    m_editorImages->reset(pack.images);
 }
 
 // -- Shortcode validation ----------------------------------------------------

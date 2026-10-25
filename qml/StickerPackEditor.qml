@@ -48,6 +48,11 @@ Dialog {
     padding: AppTheme.spacing16
 
     function openFor(id, name, manageable) {
+        // The editor's own target: the picker changing its selection, or a
+        // refresh moving it, cannot swap these rows (PACK-UX-021).
+        if (root.stickers)
+            root.stickers.editorPackId = id
+        root.info = root.stickers ? root.stickers.packInfo(id) : ({})
         root.packId = id
         root.packName = name
         root.canManage = manageable
@@ -55,12 +60,15 @@ Dialog {
         root.noticeIsError = false
         nameField.text = name
         renamingKey = null
+        describingKey = null
         confirmingDelete = false
         removingKey = null
         open()
     }
 
     onClosed: {
+        if (root.stickers)
+            root.stickers.editorPackId = ""
         if (restoreTo)
             restoreTo.forceActiveFocus(Qt.TabFocusReason)
     }
@@ -73,6 +81,12 @@ Dialog {
     /// The image being renamed, by exact key (`null` when none). One at a
     /// time, in place, so only one field competes for Return.
     property var renamingKey: null
+    /// The image whose description is being edited, by exact key, or null.
+    property var describingKey: null
+    /// packInfo() of the pack, taken at openFor (dialect, room, availability).
+    property var info: ({})
+    readonly property bool isStable: !!root.info && root.info.namespace === "stable"
+                                     && root.packId !== "user"
     /// Why the name being typed cannot be used, "" when it can. Fed by the one
     /// visible rename field so the reason shows once, in the notice area.
     property string renameProblem: ""
@@ -116,6 +130,7 @@ Dialog {
         target: root.stickers
         function onEditFinished(ok, category, shortcode) {
             root.renamingKey = null
+            root.describingKey = null
             root.removingKey = null
             root.confirmingDelete = false
             root.noticeIsError = !ok
@@ -187,6 +202,43 @@ Dialog {
                        + "room's pack that is the room's own name.")
         }
 
+        // Stable packs: what the pack is for, pack-wide (Matrix v1.19 has no
+        // per-image usage). Older-format packs keep their per-image kinds.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            visible: root.canManage && root.isStable
+            Label {
+                text: qsTr("Use as")
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+            }
+            AppComboBox {
+                id: usageBox
+                objectName: "stickerPackUsageBox"
+                implicitWidth: 180
+                textRole: "label"
+                valueRole: "value"
+                model: [ { label: qsTr("Emoji and stickers"), value: "both" },
+                         { label: qsTr("Emoji only"), value: "emoticon" },
+                         { label: qsTr("Stickers only"), value: "sticker" } ]
+                Accessible.name: qsTr("What the pack is for")
+                enabled: !root.busy
+                onActivated: root.stickers.setPackUsage(root.packId, currentValue)
+            }
+        }
+        Label {
+            objectName: "stickerPackFormatNote"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            visible: !!root.info && root.info.namespace === "legacy"
+                     && root.packId !== "user"
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("This pack uses an older format. Changes are saved in "
+                       + "that format so older apps keep working.")
+        }
+
         // Not manageable: say why once.
         Label {
             Layout.fillWidth: true
@@ -214,7 +266,7 @@ Dialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            visible: root.renamingKey.length > 0
+            visible: root.renamingKey !== null
                      && root.renameProblem.length > 0
             text: root.renameProblem
             color: AppTheme.danger
@@ -260,6 +312,7 @@ Dialog {
                 required property string shortcode
                 required property string key
                 required property bool keyValid
+                required property string body
                 required property string url
                 required property bool isEmoticon
                 required property bool isSticker
@@ -379,6 +432,29 @@ Dialog {
                                 root.packId, imageRow.key, text)
                     }
 
+                    AppTextField {
+                        id: describeField
+                        objectName: "stickerDescribeField"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        visible: root.describingKey === imageRow.key
+                        enabled: visible && !root.busy
+                        placeholderText: qsTr("Describe the image")
+                        Accessible.name: qsTr("Image description")
+                        Keys.onEscapePressed: (event) => {
+                            root.describingKey = null
+                            event.accepted = true
+                        }
+                        onVisibleChanged: {
+                            if (visible) {
+                                text = imageRow.body === imageRow.key ? "" : imageRow.body
+                                forceActiveFocus()
+                            }
+                        }
+                        onAccepted: root.stickers.setImageDescription(
+                            root.packId, imageRow.key, text)
+                    }
+
                     // Which kind the image is, so a pack's emoji are not
                     // mistaken for stickers (and vice versa).
                     Label {
@@ -408,6 +484,25 @@ Dialog {
                                     renameField.text)
                             else
                                 root.renamingKey = imageRow.key
+                        }
+                    }
+                    AppButton {
+                        objectName: "stickerDescribeButton"
+                        onActiveFocusChanged: if (activeFocus) imageRow.reveal()
+                        text: root.describingKey === imageRow.key
+                              ? qsTr("Save") : qsTr("Describe")
+                        kind: "ghost"
+                        size: "sm"
+                        visible: root.canManage && root.renamingKey !== imageRow.key
+                        enabled: !root.busy
+                        Accessible.description: qsTr(
+                            "What screen readers and other apps say for this image")
+                        onClicked: {
+                            if (root.describingKey === imageRow.key)
+                                root.stickers.setImageDescription(
+                                    root.packId, imageRow.key, describeField.text)
+                            else
+                                root.describingKey = imageRow.key
                         }
                     }
                     AppButton {
@@ -453,8 +548,8 @@ Dialog {
                 objectName: "stickerPackDeleteButton"
                 visible: root.canManage
                 text: root.confirmingDelete
-                      ? qsTr("Delete everything in this pack")
-                      : qsTr("Delete pack")
+                      ? qsTr("Remove every image from this pack")
+                      : qsTr("Empty pack")
                 kind: root.confirmingDelete ? "danger" : "ghost"
                 size: "sm"
                 enabled: !root.busy
@@ -511,9 +606,14 @@ Dialog {
             // Matrix has no delete verb for either store, so this empties the
             // pack; it is not a redaction and old state stays in the room's
             // history.
-            text: qsTr("This removes every image and the pack's name. It "
-                       + "cannot be undone, and for a room's pack everyone "
-                       + "in the room loses it.")
+            text: root.isStable
+                  ? qsTr("This removes every image from the pack for "
+                         + "everyone who uses it. Messages already sent keep "
+                         + "their images, and the images themselves are not "
+                         + "deleted from the server.")
+                  : qsTr("This removes every image and the pack's name. It "
+                         + "cannot be undone, and for a room's pack everyone "
+                         + "in the room loses it.")
         }
     }
 

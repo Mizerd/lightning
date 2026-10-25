@@ -8390,6 +8390,7 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
             }
             "set_name" => stickers::PackEdit::SetName { name: arg_a },
             "set_usage" => stickers::PackEdit::SetUsage { usage: arg_a },
+            "set_body" => stickers::PackEdit::SetBody { key: arg_a, body: arg_b },
             "delete_pack" => stickers::PackEdit::DeletePack,
             _ => return Err("unknown pack edit".to_owned()),
         };

@@ -2242,6 +2242,10 @@ pub(crate) enum PackEdit {
     SetName { name: String },
     /// Pack-wide usage (`emoticon` | `sticker` | `both`), stable packs only.
     SetUsage { usage: String },
+    /// One image's description (`body`): what screen readers and clients that
+    /// cannot show the image read. Empty removes it (the shortcode then
+    /// stands in).
+    SetBody { key: String, body: String },
     /// Retire the pack (no delete verb exists for account data or state; not a
     /// redaction: the events stay in history and uploaded media is untouched).
     /// Legacy: an empty object, the convention older clients read as removed.
@@ -2269,6 +2273,9 @@ impl PackEdit {
             PackEdit::SetName { name } => {
                 set_pack_display_name_content(existing, name)
                     .map(|c| (c, String::new()))
+            }
+            PackEdit::SetBody { key, body } => {
+                set_image_body_content(existing, key, body).map(|c| (c, String::new()))
             }
             PackEdit::SetUsage { usage } => {
                 if namespace != Namespace::Stable {
@@ -2480,6 +2487,24 @@ pub(crate) fn create_room_pack(
         );
     });
     Ok(())
+}
+
+/// Set or clear one image's `body`, keeping every other field of the entry.
+pub(crate) fn set_image_body_content(existing: Value, key: &str, body: &str) -> Result<Value, String> {
+    let mut content = existing;
+    let entry = content
+        .get_mut("images")
+        .and_then(|v| v.as_object_mut())
+        .and_then(|images| images.get_mut(key))
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| "not_found".to_owned())?;
+    let body = one_line(body, MAX_BODY_CHARS);
+    if body.is_empty() {
+        entry.remove("body");
+    } else {
+        entry.insert("body".to_owned(), json!(body));
+    }
+    Ok(content)
 }
 
 /// Set a stable pack's pack-wide usage. `both` removes the field (absent
@@ -3766,6 +3791,25 @@ mod tests {
         assert!(open["pack"].get("usage").is_none());
         assert!(PackEdit::SetUsage { usage: "both".into() }
             .apply_in(base, Namespace::Legacy).is_err());
+    }
+
+    #[test]
+    fn a_description_edit_touches_only_that_images_body() {
+        // PACK-UX-003.
+        let base = json!({ "images": {
+            "a": { "url": "mxc://e/1", "body": "old", "info": { "w": 2 }, "x": 1 },
+            "b": { "url": "mxc://e/2", "body": "keep" } } });
+        let (out, _) = PackEdit::SetBody { key: "a".into(), body: "A new\nline".into() }
+            .apply_in(base.clone(), Namespace::Stable).unwrap();
+        assert_eq!(out["images"]["a"]["body"], json!("A new line"));
+        assert_eq!(out["images"]["a"]["info"]["w"], json!(2));
+        assert_eq!(out["images"]["a"]["x"], json!(1));
+        assert_eq!(out["images"]["b"]["body"], json!("keep"));
+        let (cleared, _) = PackEdit::SetBody { key: "a".into(), body: " ".into() }
+            .apply_in(base.clone(), Namespace::Legacy).unwrap();
+        assert!(cleared["images"]["a"].get("body").is_none());
+        assert_eq!(PackEdit::SetBody { key: "zz".into(), body: "x".into() }
+            .apply_in(base, Namespace::Stable).unwrap_err(), "not_found");
     }
 
     #[test]

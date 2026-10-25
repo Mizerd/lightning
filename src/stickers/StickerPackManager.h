@@ -59,6 +59,12 @@ class StickerPackManager : public QObject
     // snapshot is refused rather than mapped to another pack.
     Q_PROPERTY(QString selectedPackId READ selectedPackId WRITE setSelectedPackId
                    NOTIFY selectedPackIdChanged)
+    // The pack the open editor shows (`editorImages`). Separate from the
+    // picker's selection, so a picker tab change or a refresh that moves the
+    // selection cannot swap the rows under an open editor (PACK-UX-021).
+    // Empty: follow selectedPackId (older callers).
+    Q_PROPERTY(QString editorPackId READ editorPackId WRITE setEditorPackId
+                   NOTIFY selectedPackIdChanged)
     // "sticker" or "emoticon" — which usage the grid is showing.
     Q_PROPERTY(QString usage READ usage WRITE setUsage NOTIFY usageChanged)
     // Packs holding at least one image of the current usage, so the empty state
@@ -101,6 +107,8 @@ public:
     StickerImageModel *images() const { return m_images; }
     StickerImageModel *editorImages() const { return m_editorImages; }
     QString selectedPackId() const { return m_selectedPackId; }
+    QString editorPackId() const { return m_editorPackId; }
+    void setEditorPackId(const QString &id);
     void setSelectedPackId(const QString &id);
     QString usage() const { return m_usage; }
     void setUsage(const QString &usage);
@@ -170,6 +178,10 @@ public:
     Q_INVOKABLE void renameImageInPack(const QString &packId,
                                        const QString &from, const QString &to);
     Q_INVOKABLE void renamePack(const QString &packId, const QString &name);
+    // One image's description (alt text), by exact key; empty clears it.
+    Q_INVOKABLE void setImageDescription(const QString &packId,
+                                         const QString &key,
+                                         const QString &description);
     Q_INVOKABLE void deletePack(const QString &packId);
     /// Whether this account may edit the pack. Account packs always; room packs
     /// only when the snapshot recorded permission.
@@ -412,6 +424,7 @@ private:
     bool m_snapshotRoomCanManage = false;
 
     QString m_selectedPackId;
+    QString m_editorPackId;
     QString m_usage = QStringLiteral("sticker");
 
     quint64 m_nextOpId = 1;
