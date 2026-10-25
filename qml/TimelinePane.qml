@@ -3889,12 +3889,27 @@ Rectangle {
                 // True once the reader has moved this room's view. Cleared on
                 // model reset.
                 property bool readerControlledSinceReset: false
+                // Bumped when the reader takes the view. onTargetLocated
+                // captures it when it QUEUES a landing and re-checks it when
+                // the queued closure RUNS — checking reader control only at
+                // scheduling time left one event-loop turn in which a wheel
+                // notch could be overruled by a landing it had already
+                // cancelled (the master prompt's P0 deferred-navigation race,
+                // SC34). A model reset does NOT bump it: a located target is
+                // held by stable id and still lands across a same-room
+                // snapshot (aLocatedTargetKeepsItsIdWhenRowsShiftBeforeThe
+                // Landing); in another room the id simply does not resolve.
+                property int navigationEpoch: 0
+                // Bumped by every model reset, so a restore queued by one
+                // reset never runs after a newer one (A -> B -> A, SC36).
+                property int resetEpoch: 0
                 // Single entry point for "the reader is driving". Also reaches
                 // the controller: a scroll-anchor restore can spend seconds
                 // paginating before it arms a landing, which would then
                 // teleport the reader back to where the room opened.
                 function noteReaderTookControl() {
                     readerControlledSinceReset = true
+                    ++navigationEpoch
                     releaseRestoreHold()
                     if (app.pagination)
                         app.pagination.cancelNavigation()
@@ -5752,7 +5767,18 @@ Rectangle {
                         // Read now: `row` is only valid in this turn.
                         var locatedId = app.timeline
                                         ? app.timeline.stableIdAt(row) : ""
+                        var epoch = timeline.navigationEpoch
                         Qt.callLater(function() {
+                            // Re-validated when it runs, not only when it was
+                            // queued: input or a reset in between owns the
+                            // view now. A later explicit jump re-arms
+                            // normally; this cancels only the obsolete one.
+                            if (timeline.navigationEpoch !== epoch) {
+                                ++timeline.diagNavigationAbandoned
+                                if (!highlight)
+                                    timeline.releaseRestoreHold()
+                                return
+                            }
                             // The target may be older than the paced-out rows
                             // or behind the row window.
                             timeline.releasePendingRows()
@@ -5911,7 +5937,14 @@ Rectangle {
                             restoreHoldGuard.restart()
                         else
                             restoreHoldGuard.stop()
+                        // A newer reset (A -> B -> A before this turn runs)
+                        // queues its own restore; only the newest may ask.
+                        var resetEpoch = ++timeline.resetEpoch
+                        var readerEpoch = timeline.navigationEpoch
                         Qt.callLater(function() {
+                            if (timeline.resetEpoch !== resetEpoch
+                                    || timeline.navigationEpoch !== readerEpoch)
+                                return
                             app.pagination.restoreScrollAnchor(app.currentRoomId)
                         })
                         Qt.callLater(timeline.maybeFillViewport)

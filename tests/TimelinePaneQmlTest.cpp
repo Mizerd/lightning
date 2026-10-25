@@ -10715,6 +10715,55 @@ private Q_SLOTS:
                  "to `parked` could not be distinguished from doing nothing");
     }
 
+    // The P0 deferred-navigation race (master prompt Part 3, SC34/SC35):
+    // onTargetLocated checked reader control when it QUEUED the landing, and
+    // the queued closure armed it without checking again. A wheel notch
+    // delivered in between was overruled one turn later by the landing it
+    // had already cancelled. The located target is deep history, so a
+    // landing that wrongly survives moves the view a long way.
+    void inputBetweenALocateAndItsQueuedLandingWins()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+
+        const int abandoned0 =
+            timeline->property("diagNavigationAbandoned").toInt();
+        // The controller locates an explicit (highlighted) jump target; the
+        // pane queues its landing for the next turn.
+        QVERIFY(QMetaObject::invokeMethod(
+            controller.pagination(), "targetLocated",
+            Q_ARG(int, 50), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
+        // The reader scrolls before that turn runs. sendWheelNotch delivers
+        // synchronously, then spins the loop (which runs the queued step).
+        sendWheelNotch(window, QPointF(350, 200), 120, false);
+        QTest::qWait(400);
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("navigationPendingId").toString(),
+                 QString());
+        QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
+        QVERIFY2(timeline->property("diagNavigationAbandoned").toInt()
+                     > abandoned0,
+                 "the obsolete landing was neither landed nor counted");
+
+        // SC35: cancellation is not permanent. A new explicit jump after the
+        // gesture lands normally.
+        QVERIFY(QMetaObject::invokeMethod(
+            controller.pagination(), "targetLocated",
+            Q_ARG(int, 50), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("diagNavigationLandings").toInt(), 1, 5000);
+    }
+
     // A jump names a model ROW, and the landing starts one event-loop turn
     // later. A history page arriving in between renumbers every row, so
     // reading the id from the row at landing time named an older message: "the
