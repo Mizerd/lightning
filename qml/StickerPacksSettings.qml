@@ -3,13 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Appearance: emoji and sticker packs (MSC2545).
+// Settings -> Appearance: emoji and sticker packs (Matrix v1.19 image packs,
+// with the older im.ponies.* format still read and edited in place).
 //
-// Lists the packs this account can use right now: its own, the open room's,
-// and any room pack turned on for use everywhere (`im.ponies.emote_rooms`).
-// Per room pack: a "Use everywhere" switch, Manage (rename, remove, delete,
-// export) and Export. Your own pack also takes Import. Nothing here is
-// optimistic: each action waits for the backend and the list is re-read.
+// Lists the packs this account can use right now: its own, the ones turned on
+// for use everywhere, the open room's, and those of the room's Spaces. Per
+// room pack: a "Use everywhere" switch and Manage. A room the account may
+// edit can get a new pack here. Nothing here is optimistic: each action waits
+// for the backend and the list is re-read.
 //
 // Packs of rooms and Spaces you are not in the middle of are not discovered:
 // that would be one state read per joined room. Open the room or Space, or
@@ -25,6 +26,19 @@ ColumnLayout {
 
     property string notice: ""
     property bool noticeIsError: false
+    // A Create was pressed; its editFinished is ours to report.
+    property bool creating: false
+
+    // Why a subscribed pack could not be read, in the user's words.
+    function unavailableText(reason) {
+        if (reason === "not_joined")
+            return qsTr("you are not in its room")
+        if (reason === "absent")
+            return qsTr("this pack no longer exists")
+        if (reason === "forbidden")
+            return qsTr("you cannot see this pack")
+        return qsTr("could not be loaded")
+    }
 
     // A fresh read whenever this page is shown; a no-op when the snapshot is
     // current.
@@ -48,8 +62,20 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
         text: qsTr("A room's packs work inside that room. Turn on Use "
                    + "everywhere to use a pack in every room. Packs from "
-                   + "the room you have open and the ones you turned on are "
-                   + "listed here.")
+                   + "the room you have open, its Spaces and the ones you "
+                   + "turned on are listed here.")
+    }
+    Label {
+        objectName: "stickerPacksPrivacyNote"
+        Layout.fillWidth: true
+        Layout.leftMargin: AppTheme.spacing4
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        color: AppTheme.stormTextMuted
+        font.pixelSize: AppTheme.textMeta
+        text: qsTr("Pack images are stored as regular Matrix media and are "
+                   + "visible to the hosting server, including when you use "
+                   + "them in encrypted chats.")
     }
 
     Label {
@@ -75,6 +101,11 @@ ColumnLayout {
             required property bool canManage
             required property int stickerCount
             required property int emoticonCount
+            required property string packNamespace
+            required property bool available
+            required property string unavailableReason
+            required property bool legacySubscribed
+            required property bool fromSpace
 
             objectName: "stickerPackRow"
             Layout.fillWidth: true
@@ -99,12 +130,24 @@ ColumnLayout {
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textMeta
                     elide: Label.ElideRight
-                    text: (packRow.source === "room" ? qsTr("Room pack")
-                                                     : qsTr("Your pack"))
-                          + " · "
-                          + qsTr("%n sticker(s)", "", packRow.stickerCount)
-                          + " · "
-                          + qsTr("%n emoji", "", packRow.emoticonCount)
+                    text: {
+                        var where = packRow.source !== "room" ? qsTr("Your pack")
+                                  : packRow.fromSpace ? qsTr("Space pack")
+                                  : qsTr("Room pack")
+                        // The older im.ponies format, said once and plainly;
+                        // the protocol names live in the docs.
+                        if (packRow.packNamespace === "legacy")
+                            where += " · " + qsTr("older format")
+                        if (!packRow.available)
+                            return where + " · " + section.unavailableText(
+                                packRow.unavailableReason)
+                        var text = where
+                            + " · " + qsTr("%n sticker(s)", "", packRow.stickerCount)
+                            + " · " + qsTr("%n emoji", "", packRow.emoticonCount)
+                        if (packRow.legacySubscribed)
+                            text += " · " + qsTr("turned on in an older app")
+                        return text
+                    }
                 }
             }
 
@@ -141,7 +184,10 @@ ColumnLayout {
                 text: qsTr("Manage")
                 kind: "ghost"
                 size: "sm"
-                enabled: section.available && !section.stickers.editing
+                // An unreadable pack has nothing to manage; its row keeps the
+                // Use everywhere switch so the stale reference can be removed.
+                enabled: section.available && packRow.available
+                         && !section.stickers.editing
                          && !section.stickers.transferring
                 onClicked: {
                     // The editor edits whichever pack the manager has selected.
@@ -154,6 +200,55 @@ ColumnLayout {
                     editor.openFor(packRow.packId, packRow.displayName,
                                    section.stickers.canManagePack(packRow.packId))
                 }
+            }
+        }
+    }
+
+    // A new, empty pack in the open room (stable format, a fresh state key),
+    // for a room this account may edit. Images are added from the picker or
+    // the editor.
+    RowLayout {
+        id: createRow
+        objectName: "stickerPackCreateRow"
+        Layout.fillWidth: true
+        spacing: AppTheme.spacing8
+        readonly property string roomId: typeof app !== "undefined" && app
+                                         ? app.currentRoomId : ""
+        visible: section.available && createRow.roomId !== ""
+                 && section.stickers.revision >= 0
+                 && section.stickers.canCreateRoomPack(createRow.roomId)
+        AppTextField {
+            id: newPackName
+            objectName: "stickerPackNewName"
+            Layout.fillWidth: true
+            placeholderText: qsTr("New pack name")
+            Accessible.name: qsTr("New pack name")
+        }
+        AppComboBox {
+            id: newPackUsage
+            objectName: "stickerPackNewUsage"
+            storm: true
+            implicitWidth: 150
+            textRole: "label"
+            valueRole: "value"
+            model: [ { label: qsTr("Emoji and stickers"), value: "both" },
+                     { label: qsTr("Emoji only"), value: "emoticon" },
+                     { label: qsTr("Stickers only"), value: "sticker" } ]
+            Accessible.name: qsTr("What the pack is for")
+        }
+        AppButton {
+            objectName: "stickerPackCreateButton"
+            text: qsTr("Create pack")
+            kind: "primary"
+            size: "sm"
+            enabled: section.available && !section.stickers.editing
+                     && newPackName.text.trim().length > 0
+            onClicked: {
+                section.creating = true
+                section.stickers.createRoomPack(createRow.roomId,
+                                                newPackName.text,
+                                                newPackUsage.currentValue
+                                                    || "both")
             }
         }
     }
@@ -235,8 +330,34 @@ ColumnLayout {
         }
         function onRoomPackToggleFinished(ok, category, enabled) {
             section.noticeIsError = !ok
-            section.notice = ok ? ""
-                : qsTr("That could not be changed. Try again in a moment.")
+            if (!ok)
+                section.notice =
+                    qsTr("That could not be changed. Try again in a moment.")
+            else if (section.stickers.lastMirrorFailed())
+                // Two writes, not one transaction: say which half landed.
+                section.notice = qsTr("Saved. Older apps on your other "
+                                      + "devices may not see this change yet.")
+            else
+                section.notice = ""
+        }
+        function onEditFinished(ok, category, shortcode) {
+            if (!section.creating)
+                return
+            section.creating = false
+            section.noticeIsError = !ok
+            if (ok) {
+                newPackName.text = ""
+                section.notice = qsTr("Pack created. Add images from the "
+                                      + "sticker picker or Manage.")
+            } else if (category === "forbidden") {
+                section.notice = qsTr("You do not have permission to add "
+                                      + "packs to this room.")
+            } else if (category === "pack_exists") {
+                section.notice = qsTr("A pack with that key already exists. "
+                                      + "Try again.")
+            } else {
+                section.notice = qsTr("The pack could not be created.")
+            }
         }
     }
 
