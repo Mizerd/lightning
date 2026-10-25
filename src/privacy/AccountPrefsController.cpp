@@ -13,7 +13,12 @@ AccountPrefsController::AccountPrefsController(QObject *parent)
     // Uses within a short burst (picking several reactions) are one write.
     m_emojiFlush.setSingleShot(true);
     m_emojiFlush.setInterval(1500);
-    connect(&m_emojiFlush, &QTimer::timeout, this,
+    connect(&m_emojiFlush, &QTimer::timeout, this, [this] {
+        m_emojiAttempts = 0;
+        flushEmoji();
+    });
+    m_emojiRetry.setSingleShot(true);
+    connect(&m_emojiRetry, &QTimer::timeout, this,
             &AccountPrefsController::flushEmoji);
 }
 
@@ -68,6 +73,9 @@ void AccountPrefsController::reset()
     // Back to the MSC defaults: nothing of the previous account may decide
     // what this one loads.
     m_emojiFlush.stop();
+    m_emojiRetry.stop();
+    m_emojiAttempts = 0;
+    m_emojiWriteFailed = false;
     m_media = {};
     m_mediaConfirmed = {};
     m_mediaContent.clear();
@@ -141,26 +149,26 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         m_emojiContent = present ? content : QVariantMap();
         QList<EmojiCount> incoming = present ? parseRecentEmoji(content)
                                              : QList<EmojiCount>();
-        // An echo of an earlier write can arrive inside the flush window; it
-        // must not replace bumps that were not written yet. Keep the higher
-        // count per emoji.
-        if (m_emojiFlush.isActive()) {
-            for (const EmojiCount &mine : std::as_const(m_emojiServer)) {
+        // An echo of an earlier write can arrive inside the flush window (or a
+        // write is waiting to be retried); it must not replace bumps that were
+        // not written yet. Our unwritten list keeps its recency order and the
+        // higher total per emoji; entries only the account has follow. Not
+        // exact multi-device counting: account data has no merge.
+        if (m_emojiFlush.isActive() || m_emojiRetry.isActive()) {
+            QList<EmojiCount> merged = m_emojiServer;
+            for (const EmojiCount &theirs : std::as_const(incoming)) {
                 bool found = false;
-                for (EmojiCount &theirs : incoming) {
-                    if (theirs.first == mine.first) {
-                        theirs.second = std::max(theirs.second, mine.second);
+                for (EmojiCount &mine : merged) {
+                    if (mine.emoji == theirs.emoji) {
+                        mine.total = std::max(mine.total, theirs.total);
                         found = true;
                         break;
                     }
                 }
-                if (!found)
-                    incoming.append(mine);
+                if (!found && merged.size() < kRecentEmojiServerLimit)
+                    merged.append(theirs);
             }
-            std::stable_sort(incoming.begin(), incoming.end(),
-                             [](const EmojiCount &a, const EmojiCount &b) {
-                                 return a.second > b.second;
-                             });
+            incoming = merged;
         }
         m_emojiServer = incoming;
         const bool firstRead = !m_emojiRead;
@@ -180,6 +188,23 @@ void AccountPrefsController::onRead(const QString &type, bool present,
 
 void AccountPrefsController::onWritten(const QString &type, bool ok)
 {
+    if (type == QLatin1String(kRecentEmojiType)) {
+        // A failed recents write is retried, bounded (3 attempts, growing
+        // delay), and never reported as synced (PACK-REC-008). A success ends
+        // the retry chain.
+        if (ok) {
+            m_emojiAttempts = 0;
+            m_emojiRetry.stop();
+            m_emojiWriteFailed = false;
+        } else {
+            m_emojiWriteFailed = true;
+            if (m_emojiAttempts < 3) {
+                m_emojiRetry.setInterval(5000 * m_emojiAttempts);
+                m_emojiRetry.start();
+            }
+        }
+        return;
+    }
     if (type != QLatin1String(kMediaPreviewType))
         return;
     if (ok) {
@@ -211,6 +236,7 @@ void AccountPrefsController::flushEmoji()
 {
     if (!m_client || !m_emojiRead)
         return;
+    ++m_emojiAttempts;
     m_client->writeAccountPref(
         QString::fromLatin1(kRecentEmojiType),
         composeRecentEmoji(m_emojiContent, m_emojiServer));

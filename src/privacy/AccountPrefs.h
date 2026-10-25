@@ -8,7 +8,9 @@
 
 // Pure parsing and composing of two standard account-data preferences:
 //   * MSC4278 `m.media_preview_config` { invite_avatars, media_previews }
-//   * Element's `m.recent_emoji` { recent_emoji: [[emoji, count], ...] }
+//   * Matrix v1.18+ `m.recent_emoji` { recent_emoji: [{emoji, total}, ...] }
+//     (older Element builds wrote [[emoji, count], ...]; still read, never
+//     written)
 // No I/O, no Qt object state: tested directly, and shared by the controller.
 namespace AccountPrefs {
 
@@ -39,16 +41,37 @@ bool collapsesMedia(const QString &mediaPreviews, bool roomIsPrivate);
 
 // ---- m.recent_emoji --------------------------------------------------------
 
-using EmojiCount = QPair<QString, int>;
+// One stable `m.recent_emoji` entry. `extra` holds any other fields the entry
+// carried, written back unchanged. `total` is a non-negative integer below
+// 2^53 (the schema's range); Lightning never decrements or clamps a received
+// value.
+struct EmojiCount {
+    QString emoji;
+    qint64 total = 0;
+    QVariantMap extra;
+    EmojiCount() = default;
+    EmojiCount(const QString &e, qint64 t) : emoji(e), total(t) {}
+    bool operator==(const EmojiCount &o) const
+    {
+        return emoji == o.emoji && total == o.total;
+    }
+};
 inline constexpr int kRecentEmojiServerLimit = 100;
+// The schema's exclusive upper bound for `total`.
+inline constexpr qint64 kRecentEmojiTotalBound = qint64(1) << 53;
 
-// Malformed entries are skipped, never fatal; order is the stored order.
+// Wire order is preserved (most recently used first, by the standard's
+// sending rule). Schema-invalid entries (no string `emoji`, a `total` that is
+// not an integer in [0, 2^53)) are dropped; schema-valid ones are kept even
+// when this build cannot display the emoji. Legacy [emoji, count] tuples are
+// imported once; the next write emits objects.
 QList<EmojiCount> parseRecentEmoji(const QVariantMap &content);
 
-// One use: +1 for the emoji (inserted at 1), most-used first (stable), capped.
+// One successful use: the emoji moves to the FRONT and its total grows by one
+// (saturating below 2^53, never decreasing); the list is capped at 100.
 QList<EmojiCount> bumpRecentEmoji(QList<EmojiCount> list, const QString &emoji);
 
-// Other fields of `existing` are kept.
+// Writes the stable object shape. Other fields of `existing` are kept.
 QVariantMap composeRecentEmoji(const QVariantMap &existing,
                                const QList<EmojiCount> &list);
 

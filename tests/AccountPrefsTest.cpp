@@ -113,8 +113,9 @@ private Q_SLOTS:
     // ---- m.recent_emoji ---------------------------------------------------
     void recentEmojiParsingSkipsMalformedEntriesAndKeepsOrder()
     {
+        // Legacy [emoji, count] tuples are still imported (PACK-REC-002).
         const auto list = parseRecentEmoji({ { "recent_emoji", QVariantList{
-            pair("👍", 5), QVariantList{ "x" }, pair("", 2), pair("😀", 0),
+            pair("👍", 5), QVariantList{ "x" }, pair("", 2), pair("😀", -1),
             QVariant(7), pair("🎉", 3), pair("👍", 9) } } });
         QCOMPARE(list.size(), 2);
         QCOMPARE(list.at(0), EmojiCount("👍", 5)); // first wins, order kept
@@ -122,27 +123,83 @@ private Q_SLOTS:
         QVERIFY(parseRecentEmoji({}).isEmpty());
     }
 
-    void aUseBumpsTheCountAndKeepsMostUsedFirst()
+    static QVariantMap entry(const QString &emoji, const QVariant &total)
     {
-        QList<EmojiCount> list{ { "👍", 2 }, { "😀", 2 } };
+        return QVariantMap{ { "emoji", emoji }, { "total", total } };
+    }
+
+    void theStableObjectShapeIsReadWithZeroLargeAndUnknownEntries()
+    {
+        // PACK-REC-001/004/005/006/007/014: the old parser accepted only
+        // tuples, so a stable list from another client read as EMPTY and the
+        // next local use replaced it.
+        QVariantMap withExtra = entry(QStringLiteral("🧑‍🚀"), 2);
+        withExtra.insert("x-future", QStringLiteral("kept"));
+        const QString future = QString(40, QChar(0x1F600));  // a long sequence
+        const auto list = parseRecentEmoji({ { "recent_emoji", QVariantList{
+            entry(QStringLiteral("👍"), 0),
+            entry(QStringLiteral("🎉"), qlonglong(3000000000LL)),
+            entry(QStringLiteral("🙂"), double(9007199254740991.0)),  // 2^53-1
+            entry(QStringLiteral("😡"), double(9007199254740992.0)),  // 2^53: invalid
+            entry(QStringLiteral("😢"), -1),
+            entry(QStringLiteral("🤔"), 1.5),
+            entry(QStringLiteral("🙃"), QStringLiteral("7")),
+            QVariantMap{ { "total", 1 } },
+            withExtra,
+            entry(future, 1) } } });
+        QStringList emojis;
+        for (const auto &e : list)
+            emojis << e.emoji;
+        QCOMPARE(emojis, (QStringList{ "👍", "🎉", "🙂", "🧑‍🚀", future }));
+        QCOMPARE(list.at(0).total, qint64(0));
+        QCOMPARE(list.at(1).total, qint64(3000000000LL));
+        QCOMPARE(list.at(2).total, qint64(9007199254740991LL));
+        QCOMPARE(list.at(3).extra.value("x-future").toString(), QStringLiteral("kept"));
+    }
+
+    void aUseMovesTheEmojiToTheFrontAndTheWriteIsTheStableShape()
+    {
+        // PACK-REC-003/013: wire order is recency; a remote object list is
+        // kept and written back as objects, never as tuples.
+        QVariantMap withExtra = entry(QStringLiteral("😀"), 2);
+        withExtra.insert("x-future", 1);
+        QList<EmojiCount> list = parseRecentEmoji({ { "recent_emoji", QVariantList{
+            entry(QStringLiteral("👍"), 9), withExtra, entry(QStringLiteral("🦄"), 1) } } });
         list = bumpRecentEmoji(list, QStringLiteral("😀"));
         QCOMPARE(list.at(0), EmojiCount("😀", 3));
+        QCOMPARE(list.at(1), EmojiCount("👍", 9));
         list = bumpRecentEmoji(list, QStringLiteral("🎉"));
-        QCOMPARE(list.last(), EmojiCount("🎉", 1));
+        QCOMPARE(list.at(0), EmojiCount("🎉", 1));
         const auto composed = composeRecentEmoji({ { "other", 1 } }, list);
         QCOMPARE(composed.value("other").toInt(), 1);
-        QCOMPARE(composed.value("recent_emoji").toList().size(), 3);
-        // Element's exact shape: an array of [emoji, count] arrays.
-        QCOMPARE(composed.value("recent_emoji").toList().at(0).toList().at(0).toString(),
-                 QStringLiteral("😀"));
+        const QVariantList rows = composed.value("recent_emoji").toList();
+        QCOMPARE(rows.size(), 4);
+        for (const QVariant &row : rows)
+            QCOMPARE(row.metaType().id(), int(QMetaType::QVariantMap));
+        QCOMPARE(rows.at(1).toMap().value("emoji").toString(), QStringLiteral("😀"));
+        QCOMPARE(rows.at(1).toMap().value("total").toLongLong(), 3LL);
+        QCOMPARE(rows.at(1).toMap().value("x-future").toInt(), 1);
+        // An entry the catalogue does not know survives (PACK-REC-004).
+        QCOMPARE(rows.at(3).toMap().value("emoji").toString(), QStringLiteral("🦄"));
+
+        // Saturates below 2^53 and never decreases a received value.
+        QList<EmojiCount> big{ { "x", kRecentEmojiTotalBound - 1 } };
+        big = bumpRecentEmoji(big, QStringLiteral("x"));
+        QCOMPARE(big.at(0).total, kRecentEmojiTotalBound - 1);
+        // Bounded at 100.
+        QList<EmojiCount> many;
+        for (int i = 0; i < 120; ++i)
+            many = bumpRecentEmoji(many, QString::number(i));
+        QCOMPARE(many.size(), kRecentEmojiServerLimit);
+        QCOMPARE(many.at(0).emoji, QStringLiteral("119"));
     }
 
     void mergeKeepsLocalFirstAndAddsTheAccountsTheRest()
     {
         const auto merged = mergeRecentEmoji(
-            { "🎉", "👍" }, { { "👍", 9 }, { "😀", 4 }, { "🙏", 1 } }, 100);
+            { "🎉", "👍" }, { EmojiCount("👍", 9), EmojiCount("😀", 4), EmojiCount("🙏", 1) }, 100);
         QCOMPARE(merged, (QStringList{ "🎉", "👍", "😀", "🙏" }));
-        QCOMPARE(mergeRecentEmoji({ "a" }, { { "b", 1 }, { "c", 1 } }, 2),
+        QCOMPARE(mergeRecentEmoji({ "a" }, { EmojiCount("b", 1), EmojiCount("c", 1) }, 2),
                  (QStringList{ "a", "b" }));
     }
 
@@ -248,7 +305,7 @@ private Q_SLOTS:
         QCOMPARE(rows.size(), 2);
         bool hasNew = false;
         for (const QVariant &r : rows)
-            hasNew = hasNew || r.toList().at(0).toString() == QStringLiteral("🎉");
+            hasNew = hasNew || r.toMap().value("emoji").toString() == QStringLiteral("🎉");
         QVERIFY2(hasNew, "the echo replaced a bump that was not written yet");
         settings.clearRecentEmoji();
     }
@@ -295,10 +352,12 @@ private Q_SLOTS:
         QCOMPARE(client.writes.at(0).first, QStringLiteral("m.recent_emoji"));
         QCOMPARE(content.value("other").toInt(), 1);
         const auto rows = content.value("recent_emoji").toList();
-        QCOMPARE(rows.at(0).toList().at(0).toString(), QStringLiteral("👍"));
-        QCOMPARE(rows.at(0).toList().at(1).toInt(), 9);
-        QCOMPARE(rows.at(1).toList().at(0).toString(), QStringLiteral("😀"));
-        QCOMPARE(rows.at(1).toList().at(1).toInt(), 6);
+        // Most recently used first on the wire (the standard's rule); the
+        // stable object shape, never tuples.
+        QCOMPARE(rows.at(0).toMap().value("emoji").toString(), QStringLiteral("😀"));
+        QCOMPARE(rows.at(0).toMap().value("total").toInt(), 6);
+        QCOMPARE(rows.at(1).toMap().value("emoji").toString(), QStringLiteral("👍"));
+        QCOMPARE(rows.at(1).toMap().value("total").toInt(), 9);
         settings.clearRecentEmoji();
     }
 
@@ -323,7 +382,32 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 1, 5000);
         const auto rows = client.writes.at(0).second.value("recent_emoji").toList();
         QCOMPARE(rows.size(), 2);
-        QCOMPARE(rows.at(0).toList().at(0).toString(), QStringLiteral("👍"));
+        QCOMPARE(rows.at(0).toMap().value("emoji").toString(), QStringLiteral("🎉"));
+        QCOMPARE(rows.at(1).toMap().value("emoji").toString(), QStringLiteral("👍"));
+        settings.clearRecentEmoji();
+    }
+
+    void aFailedRecentsWriteIsRetriedBoundedlyAndNotClaimedSynced()
+    {
+        // PACK-REC-008: the write's result used to be ignored for recents.
+        SettingsManager settings;
+        settings.clearRecentEmoji();
+        EmojiCatalog catalog(&settings);
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setEmojiCatalog(&catalog);
+        c.setClient(&client);
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.recent_emoji"), true,
+            { { "recent_emoji", QVariantList{} } });
+        catalog.recordUse(QStringLiteral("🎉"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 1, 5000);
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), false);
+        QVERIFY(c.recentsWriteFailed());
+        QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 2, 8000);
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), true);
+        QVERIFY(!c.recentsWriteFailed());
+        QTest::qWait(500);
+        QCOMPARE(client.writes.size(), 2);
         settings.clearRecentEmoji();
     }
 };

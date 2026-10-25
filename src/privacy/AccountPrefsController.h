@@ -52,6 +52,8 @@ public:
     // Should media in this room start collapsed? `roomIsPrivate`: encrypted
     // or a direct message (the room list carries no join rule).
     Q_INVOKABLE bool collapsesMedia(bool roomIsPrivate) const;
+    // The last recents write failed (and is being retried, at most 3 times).
+    bool recentsWriteFailed() const { return m_emojiWriteFailed; }
     // Optimistic: the new value shows at once and a failed write reverts it.
     Q_INVOKABLE void setMediaPreviews(const QString &mode);
     Q_INVOKABLE void setInviteAvatars(bool on);
@@ -83,4 +85,9 @@ private:
     // Emoji used before the account's list arrived; bumped once it does.
     QStringList m_emojiPending;
     QTimer m_emojiFlush;
+    // Bounded retry of a failed recents write (account-scoped: cleared with
+    // the rest of this account's state on a client change).
+    QTimer m_emojiRetry;
+    int m_emojiAttempts = 0;
+    bool m_emojiWriteFailed = false;
 };
