@@ -101,6 +101,18 @@ Rectangle {
 
     property string keyboardSelectedEventId: ""
     property string resumeSelectedEventId: ""
+    // The message selected when each room was last left, kept for the session
+    // only and apart from the saved viewport (issue #55): returning restores
+    // the viewport exactly as before and moves nothing, and the resume
+    // shortcut reselects this message when it is in view. Keyed by account and
+    // room; never persisted, never revealed by an automatic scroll.
+    property var rememberedSelections: ({})
+    property string selectionRoomKey: ""
+    property string rememberedSelectionEventId: ""
+    function roomSelectionKey() {
+        return (app.accounts ? app.accounts.activeUserId : "") + "|"
+               + app.currentRoomId
+    }
 
     // Inline thread style: narrowing to a thread is how a thread is opened
     // here, so the composer (which now sends into it) takes the keyboard, as
@@ -144,7 +156,8 @@ Rectangle {
         // Resume an existing selection only if it is still in this viewport.
         // Scrolling while composing must not cause a jump back into history.
         if (root.keyboardSelectedEventId === "")
-            root.keyboardSelectedEventId = root.resumeSelectedEventId
+            root.keyboardSelectedEventId = root.resumeSelectedEventId !== ""
+                ? root.resumeSelectedEventId : root.rememberedSelectionEventId
         var row = timeline.viewRowForStableId(root.keyboardSelectedEventId)
         if (timeline.selectionDetached || !timeline.messageIntersectsViewport(row))
             timeline.selectVisibleMessage(1)
@@ -154,6 +167,16 @@ Rectangle {
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
+            var leaving = root.keyboardSelectedEventId !== ""
+                ? root.keyboardSelectedEventId : root.resumeSelectedEventId
+            var remembered = root.rememberedSelections
+            if (root.selectionRoomKey !== "" && leaving !== "") {
+                remembered[root.selectionRoomKey] = leaving
+                root.rememberedSelections = remembered
+            }
+            root.selectionRoomKey = root.roomSelectionKey()
+            root.rememberedSelectionEventId =
+                remembered[root.selectionRoomKey] || ""
             root.keyboardSelectedEventId = ""
             root.resumeSelectedEventId = ""
             timeline.selectionDetached = false

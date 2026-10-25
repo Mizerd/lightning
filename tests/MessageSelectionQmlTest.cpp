@@ -1076,6 +1076,7 @@ ApplicationWindow {
     void roomChangesClearRememberedSelection()
     {
         openJoinedRoom();
+        const QString roomA = m_controller->currentRoomId();
         QTest::keyClick(m_window, Qt::Key_Space,
                        Qt::ControlModifier | Qt::ShiftModifier);
         auto *pane = item("timelinePane");
@@ -1101,6 +1102,16 @@ ApplicationWindow {
         QVERIFY(!otherRoom.isEmpty());
         m_controller->openRoom(otherRoom);
         QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
+        QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
+        QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
+        // Issue #55: what was selected is remembered per room, apart from the
+        // viewport. Nothing is selected or focused by the return itself.
+        QCOMPARE(pane->property("rememberedSelectionEventId").toString(),
+                 QString());
+        m_controller->openRoom(roomA);
+        QTRY_COMPARE(m_controller->currentRoomId(), roomA);
+        QCOMPARE(pane->property("rememberedSelectionEventId").toString(),
+                 previous);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
     }
