@@ -127,6 +127,16 @@ public:
     /// The capsfilter between the capture and the rest. Pins PAR either way;
     /// the GPU form also admits a linear DMA-BUF.
     static QString captureEntryFilter(bool gpu);
+    /// A screen capture's DMA-BUF buffer whose single memory is SHORTER than
+    /// the frame its video meta describes, re-wrapped at the file
+    /// descriptor's real size; nullptr when the buffer needs nothing (not a
+    /// DMA-BUF, already full size, or no way to size it). niri sets
+    /// `chunk.size = 1` and pipewiresrc wraps exactly that, after which
+    /// glupload copies a whole frame out of a 1-byte mapping and crashes the
+    /// GL thread (issue #56). The returned buffer holds the original through
+    /// a parent-buffer meta so the PipeWire buffer is not recycled under it.
+    /// Linux with gstreamer-allocators only; elsewhere always nullptr.
+    static GstBuffer *rewrapShortDmaBuf(GstBuffer *buffer);
     /// Camera entry for a source offering MJPG, decoded explicitly. Raw YUY2
     /// at 720p30 exceeds USB 2.0 and negotiates down to ~10 fps, and
     /// captureEntryFilter()'s `video/x-raw` filter rules MJPG out.

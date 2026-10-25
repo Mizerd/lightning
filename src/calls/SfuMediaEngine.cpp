@@ -6,6 +6,7 @@
 #include <cmath>
 #include <memory>
 
+#include <fcntl.h>
 #include <unistd.h>
 #ifdef Q_OS_LINUX
 #include <linux/videodev2.h>
@@ -52,6 +53,10 @@
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
 #include <gst/sdp/sdp.h>
+#include <gst/video/gstvideometa.h>
+#if defined(LIGHTNING_HAVE_GST_ALLOCATORS)
+#include <gst/allocators/gstdmabuf.h>
+#endif
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
 
@@ -4254,14 +4259,79 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
     // plain system memory. Never `video/x-raw(ANY)` as the fallback: it also
     // matches block-linear DMA-BUFs, which import as empty textures on NVIDIA
     // and give a black share. A preferred field is not a constrained one.
+    //
+    // The linear modifier is spelled by LEAVING THE SUFFIX OFF on GStreamer
+    // 1.28 (`gst_video_dma_drm_fourcc_to_string(fourcc, 0)` is "AR24"), and
+    // glupload advertises that form; the older `AR24:0x0000000000000000`
+    // intersects to nothing there, so the DMA-BUF branch never matched and a
+    // DMA-BUF-only compositor (niri offers BGRx/XR24 only) failed with "no
+    // more input formats" (issue #56). Both spellings and both alpha
+    // variants are listed; a list entry no peer offers costs nothing.
     return gpu
         ? QStringLiteral("capsfilter caps=\"video/x-raw(memory:DMABuf),"
-                         "drm-format=(string)AR24:0x0000000000000000,"
+                         "drm-format=(string){ AR24, XR24,"
+                         " AR24:0x0000000000000000,"
+                         " XR24:0x0000000000000000 },"
                          "pixel-aspect-ratio=(fraction)1/1;"
                          "video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"")
         : QStringLiteral("capsfilter caps=\"video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"");
+}
+
+GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
+{
+#if defined(LIGHTNING_HAVE_GST_ALLOCATORS)
+    if (!buffer || gst_buffer_n_memory(buffer) != 1)
+        return nullptr;
+    GstMemory *mem = gst_buffer_peek_memory(buffer, 0);
+    if (!mem || !gst_is_dmabuf_memory(mem))
+        return nullptr;
+    const GstVideoMeta *meta = gst_buffer_get_video_meta(buffer);
+    if (!meta || meta->n_planes < 1)
+        return nullptr;
+    // What the described frame needs at least: plane 0 is the whole picture
+    // for the packed formats compositors send; a planar layout is checked
+    // against its last plane's first row only, which can under-estimate (and
+    // so never rewraps what it should not) but never over-estimates.
+    gsize need = meta->offset[0] + gsize(qMax(meta->stride[0], 0))
+                                       * (meta->n_planes == 1 ? meta->height
+                                                              : 1);
+    if (meta->n_planes > 1) {
+        const guint last = meta->n_planes - 1;
+        need = qMax(need, meta->offset[last] + gsize(qMax(meta->stride[last], 0)));
+    }
+    if (gst_memory_get_sizes(mem, nullptr, nullptr) >= need)
+        return nullptr;
+    const int fd = gst_dmabuf_memory_get_fd(mem);
+    if (fd < 0)
+        return nullptr;
+    const off_t total = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+    if (total <= 0 || gsize(total) < need)
+        return nullptr;
+    const int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (dupFd < 0)
+        return nullptr;
+    GstMemory *full = gst_dmabuf_allocator_alloc(mem->allocator, dupFd,
+                                                 gsize(total));
+    if (!full) {
+        close(dupFd);
+        return nullptr;
+    }
+    GstBuffer *out = gst_buffer_new();
+    gst_buffer_copy_into(out, buffer,
+                         GstBufferCopyFlags(GST_BUFFER_COPY_FLAGS
+                                            | GST_BUFFER_COPY_TIMESTAMPS
+                                            | GST_BUFFER_COPY_META),
+                         0, -1);
+    gst_buffer_append_memory(out, full);
+    gst_buffer_add_parent_buffer_meta(out, buffer);
+    return out;
+#else
+    Q_UNUSED(buffer);
+    return nullptr;
+#endif
 }
 
 bool SfuMediaEngine::isDirectCameraSource(GstObject *source)
@@ -5484,6 +5554,24 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     //
     if (GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
         if (GstPad *srcPad = gst_element_get_static_pad(capture, "src")) {
+            if (screenShare) {
+                // First, so the count and everything downstream see the
+                // repaired buffer. See rewrapShortDmaBuf().
+                gst_pad_add_probe(
+                    srcPad, GST_PAD_PROBE_TYPE_BUFFER,
+                    [](GstPad *, GstPadProbeInfo *info, gpointer) {
+                        GstBuffer *in = GST_PAD_PROBE_INFO_BUFFER(info);
+                        if (GstBuffer *fixed =
+                                SfuMediaEngine::rewrapShortDmaBuf(in)) {
+                            // The new buffer holds `in` by parent meta; this
+                            // drops the reference the probe was given.
+                            GST_PAD_PROBE_INFO_DATA(info) = fixed;
+                            gst_buffer_unref(in);
+                        }
+                        return GST_PAD_PROBE_OK;
+                    },
+                    nullptr, nullptr);
+            }
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
             gst_pad_add_probe(
                 srcPad, GST_PAD_PROBE_TYPE_BUFFER,

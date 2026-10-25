@@ -31,6 +31,11 @@
 #include <gst/rtp/gstrtphdrext.h>
 #include <gst/rtp/gstrtpbasepayload.h>
 #include <gst/video/video-event.h>
+#include <gst/video/gstvideometa.h>
+#if defined(LIGHTNING_HAVE_GST_ALLOCATORS)
+#include <gst/allocators/gstdmabuf.h>
+#endif
+#include <sys/mman.h>
 
 #include <atomic>
 #include <cstring>
@@ -5447,6 +5452,59 @@ private slots:
         gst_object_unref(bin);
     }
 
+    // Issue #56: niri's DMA-BUF buffers carry `chunk.size = 1`, pipewiresrc
+    // wraps a 1-byte memory, and glupload then copies a whole frame out of it.
+    // The rewrap gives the buffer its real size and keeps the original alive.
+    void aOneByteDmaBufIsRewrappedAtItsRealSize()
+    {
+#if defined(Q_OS_LINUX) && defined(LIGHTNING_HAVE_GST_ALLOCATORS)
+        const int width = 64, height = 32, stride = width * 4;
+        const gsize frame = gsize(stride) * height;
+        const int fd = memfd_create("lightning-rewrap-test", MFD_CLOEXEC);
+        QVERIFY(fd >= 0);
+        QVERIFY(ftruncate(fd, off_t(frame)) == 0);
+        GstAllocator *alloc = gst_dmabuf_allocator_new();
+        auto makeBuffer = [&](gsize size) {
+            GstBuffer *b = gst_buffer_new();
+            GstMemory *m = gst_dmabuf_allocator_alloc(alloc, dup(fd), size);
+            gst_buffer_append_memory(b, m);
+            gsize offsets[1] = {0};
+            gint strides[1] = {stride};
+            gst_buffer_add_video_meta_full(
+                b, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_FORMAT_BGRx, width,
+                height, 1, offsets, strides);
+            GST_BUFFER_PTS(b) = 1234;
+            return b;
+        };
+        GstBuffer *shortBuf = makeBuffer(1);
+        GstBuffer *fixed = SfuMediaEngine::rewrapShortDmaBuf(shortBuf);
+        QVERIFY2(fixed, "a 1-byte DMA-BUF memory was not rewrapped");
+        QCOMPARE(gst_buffer_n_memory(fixed), 1u);
+        QCOMPARE(gst_memory_get_sizes(gst_buffer_peek_memory(fixed, 0),
+                                      nullptr, nullptr), frame);
+        QVERIFY(gst_buffer_get_video_meta(fixed));
+        QCOMPARE(quint64(GST_BUFFER_PTS(fixed)), quint64(1234));
+        // The original is held by the new buffer, not freed with the probe's
+        // reference: the PipeWire buffer must not recycle under a reader.
+        gst_buffer_unref(shortBuf);
+        QVERIFY(gst_buffer_get_parent_buffer_meta(fixed));
+        gst_buffer_unref(fixed);
+
+        // Already full size: nothing to do.
+        GstBuffer *whole = makeBuffer(frame);
+        QVERIFY(!SfuMediaEngine::rewrapShortDmaBuf(whole));
+        gst_buffer_unref(whole);
+        // Not a DMA-BUF at all.
+        GstBuffer *plain = gst_buffer_new_allocate(nullptr, 1, nullptr);
+        QVERIFY(!SfuMediaEngine::rewrapShortDmaBuf(plain));
+        gst_buffer_unref(plain);
+        gst_object_unref(alloc);
+        close(fd);
+#else
+        QSKIP("needs Linux and gstreamer-allocators");
+#endif
+    }
+
     // A shared window's publish size keeps its aspect and never upscales.
     // Compiled on every platform so it is testable off Windows.
     void fitIntoKeepsTheAspectAndNeverUpscales()
@@ -5526,10 +5584,31 @@ private slots:
                      qPrintable(QStringLiteral(
                          "an (ANY) fallback re-admits block-linear DMA-BUF "
                          "and the share goes out black: %1").arg(entry)));
-            QVERIFY2(entry.contains(QStringLiteral("AR24:0x0000000000000000")),
+            QVERIFY2(entry.contains(QStringLiteral("memory:DMABuf"))
+                         && entry.contains(QStringLiteral("drm-format=")),
                      qPrintable(QStringLiteral(
                          "the GPU entry filter no longer requires a linear "
                          "DMA-BUF: %1").arg(entry)));
+            // Issue #56: GStreamer 1.28 writes the linear modifier with no
+            // suffix, and niri offers XR24 (BGRx) only. The old spelling alone
+            // intersects glupload's caps to nothing.
+            {
+                GstCaps *filter = gst_caps_from_string(
+                    "video/x-raw(memory:DMABuf),drm-format=(string){ AR24, "
+                    "XR24 },format=(string)DMA_DRM");
+                const int a = entry.indexOf(QLatin1Char('"')) + 1;
+                const int b = entry.lastIndexOf(QLatin1Char('"'));
+                GstCaps *ours = gst_caps_from_string(
+                    entry.mid(a, b - a).toUtf8().constData());
+                QVERIFY(ours);
+                GstCaps *both = gst_caps_intersect(ours, filter);
+                const bool matches = !gst_caps_is_empty(both);
+                gst_caps_unref(both);
+                gst_caps_unref(ours);
+                gst_caps_unref(filter);
+                QVERIFY2(matches, "the GPU entry filter does not intersect "
+                                  "a bare linear XR24/AR24 DMA-BUF offer");
+            }
             QVERIFY2(gpu.contains(QStringLiteral("texture-target=2D")),
                      qPrintable(QStringLiteral(
                          "no texture-target pin: an external-oes texture can "

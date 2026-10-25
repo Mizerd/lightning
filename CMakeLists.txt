@@ -461,6 +461,20 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
         # (src/calls/noise/DenoiseElement.cpp) subclasses GstBaseTransform.
         # Part of GStreamer core, so every host with the above has it.
         gstreamer-base-1.0)
+    if(GSTWEBRTC_FOUND AND UNIX AND NOT APPLE)
+        # gstreamer-allocators-1.0 (gst-plugins-base, same -dev package as
+        # gstreamer-video): a compositor's DMA-BUF capture whose memory is
+        # sized by a 1-byte `chunk.size` (niri, issue #56) is re-wrapped at the
+        # buffer's real size before glupload sees it. Optional: without it the
+        # share still negotiates, it just cannot repair that one compositor.
+        pkg_check_modules(GSTALLOC IMPORTED_TARGET gstreamer-allocators-1.0)
+        if(GSTALLOC_FOUND)
+            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
+                INTERFACE_LINK_LIBRARIES PkgConfig::GSTALLOC)
+            set_property(TARGET PkgConfig::GSTWEBRTC APPEND PROPERTY
+                INTERFACE_COMPILE_DEFINITIONS LIGHTNING_HAVE_GST_ALLOCATORS=1)
+        endif()
+    endif()
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)
         message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
