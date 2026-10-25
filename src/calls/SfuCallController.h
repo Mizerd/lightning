@@ -595,6 +595,11 @@ public:
                                       quint64 windowHandle = 0,
                                       const QRect &captureRect = {});
     Q_INVOKABLE void stopScreenShare();
+    /// Re-applies the settings' share resolution, frame rate and bitrate cap
+    /// to the share in progress, in place (no restart, the call and the share
+    /// audio keep running). A no-op when nothing is being shared. Connected
+    /// to SettingsManager::shareQualityChanged.
+    void applyShareQualityToLiveShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
     /// Send one transient call reaction in element-call's format:

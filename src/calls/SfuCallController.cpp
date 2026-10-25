@@ -646,6 +646,27 @@ void SfuCallController::setSettings(SettingsManager *settings)
     // Noise suppression switches live, through the same path.
     connect(m_settings, &SettingsManager::noiseSuppressionModeChanged, this,
             [this] { applyAudioState(); });
+    // Resolution, frame rate and bitrate cap apply to a share already running,
+    // not only to the next one.
+    connect(m_settings, &SettingsManager::shareQualityChanged, this,
+            [this] { applyShareQualityToLiveShare(); });
+}
+
+void SfuCallController::applyShareQualityToLiveShare()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_screenSharing || m_screenCid.isEmpty() || m_engine.isNull()
+        || !m_settings)
+        return;
+    m_engine->setShareQuality(m_settings->effectiveShareMaxHeight(),
+                              m_settings->effectiveShareFps(),
+                              m_settings->shareBitrateCapKbps());
+    if (!m_engine->applyShareQualityLive(m_screenCid)) {
+        qCWarning(lcSfuCall)
+            << "screen share quality changed but the live share could not be "
+               "retargeted";
+    }
+#endif
 }
 
 void SfuCallController::restoreStoredShareAudioChoice()

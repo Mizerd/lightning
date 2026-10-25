@@ -5505,6 +5505,67 @@ private slots:
 #endif
     }
 
+    // Changing the share's resolution or frame rate while sharing retargets
+    // the running pipeline in place instead of waiting for the next share.
+    void aLiveShareTakesANewResolutionAndRateInPlace()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral(
+            "videotestsrc is-live=true ! video/x-raw,width=1920,height=1080,"
+            "framerate=30/1"));
+        engine.start();
+        engine.setShareQuality(1080, 30, 0);
+        const QString cid = QStringLiteral("cid-live-quality");
+        engine.publishVideo(cid, /*screenShare=*/true, /*nodeId=*/1);
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY(bin);
+        GstElement *limits = gst_bin_get_by_name(GST_BIN(bin), "publimits");
+        GstElement *enc = gst_bin_get_by_name(GST_BIN(bin), "videoenc");
+        QVERIFY2(limits, "the share's limits capsfilter is not addressable");
+        QVERIFY(enc);
+        GstPad *pad = gst_element_get_static_pad(limits, "src");
+        auto shape = [pad]() {
+            int w = 0, h = 0, n = 0, d = 1;
+            if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
+                const GstStructure *st = gst_caps_get_structure(caps, 0);
+                gst_structure_get_int(st, "width", &w);
+                gst_structure_get_int(st, "height", &h);
+                gst_structure_get_fraction(st, "framerate", &n, &d);
+                gst_caps_unref(caps);
+            }
+            return QList<int>{w, h, d ? n / d : 0};
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(shape(), (QList<int>{1920, 1080, 30}), 8000);
+        gint before = 0;
+        g_object_get(enc, "target-bitrate", &before, nullptr);
+
+        engine.setShareQuality(720, 15, 0);
+        QVERIFY(engine.applyShareQualityLive(cid));
+        QTRY_COMPARE_WITH_TIMEOUT(shape(), (QList<int>{1280, 720, 15}), 8000);
+        gint after = 0;
+        g_object_get(enc, "target-bitrate", &after, nullptr);
+        QVERIFY2(after < before, "the encoder bitrate did not follow the "
+                                 "smaller picture and lower rate");
+        // Still delivering after the change.
+        std::atomic<int> frames{0};
+        const gulong probe = gst_pad_add_probe(
+            pad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &frames, nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(frames.load() >= 3, 5000);
+        gst_pad_remove_probe(pad, probe);
+
+        QVERIFY(!engine.applyShareQualityLive(QStringLiteral("no-such-cid")));
+        gst_object_unref(pad);
+        gst_object_unref(limits);
+        gst_object_unref(enc);
+        engine.stop();
+    }
+
     // A shared window's publish size keeps its aspect and never upscales.
     // Compiled on every platform so it is testable off Windows.
     void fitIntoKeepsTheAspectAndNeverUpscales()

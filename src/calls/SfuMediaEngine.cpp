@@ -2268,6 +2268,65 @@ void SfuMediaEngine::setShareQuality(int maxHeight, int fps,
     m_shareFps = (fps <= 22) ? 15 : (fps <= 45) ? 30 : 60;
 }
 
+bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
+{
+    GstElement *bin = m_publishedBins.value(cid, nullptr);
+    if (!bin)
+        return false;
+    bool applied = false;
+    // Setting a capsfilter's caps sends RECONFIGURE upstream: the scaler, the
+    // rate stage and the encoder renegotiate to the new size and rate while
+    // the capture, the call and the share audio carry on untouched.
+    auto retarget = [bin](const char *name, const QString &caps) {
+        GstElement *filter = gst_bin_get_by_name(GST_BIN(bin), name);
+        if (!filter)
+            return false;
+        GstCaps *parsed = gst_caps_from_string(caps.toUtf8().constData());
+        if (parsed)
+            g_object_set(filter, "caps", parsed, nullptr);
+        const bool ok = parsed != nullptr;
+        if (parsed)
+            gst_caps_unref(parsed);
+        gst_object_unref(filter);
+        return ok;
+    };
+    applied = retarget("publimits", shareLimitsCaps(m_shareMaxHeight,
+                                                    m_shareFps));
+    if (!applied)
+        return false;
+    {
+        const int h = m_shareMaxHeight;
+        retarget("sharegl",
+                 QStringLiteral("video/x-raw(memory:GLMemory),"
+                                "width=(int)[1,%1],height=(int)[1,%2]")
+                     .arg(QString::number((h * 16) / 9),
+                          QString::number(h)));
+    }
+    if (GstElement *enc = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
+        // The same arithmetic the encoder stage was built from.
+        const QString stage = shareEncoderStage(m_shareMaxHeight, m_shareFps,
+                                                m_shareBitrateCapKbps);
+        static const QRegularExpression rate(
+            QStringLiteral("target-bitrate=(\\d+)"));
+        static const QRegularExpression keyframe(
+            QStringLiteral("keyframe-max-dist=(\\d+)"));
+        const auto bitrate = rate.match(stage);
+        const auto dist = keyframe.match(stage);
+        if (bitrate.hasMatch() && g_object_class_find_property(
+                G_OBJECT_GET_CLASS(enc), "target-bitrate"))
+            g_object_set(enc, "target-bitrate", bitrate.captured(1).toInt(),
+                         nullptr);
+        if (dist.hasMatch() && g_object_class_find_property(
+                G_OBJECT_GET_CLASS(enc), "keyframe-max-dist"))
+            g_object_set(enc, "keyframe-max-dist", dist.captured(1).toInt(),
+                         nullptr);
+        gst_object_unref(enc);
+    }
+    qCInfo(lcSfuMedia) << "screen share quality applied live height="
+                       << m_shareMaxHeight << "fps=" << m_shareFps;
+    return true;
+}
+
 void SfuMediaEngine::publishShareAudio(
     const QString &cid, const lightning::shareaudio::Selection &selection)
 {
@@ -4565,8 +4624,11 @@ QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
                           "! video/x-raw(memory:GLMemory),format=RGBA,"
                           "texture-target=2D "
                           "! glcolorscale "
-                          "! video/x-raw(memory:GLMemory),"
-                          "width=(int)[1,%1],height=(int)[1,%2] "
+                          // Named so a live resolution change can retarget it
+                          // (applyShareQualityLive()).
+                          "! capsfilter name=sharegl caps=\""
+                          "video/x-raw(memory:GLMemory),"
+                          "width=(int)[1,%1],height=(int)[1,%2]\" "
                           "! gldownload ! videoconvert")
         .arg(QString::number(w), QString::number(h));
 }
@@ -5032,7 +5094,9 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "! %9 "
                "! queue max-size-buffers=4 leaky=downstream "
                "! %8 ! %7 "
-               "! %2 "
+               // Named: a live resolution or rate change sets its caps in
+               // place (applyShareQualityLive()).
+               "! capsfilter name=publimits caps=\"%2\" "
                "! tee name=t %4"
                // Bounded and leaky: a default queue holds a second and never
                // drains, and this one feeds the encoder most likely to fall

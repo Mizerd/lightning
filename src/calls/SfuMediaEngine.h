@@ -79,6 +79,12 @@ public:
     /// `bitrateCapKbps` 0 is Auto: the bitrate that follows the picture. A cap
     /// only ever lowers it (and never below kMinVideoBitrate).
     void setShareQuality(int maxHeight, int fps, int bitrateCapKbps = 0);
+    /// Applies the CURRENT setShareQuality() values to the share already being
+    /// published under `cid`, without restarting it: the limits capsfilter,
+    /// the GPU scaler's size and the encoder's bitrate and keyframe interval
+    /// are retargeted in place, so the capture, the call and the share audio
+    /// are untouched. False when nothing is published under `cid`.
+    bool applyShareQualityLive(const QString &cid);
     /// Camera ceiling (360/480/720/1080); 720 is today's behaviour (Auto).
     /// Read when a camera capture is built.
     void setCameraQuality(int maxHeight);
