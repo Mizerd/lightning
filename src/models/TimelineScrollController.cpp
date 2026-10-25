@@ -1,5 +1,9 @@
 #include "models/TimelineScrollController.h"
 
+#include <QStringList>
+#include <QDebug>
+#include <iterator>
+
 #include <QAbstractAnimation>
 
 #include <algorithm>
@@ -89,7 +93,111 @@ private:
 TimelineScrollController::TimelineScrollController(QObject *parent)
     : QObject(parent)
     , m_scrollTraceEnabled(qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
+    , m_recorderEnabled(m_scrollTraceEnabled
+                        || qEnvironmentVariableIsSet("LIGHTNING_SCROLL_RECORDER"))
 {
+}
+
+namespace {
+// The recorder's writer vocabulary. Index 0 is "other".
+constexpr const char *kScrollWriters[] = {
+    "other", "input", "native", "wheel", "pixel", "keyboard", "bar-drag",
+    "bar-top-hold", "autoscroll", "anchor-hold", "anchor-restore",
+    "window-trim", "window-extend", "navigation", "saved-restore",
+    "follow-latest", "reset", "bounds", "unattributed",
+};
+quint8 writerIndex(const QString &writer)
+{
+    for (quint8 i = 0; i < std::size(kScrollWriters); ++i) {
+        if (writer == QLatin1String(kScrollWriters[i]))
+            return i;
+    }
+    return 0;
+}
+} // namespace
+
+void TimelineScrollController::recordScroll(
+    const QString &writer, double oldY, double newY, double minY, double maxY,
+    double viewportHeight, double contentHeight, int count, int windowSkip,
+    int flags, const QString &anchorId, double anchorOffset)
+{
+    if (!m_recorderEnabled)
+        return;
+    if (m_ring.isEmpty()) {
+        m_ring.resize(kRecorderCapacity);
+        m_recordClock.start();
+    }
+    qint32 alias = -1;
+    if (!anchorId.isEmpty()) {
+        auto it = m_anchorAliases.constFind(anchorId);
+        if (it == m_anchorAliases.cend()) {
+            // Bounded: a long session starts a fresh alias space rather than
+            // growing for ever (aliases only need to be stable within a dump).
+            if (m_anchorAliases.size() >= kMaxAnchorAliases)
+                m_anchorAliases.clear();
+            it = m_anchorAliases.insert(anchorId, m_nextAnchorAlias++);
+        }
+        alias = it.value();
+    }
+    ScrollRecord &r = m_ring[m_ringHead];
+    r.ms = m_recordClock.elapsed();
+    r.seq = ++m_recordSeq;
+    r.writer = writerIndex(writer);
+    r.flags = quint8(flags & 0xff);
+    r.oldY = float(oldY);
+    r.newY = float(newY);
+    r.minY = float(minY);
+    r.maxY = float(maxY);
+    r.viewport = float(viewportHeight);
+    r.content = float(contentHeight);
+    r.count = count;
+    r.windowSkip = windowSkip;
+    r.anchor = alias;
+    r.anchorOffset = float(anchorOffset);
+    m_ringHead = (m_ringHead + 1) % kRecorderCapacity;
+    m_ringSize = qMin(m_ringSize + 1, kRecorderCapacity);
+}
+
+bool TimelineScrollController::reportScrollIncident(const QString &code,
+                                                     int records)
+{
+    if (!m_recorderEnabled)
+        return false;
+    ++m_incidentCount;
+    Q_EMIT scrollIncidentCountChanged();
+    const qint64 now = m_recordClock.isValid() ? m_recordClock.elapsed() : 0;
+    if (m_lastIncidentMs >= 0 && now - m_lastIncidentMs < kIncidentMinGapMs)
+        return false;
+    m_lastIncidentMs = now;
+    const int n = qBound(0, records, m_ringSize);
+    // The code is a fixed word from the QML side; keep only [a-z-] so no
+    // caller can smuggle text into the log through it.
+    QString safeCode;
+    for (const QChar c : code.left(32)) {
+        if ((c >= QLatin1Char('a') && c <= QLatin1Char('z'))
+            || c == QLatin1Char('-'))
+            safeCode.append(c);
+    }
+    QStringList lines;
+    lines << QStringLiteral("scroll incident code=%1 n=%2 total=%3")
+                 .arg(safeCode).arg(n).arg(m_incidentCount);
+    for (int i = n; i > 0; --i) {
+        const int idx = (m_ringHead - i + kRecorderCapacity) % kRecorderCapacity;
+        const ScrollRecord &r = m_ring.at(idx);
+        lines << QStringLiteral(
+                     "  #%1 t=%2 w=%3 y=%4->%5 bounds=%6..%7 vh=%8 ch=%9 "
+                     "rows=%10 skip=%11 flags=%12 anchor=%13@%14")
+                     .arg(r.seq).arg(r.ms)
+                     .arg(QLatin1String(kScrollWriters[r.writer]))
+                     .arg(r.oldY, 0, 'f', 1).arg(r.newY, 0, 'f', 1)
+                     .arg(r.minY, 0, 'f', 1).arg(r.maxY, 0, 'f', 1)
+                     .arg(r.viewport, 0, 'f', 0).arg(r.content, 0, 'f', 0)
+                     .arg(r.count).arg(r.windowSkip).arg(r.flags)
+                     .arg(r.anchor).arg(r.anchorOffset, 0, 'f', 1);
+    }
+    m_lastDump = lines.join(QLatin1Char('\n'));
+    qInfo().noquote() << m_lastDump;
+    return true;
 }
 
 void TimelineScrollController::setWheelSpeed(WheelSpeed speed)

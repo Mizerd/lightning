@@ -1,6 +1,10 @@
 #pragma once
 
+#include <QElapsedTimer>
+#include <QHash>
 #include <QObject>
+#include <QString>
+#include <QVector>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class QAbstractAnimation;
@@ -30,7 +34,9 @@ class QAbstractAnimation;
 //     The exception is a backward-pagination anchor restore during a glide,
 //     which uses translateActiveMotion() so momentum survives the prepend.
 //
-// Never logs; carries no message content, room ids or URLs.
+// Never logs, except the opt-in scroll incident recorder below
+// (LIGHTNING_SCROLL_RECORDER or LIGHTNING_SCROLL_TRACE), which carries no
+// message content, room ids, event ids or URLs either.
 class TimelineScrollController : public QObject
 {
     Q_OBJECT
@@ -50,6 +56,17 @@ class TimelineScrollController : public QObject
     // a deferred anchor correction wrote the position mid-gesture (must be 0).
     // Read once at construction; no message content or ids.
     Q_PROPERTY(bool scrollTraceEnabled READ scrollTraceEnabled CONSTANT)
+    // Bounded causal recorder for a rare viewport jump (master prompt Part 3
+    // §4): every main-timeline position write is recorded with its writer
+    // reason, bounds, row-window state and a SESSION-LOCAL anchor alias (an
+    // integer, never the event id) in a fixed ring of kRecorderCapacity
+    // records. Nothing is printed until reportScrollIncident() names an
+    // anomaly, which dumps the most recent records once (rate-limited).
+    // Opt-in: LIGHTNING_SCROLL_RECORDER or LIGHTNING_SCROLL_TRACE; off, the
+    // QML side does not even call in.
+    Q_PROPERTY(bool scrollRecorderEnabled READ scrollRecorderEnabled CONSTANT)
+    Q_PROPERTY(int scrollIncidentCount READ scrollIncidentCount
+                   NOTIFY scrollIncidentCountChanged)
 
 public:
     // Persisted as a stable integer (see SettingsManager). Ordered by per-notch
@@ -70,6 +87,36 @@ public:
 
     bool motionActive() const { return m_motionActive; }
     bool scrollTraceEnabled() const { return m_scrollTraceEnabled; }
+    bool scrollRecorderEnabled() const { return m_recorderEnabled; }
+    int scrollIncidentCount() const { return m_incidentCount; }
+    static constexpr int kRecorderCapacity = 1024;
+    // Writer reasons the recorder knows; anything else records as "other".
+    // Bit flags for recordScroll's `flags`.
+    enum RecorderFlag {
+        UserScrollActive = 1, FollowLatest = 2, WheelActive = 4,
+        SettleActive = 8, NavigationPending = 16, RestoreHold = 32,
+        ScrollbarPressed = 64, Dragging = 128
+    };
+    Q_ENUM(RecorderFlag)
+    Q_INVOKABLE void recordScroll(const QString &writer, double oldY,
+                                  double newY, double minY, double maxY,
+                                  double viewportHeight, double contentHeight,
+                                  int count, int windowSkip, int flags,
+                                  const QString &anchorId,
+                                  double anchorOffset);
+    // Dumps the last `records` records (bounded by the ring) under the
+    // incident `code` (a fixed vocabulary: oldest-bound, newest-bound,
+    // missing-anchor, stale-generation, ...). At most one dump per
+    // kIncidentMinGapMs; the count still advances. Returns whether it dumped.
+    Q_INVOKABLE bool reportScrollIncident(const QString &code,
+                                          int records = 64);
+    Q_INVOKABLE int recordedScrollCount() const { return m_ringSize; }
+    // Test/diagnostic: the text the last dump produced (also logged).
+    Q_INVOKABLE QString lastScrollIncidentDump() const { return m_lastDump; }
+    // For tests: enables the recorder regardless of the environment.
+    void setScrollRecorderEnabledForTest(bool on) { m_recorderEnabled = on; }
+    static constexpr int kIncidentMinGapMs = 2000;
+    static constexpr int kMaxAnchorAliases = 4096;
 
     // Pixels one full notch (angleDelta.y == 120) scrolls at the active speed
     // for this viewport height, bounded at both ends.
@@ -143,6 +190,7 @@ public:
     bool tickerRunningForTest() const;
 
 Q_SIGNALS:
+    void scrollIncidentCountChanged();
     void wheelSpeedChanged();
     void motionActiveChanged();
     // One frame of wheel motion: QML applies this to contentY (re-clamping
@@ -182,6 +230,27 @@ private:
 
     // Scroll diagnostics gate (LIGHTNING_SCROLL_TRACE), read once.
     bool m_scrollTraceEnabled = false;
+
+    struct ScrollRecord {
+        qint64 ms = 0;
+        quint32 seq = 0;
+        quint8 writer = 0;
+        quint8 flags = 0;
+        float oldY = 0, newY = 0, minY = 0, maxY = 0, viewport = 0,
+              content = 0, anchorOffset = 0;
+        qint32 count = 0, windowSkip = 0, anchor = -1;
+    };
+    bool m_recorderEnabled = false;
+    QVector<ScrollRecord> m_ring;
+    int m_ringHead = 0;
+    int m_ringSize = 0;
+    quint32 m_recordSeq = 0;
+    QElapsedTimer m_recordClock;
+    QHash<QString, qint32> m_anchorAliases;
+    qint32 m_nextAnchorAlias = 0;
+    qint64 m_lastIncidentMs = -1;
+    int m_incidentCount = 0;
+    QString m_lastDump;
 
     // Frame ticker; parented to this, running only while motion is active.
     QAbstractAnimation *m_ticker = nullptr;

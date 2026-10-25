@@ -3312,7 +3312,7 @@ Rectangle {
                                 diagGrowthCorrections += 1
                                 diagDisplacedAppliedSum += grew
                             }
-                            contentY += grew
+                            setPositionY(contentY + grew, "anchor-hold")
                             viewAnchorLastY += grew
                         }
                         viewAnchorCount = count
@@ -3374,7 +3374,7 @@ Rectangle {
                                 diagLiveInsertHolds += 1
                                 diagLiveInsertHeldSum += heldDelta
                             }
-                            contentY = Math.min(wheelMaxY(), contentY + heldDelta)
+                            setPositionY(Math.min(wheelMaxY(), contentY + heldDelta), "anchor-hold")
                             // Translate an in-flight glide rather than letting
                             // it pull the reader back.
                             app.timelineScroll.translateActiveMotion(heldDelta)
@@ -3411,7 +3411,7 @@ Rectangle {
                     if (Math.abs(contentY - desired) > 0.5) {
                         if (scrollTrace)
                             diagAnchorCorrections += 1
-                        contentY = desired
+                        setPositionY(desired, "anchor-restore")
                     }
                     viewAnchorLastY = anchorY
                     viewAnchorCount = count
@@ -3521,7 +3521,7 @@ Rectangle {
                         extendRowWindowAtNewEnd()
                         target += contentY - beforeExtension
                     }
-                    contentY = Math.max(wheelMinY(), Math.min(wheelMaxY(), target))
+                    setPositionY(Math.max(wheelMinY(), Math.min(wheelMaxY(), target)), "keyboard")
                     updateStickAndPaginate()
                     captureViewAnchor()
                     scrollSettleTimer.restart()
@@ -3755,7 +3755,7 @@ Rectangle {
                 // Row 0 is the newest and sits at content y 0 (the physical
                 // bottom), so following the latest is just the low bound.
                 function positionViewAtLatest() {
-                    contentY = wheelMinY()
+                    setPositionY(wheelMinY(), "follow-latest")
                 }
                 // How far into the viewport a navigation target lands. A third
                 // of the viewport in shows context on both sides. Uses the same
@@ -3772,7 +3772,7 @@ Rectangle {
                                  + topMargin + height * navigationInsetFraction
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
-                    contentY = target < lo ? lo : (target > hi ? hi : target)
+                    setPositionY(target < lo ? lo : (target > hi ? hi : target), "navigation")
                     return true
                 }
                 // Navigation diagnostics, counts only (never an event id). Both
@@ -4058,7 +4058,7 @@ Rectangle {
                         positionViewAtViewRow(viewRow, true)
                     } else {
                         positionViewAtViewRow(viewRow, false)
-                        contentY = anchorPositionForItem(item) + pixelOffset
+                        setPositionY(anchorPositionForItem(item) + pixelOffset, "saved-restore")
                     }
                     // Follow-latest comes from where the landing put the
                     // reader. A target in the newest screenful (a notification
@@ -4088,7 +4088,7 @@ Rectangle {
                             : anchorPositionForItem(item) - height + topMargin
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
-                    contentY = target < lo ? lo : (target > hi ? hi : target)
+                    setPositionY(target < lo ? lo : (target > hi ? hi : target), "navigation")
                 }
                 property string suppressRootEventId: ""
                 property bool threadContext: false
@@ -4734,7 +4734,7 @@ Rectangle {
                     const movedItem = movedRow >= 0 ? itemAtViewRow(movedRow)
                                                     : null
                     if (movedItem) {
-                        contentY = movedItem.y - anchorOffset
+                        setPositionY(movedItem.y - anchorOffset, "window-trim")
                     } else {
                         // Should be impossible for an on-screen row; count it
                         // rather than apply a correction computed from nothing.
@@ -4816,7 +4816,7 @@ Rectangle {
                         }
                     }
                     if (shift !== 0) {
-                        contentY = contentY + shift
+                        setPositionY(contentY + shift, "window-extend")
                         // Translate an in-flight glide rather than cancelling
                         // it, preserving the remaining distance.
                         app.timelineScroll.translateActiveMotion(shift)
@@ -5055,7 +5055,7 @@ Rectangle {
                     if (Math.abs(target - contentY) <= 0.5)
                         return false
                     cancelWheelMotion()
-                    contentY = target
+                    setPositionY(target, "keyboard")
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                     return true
@@ -5155,7 +5155,7 @@ Rectangle {
                 function goToEarliestLoaded() {
                     root.stopAutoscroll()
                     cancelWheelMotion()
-                    contentY = wheelMaxY()
+                    setPositionY(wheelMaxY(), "keyboard")
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
@@ -5338,7 +5338,7 @@ Rectangle {
                         }
                         var hi = timeline.wheelMaxY()
                         var clamped = y < lo ? lo : (y > hi ? hi : y)
-                        timeline.contentY = clamped
+                        timeline.setPositionY(clamped, "wheel")
                         if (clamped !== y)
                             app.timelineScroll.notifyBoundReached(clamped)
                     }
@@ -5434,9 +5434,9 @@ Rectangle {
                         if (event.pixelDelta.y !== 0
                                 || (continuousSource && event.angleDelta.y !== 0)) {
                             timeline.cancelWheelMotion()
-                            timeline.contentY = app.timelineScroll.pixelTargetY(
+                            timeline.setPositionY(app.timelineScroll.pixelTargetY(
                                 -event.pixelDelta.y, timeline.contentY,
-                                minY, maxY)
+                                minY, maxY), "pixel")
                             timeline.updateStickAndPaginate(canMove)
                             if (towardsOlder && canMove)
                                 timeline.stickToBottom = false
@@ -5458,8 +5458,9 @@ Rectangle {
                             // here. notchDistance() does no negation, so
                             // negating it would invert the wheel.
                             var jump = (event.angleDelta.y / 120.0) * per
-                            timeline.contentY = Math.max(
-                                minY, Math.min(maxY, timeline.contentY + jump))
+                            timeline.setPositionY(Math.max(
+                                minY, Math.min(maxY, timeline.contentY + jump)),
+                                "wheel")
                             timeline.updateStickAndPaginate(canMove)
                             if (event.angleDelta.y > 0 && canMove)
                                 timeline.stickToBottom = false
@@ -5850,7 +5851,59 @@ Rectangle {
                 // MessageDelegate.openContextMenu(). It is positioned once, so
                 // any content movement closes it.
                 property var openRowMenu: null
+                // Every position write Lightning makes goes through here with
+                // a fixed writer reason, so the opt-in incident recorder
+                // (app.timelineScroll.scrollRecorderEnabled) can attribute
+                // a jump to its writer. Behaviour is exactly `contentY = y`.
+                property string positionWriter: ""
+                function setPositionY(y, writer) {
+                    var previous = positionWriter
+                    positionWriter = writer
+                    contentY = y
+                    positionWriter = previous
+                }
+                property real recorderLastY: 0
+                property int diagScrollIncidents: 0
+                function recordPositionWrite() {
+                    var oldY = recorderLastY
+                    recorderLastY = contentY
+                    var writer = positionWriter !== "" ? positionWriter
+                               : dragging || flicking ? "native"
+                               : scrollBarHeld ? "bar-drag"
+                               : userScrollActive ? "input" : "unattributed"
+                    var flags = (userScrollActive ? 1 : 0)
+                              | (stickToBottom ? 2 : 0)
+                              | (wheelAnimating ? 4 : 0)
+                              | (scrollSettleTimer.running ? 8 : 0)
+                              | (navigationPendingId !== "" ? 16 : 0)
+                              | (restoreHoldsGate ? 32 : 0)
+                              | (scrollBarHeld ? 64 : 0)
+                              | (dragging ? 128 : 0)
+                    var minY = wheelMinY()
+                    var maxY = wheelMaxY()
+                    app.timelineScroll.recordScroll(
+                        writer, oldY, contentY, minY, maxY, height,
+                        contentHeight, count, rowWindowSkip, flags,
+                        viewAnchorId, viewAnchorOffset)
+                    // The anomaly the user reported: the view snapping to the
+                    // oldest loaded edge from more than a screen away, by a
+                    // writer that is neither the reader's input nor an
+                    // explicit navigation. A legitimate window trim moves
+                    // contentY by thousands too, but it is tagged and keeps
+                    // the reader's row still, so it is not a candidate.
+                    var jump = Math.abs(contentY - oldY)
+                    if (jump > height && contentY >= maxY - 2
+                            && writer !== "navigation" && writer !== "keyboard"
+                            && writer !== "bar-drag" && writer !== "bar-top-hold"
+                            && writer !== "window-trim"
+                            && writer !== "window-extend") {
+                        ++diagScrollIncidents
+                        app.timelineScroll.reportScrollIncident("oldest-bound")
+                    }
+                }
                 onContentYChanged: {
+                    if (app.timelineScroll.scrollRecorderEnabled)
+                        recordPositionWrite()
                     if (openRowMenu) {
                         var stale = openRowMenu
                         openRowMenu = null
@@ -6063,7 +6116,7 @@ Rectangle {
                         // Holding the handle at the top is an explicit ask
                         // for more; the automatic-chain budget is not.
                         timeline.renewPinnedTopBudget()
-                        timeline.contentY = timeline.wheelMaxY()
+                        timeline.setPositionY(timeline.wheelMaxY(), "bar-top-hold")
                         timeline.updateStickAndPaginate()
                     }
                 }
@@ -6077,7 +6130,7 @@ Rectangle {
                     // Dragging the handle retires an unlanded jump, like the
                     // wheel.
                     timeline.noteReaderTookControl()
-                    timeline.contentY = timeline.wheelMaxY() - frac * span
+                    timeline.setPositionY(timeline.wheelMaxY() - frac * span, "bar-drag")
                     timeline.updateStickAndPaginate()
                 }
             }

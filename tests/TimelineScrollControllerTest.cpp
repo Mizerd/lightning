@@ -686,6 +686,49 @@ private Q_SLOTS:
             c.advanceMotion(16.0);
         QVERIFY(qFuzzyCompare(c.positionYForTest(), targetBefore + growth));
     }
+
+    // The incident recorder (master prompt Part 3 §4): off unless opted in,
+    // a fixed ring, writer reasons from a fixed vocabulary, session-local
+    // anchor aliases instead of event ids, and a rate-limited dump.
+    void theIncidentRecorderIsOptInBoundedAndCarriesNoIds()
+    {
+        qunsetenv("LIGHTNING_SCROLL_TRACE");
+        qunsetenv("LIGHTNING_SCROLL_RECORDER");
+        TimelineScrollController c;
+        QVERIFY(!c.scrollRecorderEnabled());
+        c.recordScroll(QStringLiteral("wheel"), 0, 10, 0, 100, 50, 500, 5, 0,
+                       0, QStringLiteral("$secret-event:example.org"), 1);
+        QCOMPARE(c.recordedScrollCount(), 0);
+        QVERIFY(!c.reportScrollIncident(QStringLiteral("oldest-bound")));
+        QCOMPARE(c.scrollIncidentCount(), 0);
+
+        c.setScrollRecorderEnabledForTest(true);
+        const int writes = TimelineScrollController::kRecorderCapacity + 300;
+        for (int i = 0; i < writes; ++i) {
+            c.recordScroll(i % 2 ? QStringLiteral("window-trim")
+                                 : QStringLiteral("not-a-writer"),
+                           i, i + 1, 0, 5000, 600, 9000, 400, 120, 3,
+                           QStringLiteral("$secret-event-%1:example.org")
+                               .arg(i % 7), -12.5);
+        }
+        QCOMPARE(c.recordedScrollCount(),
+                 TimelineScrollController::kRecorderCapacity);
+        QVERIFY(c.reportScrollIncident(QStringLiteral("oldest-bound\nX"), 5));
+        QCOMPARE(c.scrollIncidentCount(), 1);
+        const QString dump = c.lastScrollIncidentDump();
+        QVERIFY(dump.startsWith(QStringLiteral("scroll incident code=oldest-bound ")));
+        QCOMPARE(dump.count(QLatin1Char('\n')), 5);
+        QVERIFY(dump.contains(QStringLiteral("w=window-trim")));
+        QVERIFY(dump.contains(QStringLiteral("w=other")));
+        QVERIFY(!dump.contains(QStringLiteral("secret")));
+        QVERIFY(!dump.contains(QStringLiteral("example.org")));
+        // The newest record is last and carries the final sequence number.
+        QVERIFY(dump.section(QLatin1Char('\n'), -1)
+                    .contains(QStringLiteral("#%1 ").arg(writes)));
+        // Rate limited: a second incident right away counts, prints nothing.
+        QVERIFY(!c.reportScrollIncident(QStringLiteral("oldest-bound")));
+        QCOMPARE(c.scrollIncidentCount(), 2);
+    }
 };
 
 QTEST_MAIN(TimelineScrollControllerTest)

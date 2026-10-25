@@ -10764,6 +10764,59 @@ private Q_SLOTS:
             timeline->property("diagNavigationLandings").toInt(), 1, 5000);
     }
 
+    // The opt-in incident recorder sees the main timeline's position writes
+    // with their writer: an untagged snap from deep in the view to the oldest
+    // loaded edge is reported (the user's "teleport to the top" shape),
+    // while a row-window trim, which moves contentY a long way on purpose,
+    // is not.
+    void theScrollRecorderReportsAnUnattributedSnapToTheOldestEdgeOnly()
+    {
+        AppController controller(AppController::MockBackend);
+        controller.timelineScroll()->setScrollRecorderEnabledForTest(true);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+        QVERIFY(controller.timelineScroll()->recordedScrollCount() > 0);
+        const int before = timeline->property("diagScrollIncidents").toInt();
+
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QCoreApplication::processEvents();
+        QVERIFY2(timeline->property("diagScrollIncidents").toInt() == before,
+                 qPrintable(QStringLiteral("a row-window trim was reported: ")
+                            + controller.timelineScroll()
+                                  ->lastScrollIncidentDump()));
+
+        // Park the view low, then an untagged write to the oldest edge.
+        QQmlExpression park(qmlContext(timeline), timeline,
+                            QStringLiteral("contentY = wheelMinY()"));
+        park.evaluate();
+        QQmlExpression snap(qmlContext(timeline), timeline,
+                            QStringLiteral("contentY = wheelMaxY()"));
+        snap.evaluate();
+        QVERIFY2(!snap.hasError(), snap.error().toString().toUtf8().constData());
+        QVERIFY2(timeline->property("diagScrollIncidents").toInt() == before + 1,
+                 qPrintable(QStringLiteral("incidents %1 -> %2, y %3 min %4 max %5 h %6")
+                     .arg(before)
+                     .arg(timeline->property("diagScrollIncidents").toInt())
+                     .arg(timeline->property("contentY").toReal())
+                     .arg(QQmlExpression(qmlContext(timeline), timeline,
+                              QStringLiteral("wheelMinY()")).evaluate().toReal())
+                     .arg(QQmlExpression(qmlContext(timeline), timeline,
+                              QStringLiteral("wheelMaxY()")).evaluate().toReal())
+                     .arg(timeline->property("height").toReal())));
+        const QString dump =
+            controller.timelineScroll()->lastScrollIncidentDump();
+        QVERIFY2(dump.contains(QStringLiteral("w=unattributed")),
+                 qPrintable(dump));
+        QVERIFY(!dump.contains(QStringLiteral("$win")));
+    }
+
     // A jump names a model ROW, and the landing starts one event-loop turn
     // later. A history page arriving in between renumbers every row, so
     // reading the id from the row at landing time named an older message: "the
