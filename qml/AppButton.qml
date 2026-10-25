@@ -30,6 +30,10 @@ AbstractButton {
     // Width floor so short labels ("OK", "Save") don't make differently sized
     // boxes. An explicit width or Layout.preferredWidth still wins.
     property int minWidth: AppTheme.buttonMinWidth
+    // A submission this button started is in flight: a small spinner leads
+    // the label. The label and geometry stay, so the row does not jump; the
+    // owner still disables the button (busy is presentation only).
+    property bool busy: false
 
     readonly property bool primary: kind === "primary"
     readonly property bool danger: kind === "danger"
@@ -122,11 +126,21 @@ AbstractButton {
         Row {
             id: contentRow
             anchors.centerIn: parent
-            spacing: root.iconName.length > 0 ? AppTheme.buttonIconGap : 0
+            spacing: (root.iconName.length > 0 || root.busy)
+                     ? AppTheme.buttonIconGap : 0
+
+            AppBusyIndicator {
+                objectName: "buttonBusy"
+                visible: root.busy
+                running: root.busy
+                size: root.size === "sm" ? 13 : 15
+                color: root._ink
+                anchors.verticalCenter: parent.verticalCenter
+            }
 
             Icon {
                 objectName: "buttonIcon"
-                visible: root.iconName.length > 0
+                visible: root.iconName.length > 0 && !root.busy
                 name: root.iconName
                 // One optical step below the label's cap height, so it reads as
                 // part of the word.
@@ -178,9 +192,17 @@ AbstractButton {
                 return root.down ? AppTheme.stormSelection
                      : root.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
                      : "transparent"
+            if (root.ghost)
+                return root.down ? AppTheme.buttonGhostPressed
+                     : root.hovered ? AppTheme.buttonGhostHover
+                     : "transparent"
+            // Secondary: a resting tint of its own ink, so it reads as a
+            // control on whatever surface it sits on (a card, the page, a
+            // dialog) before hover. buttonNeutralFill is cardElevated and
+            // vanished on exactly the cards these buttons live on.
             return root.down ? AppTheme.buttonGhostPressed
                  : root.hovered ? AppTheme.buttonGhostHover
-                 : "transparent"
+                 : AppTheme.buttonSecondaryFill
         }
         border.width: (root._filled || root.ghost) ? 0 : 1
         border.color: {
@@ -189,7 +211,7 @@ AbstractButton {
                 return root.storm ? AppTheme.stormDangerBorder
                                   : Qt.alpha(AppTheme.danger, 0.45)
             return root.storm ? AppTheme.stormBorderStrong
-                              : AppTheme.buttonNeutralBorder
+                              : AppTheme.buttonSecondaryBorder
         }
     }
 

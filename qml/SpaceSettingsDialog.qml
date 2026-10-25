@@ -73,8 +73,8 @@ AppDialog {
         sortCombo.currentIndex = 0
         // Re-snap every mirrored field on each open: onSpaceIdChanged does not
         // fire when reopening the same Space.
-        nameField.resetForSpace()
-        topicField.resetForSpace()
+        nameField.reset()
+        topicField.reset()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
         // Refresh, not request: the banner is a custom state event that sliding
@@ -515,47 +515,27 @@ AppDialog {
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                 }
-                                RowLayout {
+                                // Shared with the inline Space Home card:
+                                // one draft/dirty/permission contract.
+                                SpaceTextEditRow {
+                                    id: nameField
                                     Layout.fillWidth: true
-                                    spacing: AppTheme.spacing8
-                                    AppTextField {
-                                        id: nameField
-                                        objectName: "spaceSettingsNameField"
-                                        storm: true
-                                        Layout.fillWidth: true
-                                        // An explicit mirror: typing breaks a
-                                        // binding, and the dialog can be reopened
-                                        // on another Space.
-                                        property string authoritative: ""
-                                        function resetForSpace() {
-                                            authoritative = root.info.name || ""
-                                            text = authoritative
-                                        }
-                                        function refreshName() {
-                                            var next = root.info.name || ""
-                                            if (text === authoritative)
-                                                text = next
-                                            authoritative = next
-                                        }
-                                        enabled: root.infoIsOurs
-                                                 && app.roomInfo.canEditName
-                                        onAccepted: if (renameButton.enabled)
-                                                        renameButton.clicked()
-                                        Accessible.name: qsTr("Space name")
-                                    }
-                                    AppButton {
-                                        id: renameButton
-                                        storm: true
-                                        kind: "primary"
-                                        text: qsTr("Rename")
-                                        enabled: root.infoIsOurs
-                                                 && app.roomInfo.canEditName
-                                                 && !app.roomInfo.editPending
-                                                 && nameField.text.trim().length > 0
-                                                 && nameField.text.trim()
-                                                    !== (root.info.name || "")
-                                        onClicked: app.roomInfo.setRoomName(
-                                                       nameField.text.trim())
+                                    storm: true
+                                    targetId: root.spaceId
+                                    authoritative: root.info.name || ""
+                                    targetCurrent: root.infoIsOurs
+                                    canEdit: root.infoIsOurs
+                                             && app.roomInfo.canEditName
+                                    pending: root.infoIsOurs
+                                             && app.roomInfo.editPending
+                                    requireNonEmpty: true
+                                    buttonText: qsTr("Rename")
+                                    fieldObjectName: "spaceSettingsNameField"
+                                    buttonObjectName: "spaceSettingsRenameButton"
+                                    accessibleName: qsTr("Space name")
+                                    onSubmitted: (value) => {
+                                        if (root.infoIsOurs && !app.roomInfo.editPending)
+                                            app.roomInfo.setRoomName(value)
                                     }
                                 }
 
@@ -565,48 +545,26 @@ AppDialog {
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                 }
-                                RowLayout {
+                                SpaceTextEditRow {
+                                    id: topicField
                                     Layout.fillWidth: true
-                                    spacing: AppTheme.spacing8
-                                    AppTextField {
-                                        id: topicField
-                                        objectName: "spaceSettingsTopicField"
-                                        storm: true
-                                        Layout.fillWidth: true
-                                        property string authoritative: ""
-                                        function resetForSpace() {
-                                            authoritative = root.info.topic || ""
-                                            text = authoritative
-                                        }
-                                        function refreshTopic() {
-                                            var next = root.info.topic || ""
-                                            if (text === authoritative)
-                                                text = next
-                                            authoritative = next
-                                        }
-                                        enabled: root.infoIsOurs
-                                                 && app.roomInfo.canEditTopic
-                                        onAccepted: if (topicSaveButton.enabled)
-                                                        topicSaveButton.clicked()
-                                        Accessible.name: qsTr("Space topic")
-                                    }
-                                    AppButton {
-                                        id: topicSaveButton
-                                        storm: true
-                                        kind: "primary"
-                                        text: qsTr("Save")
-                                        // Same test as Rename, so both agree on
-                                        // whether there is anything to save;
-                                        // otherwise it would send an identical
-                                        // m.room.topic. No length test: a topic
-                                        // may be cleared, a name may not.
-                                        enabled: root.infoIsOurs
-                                                 && app.roomInfo.canEditTopic
-                                                 && !app.roomInfo.editPending
-                                                 && topicField.text.trim()
-                                                    !== (root.info.topic || "")
-                                        onClicked: app.roomInfo.setRoomTopic(
-                                                       topicField.text.trim())
+                                    storm: true
+                                    targetId: root.spaceId
+                                    authoritative: root.info.topic || ""
+                                    targetCurrent: root.infoIsOurs
+                                    canEdit: root.infoIsOurs
+                                             && app.roomInfo.canEditTopic
+                                    pending: root.infoIsOurs
+                                             && app.roomInfo.editPending
+                                    // No length test: a topic may be cleared,
+                                    // a name may not.
+                                    buttonText: qsTr("Save")
+                                    fieldObjectName: "spaceSettingsTopicField"
+                                    buttonObjectName: "spaceSettingsTopicSaveButton"
+                                    accessibleName: qsTr("Space topic")
+                                    onSubmitted: (value) => {
+                                        if (root.infoIsOurs && !app.roomInfo.editPending)
+                                            app.roomInfo.setRoomTopic(value)
                                     }
                                 }
                             }
@@ -2193,8 +2151,8 @@ AppDialog {
     // A Space change always wins over a half-typed value; a roster refresh only
     // re-snaps untouched fields.
     onSpaceIdChanged: {
-        nameField.resetForSpace()
-        topicField.resetForSpace()
+        nameField.reset()
+        topicField.reset()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
         // The banner read happens in openFor() only.
@@ -2202,8 +2160,6 @@ AppDialog {
     Connections {
         target: app.roomInfo
         function onMembersChanged() {
-            nameField.refreshName()
-            topicField.refreshTopic()
             aliasField.refreshAlias()
             joinRuleCombo.refreshRule()
             // Every binding that calls a controller method depends on this.
@@ -2215,8 +2171,6 @@ AppDialog {
         function onSpacesChanged() {
             // The tick first: `info` holds the old value until it re-evaluates.
             root.spacesTick++
-            nameField.refreshName()
-            topicField.refreshTopic()
         }
     }
 }

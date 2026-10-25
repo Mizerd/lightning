@@ -1139,6 +1139,7 @@ set(APP_QML_FILES
     qml/SpaceMemberActionDialog.qml
     qml/SpaceMemberChip.qml
     qml/SpaceSettingsDialog.qml
+    qml/SpaceTextEditRow.qml
     qml/RoomCloseDialog.qml
     qml/UnreadBadge.qml
     # "Unread in a thread" glyph: why a room stays unread after its main
@@ -4579,6 +4580,7 @@ if(BUILD_TESTING)
             space-lobby-keyboard-qml:SpaceLobbyKeyboardQmlTest
             theme-editor-parts-qml:ThemeEditorPartsQmlTest
             button-key-activation-qml:ButtonKeyActivationQmlTest
+            space-text-edit-row-qml:SpaceTextEditRowQmlTest
             tooltip-plain-text-qml:ToolTipPlainTextQmlTest)
         string(REPLACE ":" ";" _p "${_t}")
         list(GET _p 0 _name)

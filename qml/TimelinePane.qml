@@ -8023,26 +8023,31 @@ Rectangle {
                                 font.weight: AppTheme.menuSectionWeight
                                 font.letterSpacing: AppTheme.menuSectionTracking
                             }
-                            RowLayout {
+                            // Same draft/dirty/permission contract as
+                            // SpaceSettingsDialog (SpaceTextEditRow): an
+                            // unchanged value is not offered for re-sending,
+                            // and the target is re-checked at submission.
+                            SpaceTextEditRow {
+                                id: spaceNameRow
                                 Layout.fillWidth: true
-                                spacing: AppTheme.spacingS
-                                AppTextField {
-                                    id: spaceNameField
-                                    objectName: "spaceNameEditField"
-                                    Layout.fillWidth: true
-                                    text: spaceHome.info.name || ""
-                                    enabled: app.roomInfo
-                                             && app.roomInfo.canEditName
-                                    Accessible.name: qsTr("Space name")
-                                }
-                                AppButton {
-                                    text: qsTr("Rename")
-                                    enabled: app.roomInfo
-                                             && app.roomInfo.canEditName
-                                             && spaceNameField.text.trim().length > 0
-                                             && !app.roomInfo.editPending
-                                    onClicked: app.roomInfo.setRoomName(
-                                                   spaceNameField.text.trim())
+                                targetId: spaceHome.spaceId
+                                authoritative: spaceHome.info.name || ""
+                                targetCurrent: !!app.roomInfo
+                                               && app.roomInfo.roomId === spaceHome.spaceId
+                                canEdit: !!app.roomInfo
+                                         && app.roomInfo.canEditName
+                                pending: !!app.roomInfo
+                                         && app.roomInfo.editPending
+                                requireNonEmpty: true
+                                buttonText: qsTr("Rename")
+                                fieldObjectName: "spaceNameEditField"
+                                buttonObjectName: "spaceRenameButton"
+                                accessibleName: qsTr("Space name")
+                                onSubmitted: (value) => {
+                                    if (app.roomInfo
+                                            && app.roomInfo.roomId === spaceHome.spaceId
+                                            && !app.roomInfo.editPending)
+                                        app.roomInfo.setRoomName(value)
                                 }
                             }
                             Label {
@@ -8054,25 +8059,26 @@ Rectangle {
                                 font.weight: AppTheme.menuSectionWeight
                                 font.letterSpacing: AppTheme.menuSectionTracking
                             }
-                            RowLayout {
+                            SpaceTextEditRow {
+                                id: spaceTopicRow
                                 Layout.fillWidth: true
-                                spacing: AppTheme.spacingS
-                                AppTextField {
-                                    id: spaceTopicField
-                                    objectName: "spaceTopicEditField"
-                                    Layout.fillWidth: true
-                                    text: spaceHome.info.topic || ""
-                                    enabled: app.roomInfo
-                                             && app.roomInfo.canEditTopic
-                                    Accessible.name: qsTr("Space topic")
-                                }
-                                AppButton {
-                                    text: qsTr("Save")
-                                    enabled: app.roomInfo
-                                             && app.roomInfo.canEditTopic
-                                             && !app.roomInfo.editPending
-                                    onClicked: app.roomInfo.setRoomTopic(
-                                                   spaceTopicField.text.trim())
+                                targetId: spaceHome.spaceId
+                                authoritative: spaceHome.info.topic || ""
+                                targetCurrent: !!app.roomInfo
+                                               && app.roomInfo.roomId === spaceHome.spaceId
+                                canEdit: !!app.roomInfo
+                                         && app.roomInfo.canEditTopic
+                                pending: !!app.roomInfo
+                                         && app.roomInfo.editPending
+                                buttonText: qsTr("Save")
+                                fieldObjectName: "spaceTopicEditField"
+                                buttonObjectName: "spaceTopicSaveButton"
+                                accessibleName: qsTr("Space topic")
+                                onSubmitted: (value) => {
+                                    if (app.roomInfo
+                                            && app.roomInfo.roomId === spaceHome.spaceId
+                                            && !app.roomInfo.editPending)
+                                        app.roomInfo.setRoomTopic(value)
                                 }
                             }
                             Label {

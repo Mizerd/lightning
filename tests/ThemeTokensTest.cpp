@@ -905,6 +905,52 @@ private Q_SLOTS:
                                            "measured").arg(checked)));
     }
 
+    // An enabled secondary AppButton must read as a control on the cards it
+    // sits on before hover (master prompt Part 6, 2.2, UI-049). Its edge was
+    // `border`, the divider token, which on a cardElevated card measured
+    // 1.03:1 on Nord and 1.05:1 on Teal: the faint Space Home Rename/Save. It
+    // is the control-strength edge now, plus a translucent resting tint. Not a
+    // WCAG 3:1 claim (the label identifies the control); a floor that is
+    // clearly above the divider on every palette.
+    void theSecondaryButtonEdgeReadsOnEveryCard()
+    {
+        const QString button = readAll(QStringLiteral(QML_DIR "/AppButton.qml"));
+        QVERIFY(!button.isEmpty());
+        QVERIFY2(button.contains(QStringLiteral("AppTheme.buttonSecondaryBorder")),
+                 "AppButton's secondary edge is not the control-strength token");
+        QVERIFY2(button.contains(QStringLiteral("AppTheme.buttonSecondaryFill")),
+                 "AppButton's secondary kind has no resting fill");
+        QVERIFY(m_theme.contains(QStringLiteral(
+            "buttonSecondaryBorder: _p.buttonSecondaryBorder !== undefined")));
+        QVERIFY(m_theme.contains(QStringLiteral(": borderStrong")));
+        int checked = 0;
+        for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
+            if (!it.key().endsWith(QStringLiteral("CardElevated"))
+                || !it.key().startsWith(QLatin1Char('_')))
+                continue;
+            const QString prefix = it.key().chopped(12);
+            const QString card = it.value();
+            const QString strong = m_colors.value(prefix + QStringLiteral("BorderStrong"));
+            const QString divider = m_colors.value(prefix + QStringLiteral("Border"));
+            if (strong.isEmpty() || divider.isEmpty())
+                continue;
+            ++checked;
+            const double edge = contrast(strong, card);
+            QVERIFY2(edge >= 1.4,
+                     qPrintable(QStringLiteral("%1: the secondary button edge %2 "
+                                               "is %3:1 on the card %4")
+                                    .arg(prefix, strong).arg(edge, 0, 'f', 2)
+                                    .arg(card)));
+            QVERIFY2(edge > contrast(divider, card),
+                     qPrintable(QStringLiteral("%1: the control edge is no "
+                                               "stronger than the divider")
+                                    .arg(prefix)));
+        }
+        QVERIFY2(checked >= 8,
+                 qPrintable(QStringLiteral("only %1 palettes were measured")
+                                .arg(checked)));
+    }
+
     // Message bodies are TextEdits with selectByMouse; without a bound
     // selectionColor Qt paints its fixed #000080 on every theme (1.04-1.28:1
     // on the dark ones). Every selectByMouse item in MessageDelegate must

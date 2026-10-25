@@ -1338,6 +1338,16 @@ QtObject {
     readonly property color buttonNeutralPressed: selectedHover
     readonly property color buttonNeutralInk:     textPrimary
     readonly property color buttonNeutralBorder:  border
+    // AppButton's secondary kind. Its resting state has to read as a control
+    // on a card before hover: the old transparent field inside a `border`
+    // hairline was the faint Rename/Save of Space Home. A translucent tint of
+    // the label ink works on every surface it can sit on, and the edge is the
+    // control-strength border, not the divider one.
+    readonly property color buttonSecondaryFill:  _p.buttonSecondaryFill !== undefined
+                                                  ? _p.buttonSecondaryFill
+                                                  : Qt.alpha(buttonNeutralInk, 0.06)
+    readonly property color buttonSecondaryBorder: _p.buttonSecondaryBorder !== undefined
+                                                  ? _p.buttonSecondaryBorder : borderStrong
     // Ghost: no resting fill.
     readonly property color buttonGhostHover:     _p.buttonGhostHover !== undefined
                                                   ? _p.buttonGhostHover : hover
