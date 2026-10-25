@@ -44,6 +44,8 @@ Item {
         }
     }
     onSectionChanged: {
+        // Selecting a page opens its branch; no other branch changes.
+        root.setOutlineExpanded(root.section, true)
         root.forgetTransientBackupState()
         root.outlinePinned = -1
         root.scheduleOutlineRefresh()
@@ -1001,6 +1003,13 @@ Item {
         var entries = root.outlineEntries(sectionKey)
         if (index < 0 || index >= entries.length)
             return ""
+        // A sub-section of another open branch: select its page first. The
+        // page's `visible` follows `section` in this same call, so its anchors
+        // are found below; the search-reveal settle then re-places the
+        // heading until the new page's layout holds still, and a later click
+        // replaces its anchor, so a stale request cannot win.
+        if (sectionKey !== root.section)
+            root.section = sectionKey
         var used = root.jumpToFirstShown(entries[index].anchors)
         if (used.length > 0) {
             root.outlinePinned = index
@@ -1300,30 +1309,48 @@ Item {
         return false
     }
 
-    // Sections whose "On this page" list the reader folded away. The open
-    // section's list shows unless its key is here.
-    property var collapsedOutlines: ({})
-    function outlineCollapsed(key) { return root.collapsedOutlines[key] === true }
-    function toggleOutline(key) {
-        var next = Object.assign({}, root.collapsedOutlines)
-        if (next[key] === true)
-            delete next[key]
-        else
+    // Branches whose "On this page" list is open. Independent of the selected
+    // page (master prompt Part 6, 3.2): several branches can be open while one
+    // page is selected, a chevron changes only its own branch, and selecting
+    // a page opens that page's branch without closing any other. Starts with
+    // the opening page's branch. Kept for the life of this screen, which
+    // Main.qml builds once and keeps, so closing and reopening Settings or
+    // changing theme/layout keeps it; it is incidental view state and is not
+    // written to disk or synced.
+    // Opened with the first page's branch (Component.onCompleted below).
+    property var expandedOutlines: ({})
+    function outlineExpanded(key) { return root.expandedOutlines[key] === true }
+    function outlineCollapsed(key) { return !root.outlineExpanded(key) }
+    function setOutlineExpanded(key, open) {
+        if (root.outlineExpanded(key) === open)
+            return
+        var next = Object.assign({}, root.expandedOutlines)
+        if (open)
             next[key] = true
-        root.collapsedOutlines = next
+        else
+            delete next[key]
+        root.expandedOutlines = next
+    }
+    function toggleOutline(key) {
+        root.setOutlineExpanded(key, !root.outlineExpanded(key))
     }
 
     // The outline under one section's nav row.
     component SettingsNavOutlineFor: SettingsNavOutline {
         required property string sectionKey
         objectName: "settingsNavOutline_" + sectionKey
-        shown: root.section === sectionKey
-               && !root.outlineCollapsed(sectionKey)
+        shown: root.outlineExpanded(sectionKey)
                && root.settingsSearchQuery.trim().length === 0
         entries: root.outlineEntries(sectionKey)
         activeIndex: root.section === sectionKey ? root.outlineActive : -1
         onEntryActivated: (index) => root.revealOutlineEntry(sectionKey, index)
         onEntryFocused: (entry) => navFlick.ensureVisibleItem(entry)
+        // Left on a sub-section returns to its branch's row.
+        onParentRequested: {
+            var row = root.findInPane(navColumn, "settingsNavRow_" + sectionKey)
+            if (row)
+                row.forceActiveFocus(Qt.TabFocusReason)
+        }
     }
 
     // Nav row: 32px, radiusTile; the active row fills selectedHover, brightens
@@ -1341,10 +1368,12 @@ Item {
         readonly property bool hasOutline:
             root.outlineEntries(sectionKey).length > 0
         readonly property bool outlineOpen:
-            highlighted && !root.outlineCollapsed(sectionKey)
+            hasOutline && root.outlineExpanded(sectionKey)
         objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
-        implicitHeight: 32
+        // 32 at the default scale; grows with the label so 150% and 200% text
+        // never clips it or the focus ring.
+        implicitHeight: Math.max(32, navRowText.implicitHeight + AppTheme.spacing12)
         // Constant content inset for the caret gutter, so rows do not shift as
         // the selection moves. The caret sits inside the pill (4px edge, 11px
         // caret, then content); overhanging the rounded corner made it look
@@ -1368,15 +1397,24 @@ Item {
         onActiveFocusChanged: if (activeFocus) navFlick.ensureVisibleItem(navRow)
         Accessible.name: navLabel
         Accessible.selected: navRow.highlighted
-        onClicked: {
-            // A second click on the open section folds or unfolds its list.
-            if (highlighted && hasOutline) {
-                root.toggleOutline(sectionKey)
+        // The row selects its page (and opens its branch, see
+        // onSectionChanged); folding is the chevron's job alone, so a repeated
+        // click on the label never doubles as the chevron.
+        onClicked: root.section = sectionKey
+        // Right opens a folded branch, Left folds an open one (swapped under
+        // RTL). Up/Down and Tab keep their existing meaning.
+        Keys.onPressed: (event) => {
+            if (!navRow.hasOutline || event.modifiers !== Qt.NoModifier)
                 return
+            var openKey = navRow.mirrored ? Qt.Key_Left : Qt.Key_Right
+            var closeKey = navRow.mirrored ? Qt.Key_Right : Qt.Key_Left
+            if (event.key === openKey && !navRow.outlineOpen) {
+                root.setOutlineExpanded(navRow.sectionKey, true)
+                event.accepted = true
+            } else if (event.key === closeKey && navRow.outlineOpen) {
+                root.setOutlineExpanded(navRow.sectionKey, false)
+                event.accepted = true
             }
-            root.section = sectionKey
-            if (root.outlineCollapsed(sectionKey))
-                root.toggleOutline(sectionKey)
         }
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
@@ -1406,14 +1444,54 @@ Item {
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
                 elide: Label.ElideRight
             }
-            Icon {
-                objectName: "settingsNavChevron_" + navRow.sectionKey
+            // Its own control: folds or unfolds this branch only, without
+            // selecting the page. A 24px target around the 16px glyph.
+            AbstractButton {
+                id: navChevron
+                objectName: "settingsNavChevronButton_" + navRow.sectionKey
                 visible: navRow.hasOutline
-                name: navRow.outlineOpen ? "expand_more" : "chevron_right"
-                size: 16
                 Layout.alignment: Qt.AlignVCenter
-                color: navRow.highlighted ? AppTheme.stormText
-                                          : AppTheme.stormTextMuted
+                implicitWidth: 24
+                implicitHeight: 24
+                hoverEnabled: true
+                focusPolicy: Qt.TabFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: navRow.outlineOpen
+                                 ? qsTr("Collapse %1").arg(navRow.navLabel)
+                                 : qsTr("Expand %1").arg(navRow.navLabel)
+                Accessible.description: navRow.outlineOpen
+                                        ? qsTr("Sub-sections shown")
+                                        : qsTr("Sub-sections hidden")
+                onClicked: root.toggleOutline(navRow.sectionKey)
+                Keys.onReturnPressed: (event) => {
+                    if (!event.isAutoRepeat)
+                        root.toggleOutline(navRow.sectionKey)
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (!event.isAutoRepeat)
+                        root.toggleOutline(navRow.sectionKey)
+                    event.accepted = true
+                }
+                background: Rectangle {
+                    radius: AppTheme.radiusSm
+                    color: navChevron.down ? AppTheme.settingsNavSelected
+                         : navChevron.hovered
+                           ? Qt.alpha(AppTheme.settingsNavSelected, 0.7)
+                           : "transparent"
+                    border.width: navChevron.visualFocus ? 2 : 0
+                    border.color: AppTheme.bolt
+                }
+                contentItem: Icon {
+                    objectName: "settingsNavChevron_" + navRow.sectionKey
+                    name: navRow.outlineOpen ? "expand_more"
+                        : (navChevron.mirrored ? "chevron_left" : "chevron_right")
+                    size: 16
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: navRow.highlighted ? AppTheme.stormText
+                                              : AppTheme.stormTextMuted
+                }
             }
             Rectangle {
                 objectName: "settingsNavAlert_" + navRow.sectionKey
@@ -1514,6 +1592,8 @@ Item {
         var requested = app.takeRequestedSettingsSection()
         if (requested.length > 0)
             section = mapLegacySection(requested)
+        // The opening page's branch starts open, and only that one.
+        root.setOutlineExpanded(root.section, true)
         // Ctrl+, from the chat shell (MainScreen's Shortcut, requested before
         // this screen existed) asked for the search field too; the warm case
         // is the Connections handler below.

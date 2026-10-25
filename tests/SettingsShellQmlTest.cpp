@@ -1848,39 +1848,175 @@ private slots:
 
     // Chat 2026-10-22: the navigation listed sub-sections with no sign that
     // they fold. A section with sub-sections carries a chevron, down while its
-    // list is open and right while it is folded, and a second click on the open
-    // section folds the list.
+    // list is open and right while it is folded. Since the master prompt's
+    // Part 6 (3.2, UI-021) the chevron is its own control: IT folds the list,
+    // and a repeated click on the row label only selects the page.
     void aSectionWithSubSectionsShowsAChevronAndFolds()
     {
-        m_controller->showSettingsSection(QStringLiteral("appearance"));
-        QCoreApplication::processEvents();
+        openSection(QStringLiteral("appearance"));
         auto *row = item("settingsNavRow_account");
         QVERIFY(row);
         clickItem(row);
         QCoreApplication::processEvents();
         auto *chevron = item("settingsNavChevron_account");
-        QVERIFY2(chevron, "the Account row has no disclosure chevron");
-        QVERIFY(chevron->isVisible());
+        auto *chevronButton = item("settingsNavChevronButton_account");
+        QVERIFY2(chevron && chevronButton, "the Account row has no disclosure chevron");
+        QVERIFY(chevronButton->isVisible());
+        QVERIFY2(chevronButton->width() >= 24 && chevronButton->height() >= 24,
+                 "the chevron's pointer target is smaller than 24px");
         QCOMPARE(chevron->property("name").toString(),
                  QStringLiteral("expand_more"));
-        auto *outline = visibleItem(QStringLiteral("settingsNavOutlineEntry_0"));
-        QVERIFY2(outline, "the open section's sub-sections are not showing");
+        auto *outline = outlineEntry(QStringLiteral("account"), 0);
+        QVERIFY2(outline && outline->isVisible(),
+                 "the open section's sub-sections are not showing");
         // Sub-sections sit to the right of the root row's label.
         auto *rowLabelProbe = item("settingsNavRowFill_account");
         QVERIFY(rowLabelProbe);
         QVERIFY(outline->mapToItem(rowLabelProbe, QPointF(0, 0)).x() > 0);
 
+        // A second click on the label keeps the list open (UI-021).
         clickItem(row);
-        QCoreApplication::processEvents();
-        QCOMPARE(chevron->property("name").toString(),
-                 QStringLiteral("chevron_right"));
-        QVERIFY(!visibleItem(QStringLiteral("settingsNavOutlineEntry_0")));
-
-        clickItem(row);
-        QCoreApplication::processEvents();
         QCOMPARE(chevron->property("name").toString(),
                  QStringLiteral("expand_more"));
-        QVERIFY(visibleItem(QStringLiteral("settingsNavOutlineEntry_0")));
+        QVERIFY(outlineEntry(QStringLiteral("account"), 0)->isVisible());
+
+        clickItem(chevronButton);
+        QCOMPARE(chevron->property("name").toString(),
+                 QStringLiteral("chevron_right"));
+        QVERIFY(!outlineEntry(QStringLiteral("account"), 0)->isVisible());
+        // Folding did not change the page.
+        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
+                 QStringLiteral("account"));
+
+        clickItem(chevronButton);
+        QCOMPARE(chevron->property("name").toString(),
+                 QStringLiteral("expand_more"));
+        QVERIFY(outlineEntry(QStringLiteral("account"), 0)->isVisible());
+    }
+
+    // UI-017/018: branches expand independently of the selected page. The
+    // outline used to show for the selected section only, so selecting
+    // Privacy closed Appearance's list.
+    void severalBranchesStayOpenAndAChevronDoesNotChangeThePage()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        QVERIFY(screen);
+        callScreen("setOutlineExpanded", QStringLiteral("appearance"), true);
+        callScreen("setOutlineExpanded", QStringLiteral("privacy"), false);
+        QCoreApplication::processEvents();
+
+        clickItem(item("settingsNavRow_privacy"));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QVERIFY2(outlineEntry(QStringLiteral("appearance"), 0)->isVisible(),
+                 "selecting Privacy closed Appearance's sub-sections");
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+
+        // A chevron on another branch changes only that branch.
+        callScreen("setOutlineExpanded", QStringLiteral("notifications"), false);
+        QCoreApplication::processEvents();
+        clickItem(item("settingsNavChevronButton_notifications"));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QVERIFY(outlineEntry(QStringLiteral("notifications"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
+        // Only the selected page's list marks a heading as current.
+        auto *other = item("settingsNavOutline_notifications");
+        QVERIFY(other);
+        QCOMPARE(other->property("activeIndex").toInt(), -1);
+
+        // A search hides the tree; clearing it brings back the same set.
+        auto *search = item("settingsSearchField");
+        search->setProperty("text", QStringLiteral("speaker"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(!outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("notifications"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+    }
+
+    // UI-019/020: a sub-section under another open branch selects that page
+    // and reveals the heading once its content exists; of two rapid clicks in
+    // different branches, the last one wins.
+    void aSubSectionOfAnotherBranchOpensItsPageAndTheLastClickWins()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        callScreen("setOutlineExpanded", QStringLiteral("privacy"), true);
+        callScreen("setOutlineExpanded", QStringLiteral("notifications"), true);
+        QCoreApplication::processEvents();
+
+        const QVariantList privacy =
+            callScreen("outlineEntries", QStringLiteral("privacy")).toList();
+        const QVariantList notifications =
+            callScreen("outlineEntries", QStringLiteral("notifications")).toList();
+        QVERIFY(privacy.size() > 2 && notifications.size() > 2);
+
+        clickItem(outlineEntry(QStringLiteral("privacy"), 2));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        const QStringList privacyAnchors = privacy.at(2).toMap()
+            .value(QStringLiteral("anchors")).toStringList();
+        QVERIFY2(privacyAnchors.contains(
+                     screen->property("searchRevealAnchor").toString()),
+                 "the heading under the inactive branch was not revealed");
+        QTRY_COMPARE_WITH_TIMEOUT(screen->property("outlineActive").toInt(), 2, 2000);
+
+        // Two clicks in quick succession, different branches.
+        clickItem(outlineEntry(QStringLiteral("appearance"), 3));
+        clickItem(outlineEntry(QStringLiteral("notifications"), 2));
+        QCOMPARE(screen->property("section").toString(),
+                 QStringLiteral("notifications"));
+        const QStringList notificationAnchors = notifications.at(2).toMap()
+            .value(QStringLiteral("anchors")).toStringList();
+        QTest::qWait(300);   // past the reveal settle (12 frames at most)
+        QVERIFY2(notificationAnchors.contains(
+                     screen->property("searchRevealAnchor").toString()),
+                 "a stale reveal request won");
+        QTRY_COMPARE_WITH_TIMEOUT(screen->property("outlineActive").toInt(), 2, 2000);
+        // All three branches are still open.
+        QVERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+    }
+
+    // UI-024: Right opens a folded branch and Left folds it, on the row; Left
+    // on a sub-section returns to its row. Neither selects a page.
+    void arrowKeysFoldAndUnfoldABranch()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        callScreen("setOutlineExpanded", QStringLiteral("privacy"), false);
+        QCoreApplication::processEvents();
+        auto *row = item("settingsNavRow_privacy");
+        row->forceActiveFocus(Qt::TabFocusReason);
+        QVERIFY(row->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
+        auto *entry = outlineEntry(QStringLiteral("privacy"), 1);
+        entry->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QVERIFY2(row->hasActiveFocus(), "Left on a sub-section did not return to its row");
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QVERIFY(!outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
+    }
+
+    // Part 6, 3.3: the sub-section labels are navigation, one step larger than
+    // the hint text they used to share, and their rows grow with the text.
+    void subSectionLabelsUseTheirOwnLargerToken()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *entry = outlineEntry(QStringLiteral("appearance"), 0);
+        QVERIFY(entry);
+        auto *label = entry->property("contentItem").value<QQuickItem *>();
+        QVERIFY(label);
+        const int size = label->property("font").value<QFont>().pixelSize();
+        QCOMPARE(size, themeValue(QStringLiteral("settingsNavSubsectionSize")).toInt());
+        QVERIFY2(size > themeValue(QStringLiteral("settingsHintSize")).toInt(),
+                 "the sub-section labels are no larger than the hint text");
+        QVERIFY(entry->height() >= label->property("implicitHeight").toReal());
     }
 
     // The starred-GIF store has its own count/size row and a confirmed Clear
@@ -4902,6 +5038,17 @@ private slots:
         return nullptr;
     }
 
+    // One branch's sub-section entry: several branches can be open at once
+    // and their entries share objectNames.
+    QQuickItem *outlineEntry(const QString &section, int index) const
+    {
+        auto *outline = findItem(m_window->contentItem(),
+                                 QStringLiteral("settingsNavOutline_") + section);
+        return outline ? findItem(outline, QStringLiteral("settingsNavOutlineEntry_%1")
+                                               .arg(index))
+                       : nullptr;
+    }
+
     QVariant callScreen(const char *method, const QVariant &a = QVariant(),
                         const QVariant &b = QVariant())
     {
@@ -4991,8 +5138,7 @@ private slots:
 
             flick->setProperty("contentY", 0.0);
             QCoreApplication::processEvents();
-            auto *button = visibleItem(
-                QStringLiteral("settingsNavOutlineEntry_%1").arg(i));
+            auto *button = outlineEntry(section, i);
             QVERIFY2(button, qPrintable(QStringLiteral(
                 "%1 outline entry %2 is not showing").arg(section).arg(i)));
             const qreal top = target->mapToItem(content, QPointF(0, 0)).y();

@@ -28,6 +28,8 @@ Item {
     signal entryActivated(int index)
     // A keyboard-focused entry, so the owner can scroll it into view.
     signal entryFocused(Item entry)
+    // Left (Right under RTL) on an entry: back to the branch's own row.
+    signal parentRequested()
 
     objectName: "settingsNavOutline"
     visible: shown && entries.length > 0
@@ -79,7 +81,9 @@ Item {
                 readonly property bool current: outline.activeIndex === index
                 objectName: "settingsNavOutlineEntry_" + index
                 width: column.width
-                implicitHeight: 28
+                // At least the compact 28, and always the label's own height
+                // plus padding, so larger text scales never clip it.
+                implicitHeight: Math.max(28, entryLabel.implicitHeight + AppTheme.spacing8)
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
                 // Paddings and the bar are physical, so under RTL they swap:
@@ -89,8 +93,19 @@ Item {
                 rightPadding: entryRow.mirrored ? entryRow.startInset : AppTheme.spacing8
                 Accessible.role: Accessible.Button
                 Accessible.name: modelData.label
+                ToolTip.visible: entryRow.hovered && entryLabel.truncated
+                ToolTip.text: modelData.label
+                ToolTip.delay: 600
                 Accessible.selected: entryRow.current
                 onClicked: outline.entryActivated(entryRow.index)
+                Keys.onPressed: (event) => {
+                    if (event.modifiers !== Qt.NoModifier)
+                        return
+                    if (event.key === (entryRow.mirrored ? Qt.Key_Right : Qt.Key_Left)) {
+                        outline.parentRequested()
+                        event.accepted = true
+                    }
+                }
                 onActiveFocusChanged: if (activeFocus) outline.entryFocused(entryRow)
 
                 background: Item {
@@ -118,13 +133,15 @@ Item {
                     }
                 }
                 contentItem: Label {
+                    id: entryLabel
                     text: entryRow.modelData.label
                     textFormat: Text.PlainText
                     verticalAlignment: Text.AlignVCenter
                     elide: Label.ElideRight
                     color: entryRow.current ? AppTheme.stormText
                                             : AppTheme.stormTextSecondary
-                    font.pixelSize: AppTheme.settingsHintSize
+                    // Navigation, not a hint: its own token (Part 6, 3.3).
+                    font.pixelSize: AppTheme.settingsNavSubsectionSize
                     font.weight: entryRow.current ? AppTheme.weightStrong
                                                   : AppTheme.weightMedium
                 }

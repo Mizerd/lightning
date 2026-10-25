@@ -2162,6 +2162,11 @@ QtObject {
     // Settings option labels, checkboxes and combo text: the same reading size
     // as the rest of the app (scaled textBody), not the unscaled base.
     readonly property int settingsOptionSize: scaled(textBody)
+    // The navigation column's sub-section labels ("On this page"). They are
+    // navigation, not hints, so they no longer share settingsHintSize: one
+    // logical step larger (13 -> 14 at 100%), by explicit request (master
+    // prompt Part 6, 3.3). Only these labels; no other text grows.
+    readonly property int settingsNavSubsectionSize: scaled(14)
     // A Settings control's row is never shorter than this, so a checkbox,
     // switch or combo is a comfortable pointer target at every text scale.
     readonly property int settingsControlMinHeight: scaled(buttonHeight)
