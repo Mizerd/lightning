@@ -5798,8 +5798,7 @@ Rectangle {
                         var epoch = timeline.navigationEpoch
                         Qt.callLater(function() {
                             // Re-validated when it runs, not only when it was
-                            // queued: input or a reset in between owns the
-                            // view now. A later explicit jump re-arms
+                            // queued: input in between owns the view now. A later explicit jump re-arms
                             // normally; this cancels only the obsolete one.
                             if (timeline.navigationEpoch !== epoch) {
                                 ++timeline.diagNavigationAbandoned
@@ -5892,7 +5891,11 @@ Rectangle {
                     // contentY by thousands too, but it is tagged and keeps
                     // the reader's row still, so it is not a candidate.
                     var jump = Math.abs(contentY - oldY)
+                    // A history shorter than about a screen has no "top"
+                    // to teleport to: leaving deep history for a short room
+                    // lands on its only edge and is not a candidate.
                     if (jump > height && contentY >= maxY - 2
+                            && maxY - minY > height
                             && writer !== "navigation" && writer !== "keyboard"
                             && writer !== "bar-drag" && writer !== "bar-top-hold"
                             && writer !== "window-trim"
