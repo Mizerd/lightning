@@ -70,9 +70,7 @@ Rectangle {
         return root.clockText(Math.round(ms / 1000))
     }
     function clockText(totalSeconds) {
-        var m = Math.floor(totalSeconds / 60)
-        var s = totalSeconds % 60
-        return m + ":" + (s < 10 ? "0" : "") + s
+        return AppTheme.clockText(totalSeconds)
     }
 
     MediaPlayer {

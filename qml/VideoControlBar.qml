@@ -137,9 +137,7 @@ FocusScope {
         return ms > 0 ? bar.formatDuration(ms) : "–:–"
     }
     function clockText(totalSeconds) {
-        var m = Math.floor(totalSeconds / 60)
-        var s = totalSeconds % 60
-        return m + ":" + (s < 10 ? "0" : "") + s
+        return AppTheme.clockText(totalSeconds)
     }
     function togglePlay() {
         if (!player) return
@@ -352,6 +350,35 @@ FocusScope {
             Accessible.name: qsTr("Seek position")
             Accessible.description: bar.timeSpoken
             onMoved: if (bar.player) bar.player.position = value
+            // Where a click would land, shown while hovering the track, and
+            // the destination while dragging. A time only: no frame is
+            // decoded for it.
+            // Explicit: a Control's default follows the platform's hover
+            // hint, which is off on some (offscreen, touch-first) and then
+            // takes the handler's hover with it.
+            hoverEnabled: true
+            HoverHandler { id: seekHover }
+            readonly property real hoverMs: {
+                if (seekSlider.pressed)
+                    return seekSlider.value
+                if (!seekHover.hovered || seekSlider.availableWidth <= 0)
+                    return -1
+                var f = (seekHover.point.position.x - seekSlider.leftPadding)
+                        / seekSlider.availableWidth
+                return Math.max(0, Math.min(1, f)) * seekSlider.to
+            }
+            ToolTip {
+                objectName: "videoSeekTimeTip"
+                parent: seekSlider
+                visible: seekSlider.enabled && seekSlider.hoverMs >= 0
+                         && !!bar.player && bar.player.duration > 0
+                text: bar.formatPosition(seekSlider.hoverMs)
+                y: -height - 4
+                x: Math.max(0, Math.min(seekSlider.width - width,
+                       seekSlider.leftPadding
+                       + (seekSlider.hoverMs / Math.max(1, seekSlider.to))
+                         * seekSlider.availableWidth - width / 2))
+            }
             Binding {
                 target: seekSlider
                 property: "value"

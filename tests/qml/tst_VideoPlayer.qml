@@ -383,6 +383,39 @@ TestCase {
 
     }
 
+    // Master prompt Part 5 §5.4: hovering the seek track names the time a
+    // click would land on, without decoding a frame.
+    function test_hoveringTheSeekTrackShowsTheTimeUnderThePointer() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        var bar = barOf(card)
+        var player = playerOf(card)
+        player.pause()
+        var slider = findChild(bar, "videoSeekSlider")
+        var tip = null
+        for (var i = 0; i < slider.data.length; ++i)
+            if (slider.data[i] && slider.data[i].objectName === "videoSeekTimeTip")
+                tip = slider.data[i]
+        verify(tip, "the seek track has no time tip")
+        verify(!tip.visible)
+        var x = slider.leftPadding + slider.availableWidth * 0.5
+        mouseMove(slider, x, slider.height / 2)
+        tryVerify(function() { return tip.visible }, 2000,
+                  "hovering the track showed no time")
+        compare(tip.text, AppTheme.clockPosition(player.duration * 0.5))
+        mouseMove(card, 5, 5)
+        tryVerify(function() { return !tip.visible })
+    }
+
+    // Long media reads h:mm:ss, not a growing minute count.
+    function test_theMediaClockIsHourAware() {
+        compare(AppTheme.clockText(0), "0:00")
+        compare(AppTheme.clockText(59), "0:59")
+        compare(AppTheme.clockText(3599), "59:59")
+        compare(AppTheme.clockText(3600), "1:00:00")
+        compare(AppTheme.clockText(3723), "1:02:03")
+        compare(AppTheme.clockPosition(3723999), "1:02:03")
+    }
+
     function test_tabReachesTheVolumeAndTheKeysSetIt() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)

@@ -6807,10 +6807,7 @@ Item {
 
             function formatDuration(ms) {
                 if (!ms || ms <= 0) return ""
-                var total = Math.round(ms / 1000)
-                var m = Math.floor(total / 60)
-                var s = total % 60
-                return m + ":" + (s < 10 ? "0" : "") + s
+                return AppTheme.clockText(Math.round(ms / 1000))
             }
             // Where the player stopped in this session (a room switch stops
             // it): Play resumes there, and the cover says so. A video watched

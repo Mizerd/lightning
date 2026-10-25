@@ -29,12 +29,15 @@ printf 'singleton AppLocale 1.0 AppLocale.qml\n' >> "$imports/MatrixClient/qmldi
 runner=${QMLTESTRUNNER:-$(command -v qmltestrunner || command -v qmltestrunner6 || true)}
 # CTest treats 77 as skipped: no qmltestrunner here is not a failure.
 [[ -n $runner ]] || { echo 'qmltestrunner not found; skipping' >&2; exit 77; }
+# The app runs Qt Quick Controls' Basic style (src/main.cpp); without it the
+# runner's default style gives the seek Slider no padding and zero height.
 # No session bus, and no PulseAudio, PipeWire or ALSA configuration: the
 # players find no audio device and play silently.
 env -u PULSE_SERVER -u PIPEWIRE_REMOTE \
     XDG_RUNTIME_DIR="$imports/runtime" PULSE_SERVER=unix:/nonexistent \
     PIPEWIRE_REMOTE=/nonexistent ALSA_CONFIG_PATH=/nonexistent \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QML_DISABLE_DISK_CACHE=1 \
+    QT_QUICK_CONTROLS_STYLE=Basic \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent \
     "$runner" -import "$imports" \
         -input "$repo/tests/qml/tst_VideoPlayer.qml" "$@" \

@@ -60,10 +60,20 @@ QtObject {
     // not reached 0:26); a total rounds and is each player's own. Shared by the
     // video bar and the video covers' "Resume from" hints.
     function clockPosition(ms) {
-        var total = Math.floor(Math.max(0, ms || 0) / 1000)
-        var m = Math.floor(total / 60)
-        var sec = total % 60
-        return m + ":" + (sec < 10 ? "0" : "") + sec
+        return clockText(Math.floor(Math.max(0, ms || 0) / 1000))
+    }
+    // One media clock for every player: m:ss under an hour, h:mm:ss from an
+    // hour on ("1:02:03", not a growing "62:03"). Callers decide whether a
+    // value floors (a position) or rounds (a length) before passing seconds.
+    function clockText(totalSeconds) {
+        var t = Math.max(0, Math.floor(totalSeconds || 0))
+        var h = Math.floor(t / 3600)
+        var m = Math.floor((t % 3600) / 60)
+        var sec = t % 60
+        var ss = (sec < 10 ? "0" : "") + sec
+        if (h > 0)
+            return h + ":" + (m < 10 ? "0" : "") + m + ":" + ss
+        return m + ":" + ss
     }
 
     // Shared height of the top header strip (room list, room header, side
