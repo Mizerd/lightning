@@ -100,6 +100,11 @@ Item {
           keywords: qsTr("thread threads style panel inline nheko element interleaved"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
           anchor: "threadStyleControl" },
+        { title: qsTr("Threads open in"),
+          keywords: qsTr("thread threads open placement main view side panel "
+                         + "column full width nheko element"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "threadPlacementControl" },
         { title: qsTr("Message spacing"),
           keywords: qsTr("message spacing density compact cozy roomy gap padding"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
@@ -3399,10 +3404,36 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
-                            text: qsTr("Thread panel opens replies beside the room, "
-                                       + "like Element. Inline keeps them in the room "
-                                       + "in time order with a thread tag, like Nheko; "
-                                       + "click a tag to show only that thread.")
+                            text: qsTr("Thread panel keeps thread replies out of the "
+                                       + "room, like Element. Inline keeps them in the "
+                                       + "room in time order with a thread tag, like "
+                                       + "Nheko; click a tag to open that thread.")
+                        }
+
+                        SettingsGroupLabel { text: qsTr("Threads open in") }
+                        SegmentedControl {
+                            storm: true
+                            objectName: "threadPlacementControl"
+                            model: [
+                                { label: qsTr("Main view"), value: 1 },
+                                { label: qsTr("Side panel"), value: 0 },
+                            ]
+                            current: app.settings.threadPlacement
+                            onActivated: (value) =>
+                                app.settings.threadPlacement = value
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("Where an opened thread is shown: in place of "
+                                       + "the room, with Back to return, or beside it. "
+                                       + "Either way it loads the thread's whole "
+                                       + "history and keeps its own draft.")
                         }
 
                         SettingsGroupLabel { text: qsTr("Message spacing") }

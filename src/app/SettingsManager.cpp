@@ -114,6 +114,7 @@ constexpr auto kUnderlineLinks      = "ui/underlineLinks";
 constexpr auto kNameColorCorrection = "ui/nameColorCorrection";
 constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kThreadStyle         = "ui/threadStyle";
+constexpr auto kThreadPlacement     = "ui/threadPlacement";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kDisableCursorBlink  = "ui/disableCursorBlink";
 constexpr auto kShowBridgeBadges    = "ui/showBridgeBadges";
@@ -721,6 +722,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT nameColorCorrectionChanged();
     Q_EMIT messageSpacingChanged();
     Q_EMIT threadStyleChanged();
+    Q_EMIT threadPlacementChanged();
     Q_EMIT smoothScrollingChanged();
     Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
@@ -4065,8 +4067,49 @@ void SettingsManager::setThreadStyle(int style)
         style = kThreadStylePanel;
     if (threadStyle() == style)
         return;
+    const int placementBefore = threadPlacement();
     setAppearanceValue(kThreadStyle, style);
     Q_EMIT threadStyleChanged();
+    // A derived placement follows the style.
+    if (threadPlacement() != placementBefore)
+        Q_EMIT threadPlacementChanged();
+}
+
+int SettingsManager::threadPlacement() const
+{
+    const QVariant stored = appearanceValue(kThreadPlacement, QVariant());
+    if (stored.isValid()) {
+        bool ok = false;
+        const int value = stored.toInt(&ok);
+        if (ok && (value == kThreadPlacementSide
+                   || value == kThreadPlacementMain))
+            return value;
+    }
+    // Migration default: the placement each style already had (the panel
+    // beside the room; inline focus in the conversation column).
+    return threadStyle() == kThreadStyleInline ? kThreadPlacementMain
+                                               : kThreadPlacementSide;
+}
+
+bool SettingsManager::threadPlacementIsExplicit() const
+{
+    const QVariant stored = appearanceValue(kThreadPlacement, QVariant());
+    bool ok = false;
+    const int value = stored.isValid() ? stored.toInt(&ok) : -1;
+    return ok && (value == kThreadPlacementSide
+                  || value == kThreadPlacementMain);
+}
+
+void SettingsManager::setThreadPlacement(int placement)
+{
+    if (placement != kThreadPlacementMain)
+        placement = kThreadPlacementSide;
+    if (threadPlacementIsExplicit() && threadPlacement() == placement)
+        return;
+    const int before = threadPlacement();
+    setAppearanceValue(kThreadPlacement, placement);
+    if (before != placement)
+        Q_EMIT threadPlacementChanged();
 }
 
 bool SettingsManager::smoothScrolling() const

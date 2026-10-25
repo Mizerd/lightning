@@ -19,9 +19,10 @@
 
 // The Thread style setting (Settings > Appearance) in the real mock shell:
 //  * Inline (Nheko-like): thread replies interleave in the room timeline with
-//    a thread tag; a tag narrows the timeline to its thread and back; the
-//    header switch hides every thread reply; a narrowed composer sends into
-//    the thread through the thread send path.
+//    a thread tag; a tag opens the thread's own session (main view by
+//    default, or the side panel); the header switch hides every thread reply;
+//    a timeline narrowed through the model sends into the thread through the
+//    thread send path.
 //  * Thread panel (Element-like, the default): the panel's composer gets the
 //    room composer's `:shortcode` completion, double-click to reply, and the
 //    message-selection / composer.focus shortcuts.
@@ -299,7 +300,36 @@ ApplicationWindow {
         QVERIFY(rowFor(replies.first())->property("replyEligible").toBool());
     }
 
-    void tagNarrowsToTheThreadAndTheCrossedTagWidensBack()
+    // Until the reader chooses, where a focused thread is shown follows the
+    // style (Panel -> beside the room, Inline -> the main column); a choice is
+    // stored per account and outlives later style changes.
+    void threadPlacementFollowsTheStyleUntilChosen()
+    {
+        SettingsManager *settings = m_controller->settings();
+        QCOMPARE(settings->property("threadPlacement").toInt(), 0);
+        QVERIFY(settings->setProperty("threadStyle", 1));
+        QCOMPARE(settings->property("threadPlacement").toInt(), 1);
+        QVERIFY(settings->setProperty("threadPlacement", 0));
+        QCOMPARE(settings->property("threadPlacement").toInt(), 0);
+        QVERIFY(settings->setProperty("threadStyle", 0));
+        QVERIFY(settings->setProperty("threadStyle", 1));
+        QCOMPARE(settings->property("threadPlacement").toInt(), 0);
+        {
+            SettingsManager fresh;
+            QCOMPARE(fresh.property("threadPlacement").toInt(), 0);
+        }
+        // Anything but Main view is written as the side panel.
+        QVERIFY(settings->setProperty("threadPlacement", 7));
+        QCOMPARE(settings->property("threadPlacement").toInt(), 0);
+    }
+
+    // A thread tag opens the thread's own SDK session (every reply, its own
+    // draft, thread receipts) -- not a narrowed copy of the loaded room rows.
+    // Inline's default placement is the main column: the room column hides
+    // (alive, and not read) and Back returns to it. Moving the thread between
+    // the main view and the side panel is presentation only: the same session
+    // stays open.
+    void tagOpensTheThreadSessionInTheMainView()
     {
         setThreadStyle(1);
         openDevRoom();
@@ -307,35 +337,69 @@ ApplicationWindow {
         const QStringList replies = repliesIn(root);
         const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
         QTRY_VERIFY(rowHeight(later) > 0);
+        QObject *receipts =
+            m_controller->property("readReceipts").value<QObject *>();
+        QVERIFY(receipts);
+        QTRY_VERIFY(receipts->property("timelineVisible").toBool());
 
         click(tagOn(replies.at(1)));
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
-        QTRY_COMPARE(rowHeight(later), 0.0);
-        QVERIFY(rowHeight(root) > 0);
-        for (const QString &id : replies)
-            QVERIFY(rowHeight(id) > 0);
-        QVERIFY(item("threadFilterBar")->isVisible());
-        // The room composer now sends into that thread.
-        QCOMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
-                 root);
-
-        // The crossed tag widens back to every message.
-        QQuickItem *tag = tagOn(replies.at(2));
-        QVERIFY(tag);
-        QTRY_VERIFY(tag->property("narrowed").toBool());
-        click(tag);
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), QString());
-        QTRY_VERIFY(rowHeight(later) > 0);
-        QVERIFY(!item("threadFilterBar")->isVisible());
+        QTRY_VERIFY2(m_controller->thread()->active(),
+                     "a thread tag must open the thread session");
+        QCOMPARE(m_controller->thread()->rootEventId(), root);
+        QCOMPARE(timeline()->property("threadFilterRootId").toString(), QString());
+        QTRY_VERIFY(m_controller->thread()->model()->rowCount() >= replies.size());
+        QQuickItem *panel = item("threadPanel");
+        QQuickItem *roomColumn = item("roomColumn");
+        QVERIFY(panel && roomColumn);
+        QTRY_VERIFY(panel->isVisible());
+        QTRY_VERIFY2(!roomColumn->isVisible(),
+                     "Main view: the thread takes the conversation column");
+        QVERIFY(panel->width() > 1000);
+        // The room underneath is not on screen, so it cannot be read.
+        QTRY_VERIFY(!receipts->property("timelineVisible").toBool());
+        // The room composer stays the room's.
         QCOMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
                  QString());
 
-        // And the bar's button does the same.
-        click(tagOn(root));
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
-        click(item("threadFilterClearButton"));
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), QString());
+        // Side panel and back: the same session, never closed in between.
+        QSignalSpy states(m_controller->thread(), SIGNAL(stateChanged()));
+        click(item("threadPlacementButton"));
+        QTRY_COMPARE(m_controller->settings()->property("threadPlacement").toInt(), 0);
+        QTRY_VERIFY(roomColumn->isVisible());
+        QVERIFY(panel->isVisible());
+        QVERIFY(panel->width() < 800);
+        QTRY_VERIFY(receipts->property("timelineVisible").toBool());
+        click(item("threadPlacementButton"));
+        QTRY_COMPARE(m_controller->settings()->property("threadPlacement").toInt(), 1);
+        QTRY_VERIFY(!roomColumn->isVisible());
+        QVERIFY(m_controller->thread()->active());
+        QCOMPARE(m_controller->thread()->rootEventId(), root);
+        QCOMPARE(states.count(), 0);
+
+        // Back returns to the room, which kept its rows.
+        QQuickItem *back = item("threadBackToRoomButton");
+        QVERIFY(back && back->isVisible());
+        click(back);
+        QTRY_VERIFY(!m_controller->thread()->active());
+        QTRY_VERIFY(roomColumn->isVisible());
         QTRY_VERIFY(rowHeight(later) > 0);
+    }
+
+    // The Thread panel style with Main view chosen opens there too: placement
+    // and room history policy are independent.
+    void panelStyleCanOpenThreadsInTheMainView()
+    {
+        openDevRoom();
+        QVERIFY(m_controller->settings()->setProperty("threadPlacement", 1));
+        const QString root = threadRoot();
+        QVERIFY(QMetaObject::invokeMethod(
+            m_controller, "showThread",
+            Q_ARG(QString, QString::fromLatin1(kDevRoom)),
+            Q_ARG(QString, root)));
+        QTRY_VERIFY(m_controller->thread()->active());
+        QTRY_VERIFY(!item("roomColumn")->isVisible());
+        // The style still keeps replies out of the room.
+        QCOMPARE(repliesIn(root).size(), 0);
     }
 
     void headerSwitchHidesThreadRepliesAndPersists()
@@ -362,15 +426,13 @@ ApplicationWindow {
             QVERIFY(fresh.property("hideThreadReplies").toBool());
         }
 
-        // Narrowing to the thread still shows it whole, and leaving it returns
-        // to the room as the reader keeps it (replies hidden).
+        // The root's tag still opens the whole thread, and Back returns to
+        // the room as the reader keeps it (replies hidden).
         click(tagOn(root));
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
-        for (const QString &id : replies)
-            QTRY_VERIFY(rowHeight(id) > 0);
-        QTRY_COMPARE(rowHeight(later), 0.0);
-        click(item("threadFilterClearButton"));
-        QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), QString());
+        QTRY_VERIFY(m_controller->thread()->active());
+        QTRY_VERIFY(m_controller->thread()->model()->rowCount() >= replies.size());
+        click(item("threadBackToRoomButton"));
+        QTRY_VERIFY(!m_controller->thread()->active());
         for (const QString &id : replies)
             QTRY_COMPARE(rowHeight(id), 0.0);
         QTRY_VERIFY(rowHeight(later) > 0);
@@ -388,7 +450,8 @@ ApplicationWindow {
         openDevRoom();
         const QString root = threadRoot();
         const QStringList replies = repliesIn(root);
-        click(tagOn(root));
+        // Narrowed through the model (no tag narrows any more).
+        timeline()->setProperty("threadFilterRootId", root);
         QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
         auto *editor = item("composerInput");
         QVERIFY(editor);
@@ -441,7 +504,7 @@ ApplicationWindow {
         setThreadStyle(1);
         openDevRoom();
         const QString root = threadRoot();
-        click(tagOn(root));
+        timeline()->setProperty("threadFilterRootId", root);
         QTRY_COMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
                      root);
         QTemporaryDir dir;
@@ -484,7 +547,8 @@ ApplicationWindow {
         const QString root = threadRoot();
         const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
         // Make a thread reply the newest event of the room.
-        click(tagOn(root));
+        // Narrowed through the model (no tag narrows any more).
+        timeline()->setProperty("threadFilterRootId", root);
         QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
         auto *editor = item("composerInput");
         QTRY_VERIFY(editor->hasActiveFocus());

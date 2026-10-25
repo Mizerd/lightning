@@ -20,6 +20,10 @@ Rectangle {
     }
 
     signal closeRequested()
+    // The host shows this panel in the main conversation column (Settings >
+    // Threads open in: Main view) rather than beside the room. Presentation
+    // only: the thread session, draft and scroll position are the same.
+    property bool inMainView: false
     // Media entry points supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
     // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
@@ -260,6 +264,22 @@ Rectangle {
                 anchors.leftMargin: AppTheme.spacing16
                 anchors.rightMargin: AppTheme.spacing16
                 spacing: AppTheme.spacing8
+                // Main view: the room is underneath, so the way back to it is
+                // a visible Back, not only the close glyph at the far end.
+                IconButton {
+                    objectName: "threadBackToRoomButton"
+                    visible: panel.inMainView && app.thread.active
+                             && !app.thread.listOpen
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusControl
+                    iconName: "arrow_back"
+                    iconSize: 18
+                    Accessible.name: qsTr("Back to the room")
+                    ToolTip.text: qsTr("Back to the room")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: panel.closeRequested()
+                }
                 // Back to the Threads list when entered from it.
                 IconButton {
                     objectName: "threadBackToListButton"
@@ -311,6 +331,27 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     onClicked: app.thread.setFollowed(!app.thread.followed)
+                }
+                // Moves the open thread between the side panel and the main
+                // column. A presentation change of the same conversation: it
+                // writes the placement setting and never closes or reopens
+                // the thread session.
+                IconButton {
+                    objectName: "threadPlacementButton"
+                    visible: app.thread.active
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusControl
+                    iconName: panel.inMainView ? "close_fullscreen"
+                                               : "open_in_full"
+                    iconSize: 18
+                    Accessible.name: panel.inMainView
+                                     ? qsTr("Show the thread in the side panel")
+                                     : qsTr("Show the thread in the main view")
+                    ToolTip.text: Accessible.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.settings.threadPlacement =
+                                   panel.inMainView ? 0 : 1
                 }
                 IconButton {
                     objectName: "threadCloseButton"

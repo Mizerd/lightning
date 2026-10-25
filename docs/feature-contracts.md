@@ -735,9 +735,8 @@ backend capability checks and honest live-test status.
   * Two presentation filters on `TimelineModel`, zero-height like the
     room-activity filter (rows stay in the model, so selection, search and
     receipts keep their indexes): `threadFilterRootId` narrows to one thread
-    (root + replies; a tag click, "Reply in thread", a summary card, the
-    Threads list, all through `AppController::showThread`), cleared on a room
-    switch; `hideThreadReplies` is the inverse — the room without any thread
+    (root + replies), cleared on a room switch -- since 2026-10-25 NO user
+    affordance sets it (see "Focused threads" below); `hideThreadReplies` is the inverse — the room without any thread
     reply, roots keeping their summary card — a persistent global setting
     (`timeline/hideThreadReplies`) switched from the room header
     (`threadRepliesToggleButton`). The narrowed thread wins while set; the
@@ -760,8 +759,29 @@ backend capability checks and honest live-test status.
     rows in both filtered views.
   * An undecryptable thread reply is an ordinary UTD row with a tag inline;
     the one-line "waiting for keys" notice is panel mode only.
-  * The thread panel stays usable in inline mode; a notification or the
-    voice player's "back to the message" narrows the timeline instead. Live homeserver/Element interop of inline mode: NOT TESTED.
+  * **Focused threads (2026-10-25) are the SDK thread session in BOTH
+    styles.** Every "open this thread" affordance -- tag, "Reply in thread",
+    summary card, Threads list, notification, voice player -- goes through
+    `AppController::showThread`, which opens `ThreadController`
+    (`TimelineFocus::Thread`: full thread history independent of the loaded
+    room window, the thread's own draft, thread receipts). The inline style
+    used to narrow the loaded room rows instead, which could only show
+    replies that happened to be loaded and gave the thread no draft of its
+    own. Where it is shown is `threadPlacement` ("Threads open in": 0 Side
+    panel, 1 Main view; account-scoped, export-only). Until chosen it is
+    DERIVED from `threadStyle` (Panel -> side, Inline -> main), so existing
+    configurations keep their meaning; an explicit choice is stored and wins.
+    Main view is the same `ThreadPanel` instance laid out over the whole
+    pane: the room column stays alive (scroll position kept) and reports
+    itself not visible, so the room is not read while the thread covers it;
+    the header offers Back to the room and a placement switch, which only
+    writes the setting (the session is never closed or reopened).
+  * Room composer drafts are per conversation: retargeting it at a narrowed
+    thread saves the outgoing draft and restores the incoming one under
+    `MessageComposer::draftKey()` (`MatrixClient::threadTimelineId` for a
+    thread -- the panel's key, so a draft follows its thread between
+    placements). Leaving edit mode (cancel or a sent edit) restores the
+    pre-edit draft. Live homeserver/Element interop of inline mode: NOT TESTED.
 - **Thread panel parity (2026-10-23).** The panel composer has the room
   composer's `:shortcode` completion popup and `:alias: ` auto-convert
   through the SAME C++ rules (`MessageComposer::emojiCompletionsForText`,

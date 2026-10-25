@@ -265,6 +265,12 @@ Rectangle {
     // The thread side surface is open when a thread panel or the room's Threads
     // list is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
+    // Settings > Threads open in: Main view. The same ThreadPanel instance and
+    // the same thread session; only the layout changes (the room column stays
+    // alive underneath, keeping its scroll position, and reports itself not
+    // visible, so the room is not read while the thread covers it).
+    readonly property bool threadInMainView:
+        threadSurfaceOpen && app.settings.threadPlacement === 1
                                               || app.thread.listOpen
     /// A live MatrixRTC call in this room owns the column. One condition, read
     /// by the stage's Loader and by everything the stage replaces, so the two
@@ -1157,8 +1163,8 @@ Rectangle {
         // When the thread or search panel (sideSurface.width) and the 320px
         // timeline minimum cannot coexist, that surface takes the pane; the
         // room stays alive underneath.
-        visible: !((root.threadSurfaceOpen || root.searchOpen)
-                   && !sideSurface.beside)
+        visible: !((root.threadSurfaceOpen && !sideSurface.threadBeside)
+                   || (root.searchOpen && !sideSurface.beside))
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -6848,6 +6854,9 @@ Rectangle {
         // Beside the timeline only while the timeline keeps its 320px; below
         // that (a pane under 581px) the surface takes the whole pane.
         readonly property bool beside: root.width - 1 - width >= 320
+        // The thread panel is beside the room only when the reader keeps
+        // threads in the side panel; Main view gives it the whole pane.
+        readonly property bool threadBeside: beside && !root.threadInMainView
         // Room information keeps its own floor for the conversation (420)
         // and its >= 700 gate; the same setting drives it.
         readonly property int infoWidth:
@@ -6864,8 +6873,8 @@ Rectangle {
     Item {
         id: sidePanelResizer
         objectName: "sidePanelResizeHandle"
-        visible: (root.threadSurfaceOpen || root.searchOpen)
-                 && sideSurface.beside
+        visible: (root.threadSurfaceOpen && sideSurface.threadBeside)
+                 || (root.searchOpen && sideSurface.beside)
         Layout.fillHeight: true
         // One pixel; the grab area is the handlers' margin, as infoResizer.
         implicitWidth: 1
@@ -6906,10 +6915,12 @@ Rectangle {
         id: threadPanel
         objectName: "threadPanel"
         visible: root.threadSurfaceOpen
+        // Lets the panel's header offer the other placement.
+        inMainView: root.threadInMainView
         Layout.fillHeight: true
-        Layout.preferredWidth: sideSurface.beside ? sideSurface.width
-                                                  : root.width
-        Layout.fillWidth: root.threadSurfaceOpen && !sideSurface.beside
+        Layout.preferredWidth: sideSurface.threadBeside ? sideSurface.width
+                                                        : root.width
+        Layout.fillWidth: root.threadSurfaceOpen && !sideSurface.threadBeside
         onCloseRequested: {
             // Closing the thread collapses the right side; Room Information is
             // not restored implicitly.
@@ -8524,7 +8535,10 @@ Rectangle {
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        width: (root.threadSurfaceOpen || root.searchOpen)
+        width: root.threadSurfaceOpen
+               ? (sideSurface.threadBeside ? root.width - sideSurface.width - 1
+                                           : 0)
+               : root.searchOpen
                ? (sideSurface.beside ? root.width - sideSurface.width - 1 : 0)
                : root.infoOpen && sideSurface.infoBeside
                  ? root.width - sideSurface.infoWidth - 1 : root.width

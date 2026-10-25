@@ -3,6 +3,7 @@
     { QStringLiteral("messageLayout"), Kind::Int, 0, 2, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("roomNavigationLayout"), Kind::Int, 0, 1, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("threadStyle"), Kind::Int, 0, 1, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
+    { QStringLiteral("threadPlacement"), Kind::Int, 0, 1, 1, QStringLiteral("Appearance"), 0, {  }, QVariant(int(0)) },
     { QStringLiteral("textScale"), Kind::Int, 90, 140, 3, QStringLiteral("Appearance"), 0, {  }, QVariant(int(100)) },
     { QStringLiteral("uiFont"), Kind::String, 0, 0, 3, QStringLiteral("Appearance"), 128, {  }, QVariant(QStringLiteral("Manrope")) },
     { QStringLiteral("monoFont"), Kind::String, 0, 0, 3, QStringLiteral("Appearance"), 128, {  }, QVariant(QStringLiteral("JetBrains Mono")) },

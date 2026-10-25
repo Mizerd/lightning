@@ -201,8 +201,8 @@ Item {
             return (model.threadRootId || "").length === 0
         return true
     }
-    // Shows a thread as the Thread style asks: the side panel, or this
-    // timeline narrowed to it (AppController.showThread).
+    // Opens a thread's SDK-backed session (AppController.showThread), shown
+    // beside the room or in the main view as Settings asks.
     function showThread(rootId) {
         if (rootId && rootId.length > 0)
             app.showThread(app.currentRoomId, rootId)
@@ -2046,7 +2046,7 @@ Item {
                             implicitHeight: AppTheme.scaled(18)
                             Accessible.name: text
                             text: narrowed ? qsTr("Back to the room")
-                                           : qsTr("Show only this thread")
+                                           : qsTr("Open this thread")
                             ToolTip.text: text
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
@@ -2074,9 +2074,15 @@ Item {
                                     font.strikeout: threadTag.narrowed
                                 }
                             }
+                            // Opens the thread's own SDK session, like every
+                            // other thread affordance (AppController.showThread;
+                            // Settings decides side panel or main view). A
+                            // timeline still narrowed to this thread is widened.
                             onClicked: {
-                                root.timelineModel.threadFilterRootId =
-                                    narrowed ? "" : root.rowThreadId
+                                if (narrowed)
+                                    root.timelineModel.threadFilterRootId = ""
+                                else
+                                    root.showThread(root.rowThreadId)
                             }
                         }
                     }

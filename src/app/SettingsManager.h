@@ -385,10 +385,20 @@ class SettingsManager : public QObject
     // threadStyle: how m.thread replies are presented. 0 Panel (Element-like:
     // replies live in the thread side panel and are hidden from the room
     // timeline), 1 Inline (Nheko-like: replies stay interleaved in the room
-    // timeline with a thread tag, and a tag filters the timeline to that
-    // thread). Out-of-range reads back as Panel. Account-scoped.
+    // timeline with a thread tag). It is the ROOM HISTORY policy only; where a
+    // focused thread is shown is threadPlacement. Out-of-range reads back as
+    // Panel. Account-scoped.
     Q_PROPERTY(int threadStyle READ threadStyle WRITE setThreadStyle
                    NOTIFY threadStyleChanged)
+    // threadPlacement: where a focused thread (the SDK-backed thread session,
+    // ThreadController) is shown. 0 Side panel, beside the room; 1 Main view,
+    // in the conversation column in place of the room, which stays alive
+    // underneath. Until the user chooses, it follows threadStyle (Panel -> side,
+    // Inline -> main), so existing configurations keep their meaning; an
+    // explicit choice is stored and wins. Unknown values read back as the
+    // derived default. Account-scoped.
+    Q_PROPERTY(int threadPlacement READ threadPlacement
+                   WRITE setThreadPlacement NOTIFY threadPlacementChanged)
     // Inline thread style: the room timeline leaves thread replies out (roots
     // keep their summary card). One switch for every room. Default false.
     Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
@@ -984,6 +994,12 @@ public:
     static constexpr int kThreadStyleInline = 1;
     int threadStyle() const;
     void setThreadStyle(int style);
+    static constexpr int kThreadPlacementSide = 0;
+    static constexpr int kThreadPlacementMain = 1;
+    int threadPlacement() const;
+    void setThreadPlacement(int placement);
+    // Whether threadPlacement is an explicit choice rather than derived.
+    Q_INVOKABLE bool threadPlacementIsExplicit() const;
     bool hideThreadReplies() const;
     void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
@@ -1422,6 +1438,7 @@ Q_SIGNALS:
     void nameColorCorrectionChanged();
     void messageSpacingChanged();
     void threadStyleChanged();
+    void threadPlacementChanged();
     void hideThreadRepliesChanged();
     void smoothScrollingChanged();
     void showBridgeBadgesChanged();

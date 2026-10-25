@@ -100,6 +100,11 @@ QString enumText(const QString &name, const QVariant &v)
         case 0: return QObject::tr("Thread panel");
         case 1: return QObject::tr("Inline threads");
         }
+    } else if (name == QLatin1String("threadPlacement")) {
+        switch (i) {
+        case 0: return QObject::tr("Side panel");
+        case 1: return QObject::tr("Main view");
+        }
     } else if (name == QLatin1String("clockFormat")) {
         switch (i) {
         case 0: return QObject::tr("Follow the system");

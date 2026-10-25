@@ -3870,16 +3870,15 @@ void AppController::showThread(const QString &roomId,
 {
     if (roomId.isEmpty() || rootEventId.isEmpty())
         return;
-    if (m_timeline && m_timeline->threadRepliesInline()
-        && roomId == m_currentRoomId) {
-        // The panel and the Threads list give the room back to the timeline.
-        if (m_thread->active())
-            m_thread->close();
-        if (m_thread->listOpen())
-            m_thread->closeList();
-        m_timeline->setThreadFilterRootId(rootEventId);
-        return;
-    }
+    // Every entry point opens the SDK-backed thread session (ThreadController:
+    // TimelineFocus::Thread history, its own drafts, thread receipts), in both
+    // thread styles. Where it is shown -- beside the room or in the main
+    // column -- is SettingsManager::threadPlacement, a presentation choice the
+    // conversation view applies. The inline style used to narrow the loaded
+    // room rows instead, which could only show replies that happened to be in
+    // the room window; a narrowed room is left as the reader had it before.
+    if (m_timeline && !m_timeline->threadFilterRootId().isEmpty())
+        m_timeline->setThreadFilterRootId(QString());
     m_thread->openThread(roomId, rootEventId);
 }
 
