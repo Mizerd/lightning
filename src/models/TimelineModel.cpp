@@ -1594,7 +1594,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     // other visible identity: member lookup, then the localpart.
     case ReplyToSenderRole: {
         if (const auto *target = loadedReplyTarget(e))
-            return data(index(rowForEventId(target->eventId)),
+            return data(this->index(rowForEventId(target->eventId)),
                         SenderDisplayNameRole);
         // The Rust backend already resolved the name from the embedded event's
         // profile and sends the MXID separately. Prefer that: the member lookup
