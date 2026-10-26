@@ -226,8 +226,10 @@ public:
     {
         m_privateMediaFetch = std::move(fetch);
     }
-    Q_INVOKABLE void republishPrivateImage(const QString &mediaKey,
-                                           const QString &body);
+    // No name or description is taken from the private message (its caption
+    // or file name would become plaintext account data): the image is added
+    // as "sticker" (suffixed if taken) for the user to rename.
+    Q_INVOKABLE void republishPrivateImage(const QString &mediaKey);
     Q_INVOKABLE void cancelRepublish();
     bool republishing() const { return !m_republishKey.isEmpty(); }
     // Bytes for a fetch (AppController forwards MediaBridge::mediaBytesForStar).
@@ -536,8 +538,15 @@ private:
     QList<BatchItem> m_failedUploads;
     std::function<void(const QString &)> m_privateMediaFetch;
     QString m_republishKey;
-    QString m_republishBody;
     QString m_republishAccount;
+    // The decrypted copy being uploaded, removed when its upload answers.
+    std::unique_ptr<QTemporaryDir> m_republishDir;
+    quint64 m_republishOp = 0;
+    void dropRepublishScratch();
+    QString m_failedUploadsAccount;
+    // The local-state group of the account last used, dropped at sign-out.
+    mutable QString m_lastLocalGroup;
+    void forgetLocalStateOfSignedOutAccount();
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;

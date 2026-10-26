@@ -737,6 +737,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // image on send.
     m_composer->setEmoticonSearch(
         [this](const QString &prefix, int limit) {
+            // Typing a `:token` is opening a pack surface too: the first one in
+            // a room reads that room's (and its Spaces') packs, which plain
+            // navigation does not (live GUI run: completion offered no room
+            // pack until a picker had been opened). A no-op once covered.
+            m_stickers->refreshIfStale();
             return m_stickers->findEmoticons(prefix, limit);
         });
     // A typed (not chosen) `:shortcode:` resolves only when unambiguous; a
@@ -849,9 +854,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // earlier, on a null m_stickers, and every start crashed in
     // setLocalStatePath (QString::operator=, wave-2 master build gui-2).
     // Hidden packs, custom-image recents and favourites: this device only.
-    m_stickers->setLocalStatePath(
-        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
-        + QStringLiteral("/image-packs-local.ini"));
+    // Beside the app's own settings file, so portable mode (which redirects
+    // QSettings into the portable tree) keeps it there too; the config dir
+    // when settings are not a file (the Windows registry).
+    m_stickers->setLocalStatePath([] {
+        const QSettings settings;
+        const QFileInfo file(settings.fileName());
+        const QString dir = file.isAbsolute() && QFileInfo(file.absolutePath()).isDir()
+            ? file.absolutePath()
+            : QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        return dir + QStringLiteral("/image-packs-local.ini");
+    }());
     // A confirmed "add this private image to my stickers": the decrypted bytes
     // come through the bridge's keyed full-payload fetch.
     m_stickers->setPrivateMediaFetch([this](const QString &mediaKey) {

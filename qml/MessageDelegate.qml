@@ -4661,7 +4661,9 @@ Item {
                 enabled: visible && !app.stickers.saving
                 onTriggered: {
                     republishLoader.active = true
-                    republishLoader.item.ask(model.mediaKey || "", model.body || "")
+                    // Only the media key: the private caption or file name
+                    // must never name the public copy.
+                    republishLoader.item.ask(model.mediaKey || "")
                 }
             }
             // The same sticker into the room's own pack. im.ponies.room_emotes

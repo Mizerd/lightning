@@ -13,7 +13,6 @@ Dialog {
     objectName: "privateImageRepublishDialog"
 
     property string mediaKey: ""
-    property string body: ""
 
     modal: true
     focus: true
@@ -25,9 +24,8 @@ Dialog {
     standardButtons: Dialog.NoButton
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
 
-    function ask(key, text) {
+    function ask(key) {
         root.mediaKey = key
-        root.body = text
         open()
     }
 
@@ -57,7 +55,8 @@ Dialog {
                        + "packs hold regular, unencrypted media, so Lightning "
                        + "will upload a new, unencrypted copy to your server and "
                        + "add it to your own pack. Your server can see it, and "
-                       + "so can anyone you share the pack with.")
+                       + "so can anyone you share the pack with. It is added as "
+                       + "\"sticker\"; rename it in your pack if you like.")
         }
         RowLayout {
             Layout.fillWidth: true
@@ -75,7 +74,7 @@ Dialog {
                 kind: "primary"
                 enabled: root.mediaKey.length > 0 && app.stickers.available
                 onClicked: {
-                    app.stickers.republishPrivateImage(root.mediaKey, root.body)
+                    app.stickers.republishPrivateImage(root.mediaKey)
                     root.close()
                 }
             }

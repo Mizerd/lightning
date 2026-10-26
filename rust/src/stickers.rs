@@ -1034,7 +1034,15 @@ pub(crate) fn fetch_packs(
         let legacy_only: BTreeSet<(String, String)> = subs.legacy_only.iter().cloned().collect();
 
         // ---- 1a. the account's own (legacy) pack ------------------------
-        if let Some(content) = read_global_account_data(&client, USER_EMOTES).await {
+        //
+        // `{}` (no `images`) is the legacy "pack removed" convention (our own
+        // retire writes it): not an empty pack to list and select (live GUI
+        // run: an emptied personal pack stayed selected in the picker as
+        // "Your pack" with nothing in it).
+        if let Some(content) = read_global_account_data(&client, USER_EMOTES)
+            .await
+            .filter(has_images)
+        {
             if let Some(pack) = parse_pack_content(
                 &content,
                 "user".to_owned(),

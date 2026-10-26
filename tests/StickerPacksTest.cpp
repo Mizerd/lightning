@@ -28,6 +28,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QSettings>
 #include <QDir>
 #include <QJSEngine>
 #include <QImage>
@@ -63,7 +64,8 @@ public:
     QString uploadShortcode, uploadUsage;
     QStringList uploadPaths;
     quint64 lastUploadOp = 0;
-    void uploadStickerToUserPack(const QString &shortcode, const QString &,
+    QString uploadBody;
+    void uploadStickerToUserPack(const QString &shortcode, const QString &body,
                                  const QString &localPath,
                                  const QString &usage,
                                  quint64 opId) override
@@ -72,6 +74,7 @@ public:
         uploadPath = localPath;
         uploadPaths.append(localPath);
         uploadShortcode = shortcode;
+        uploadBody = body;
         uploadUsage = usage;
         lastUploadOp = opId;
     }
@@ -1783,14 +1786,14 @@ private Q_SLOTS:
         const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(40, 'p');
 
         // Cancel before the bytes arrive: nothing is uploaded.
-        manager.republishPrivateImage(QStringLiteral("key1"), QStringLiteral("A cat"));
+        manager.republishPrivateImage(QStringLiteral("key1"));
         QCOMPARE(fetched, QStringList{ QStringLiteral("key1") });
         manager.cancelRepublish();
         manager.onPrivateMediaBytes(QStringLiteral("key1"), true, png);
         QCOMPARE(client.uploadCalls, 0);
 
         // Another account by the time the bytes land: nothing is uploaded.
-        manager.republishPrivateImage(QStringLiteral("key2"), QStringLiteral("A cat"));
+        manager.republishPrivateImage(QStringLiteral("key2"));
         client.userId = QStringLiteral("@someone-else:example.org");
         manager.onPrivateMediaBytes(QStringLiteral("key2"), true, png);
         QCOMPARE(client.uploadCalls, 0);
@@ -1798,7 +1801,7 @@ private Q_SLOTS:
 
         // SVG (or anything not a plain raster) is refused.
         QSignalSpy refused(&manager, &StickerPackManager::saveFinished);
-        manager.republishPrivateImage(QStringLiteral("key3"), QString());
+        manager.republishPrivateImage(QStringLiteral("key3"));
         manager.onPrivateMediaBytes(QStringLiteral("key3"), true,
                                     QByteArray("<svg xmlns='http://www.w3.org/2000/svg'/>"));
         QCOMPARE(client.uploadCalls, 0);
@@ -1806,12 +1809,24 @@ private Q_SLOTS:
 
         // Confirmed and valid: one upload to the personal pack, of a file
         // holding exactly those bytes.
-        manager.republishPrivateImage(QStringLiteral("key4"), QStringLiteral("A cat"));
+        manager.republishPrivateImage(QStringLiteral("key4"));
         manager.onPrivateMediaBytes(QStringLiteral("key4"), true, png);
         QCOMPARE(client.uploadCalls, 1);
         QFile written(client.uploadPath);
         QVERIFY(written.open(QIODevice::ReadOnly));
         QCOMPARE(written.readAll(), png);
+        written.close();
+        // Review S1: owner-only, and gone once the upload has answered.
+        QCOMPARE(QFileInfo(client.uploadPath).permissions()
+                     & (QFileDevice::ReadGroup | QFileDevice::ReadOther
+                        | QFileDevice::WriteGroup | QFileDevice::WriteOther),
+                 QFileDevice::Permissions());
+        // Review M1: the private message's caption never names the copy.
+        QCOMPARE(client.uploadShortcode, QStringLiteral("sticker"));
+        QVERIFY(!client.uploadBody.contains(QStringLiteral("cat")));
+        Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true, QString(),
+                                             QStringLiteral("sticker"));
+        QVERIFY(!QFileInfo::exists(client.uploadPath));
     }
 
     void searchOverTheLargestSnapshotStaysInteractive()
@@ -1851,6 +1866,70 @@ private Q_SLOTS:
         all.start();
         QCOMPARE(manager.reactionEmoticons().size(), 64 * 512);
         QVERIFY2(all.elapsed() < 2000, qPrintable(QString::number(all.elapsed())));
+    }
+
+    void anotherAccountNeverRetriesThisOnesFailedUploads()
+    {
+        // Review S3: a failed batch (with its uploaded mxc) is this account's.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap target = pack(QStringLiteral("S"), QStringLiteral("room"),
+                                  QStringLiteral("P"), {});
+        target.insert(QStringLiteral("roomId"), kRoom);
+        target.insert(QStringLiteral("stateKey"), QStringLiteral("p"));
+        target.insert(QStringLiteral("namespace"), QStringLiteral("stable"));
+        target.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { target });
+        manager.uploadImagesToPack(QStringLiteral("S"),
+            { QUrl::fromLocalFile(QStringLiteral("/tmp/a.png")) });
+        Q_EMIT client.stickerPackUploaded(client.lastRoomUploadOp,
+                                          QStringLiteral("mxc://example.org/private"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, false,
+                                             QStringLiteral("network"), QString());
+        QCOMPARE(manager.failedUploadCount(), 1);
+        // Another account becomes active in the same manager.
+        client.userId = QStringLiteral("@other:example.org");
+        const int before = client.roomUploadCalls;
+        manager.retryFailedUploads();
+        QCOMPARE(client.roomUploadCalls, before);
+        QCOMPARE(manager.failedUploadCount(), 0);
+        // And a sign-out drops them outright.
+        client.userId = QStringLiteral("@me:example.org");
+        manager.applySnapshotForTest(kRoom, true, { target });
+        manager.uploadImagesToPack(QStringLiteral("S"),
+            { QUrl::fromLocalFile(QStringLiteral("/tmp/b.png")) });
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, false,
+                                             QStringLiteral("network"), QString());
+        QCOMPARE(manager.failedUploadCount(), 1);
+        Q_EMIT client.loggedOut();
+        QCOMPARE(manager.failedUploadCount(), 0);
+    }
+
+    void signingOutDropsThatAccountsLocalPackChoicesButASwitchDoesNot()
+    {
+        // Review S2: local hidden/recents/favourites go with the account.
+        QTemporaryDir dir;
+        const QString state = dir.filePath(QStringLiteral("local.ini"));
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setLocalStatePath(state);
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        manager.setPackHidden(QStringLiteral("user"), true);
+        manager.recordCustomUse(image(QStringLiteral("wave"), kMxcB, false, true));
+        // A client switch (setClient) keeps them.
+        FakeClient other;
+        manager.setClient(&other);
+        manager.setClient(&client);
+        QVERIFY(manager.isPackHidden(QStringLiteral("user")));
+        QCOMPARE(manager.customRecents().size(), 1);
+        // A real sign-out removes them, from memory and from the file.
+        Q_EMIT client.loggedOut();
+        QVERIFY(!manager.isPackHidden(QStringLiteral("user")));
+        QVERIFY(manager.customRecents().isEmpty());
+        QSettings file(state, QSettings::IniFormat);
+        QVERIFY(file.childGroups().isEmpty());
     }
 
     void shortcodeErrorsSayWhy()

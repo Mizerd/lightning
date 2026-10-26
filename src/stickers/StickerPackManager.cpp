@@ -132,8 +132,12 @@ void StickerPackManager::setClient(MatrixClient *client)
                     onMediaFetchFailed(opId);
                 });
         // Packs are account data.
-        connect(m_client, &MatrixClient::loggedOut, this,
-                &StickerPackManager::onLoggedOut);
+        // A real sign-out (not a client switch) also drops that account's
+        // local pack choices from this device.
+        connect(m_client, &MatrixClient::loggedOut, this, [this] {
+            forgetLocalStateOfSignedOutAccount();
+            onLoggedOut();
+        });
     }
     onLoggedOut();
     Q_EMIT availableChanged();
@@ -915,6 +919,8 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
                                         const QString &category,
                                         const QString &shortcode)
 {
+    if (opId != 0 && opId == m_republishOp)
+        dropRepublishScratch();
     if (opId == 0 || opId != m_saveOp)
         return;
     m_saveOp = 0;
@@ -952,8 +958,11 @@ void StickerPackManager::onLoggedOut()
     m_roomsOp = 0;
     m_migrateOp = 0;
     m_republishKey.clear();
-    m_republishBody.clear();
     m_republishAccount.clear();
+    dropRepublishScratch();
+    // Another account must never retry this one's batch (or reuse its media).
+    m_failedUploads.clear();
+    m_failedUploadsAccount.clear();
     m_refreshOwed = false;
     m_refreshOwedDeep = false;
     m_deepRoomId.clear();
@@ -1141,8 +1150,10 @@ void StickerPackManager::beginTransfer(const QString &kind, const QString &name,
 void StickerPackManager::finishTransfer(bool ok, const QString &category)
 {
     const Transfer done = m_transfer;
-    if (done.kind == QLatin1String("upload"))
+    if (done.kind == QLatin1String("upload")) {
         m_failedUploads = done.retry;
+        m_failedUploadsAccount = m_client ? m_client->currentUserId() : QString();
+    }
     m_transfer = Transfer();
     m_importDir.reset();
     if (m_transferWatchdog)
@@ -1319,6 +1330,13 @@ void StickerPackManager::retryFailedUploads()
 {
     if (!m_client || !available() || m_transfer.active || m_failedUploads.isEmpty())
         return;
+    // Recorded for the account that made the batch; never replayed as another.
+    if (m_client->currentUserId() != m_failedUploadsAccount) {
+        m_failedUploads.clear();
+        m_failedUploadsAccount.clear();
+        emitStateChanged();
+        return;
+    }
     const QList<BatchItem> items = m_failedUploads;
     m_failedUploads.clear();
     beginTransfer(QStringLiteral("upload"), QString(), int(items.size()));
@@ -1673,14 +1691,12 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
 
 // -- Republishing a private image ----------------------------------------------
 
-void StickerPackManager::republishPrivateImage(const QString &mediaKey,
-                                               const QString &body)
+void StickerPackManager::republishPrivateImage(const QString &mediaKey)
 {
     if (!m_client || !available() || mediaKey.isEmpty() || !m_privateMediaFetch
         || !m_republishKey.isEmpty() || m_saveOp != 0)
         return;
     m_republishKey = mediaKey;
-    m_republishBody = body;
     m_republishAccount = m_client->currentUserId();
     emitStateChanged();
     m_privateMediaFetch(mediaKey);
@@ -1691,9 +1707,14 @@ void StickerPackManager::cancelRepublish()
     if (m_republishKey.isEmpty())
         return;
     m_republishKey.clear();
-    m_republishBody.clear();
     m_republishAccount.clear();
     emitStateChanged();
+}
+
+void StickerPackManager::dropRepublishScratch()
+{
+    m_republishDir.reset();  // removes the decrypted copy
+    m_republishOp = 0;
 }
 
 void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
@@ -1701,10 +1722,8 @@ void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
 {
     if (m_republishKey.isEmpty() || mediaKey != m_republishKey)
         return;
-    const QString body = m_republishBody;
     const QString account = m_republishAccount;
     m_republishKey.clear();
-    m_republishBody.clear();
     m_republishAccount.clear();
     // A different account by now, or signed out: nothing is uploaded anywhere.
     if (!m_client || m_client->currentUserId() != account) {
@@ -1720,24 +1739,42 @@ void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
                             QString(), QStringLiteral("account"));
         return;
     }
-    if (!m_convertedDir || !m_convertedDir->isValid())
-        m_convertedDir = std::make_unique<QTemporaryDir>(
-            QDir::tempPath() + QStringLiteral("/lightning-republish-XXXXXX"));
-    const QString path = m_convertedDir->isValid()
-        ? QDir(m_convertedDir->path()).filePath(
-              QStringLiteral("%1.%2").arg(m_nextConverted++)
-                  .arg(stickers::archive::extensionForBytes(bytes)))
+    // The decrypted copy lives only until its upload answers, under the
+    // session scratch root main.cpp installs (portable::mediaScratchRoot():
+    // inside the portable tree when portable; a crash leftover is swept at
+    // startup by its "lightning-" prefix), in a 0700 directory as a 0600 file
+    // created before any byte is written.
+    dropRepublishScratch();
+    namespace svg = lightning::svgraster;
+    const QString scratchRoot = svg::hooks().scratchRoot ? svg::hooks().scratchRoot()
+                                                         : QDir::tempPath();
+    m_republishDir = std::make_unique<QTemporaryDir>(
+        scratchRoot + QStringLiteral("/lightning-republish-XXXXXX"));
+    const QString path = m_republishDir->isValid()
+        ? QDir(m_republishDir->path()).filePath(
+              QStringLiteral("image.%1").arg(stickers::archive::extensionForBytes(bytes)))
         : QString();
     QFile out(path);
-    if (path.isEmpty() || !out.open(QIODevice::WriteOnly)
+    if (path.isEmpty()
+        || !out.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+        || !out.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)
         || out.write(bytes) != bytes.size()) {
+        out.close();
+        dropRepublishScratch();
         emitStateChanged();
         Q_EMIT saveFinished(false, QStringLiteral("write_failed"), QString(),
                             QStringLiteral("account"));
         return;
     }
     out.close();
-    startUpload(QUrl::fromLocalFile(path), body, QStringLiteral("sticker"));
+    // Name and description are NEVER taken from the private message: its
+    // caption or file name would become plaintext account data. A neutral
+    // name (the backend adds a suffix if taken); the user can rename it.
+    startUpload(QUrl::fromLocalFile(path), QStringLiteral("sticker"),
+                QStringLiteral("sticker"));
+    m_republishOp = m_saveOp;
+    if (m_republishOp == 0)
+        dropRepublishScratch();
 }
 
 // -- Sharing -------------------------------------------------------------------
@@ -1822,11 +1859,32 @@ QString StickerPackManager::localGroup() const
 {
     const QString user = m_client ? m_client->currentUserId() : QString();
     if (user.isEmpty())
-        return {};
+        return m_lastLocalGroup;
     // Hashed: the file name a user might share holds no Matrix id.
-    return QString::fromLatin1(
+    m_lastLocalGroup = QString::fromLatin1(
         QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256)
             .toHex().left(16));
+    return m_lastLocalGroup;
+}
+
+void StickerPackManager::forgetLocalStateOfSignedOutAccount()
+{
+    // Signing out (or removing) an account drops its hidden packs, custom
+    // recents and favourites from this device.
+    const QString group = m_lastLocalGroup;
+    m_lastLocalGroup.clear();
+    if (group.isEmpty())
+        return;
+    for (auto it = m_localMemory.begin(); it != m_localMemory.end();) {
+        if (it.key().startsWith(group + QLatin1Char('/')))
+            it = m_localMemory.erase(it);
+        else
+            ++it;
+    }
+    if (!m_localStatePath.isEmpty()) {
+        QSettings settings(m_localStatePath, QSettings::IniFormat);
+        settings.remove(group);
+    }
 }
 
 QVariantList StickerPackManager::readLocalList(const QString &name) const
