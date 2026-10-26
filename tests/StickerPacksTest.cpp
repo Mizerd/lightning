@@ -1020,6 +1020,27 @@ private Q_SLOTS:
         QCOMPARE(client.createUsage, QStringLiteral("emoticon"));
     }
 
+    void openingAPackSurfaceAfterNavigationReadsTheRoomDeeply()
+    {
+        // Navigation reads shallow (no full room state); the first picker or
+        // manager open in that room must still read it deep, or the room's own
+        // packs stay invisible until a manual reload.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.setActiveRoomId(kRoom);
+        QTRY_COMPARE(client.fetchCalls, 1);
+        QVERIFY(!client.lastFetchDeep);
+        Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false, twoPacks());
+        manager.refreshIfStale();
+        QCOMPARE(client.fetchCalls, 2);
+        QVERIFY(client.lastFetchDeep);
+        Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false, twoPacks());
+        // Covered now: a second open asks for nothing.
+        manager.refreshIfStale();
+        QCOMPARE(client.fetchCalls, 2);
+    }
+
     void aSyncChangeRereadsOnceAndOnlyWhenItConcernsTheSnapshot()
     {
         // PACK-LTN-002 / PACK-PER-008: another device's subscription edit or a

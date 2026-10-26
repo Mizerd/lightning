@@ -242,7 +242,12 @@ void StickerPackManager::refreshWith(bool deep)
 
 void StickerPackManager::refreshIfStale()
 {
-    if (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId)
+    // A snapshot taken on plain navigation never read the room's own state
+    // (sliding sync does not deliver pack events), so a pack surface opening
+    // in a room no deep read has covered yet is stale too. Live GUI run
+    // 2026-10-26: the room's stable packs appeared only after Reload packs.
+    if (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId
+        || (!m_activeRoomId.isEmpty() && m_deepRoomId != m_activeRoomId))
         refresh();
 }
 
