@@ -100,6 +100,24 @@ backend capability checks and honest live-test status.
   or presence; removal of a live one also signs it out on the server. Phase
   1 switching retires the host and then runs today's switch. The switches
   are not portable (not exported, not synced). Live: NOT TESTED.
+- **Warm account adoption (2026-10-27, review-gated).** Switching to a pinned
+  account whose host is Running, past its initial sync, not being removed and
+  with custody settled (no keyring write of its sign-in or live token write
+  pending) ADOPTS that live session (`SessionPool::canAdopt` /
+  `takeForAdoption`, `MatrixClient::adoptLiveSession`, `mx_rust_bg_promote`):
+  the foreground is unbound as for any switch, no keyring read runs, the store
+  record moves Host -> Foreground on the same serial (one store, one handle,
+  never re-opened), the epoch and the foreground handle generation move (late
+  host and previous-handle callbacks are stale), the handle is promoted in
+  place (background sync stopped, mode Foreground, custody detached, UI
+  handlers installed, a token-free `login_ok` with `adopted:true`), and the
+  ordinary login path starts a foreground sync on the same Client. Anything
+  else, or a handle that refuses promotion, takes the cold path; a refused
+  promotion retires the handle normally (tokens handed back) before the cold
+  restore. Trace: `switch-trace path=adopt`. NOT done: the outgoing account
+  is not demoted in place (with "keep running" it restarts as a host the cold
+  way); the adopted Client keeps the background profile's request retry
+  settings and SQLite memory profile for its life. Live: NOT TESTED.
 
 ### Sign-in screen (2026-09-29, Rokas chose option A)
 
