@@ -1139,7 +1139,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2369,7 +2369,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8795,7 +8795,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Offline: não é possível alcançar o proxy ou o servidor desta conta. O Lightning continua a tentar através do proxy, nunca diretamente — as suas salas continuam disponíveis.</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9201,7 +9201,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9231,7 +9231,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12408,12 +12408,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+626"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor vê este URL — nunca direto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor carrega-o — nunca direto</translation>
     </message>
     <message>
         <location line="+983"/>
@@ -13271,119 +13271,119 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza o nome do anfitrião ou o endereço IP do proxy.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza uma porta de 1 a 65535.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome de utilizador não pode conter quebras de linha.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza a palavra-passe do proxy para este nome de utilizador.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar a palavra-passe no porta-chaves do sistema, por isso nada foi alterado.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Inicie sessão primeiro; um proxy pertence a uma conta guardada.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar o proxy.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Rede</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligação desta conta</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>Direta (definições de rede do sistema)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Proxy HTTP</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Proxy SOCKS5</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>Anfitrião do proxy</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>Porta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>Porta do proxy</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome de utilizador (opcional)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome de utilizador do proxy</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-passe guardada (escreva para substituir)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">Palavra-passe</translation>
+        <translation>Palavra-passe</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-passe do proxy</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished">Guardar</translation>
+        <translation>Guardar</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardado. Aplica-se na próxima vez que esta conta se ligar.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>Com um proxy, tudo o que esta conta envia ao seu servidor passa por ele: sincronização, chaves de encriptação, multimédia e voltar a iniciar sessão nesta conta. O primeiro início de sessão de uma conta nova liga-se diretamente, e uma página de início de sessão aberta no seu navegador usa as definições de rede do próprio navegador. Se o proxy não puder ser alcançado, ou a sua palavra-passe não puder ser lida do porta-chaves, a conta fica offline em vez de se ligar diretamente. As pré-visualizações de ligações passam então a vir apenas do seu servidor, os vídeos e imagens grandes das ligações não são carregados, as chamadas não estão disponíveis e a conta não funciona em segundo plano. A pesquisa de GIF e a verificação de atualizações usam as definições de rede do sistema. Guardado apenas neste dispositivo.</translation>
     </message>
 </context>
 <context>
@@ -15917,7 +15917,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18623,7 +18623,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível aplicar a rota de rede desta conta, por isso o Lightning não a vai ligar diretamente. Verifique o proxy nas Definições.</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -22726,12 +22726,12 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="-835"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Rede e proxy</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor rede ligação</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -23139,7 +23139,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+1"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Rede</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -24818,7 +24818,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis enquanto esta conta usa um proxy.</translation>
     </message>
     <message>
         <location line="+7"/>

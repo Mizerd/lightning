@@ -1137,7 +1137,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2367,7 +2367,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8786,7 +8786,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>অফলাইন: এই অ্যাকাউন্টের প্রক্সি বা হোমসার্ভারে পৌঁছানো যাচ্ছে না। Lightning প্রক্সির মাধ্যমে চেষ্টা চালিয়ে যায়, কখনো সরাসরি নয় — আপনার রুমগুলো উপলভ্য থাকে।</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9192,7 +9192,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9222,7 +9222,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12399,12 +12399,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+626"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার সার্ভার এই URL দেখে — কখনো সরাসরি নয়</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার সার্ভার এটি লোড করে — কখনো সরাসরি নয়</translation>
     </message>
     <message>
         <location line="+983"/>
@@ -13262,119 +13262,119 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সির হোস্ট নাম বা IP ঠিকানা লিখুন।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>1 থেকে 65535 পর্যন্ত একটি পোর্ট লিখুন।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>ব্যবহারকারীর নামে লাইন ব্রেক থাকতে পারে না।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই ব্যবহারকারীর নামের জন্য প্রক্সি পাসওয়ার্ড লিখুন।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>পাসওয়ার্ডটি সিস্টেম কীরিংয়ে সংরক্ষণ করা যায়নি, তাই কিছুই পরিবর্তন করা হয়নি।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>আগে সাইন ইন করুন; প্রক্সি একটি সংরক্ষিত অ্যাকাউন্টের অংশ।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি সংরক্ষণ করা যায়নি।</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>নেটওয়ার্ক</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্টের সংযোগ</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>সরাসরি (সিস্টেম নেটওয়ার্ক সেটিংস)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>HTTP প্রক্সি</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>SOCKS5 প্রক্সি</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি হোস্ট</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>পোর্ট</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি পোর্ট</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>ব্যবহারকারীর নাম (ঐচ্ছিক)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি ব্যবহারকারীর নাম</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>পাসওয়ার্ড সংরক্ষিত (বদলাতে টাইপ করুন)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">পাসওয়ার্ড</translation>
+        <translation>পাসওয়ার্ড</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি পাসওয়ার্ড</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished"></translation>
+        <translation>সংরক্ষণ করুন</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>সংরক্ষিত। এই অ্যাকাউন্ট পরের বার সংযুক্ত হলে এটি প্রযোজ্য হবে।</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রক্সি থাকলে এই অ্যাকাউন্ট তার হোমসার্ভারে যা কিছু পাঠায় সবই এর মধ্য দিয়ে যায়: সিঙ্ক, এনক্রিপশন কী, মিডিয়া এবং এই অ্যাকাউন্টে আবার সাইন ইন। একেবারে নতুন অ্যাকাউন্টের প্রথম সাইন-ইন সরাসরি সংযুক্ত হয়, আর আপনার ব্রাউজারে খোলা সাইন-ইন পেজ ব্রাউজারের নিজস্ব নেটওয়ার্ক সেটিংস ব্যবহার করে। প্রক্সিতে পৌঁছানো না গেলে, বা কীরিং থেকে এর পাসওয়ার্ড পড়া না গেলে, অ্যাকাউন্টটি সরাসরি সংযুক্ত না হয়ে অফলাইন থাকে। তখন লিংক প্রিভিউ শুধু আপনার হোমসার্ভার থেকে আসে, লিংকের ভিডিও ও বড় ছবি লোড হয় না, কল উপলভ্য থাকে না, এবং অ্যাকাউন্টটি ব্যাকগ্রাউন্ডে চলে না। GIF সার্চ ও আপডেট পরীক্ষা সিস্টেমের নেটওয়ার্ক সেটিংস ব্যবহার করে। শুধু এই ডিভাইসে রাখা হয়।</translation>
     </message>
 </context>
 <context>
@@ -15908,7 +15908,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18614,7 +18614,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্টের নেটওয়ার্ক রুট প্রয়োগ করা যায়নি, তাই Lightning এটি সরাসরি সংযুক্ত করবে না। সেটিংসে প্রক্সি পরীক্ষা করুন।</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -22717,12 +22717,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="-835"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>নেটওয়ার্ক ও প্রক্সি</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor নেটওয়ার্ক প্রক্সি সংযোগ</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -23130,7 +23130,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="+1"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>নেটওয়ার্ক</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -24809,7 +24809,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়.</translation>
     </message>
     <message>
         <location line="+7"/>

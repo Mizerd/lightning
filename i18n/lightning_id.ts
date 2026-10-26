@@ -1130,7 +1130,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2360,7 +2360,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8769,7 +8769,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Offline: proxy atau homeserver akun ini tidak dapat dijangkau. Lightning terus mencoba melalui proxy, tidak pernah langsung — ruang Anda tetap tersedia.</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9175,7 +9175,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9205,7 +9205,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12372,12 +12372,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+626"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Server Anda melihat URL ini — tidak pernah langsung</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Server Anda yang memuatnya — tidak pernah langsung</translation>
     </message>
     <message>
         <location line="+983"/>
@@ -13229,119 +13229,119 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Masukkan nama host atau alamat IP proxy.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>Masukkan port dari 1 sampai 65535.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nama pengguna tidak boleh berisi baris baru.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Masukkan kata sandi proxy untuk nama pengguna ini.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Kata sandi tidak dapat disimpan ke keyring sistem, jadi tidak ada yang diubah.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Masuk terlebih dahulu; proxy dimiliki oleh akun yang tersimpan.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Proxy tidak dapat disimpan.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Jaringan</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>Koneksi untuk akun ini</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>Langsung (pengaturan jaringan sistem)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Proxy HTTP</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Proxy SOCKS5</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>Host proxy</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>Port</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>Port proxy</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Nama pengguna (opsional)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nama pengguna proxy</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>Kata sandi tersimpan (ketik untuk mengganti)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">Kata sandi</translation>
+        <translation>Kata sandi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>Kata sandi proxy</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished">Simpan</translation>
+        <translation>Simpan</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tersimpan. Berlaku saat akun ini terhubung berikutnya.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dengan proxy, semua yang dikirim akun ini ke homeserver-nya melewatinya: sinkronisasi, kunci enkripsi, media, dan masuk kembali ke akun ini. Login pertama akun yang benar-benar baru terhubung langsung, dan halaman login yang dibuka di browser Anda memakai pengaturan jaringan browser itu sendiri. Jika proxy tidak dapat dijangkau, atau kata sandinya tidak dapat dibaca dari keyring, akun tetap offline alih-alih terhubung langsung. Pratinjau tautan lalu hanya berasal dari homeserver Anda, video dan gambar besar dari tautan tidak dimuat, panggilan tidak tersedia, dan akun tidak berjalan di latar belakang. Pencarian GIF dan pemeriksaan pembaruan memakai pengaturan jaringan sistem. Hanya disimpan di perangkat ini.</translation>
     </message>
 </context>
 <context>
@@ -15869,7 +15869,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18565,7 +18565,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Rute jaringan akun ini tidak dapat diterapkan, jadi Lightning tidak akan menghubungkannya secara langsung. Periksa proxy di Pengaturan.</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -22653,12 +22653,12 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
     <message>
         <location line="-835"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Jaringan dan proxy</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor jaringan koneksi</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -23066,7 +23066,7 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
     <message>
         <location line="+1"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Jaringan</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -24742,7 +24742,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Panggilan tidak tersedia selama akun ini menggunakan proxy.</translation>
     </message>
     <message>
         <location line="+7"/>

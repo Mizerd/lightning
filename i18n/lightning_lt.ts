@@ -1148,7 +1148,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2378,7 +2378,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8821,7 +8821,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Neprisijungta: šios paskyros tarpinis serveris arba namų serveris nepasiekiamas. Lightning toliau bando per tarpinį serverį, niekada tiesiogiai — jūsų kambariai lieka prieinami.</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9227,7 +9227,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9257,7 +9257,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12773,12 +12773,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+46"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Jūsų serveris mato šį URL — niekada tiesiogiai</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Jūsų serveris jį įkelia — niekada tiesiogiai</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -13313,119 +13313,119 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Įveskite tarpinio serverio pavadinimą arba IP adresą.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>Įveskite prievadą nuo 1 iki 65535.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naudotojo varde negali būti eilučių lūžių.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Įveskite šio naudotojo vardo tarpinio serverio slaptažodį.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Slaptažodžio nepavyko išsaugoti sistemos raktinėje, todėl niekas nepakeista.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pirmiausia prisijunkite; tarpinis serveris priklauso išsaugotai paskyrai.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tarpinio serverio nepavyko išsaugoti.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Tinklas</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>Šios paskyros ryšys</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>Tiesioginis (sistemos tinklo nustatymai)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>HTTP tarpinis serveris</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>SOCKS5 tarpinis serveris</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>Tarpinio serverio adresas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>Prievadas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>Tarpinio serverio prievadas</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Naudotojo vardas (nebūtinas)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>Tarpinio serverio naudotojo vardas</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>Slaptažodis išsaugotas (įveskite, kad pakeistumėte)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">Slaptažodis</translation>
+        <translation>Slaptažodis</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>Tarpinio serverio slaptažodis</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished"></translation>
+        <translation>Išsaugoti</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>Išsaugota. Bus taikoma kitą kartą prisijungus šiai paskyrai.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>Naudojant tarpinį serverį, viskas, ką ši paskyra siunčia savo namų serveriui, eina per jį: sinchronizavimas, šifravimo raktai, medija ir pakartotinis šios paskyros prisijungimas. Visiškai naujos paskyros pirmas prisijungimas jungiasi tiesiogiai, o naršyklėje atidarytas prisijungimo puslapis naudoja pačios naršyklės tinklo nustatymus. Jei tarpinis serveris nepasiekiamas arba jo slaptažodžio nepavyksta perskaityti iš raktinės, paskyra lieka neprisijungusi, užuot jungusis tiesiogiai. Tada nuorodų peržiūros gaunamos tik iš jūsų namų serverio, nuorodų vaizdo įrašai ir dideli paveikslėliai neįkeliami, skambučiai negalimi, o paskyra neveikia fone. GIF paieška ir naujinimų tikrinimas naudoja sistemos tinklo nustatymus. Saugoma tik šiame įrenginyje.</translation>
     </message>
 </context>
 <context>
@@ -15965,7 +15965,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18681,7 +18681,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šios paskyros tinklo maršruto nepavyko pritaikyti, todėl Lightning jos neprijungs tiesiogiai. Patikrinkite tarpinį serverį nustatymuose.</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -23348,12 +23348,12 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="-8949"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Tinklas ir tarpinis serveris</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor tinklas tarpinis serveris ryšys</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -23644,7 +23644,7 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+206"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Tinklas</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -24894,7 +24894,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Skambučiai negalimi, kol ši paskyra naudoja tarpinį serverį.</translation>
     </message>
     <message>
         <location line="+7"/>

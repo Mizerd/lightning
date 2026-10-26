@@ -1173,7 +1173,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2403,7 +2403,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8890,7 +8890,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>غير متصل: تعذّر الوصول إلى الوكيل أو الخادم المنزلي لهذا الحساب. يواصل Lightning المحاولة عبر الوكيل، وليس مباشرةً أبدًا — تبقى غرفك متاحة.</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9296,7 +9296,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9326,7 +9326,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12543,12 +12543,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+626"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>يرى خادمك عنوان URL هذا — وليس مباشرةً أبدًا</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>يحمّله خادمك — وليس مباشرةً أبدًا</translation>
     </message>
     <message>
         <location line="+983"/>
@@ -13430,119 +13430,119 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>أدخل اسم مضيف الوكيل أو عنوان IP الخاص به.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>أدخل منفذًا من 1 إلى 65535.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يمكن أن يحتوي اسم المستخدم على فواصل أسطر.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>أدخل كلمة مرور الوكيل لاسم المستخدم هذا.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر حفظ كلمة المرور في سلسلة مفاتيح النظام، لذا لم يتغير شيء.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>سجّل الدخول أولًا؛ فالوكيل يخص حسابًا محفوظًا.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر حفظ الوكيل.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>الشبكة</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>اتصال هذا الحساب</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>مباشر (إعدادات شبكة النظام)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>وكيل HTTP</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>وكيل SOCKS5</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>مضيف الوكيل</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>المنفذ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>منفذ الوكيل</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>اسم المستخدم (اختياري)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>اسم مستخدم الوكيل</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>كلمة المرور محفوظة (اكتب لاستبدالها)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">كلمة المرور</translation>
+        <translation>كلمة المرور</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>كلمة مرور الوكيل</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished">حفظ</translation>
+        <translation>حفظ</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>تم الحفظ. يُطبَّق في المرة القادمة التي يتصل فيها هذا الحساب.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>مع وجود وكيل، يمر عبره كل ما يرسله هذا الحساب إلى خادمه المنزلي: المزامنة ومفاتيح التشفير والوسائط وإعادة تسجيل الدخول إلى هذا الحساب. يتصل أول تسجيل دخول لحساب جديد تمامًا مباشرةً، وتستخدم صفحة تسجيل الدخول المفتوحة في متصفحك إعدادات الشبكة الخاصة بالمتصفح نفسه. إذا تعذّر الوصول إلى الوكيل أو تعذّرت قراءة كلمة مروره من سلسلة المفاتيح، يبقى الحساب غير متصل بدلًا من الاتصال مباشرةً. عندها تأتي معاينات الروابط من خادمك المنزلي فقط، ولا تُحمَّل مقاطع الفيديو والصور الكبيرة من الروابط، ولا تتوفر المكالمات، ولا يعمل الحساب في الخلفية. يستخدم البحث عن GIF والتحقق من التحديثات إعدادات شبكة النظام. يُحفظ على هذا الجهاز فقط.</translation>
     </message>
 </context>
 <context>
@@ -16100,7 +16100,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18846,7 +18846,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تطبيق مسار الشبكة لهذا الحساب، لذا لن يوصله Lightning مباشرةً. تحقّق من الوكيل في الإعدادات.</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -23009,12 +23009,12 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     <message>
         <location line="-835"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>الشبكة والوكيل</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor شبكة وكيل اتصال</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -23422,7 +23422,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     <message>
         <location line="+1"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>الشبكة</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -25113,7 +25113,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
     <message>
         <location line="+7"/>

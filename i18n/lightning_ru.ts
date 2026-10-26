@@ -1148,7 +1148,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+749"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -2378,7 +2378,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8821,7 +8821,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>Offline: this account&apos;s proxy or homeserver can&apos;t be reached. Lightning keeps trying through the proxy, never directly — your rooms stay available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Нет подключения: прокси или домашний сервер этой учётной записи недоступен. Lightning продолжает пытаться через прокси, никогда напрямую — ваши комнаты остаются доступны.</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -9227,7 +9227,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -9257,7 +9257,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12444,12 +12444,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+626"/>
         <source>Your server sees this URL — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваш сервер видит этот URL — никогда напрямую</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your server loads it — never direct</source>
-        <translation type="unfinished"></translation>
+        <translation>Ваш сервер загружает это — никогда напрямую</translation>
     </message>
     <message>
         <location line="+983"/>
@@ -13313,119 +13313,119 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/NetworkRouteSettings.qml" line="+45"/>
         <source>Enter the proxy&apos;s host name or IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Введите имя хоста или IP-адрес прокси.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter a port from 1 to 65535.</source>
-        <translation type="unfinished"></translation>
+        <translation>Введите порт от 1 до 65535.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The user name can&apos;t contain line breaks.</source>
-        <translation type="unfinished"></translation>
+        <translation>Имя пользователя не может содержать переносы строк.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enter the proxy password for this user name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Введите пароль прокси для этого имени пользователя.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The password couldn&apos;t be saved to the system keyring, so nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось сохранить пароль в системной связке ключей, поэтому ничего не изменено.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sign in first; a proxy belongs to a saved account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Сначала войдите; прокси принадлежит сохранённой учётной записи.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The proxy couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось сохранить прокси.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Сеть</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+19"/>
         <source>Connection for this account</source>
-        <translation type="unfinished"></translation>
+        <translation>Подключение для этой учётной записи</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Direct (system network settings)</source>
-        <translation type="unfinished"></translation>
+        <translation>Напрямую (системные настройки сети)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>HTTP proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>HTTP-прокси</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>SOCKS5 proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>SOCKS5-прокси</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+1"/>
         <source>Proxy host</source>
-        <translation type="unfinished"></translation>
+        <translation>Хост прокси</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Port</source>
-        <translation type="unfinished"></translation>
+        <translation>Порт</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy port</source>
-        <translation type="unfinished"></translation>
+        <translation>Порт прокси</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>User name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Имя пользователя (необязательно)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy user name</source>
-        <translation type="unfinished"></translation>
+        <translation>Имя пользователя прокси</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Password saved (type to replace)</source>
-        <translation type="unfinished"></translation>
+        <translation>Пароль сохранён (введите, чтобы заменить)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">Пароль</translation>
+        <translation>Пароль</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Proxy password</source>
-        <translation type="unfinished"></translation>
+        <translation>Пароль прокси</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Save</source>
-        <translation type="unfinished">Сохранить</translation>
+        <translation>Сохранить</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Saved. It applies the next time this account connects.</source>
-        <translation type="unfinished"></translation>
+        <translation>Сохранено. Применится при следующем подключении этой учётной записи.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>With a proxy, everything this account sends to its homeserver goes through it: sync, encryption keys, media, and signing this account in again. A brand-new account&apos;s first sign-in connects directly, and a sign-in page opened in your browser uses the browser&apos;s own network settings. If the proxy can&apos;t be reached, or its password can&apos;t be read from the keyring, the account stays offline instead of connecting directly. Link previews then come from your homeserver only, links&apos; videos and large images aren&apos;t loaded, calls aren&apos;t available, and the account doesn&apos;t run in the background. GIF search and update checks use the system&apos;s network settings. Kept on this device only.</source>
-        <translation type="unfinished"></translation>
+        <translation>С прокси всё, что эта учётная запись отправляет на свой домашний сервер, идёт через него: синхронизация, ключи шифрования, медиа и повторный вход в эту учётную запись. Первый вход совершенно новой учётной записи выполняется напрямую, а страница входа, открытая в браузере, использует сетевые настройки самого браузера. Если прокси недоступен или его пароль не удаётся прочитать из связки ключей, учётная запись остаётся офлайн вместо прямого подключения. Тогда предпросмотр ссылок приходит только с вашего домашнего сервера, видео и большие изображения из ссылок не загружаются, звонки недоступны, а учётная запись не работает в фоне. Поиск GIF и проверка обновлений используют системные настройки сети. Хранится только на этом устройстве.</translation>
     </message>
 </context>
 <context>
@@ -15965,7 +15965,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Calls aren&apos;t available while this account uses a proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -18681,7 +18681,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+281"/>
         <source>This account&apos;s network route could not be applied, so Lightning will not connect it directly. Check the proxy in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось применить сетевой маршрут этой учётной записи, поэтому Lightning не будет подключать её напрямую. Проверьте прокси в настройках.</translation>
     </message>
     <message>
         <location line="+745"/>
@@ -22799,12 +22799,12 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="-835"/>
         <source>Network and proxy</source>
-        <translation type="unfinished"></translation>
+        <translation>Сеть и прокси</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>network proxy socks http connection tor</source>
-        <translation type="unfinished"></translation>
+        <translation>network proxy socks http connection tor сеть прокси подключение</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -23212,7 +23212,7 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+1"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation>Сеть</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -24894,7 +24894,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-102"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Звонки недоступны, пока эта учётная запись использует прокси.</translation>
     </message>
     <message>
         <location line="+7"/>
