@@ -184,6 +184,7 @@ constexpr const char *kComponents[] = {
     "SettingsPercentBox",
     "SettingsNeedsBadge",
     "SettingsHint",
+    "SettingsChoiceRow",
     "SettingsNavGroupLabel",
     "SettingsNavOutline",
     // Break-it round (2026-10-16): the one leave-room confirmation (B133) and

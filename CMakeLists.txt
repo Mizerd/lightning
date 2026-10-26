@@ -1119,6 +1119,7 @@ set(APP_QML_FILES
     qml/SettingsPercentBox.qml
     qml/SettingsNeedsBadge.qml
     qml/SettingsHint.qml
+    qml/SettingsChoiceRow.qml
     qml/SettingsCheckBox.qml
     qml/AccountWheelSwitch.qml
     qml/SettingsNavGroupLabel.qml

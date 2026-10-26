@@ -14,11 +14,14 @@ AbstractButton {
     /// "classic" | "channels"
     property string variant: "classic"
     property bool current: false
+    /// A one-line tile: a small diagram beside the title and subtitle, for a
+    /// settings row (Settings > Layout). The full card stacks them.
+    property bool compact: false
 
     implicitWidth: 200
-    // Grows with its text; 152 is a floor so both cards match when the text
-    // fits.
-    implicitHeight: Math.max(152, cardBody.implicitHeight)
+    // Grows with its text; 152 (56 compact) is a floor so both cards match
+    // when the text fits.
+    implicitHeight: Math.max(root.compact ? 56 : 152, cardBody.implicitHeight)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
 
@@ -41,15 +44,17 @@ AbstractButton {
         }
     }
 
-    contentItem: Column {
+    contentItem: Grid {
         id: cardBody
+        columns: root.compact ? 2 : 1
         spacing: AppTheme.spacing8
-        padding: AppTheme.spacing12
+        padding: root.compact ? AppTheme.spacing8 : AppTheme.spacing12
+        verticalItemAlignment: Grid.AlignVCenter
 
         // The diagram
         Rectangle {
-            width: root.width - AppTheme.spacing12 * 2
-            height: 76
+            width: root.compact ? 72 : root.width - AppTheme.spacing12 * 2
+            height: root.compact ? 40 : 76
             radius: AppTheme.radiusSm
             color: AppTheme.sidebar
             clip: true
@@ -147,28 +152,35 @@ AbstractButton {
             }
         }
 
-        // Behind a Loader: set by the host and empty at creation.
-        Loader {
-            active: root.title.length > 0
-            sourceComponent: Label {
-                // Untrusted text: never markup.
-                textFormat: Text.PlainText
-                text: root.title
-                color: AppTheme.stormText
-                font.pixelSize: AppTheme.textBody
-                font.weight: AppTheme.weightMedium
+        Column {
+            id: cardTexts
+            spacing: AppTheme.spacing4
+            width: root.compact
+                   ? root.width - 72 - cardBody.spacing - cardBody.padding * 2
+                   : root.width - AppTheme.spacing12 * 2
+            // Behind a Loader: set by the host and empty at creation.
+            Loader {
+                active: root.title.length > 0
+                sourceComponent: Label {
+                    // Untrusted text: never markup.
+                    textFormat: Text.PlainText
+                    text: root.title
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightMedium
+                }
             }
-        }
-        Loader {
-            active: root.subtitle.length > 0
-            sourceComponent: Label {
-                // Untrusted text: never markup.
-                textFormat: Text.PlainText
-                width: root.width - AppTheme.spacing12 * 2
-                text: root.subtitle
-                wrapMode: Text.WordWrap
-                color: AppTheme.stormTextMuted
-                font.pixelSize: AppTheme.textMeta
+            Loader {
+                active: root.subtitle.length > 0
+                sourceComponent: Label {
+                    // Untrusted text: never markup.
+                    textFormat: Text.PlainText
+                    width: cardTexts.width
+                    text: root.subtitle
+                    wrapMode: Text.WordWrap
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textMeta
+                }
             }
         }
     }
