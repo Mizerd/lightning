@@ -460,7 +460,10 @@ Dialog {
                     // The name, or the field renaming it.
                     Label {
                         Layout.fillWidth: true
-                        Layout.minimumWidth: 0
+                        // Never squeezed to nothing: an invalid key's row also
+                        // carries the badge, and the name is what identifies
+                        // it (live run 2026-10-26 showed only the badge).
+                        Layout.minimumWidth: 56
                         visible: root.renamingKey !== imageRow.key
                         // A shortcode is remote text: never markup.
                         textFormat: Text.PlainText
