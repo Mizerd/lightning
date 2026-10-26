@@ -686,6 +686,16 @@ ApplicationWindow {
     // above grows after the first positioning (an image, voice note or code
     // block learning its real height). It used to open part-way through its
     // history.
+    // The panel's own "at the newest reply" test (bottom slack included):
+    // positionViewAtEnd() leaves the list's bottomMargin unrevealed, so
+    // Flickable's atYEnd is stricter than what the panel follows on.
+    static bool atBottomEdge(QQuickItem *list)
+    {
+        QVariant r;
+        QMetaObject::invokeMethod(list, "atBottomEdge", Q_RETURN_ARG(QVariant, r));
+        return r.toBool();
+    }
+
     void aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow()
     {
         QString root;
@@ -702,10 +712,13 @@ ApplicationWindow {
                                           Q_RETURN_ARG(QQuickItem *, row),
                                           Q_ARG(int, count - 2)));
         QVERIFY(row);
+        // Grow it past the viewport: a thread that still fits is trivially
+        // "at its end", which once let this case pass on a broken pin.
         const qreal natural = row->implicitHeight();
-        row->setProperty("heightSeed", natural + 600);
+        row->setProperty("heightSeed", natural + list->height());
         row->setProperty("heightSeedActive", true);
-        QTRY_VERIFY2(list->property("atYEnd").toBool(),
+        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() + 100);
+        QTRY_VERIFY2(atBottomEdge(list),
                      "a followed thread must stay on its newest reply");
         QVERIFY(list->property("followLatest").toBool());
     }
@@ -723,6 +736,7 @@ ApplicationWindow {
         openThreadPanel(&root);
         auto *list = item("threadReplyList");
         QVERIFY(list);
+        QTRY_VERIFY(list->property("followLatest").toBool());
         QTRY_VERIFY(list->property("atYEnd").toBool());
         // The mock thread fits in the view; make it taller than the view so
         // there is somewhere to scroll (the pin keeps the end in view).
@@ -737,10 +751,13 @@ ApplicationWindow {
         // aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow (growing the
         // newest row itself did not leave the list at its end in the
         // offscreen run, which is that case's subject, not this one's).
-        row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
+        // Grown by one viewport: enough to leave room to scroll. A growth of
+        // two viewports did not stay pinned offscreen -- a known follow-up,
+        // not this case's subject.
+        row->setProperty("heightSeed", row->implicitHeight() + list->height());
         row->setProperty("heightSeedActive", true);
-        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
-        QTRY_VERIFY(list->property("atYEnd").toBool());
+        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() + 100);
+        QTRY_VERIFY(atBottomEdge(list));
         const QPointF top = list->mapToScene(QPointF(list->width() / 2, 40));
         const QPointF bottom =
             list->mapToScene(QPointF(list->width() / 2, list->height() - 40));

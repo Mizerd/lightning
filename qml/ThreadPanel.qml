@@ -1340,8 +1340,11 @@ Rectangle {
                 // disengages.
                 readonly property real bottomFollowSlack: 8
                 function atBottomEdge() {
+                    // originY moves when the ListView re-estimates rows above,
+                    // so the end is measured from it, not from 0.
                     return atYEnd
-                           || (contentY + height >= contentHeight - bottomFollowSlack)
+                           || (contentY + height
+                               >= originY + contentHeight - bottomFollowSlack)
                 }
                 function scrollToEndDeferredIfFollowing() {
                     if (followLatest && count > 0) {
