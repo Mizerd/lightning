@@ -426,6 +426,14 @@ impl BgState {
         self.mode() == Mode::Background
     }
 
+    /// Warm account adoption (`mx_rust_bg_promote`): from now on every
+    /// `for_queue()` of this handle answers `None`, so the admission gate, the
+    /// command lane and the UiOnly producers all take the foreground path. One
+    /// way: a promoted handle is never demoted again (it is retired instead).
+    pub(crate) fn promote_to_foreground(&self) {
+        self.mode.store(Mode::Foreground as u8, Ordering::SeqCst);
+    }
+
     pub(crate) fn watch_cap(&self) -> usize {
         self.profile.watch_cap
     }

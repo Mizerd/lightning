@@ -172,6 +172,13 @@ impl TokenLedger {
         *self.custody.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(custody);
     }
 
+    /// Warm account adoption: the handle leaves its background host, whose
+    /// custody no longer reads these facts. Rotations ride the foreground's
+    /// command lane from now on, as for every foreground handle.
+    pub(crate) fn detach_custody(&self) {
+        *self.custody.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     /// The newest rotation recorded on this handle (0: none). Read BEFORE the
     /// live tokens by custody, so the pair a host writes is at least as new
     /// as the generation it answers for.

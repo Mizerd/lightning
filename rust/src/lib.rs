@@ -11689,6 +11689,61 @@ pub unsafe extern "C" fn mx_rust_bg_set_send_queue_enabled(
     })
 }
 
+/// Warm account adoption (master prompt Part 4 §4): turns a RUNNING Background
+/// handle into a foreground one in place, so the foreground client adopts the
+/// live session instead of retiring it and restoring a second Client into the
+/// same store. "" on success, "error: ..." with NOTHING changed when the handle
+/// is not Background or holds no session.
+///
+/// Order: the background sync loop, aggregator and crypto-bootstrap observer
+/// stop (they captured background-ness when they started); the mode flips, so
+/// every `bgsession::for_queue()` of this handle answers `None` (admission gate,
+/// command lane, UiOnly producers); the queues leave the registry; custody
+/// detaches from the token ledger (rotations ride the foreground command lane
+/// from now on); the UI-only handlers a Background install skipped are
+/// installed; the background-shaped residue in both queues is dropped; and a
+/// token-free `login_ok` (`adopted: true`) runs the ordinary foreground login
+/// path, whose `start_sync` starts a foreground sync loop on the same Client.
+/// No token, key or body is read or logged here.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let bg = Arc::clone(background_of(bridge)?);
+        let client = bridge
+            .client
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .ok_or_else(|| "the background handle has no session to adopt".to_owned())?;
+        let user_id = client
+            .user_id()
+            .map(|user| user.to_string())
+            .ok_or_else(|| "the background handle has no signed-in user".to_owned())?;
+        let device_id = client.device_id().map(|device| device.to_string()).unwrap_or_default();
+        bridge.stop_sync_and_wait();
+        bg.promote_to_foreground();
+        bgsession::unregister(&bridge.events, &bridge.command_events);
+        bridge.token_ledger.detach_custody();
+        install_ui_event_handlers(&client, Arc::clone(&bridge.events));
+        if let Ok(mut queue) = bridge.events.lock() {
+            queue.clear();
+        }
+        if let Ok(mut queue) = bridge.command_events.lock() {
+            queue.clear();
+        }
+        // No homeserver field: C++ keeps the identity the adoption ticket
+        // carried (the record's canonical form, not the SDK's URL spelling).
+        bridge.enqueue(json!({
+            "type": "login_ok",
+            "user_id": user_id,
+            "device_id": device_id,
+            "adopted": true,
+        }));
+        Ok(String::new())
+    })
+}
+
 /// SENSITIVE. Live custody (contract §3.4): the tokens the Client holds NOW
 /// plus the token task's facts. "" without a client. Never log the result.
 #[no_mangle]
@@ -12792,6 +12847,188 @@ async fn decrypted_event_json(
     Some(event)
 }
 
+/// The handlers that feed only UI state (typing, member and power pokes,
+/// pins, DM avatars, tombstones, chat backgrounds, synced settings, account
+/// prefs, sticker packs, admin deletions). A Background handle installs none
+/// of them (design §3.2.3, R2-H4); a handle promoted to the foreground
+/// (`mx_rust_bg_promote`, warm account adoption) installs them then, once.
+fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {
+    // m.typing replaces the room's whole typing set each time. Bound display
+    // metadata resolution while keeping enough ids for one/two/many wording.
+    let typing_events = Arc::clone(&events);
+    let own_user = client.user_id().map(ToOwned::to_owned);
+    client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
+        let events = Arc::clone(&typing_events);
+        let own_user = own_user.clone();
+        async move {
+            let mut users = Vec::new();
+            for user_id in ev.content.user_ids.into_iter()
+                .filter(|user_id| Some(user_id) != own_user.as_ref())
+                .take(32) {
+                let display_name = room.get_member_no_sync(&user_id).await.ok().flatten()
+                    .map(|member| member.name().to_owned()).unwrap_or_default();
+                users.push(json!({
+                    "user_id": user_id.to_string(), "display_name": display_name
+                }));
+            }
+            enqueue(&events, json!({
+                "type": "typing_update", "room_id": room.room_id().to_string(),
+                "users": users,
+            }));
+        }
+    });
+    // Membership changes from sync: a per-room poke so an open People panel
+    // and the mention roster refetch (sync produces no members snapshot).
+    // Only the room id crosses.
+    //
+    // Rate-limited per room: m.room.member also covers profile changes, and a
+    // bridged room can sync several per second. At most one leading poke per
+    // second, plus one trailing poke per suppressed burst so the last change
+    // is not missed.
+    let member_events = Arc::clone(&events);
+    let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    client.add_event_handler(move |_ev: SyncRoomMemberEvent, room: Room| {
+        let events = Arc::clone(&member_events);
+        let poke_state = Arc::clone(&member_poke_state);
+        async move {
+            const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+            let room_id = room.room_id().to_owned();
+            let now = std::time::Instant::now();
+            {
+                let mut state = poke_state.lock().unwrap();
+                match state.get_mut(&room_id) {
+                    Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
+                        if *trailing {
+                            return; // a trailing poke is already scheduled
+                        }
+                        *trailing = true;
+                        let events = Arc::clone(&events);
+                        let poke_state = Arc::clone(&poke_state);
+                        let deadline = *last + WINDOW;
+                        let room_id = room_id.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep_until(deadline.into()).await;
+                            if let Some((last, trailing)) =
+                                poke_state.lock().unwrap().get_mut(&room_id)
+                            {
+                                *last = std::time::Instant::now();
+                                *trailing = false;
+                            }
+                            enqueue(&events, json!({
+                                "type": "room_members_changed",
+                                "room_id": room_id.to_string(),
+                            }));
+                        });
+                        return;
+                    }
+                    Some(entry) => *entry = (now, false),
+                    None => {
+                        state.insert(room_id.clone(), (now, false));
+                    }
+                }
+            }
+            enqueue(&events, json!({
+                "type": "room_members_changed",
+                "room_id": room_id.to_string(),
+            }));
+        }
+    });
+
+    // Another client changed `m.room.pinned_events`. Only the room id crosses;
+    // C++ re-reads through the normal fetch, so remote and local pins take the
+    // same path. Not rate-limited: pinning happens at human frequency.
+    let pinned_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
+        let events = Arc::clone(&pinned_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_pinned_changed",
+                "room_id": room.room_id().to_string(),
+            }));
+        }
+    });
+
+    // A DM peer's own member event: the avatar that conversation wears now,
+    // so its row follows a changed face (DirectAvatarResolver asks the
+    // profile once per session). Only the m.direct target's own join
+    // crosses; human-paced, so not throttled like the poke above.
+    let peer_avatar_events = Arc::clone(&events);
+    client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
+        let events = Arc::clone(&peer_avatar_events);
+        async move {
+            let targets: Vec<String> =
+                room.direct_targets().iter().map(ToString::to_string).collect();
+            if let Some(payload) =
+                direct_peer_avatar_payload(room.room_id().as_str(), &ev, &targets)
+            {
+                enqueue(&events, payload);
+            }
+        }
+    });
+
+    // m.room.tombstone: the room was replaced, and the "continue in successor"
+    // banner must appear immediately. Not rate-limited (once per room
+    // lifetime). Carries the successor id, taken from the SDK's
+    // `successor_room()` so there is one parse path.
+    let tombstone_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
+        let events = Arc::clone(&tombstone_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_tombstone_changed",
+                "room_id": room.room_id().to_string(),
+                "successor_room_id": room
+                    .successor_room()
+                    .map(|successor| successor.room_id.to_string())
+                    .unwrap_or_default(),
+            }));
+        }
+    });
+
+    // A shared chat background changed (Lightning's own state event, which
+    // sliding sync never delivers as state). Only the room id crosses; C++
+    // re-reads the scopes it shows. See backdrop::install_change_handler.
+    backdrop::install_change_handler(client, Arc::clone(&events));
+
+    // This account's personal backgrounds changed in account data (another
+    // device set or removed one, or our own write came back). Only the scope
+    // crosses; C++ re-reads it. See bgsync::install_change_handlers.
+    bgsync::install_change_handlers(client, Arc::clone(&events));
+    // Synced preferences (settingsync.rs): same pattern, one payload.
+    settingsync::install_change_handlers(client, Arc::clone(&events));
+
+    // MSC4278 media-preview config and Element's recent emoji changed in
+    // account data. Only the type crosses; C++ re-reads it.
+    accountprefs::install_change_handlers(client, Arc::clone(&events));
+
+    // Image packs or subscriptions changed (another device, another room
+    // member, or our own write's echo): only the room id (or nothing, for
+    // account data) crosses; C++ re-reads. See stickers::install_change_handlers.
+    stickers::install_change_handlers(client, Arc::clone(&events));
+
+    // A room an administrator deleted from another of the user's sessions
+    // (serveradmin.rs): the server purged it, so sync never says it is gone.
+    serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
+
+    // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
+    iotrace::start_if_enabled(Arc::clone(&events));
+
+    // A power-level change invalidates cached permission flags now. Routed
+    // through the existing members poke, since the member snapshot carries
+    // both per-member levels and the viewer's own permissions.
+    let power_level_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
+        let events = Arc::clone(&power_level_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_members_changed",
+                "room_id": room.room_id().to_string(),
+            }));
+        }
+    });
+}
+
 fn install_event_handlers(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -12885,8 +13122,10 @@ fn install_event_handlers(
                 // It leaves the sticky slot on the requester's cancellation
                 // (the handler below) or after the SDK's timeout
                 // (`bgsession::PENDING_VERIFICATION_TTL`); nothing here holds
-                // the request, whose handle keeps a Client.
-                if background {
+                // the request, whose handle keeps a Client. Asked per event,
+                // not captured at install: an adopted handle is promoted to
+                // the foreground after its handlers were installed.
+                if bgsession::for_queue(&events).is_some() {
                     enqueue(
                         &events,
                         json!({
@@ -12945,6 +13184,11 @@ fn install_event_handlers(
             move |ev: matrix_sdk::ruma::events::key::verification::cancel::ToDeviceKeyVerificationCancelEvent| {
                 let events = Arc::clone(&cancel_events);
                 async move {
+                    // Promoted to the foreground since: its own flows report
+                    // cancellations, and this one would duplicate them.
+                    if bgsession::for_queue(&events).is_none() {
+                        return;
+                    }
                     enqueue(
                         &events,
                         json!({
@@ -12965,180 +13209,7 @@ fn install_event_handlers(
     // typing one reads the member store per event: skipped at the source,
     // not just dropped at the queue (design §3.2.3, R2-H4).
     if !background {
-        // m.typing replaces the room's whole typing set each time. Bound display
-        // metadata resolution while keeping enough ids for one/two/many wording.
-        let typing_events = Arc::clone(&events);
-        let own_user = client.user_id().map(ToOwned::to_owned);
-        client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
-            let events = Arc::clone(&typing_events);
-            let own_user = own_user.clone();
-            async move {
-                let mut users = Vec::new();
-                for user_id in ev.content.user_ids.into_iter()
-                    .filter(|user_id| Some(user_id) != own_user.as_ref())
-                    .take(32) {
-                    let display_name = room.get_member_no_sync(&user_id).await.ok().flatten()
-                        .map(|member| member.name().to_owned()).unwrap_or_default();
-                    users.push(json!({
-                        "user_id": user_id.to_string(), "display_name": display_name
-                    }));
-                }
-                enqueue(&events, json!({
-                    "type": "typing_update", "room_id": room.room_id().to_string(),
-                    "users": users,
-                }));
-            }
-        });
-        // Membership changes from sync: a per-room poke so an open People panel
-        // and the mention roster refetch (sync produces no members snapshot).
-        // Only the room id crosses.
-        //
-        // Rate-limited per room: m.room.member also covers profile changes, and a
-        // bridged room can sync several per second. At most one leading poke per
-        // second, plus one trailing poke per suppressed burst so the last change
-        // is not missed.
-        let member_events = Arc::clone(&events);
-        let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        client.add_event_handler(move |_ev: SyncRoomMemberEvent, room: Room| {
-            let events = Arc::clone(&member_events);
-            let poke_state = Arc::clone(&member_poke_state);
-            async move {
-                const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-                let room_id = room.room_id().to_owned();
-                let now = std::time::Instant::now();
-                {
-                    let mut state = poke_state.lock().unwrap();
-                    match state.get_mut(&room_id) {
-                        Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
-                            if *trailing {
-                                return; // a trailing poke is already scheduled
-                            }
-                            *trailing = true;
-                            let events = Arc::clone(&events);
-                            let poke_state = Arc::clone(&poke_state);
-                            let deadline = *last + WINDOW;
-                            let room_id = room_id.clone();
-                            tokio::spawn(async move {
-                                tokio::time::sleep_until(deadline.into()).await;
-                                if let Some((last, trailing)) =
-                                    poke_state.lock().unwrap().get_mut(&room_id)
-                                {
-                                    *last = std::time::Instant::now();
-                                    *trailing = false;
-                                }
-                                enqueue(&events, json!({
-                                    "type": "room_members_changed",
-                                    "room_id": room_id.to_string(),
-                                }));
-                            });
-                            return;
-                        }
-                        Some(entry) => *entry = (now, false),
-                        None => {
-                            state.insert(room_id.clone(), (now, false));
-                        }
-                    }
-                }
-                enqueue(&events, json!({
-                    "type": "room_members_changed",
-                    "room_id": room_id.to_string(),
-                }));
-            }
-        });
-
-        // Another client changed `m.room.pinned_events`. Only the room id crosses;
-        // C++ re-reads through the normal fetch, so remote and local pins take the
-        // same path. Not rate-limited: pinning happens at human frequency.
-        let pinned_events = Arc::clone(&events);
-        client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
-            let events = Arc::clone(&pinned_events);
-            async move {
-                enqueue(&events, json!({
-                    "type": "room_pinned_changed",
-                    "room_id": room.room_id().to_string(),
-                }));
-            }
-        });
-
-        // A DM peer's own member event: the avatar that conversation wears now,
-        // so its row follows a changed face (DirectAvatarResolver asks the
-        // profile once per session). Only the m.direct target's own join
-        // crosses; human-paced, so not throttled like the poke above.
-        let peer_avatar_events = Arc::clone(&events);
-        client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
-            let events = Arc::clone(&peer_avatar_events);
-            async move {
-                let targets: Vec<String> =
-                    room.direct_targets().iter().map(ToString::to_string).collect();
-                if let Some(payload) =
-                    direct_peer_avatar_payload(room.room_id().as_str(), &ev, &targets)
-                {
-                    enqueue(&events, payload);
-                }
-            }
-        });
-
-        // m.room.tombstone: the room was replaced, and the "continue in successor"
-        // banner must appear immediately. Not rate-limited (once per room
-        // lifetime). Carries the successor id, taken from the SDK's
-        // `successor_room()` so there is one parse path.
-        let tombstone_events = Arc::clone(&events);
-        client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
-            let events = Arc::clone(&tombstone_events);
-            async move {
-                enqueue(&events, json!({
-                    "type": "room_tombstone_changed",
-                    "room_id": room.room_id().to_string(),
-                    "successor_room_id": room
-                        .successor_room()
-                        .map(|successor| successor.room_id.to_string())
-                        .unwrap_or_default(),
-                }));
-            }
-        });
-
-        // A shared chat background changed (Lightning's own state event, which
-        // sliding sync never delivers as state). Only the room id crosses; C++
-        // re-reads the scopes it shows. See backdrop::install_change_handler.
-        backdrop::install_change_handler(client, Arc::clone(&events));
-
-        // This account's personal backgrounds changed in account data (another
-        // device set or removed one, or our own write came back). Only the scope
-        // crosses; C++ re-reads it. See bgsync::install_change_handlers.
-        bgsync::install_change_handlers(client, Arc::clone(&events));
-        // Synced preferences (settingsync.rs): same pattern, one payload.
-        settingsync::install_change_handlers(client, Arc::clone(&events));
-
-        // MSC4278 media-preview config and Element's recent emoji changed in
-        // account data. Only the type crosses; C++ re-reads it.
-        accountprefs::install_change_handlers(client, Arc::clone(&events));
-
-        // Image packs or subscriptions changed (another device, another room
-        // member, or our own write's echo): only the room id (or nothing, for
-        // account data) crosses; C++ re-reads. See stickers::install_change_handlers.
-        stickers::install_change_handlers(client, Arc::clone(&events));
-
-        // A room an administrator deleted from another of the user's sessions
-        // (serveradmin.rs): the server purged it, so sync never says it is gone.
-        serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
-
-        // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
-        iotrace::start_if_enabled(Arc::clone(&events));
-
-        // A power-level change invalidates cached permission flags now. Routed
-        // through the existing members poke, since the member snapshot carries
-        // both per-member levels and the viewer's own permissions.
-        let power_level_events = Arc::clone(&events);
-        client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
-            let events = Arc::clone(&power_level_events);
-            async move {
-                enqueue(&events, json!({
-                    "type": "room_members_changed",
-                    "room_id": room.room_id().to_string(),
-                }));
-            }
-        });
+        install_ui_event_handlers(client, Arc::clone(&events));
     }
 
     // Room messages, decrypted or plaintext (the SDK dispatches both here).
@@ -22519,6 +22590,74 @@ mod labs_tests {
                 let kind = event["type"].as_str().unwrap_or("");
                 assert!(labs::flows_in_background(labs::classify(kind)), "{kind} reached the queue");
             }
+            let report = retire(background);
+            assert!(report.starts_with("store_closed=true "), "{report}");
+            assert_eq!(storeclose::any_held_path(&store.0), 0);
+        }
+        labs::disable_for_test();
+    }
+
+    // Warm account adoption (master prompt Part 4 §4): a RUNNING Background
+    // handle is promoted in place. The same handle keeps the one store it
+    // opened (no second open), the queue carries a token-free adopted
+    // login_ok, the per-handle foreground controls it refused as Background
+    // now answer, and a foreground sync starts on it. A handle that is not
+    // Background, or has no session, is refused with nothing changed.
+    #[test]
+    fn a_running_background_handle_is_promoted_in_place_to_the_foreground() {
+        let _labs = labs_on();
+        let homeserver = serve();
+        let store = StoreDir::new("promote");
+        unsafe {
+            // A foreground sign-in creates the store, then closes it.
+            let foreground = super::mx_rust_create(store.c().as_ptr());
+            restore(foreground, &homeserver);
+            let mut fg_seen = Vec::new();
+            wait_for(foreground, &mut fg_seen, "foreground login_ok", |v| {
+                assert_ne!(v["type"], "login_failed", "{v}");
+                v["type"] == "login_ok"
+            });
+            // A foreground handle is not Background: refused.
+            assert!(take(super::mx_rust_bg_promote(foreground)).starts_with("error: "));
+            let report = retire(foreground);
+            assert!(report.starts_with("store_closed=true "), "{report}");
+
+            // Not yet restored: no session, refused, still Background.
+            let background =
+                super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
+            assert!(!background.is_null());
+            assert!(take(super::mx_rust_bg_promote(background)).starts_with("error: "));
+            let mut status = super::MxRustBgStatus::default();
+            assert_eq!(super::mx_rust_bg_poll(background, &mut status), 0, "a refusal changed the mode");
+
+            restore(background, &homeserver);
+            let mut seen = Vec::new();
+            wait_for(background, &mut seen, "background login_ok", |v| {
+                assert_ne!(v["type"], "login_failed", "{v}");
+                v["type"] == "login_ok"
+            });
+            assert_eq!(storeclose::any_held_path(&store.0), 1);
+
+            assert_eq!(take(super::mx_rust_bg_promote(background)), "");
+            let mut promoted = Vec::new();
+            let adopted = wait_for(background, &mut promoted, "adopted login_ok", |v| {
+                v["type"] == "login_ok"
+            });
+            assert_eq!(adopted["adopted"], true, "{adopted}");
+            assert_eq!(adopted["user_id"], USER, "{adopted}");
+            assert!(adopted.get("access_token").is_none() && adopted.get("refresh_token").is_none());
+            // The same handle, the same single store open.
+            assert_eq!(storeclose::any_held_path(&store.0), 1, "a second open of the store");
+            assert_eq!(super::mx_rust_bg_poll(background, &mut status), -1, "still Background");
+            // Controls a Background handle refuses now answer as foreground.
+            assert_eq!(take(super::mx_rust_set_receipt_privacy(background, 1)), "");
+            // A second promotion has nothing to promote.
+            assert!(take(super::mx_rust_bg_promote(background)).starts_with("error: "));
+            // A foreground sync starts on the adopted session.
+            super::mx_rust_start_sync(background);
+            wait_for(background, &mut promoted, "foreground syncing", |v| {
+                v["type"] == "status" && v["state"] == "syncing"
+            });
             let report = retire(background);
             assert!(report.starts_with("store_closed=true "), "{report}");
             assert_eq!(storeclose::any_held_path(&store.0), 0);

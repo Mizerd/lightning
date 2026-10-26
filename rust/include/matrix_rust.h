@@ -2452,6 +2452,14 @@ char *mx_rust_bg_set_local_rules(void *client, const char *rooms_json);
 
 /* send_queue().set_enabled(enabled != 0), spawned on the handle runtime; "" when dispatched. */
 char *mx_rust_bg_set_send_queue_enabled(void *client, int enabled);
+/* Warm account adoption: turns a RUNNING Background handle into a foreground
+ * one in place (stops its background sync loop, flips its mode, detaches
+ * custody, installs the UI handlers, clears both queues and enqueues a
+ * token-free `login_ok` with `adopted: true`). "" on success; "error: ..."
+ * with nothing changed for a handle that is not Background or has no
+ * session. Free with mx_rust_free_cstring. GUI thread: it joins the stopped
+ * sync loop within its budget (as mx_rust_stop_sync does). */
+char *mx_rust_bg_promote(void *client);
 
 /* SENSITIVE. Live custody: final_session_tokens() plus the revoked flag (contract §3.4). The
  * facts are read BEFORE the tokens, so "generation" is never newer than the tokens it comes with:
