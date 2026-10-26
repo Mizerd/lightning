@@ -54,7 +54,8 @@ public:
 
     // Abandons the job for `cacheKey`: the partial file is discarded and no
     // completion is emitted. The key is released at once; a new job cannot
-    // collide on disk because only a committing QSaveFile renames into place.
+    // collide on disk because each job writes its own uniquely named
+    // temporary and only a commit renames into place (storage/ScratchFile.h).
     void cancel(const QString &cacheKey);
     // Abandon every job (sign-out, account switch, exit).
     void cancelAll();

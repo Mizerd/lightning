@@ -1,9 +1,9 @@
 #include "media/PlayableFileWriter.h"
+#include "storage/ScratchFile.h"
 
 #include <QFileDevice>
 #include <QLoggingCategory>
 #include <QMutexLocker>
-#include <QSaveFile>
 #include <QThread>
 
 #include <algorithm>
@@ -97,13 +97,11 @@ void PlayableWriteWorker::enqueue(const QString &cacheKey, const QString &path,
     bool ok = false;
     bool abandoned = false;
     {
-        QSaveFile file(path);
-        if (file.open(QIODevice::WriteOnly)) {
-            // Owner-only before any byte is written; QSaveFile otherwise
-            // honours the umask. A second layer behind the 0700 session
-            // directory.
-            file.setPermissions(QFileDevice::ReadOwner
-                                | QFileDevice::WriteOwner);
+        // Session scratch: published by rename like QSaveFile, but never
+        // fsync'd (storage/ScratchFile.h). Owner-only before any byte is
+        // written, a second layer behind the 0700 session directory.
+        lightning::scratch::ScratchFile file(path);
+        if (file.open()) {
             const qint64 total = bytes.size();
             qint64 written = 0;
             bool failed = false;

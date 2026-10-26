@@ -2,10 +2,10 @@
 
 #include "gif/GifResponseParser.h"
 #include "gif/GifTransport.h"
+#include "storage/ScratchFile.h"
 
 #include <QCryptographicHash>
 #include <QFile>
-#include <QSaveFile>
 #include <QTemporaryDir>
 #include <QUrl>
 
@@ -265,10 +265,10 @@ QString GifPreviewCache::store(const QString &url, const QByteArray &bytes)
         QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha256)
             .toHex()) + QStringLiteral(".gif");
     const QString path = m_dir->filePath(name);
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly))
+    // A session temp file: no fsync (storage/ScratchFile.h), owner-only.
+    lightning::scratch::ScratchFile file(path);
+    if (!file.open())
         return {};
-    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     if (file.write(bytes) != bytes.size() || !file.commit())
         return {};
     m_files.insert(url, { path, bytes.size() });

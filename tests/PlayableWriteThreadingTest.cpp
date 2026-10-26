@@ -16,6 +16,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileDevice>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -185,7 +186,7 @@ private Q_SLOTS:
         QCOMPARE(deliveredOn.load(), QThread::currentThread());
     }
 
-    // A cancelled job leaves nothing (neither the final file nor QSaveFile's
+    // A cancelled job leaves nothing (neither the final file nor the writer's
     // temporary) and owes no completion, since the caller already dropped its
     // tracking entry.
     void aCancelledWriteLeavesNothingBehindAndNoCompletion()
@@ -217,6 +218,36 @@ private Q_SLOTS:
         // temporary, would show up as a second entry here.
         QCOMPARE(leftovers, QStringList{QStringLiteral("busy.mp4")});
         QVERIFY(!QFileInfo::exists(doomedPath));
+    }
+
+    // The writer publishes like QSaveFile without its fsync
+    // (storage/ScratchFile.h): a write over a file already at the path
+    // replaces it whole, owner-only, and leaves no temporary beside it.
+    // MediaBridge re-materializes a key at the same path after an eviction.
+    void aWriteOverAnExistingFileReplacesItAndLeavesNoTemporary()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("again.mp4"));
+        {
+            QFile stale(path);
+            QVERIFY(stale.open(QIODevice::WriteOnly));
+            QVERIFY(stale.write("an older, longer payload that must not survive") > 0);
+        }
+        const QByteArray bytes(64 * 1024, 'n');
+        PlayableFileWriter writer;
+        QSignalSpy finished(&writer, &PlayableFileWriter::writeFinished);
+        QVERIFY(writer.write(QStringLiteral("again"), path, bytes, 1) != 0);
+        QVERIFY(waitForCount(finished, 1));
+        QVERIFY(finished.at(0).at(4).toBool());
+        QFile written(path);
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        QCOMPARE(written.readAll(), bytes);
+        const auto perms = QFileInfo(path).permissions();
+        QVERIFY(!(perms & QFileDevice::ReadGroup));
+        QVERIFY(!(perms & QFileDevice::ReadOther));
+        QCOMPARE(QDir(dir.path()).entryList(QDir::Files | QDir::Hidden),
+                 QStringList{QStringLiteral("again.mp4")});
     }
 
     // A cancelled key is released immediately, so the caller can re-ask

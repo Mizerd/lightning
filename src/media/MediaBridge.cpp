@@ -5,6 +5,7 @@
 #include "media/ImageFormatSupport.h"
 
 #include "storage/PortableMode.h"
+#include "storage/ScratchFile.h"
 
 
 #include "app/GuiStallTracer.h"
@@ -998,7 +999,7 @@ void MediaBridge::abortFetch(const QString &cacheKey)
 {
     m_prefetchWanted.remove(cacheKey);
     m_posterWanted.remove(cacheKey);
-    // Abandon a write already on the worker thread too. QSaveFile discards the
+    // Abandon a write already on the worker thread too. The writer discards the
     // partial file and no completion is emitted; a fresh Play re-materializes
     // from the cached bytes.
     if (m_playableWriting.remove(cacheKey) > 0 && m_playableWriter)
@@ -1831,7 +1832,7 @@ void MediaBridge::onPlayableWriteFinished(quint64 serial,
     const PendingPlayableWrite pending = it.value();
     m_playableWriting.erase(it);
     if (!ok) {
-        // QSaveFile discarded its temp file. No failure mark: a disk error is
+        // The writer discarded its temp file. No failure mark: a disk error is
         // not a verdict on the payload, and the consumer may retry.
         m_posterWanted.remove(cacheKey);
         m_playableWanted.remove(cacheKey);
@@ -1987,12 +1988,12 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
         + QLatin1Char('-') + QString::number(++m_animatedWriteSerial)
         + QLatin1Char('.') + extension;
     const QString path = m_animatedDir->filePath(name);
-    QSaveFile file(path);
-    // 0600 before writing: these are decrypted payloads and must not rely on
-    // the 0700 directory alone.
-    if (!file.open(QIODevice::WriteOnly))
+    // 0600 before writing (ScratchFile::open): these are decrypted payloads
+    // and must not rely on the 0700 directory alone. Session scratch, so no
+    // fsync (storage/ScratchFile.h).
+    lightning::scratch::ScratchFile file(path);
+    if (!file.open())
         return {};
-    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     if (file.write(bytes) != bytes.size() || !file.commit())
         return {};
     // The key's previous file, if it is still there: gone unless something is
