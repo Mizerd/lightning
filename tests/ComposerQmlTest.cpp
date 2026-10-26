@@ -489,6 +489,35 @@ private slots:
         input->setProperty("text", QString());
     }
 
+    void consecutiveEmojiPicksAppendAtTheAdvancingCursor()
+    {
+        // The emoji picker stays open for several picks; each pick used the
+        // insert point remembered when the picker OPENED, so two picks in a
+        // row came out in reverse order ("aYXb" for X then Y). Live run
+        // 2026-10-26. A selection is replaced by the first pick only.
+        auto *bar = item("composerBar");
+        auto *input = item("composerInput");
+        QVERIFY(bar && input);
+        input->setProperty("text", QStringLiteral("ab"));
+        input->setProperty("cursorPosition", 1);
+        bar->setProperty("emojiSelectionStart", 1);
+        bar->setProperty("emojiSelectionEnd", 1);
+        bar->setProperty("emojiCursorPosition", 1);
+        QMetaObject::invokeMethod(bar, "insertEmoji", Q_ARG(QVariant, QStringLiteral("X")));
+        QMetaObject::invokeMethod(bar, "insertEmoji", Q_ARG(QVariant, QStringLiteral("Y")));
+        QCOMPARE(input->property("text").toString(), QStringLiteral("aXYb"));
+        QCOMPARE(input->property("cursorPosition").toInt(), 3);
+
+        input->setProperty("text", QStringLiteral("hello"));
+        bar->setProperty("emojiSelectionStart", 1);
+        bar->setProperty("emojiSelectionEnd", 4);
+        bar->setProperty("emojiCursorPosition", 4);
+        QMetaObject::invokeMethod(bar, "insertEmoji", Q_ARG(QVariant, QStringLiteral("X")));
+        QMetaObject::invokeMethod(bar, "insertEmoji", Q_ARG(QVariant, QStringLiteral("Y")));
+        QCOMPARE(input->property("text").toString(), QStringLiteral("hXYo"));
+        input->setProperty("text", QString());
+    }
+
     void cardTracksThemeRaisedSurface()
     {
         auto *card = item("composerCard");

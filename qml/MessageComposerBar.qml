@@ -649,6 +649,12 @@ Item {
         editor.remove(start, end)
         editor.insert(start, emoji)
         editor.cursorPosition = start + emoji.length
+        // The picker stays open for several picks while the editor does not
+        // have focus, so the next pick must go AFTER this one: advance the
+        // remembered insert point (the selection is consumed by the first).
+        emojiSelectionStart = start + emoji.length
+        emojiSelectionEnd = start + emoji.length
+        emojiCursorPosition = start + emoji.length
         if (!root.richMode)
             app.composer.text = input.text
         // While the sticky picker stays open, keep focus there: the grid needs
