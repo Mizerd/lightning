@@ -696,6 +696,39 @@ ApplicationWindow {
         return r.toBool();
     }
 
+    // A row growing by several viewports at once (a large image learning its
+    // size) leaves positionViewAtEnd() relying on the ListView's estimates;
+    // the pin settles over a few frames until the list really is at its end.
+    void aFollowedThreadStaysOnItsNewestReplyWhenARowGrowsByViewports()
+    {
+        QString root;
+        openThreadPanel(&root);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QTRY_VERIFY(list->property("followLatest").toBool());
+        QTRY_VERIFY(atBottomEdge(list));
+        const int count = list->property("count").toInt();
+        QVERIFY(count >= 2);
+        for (int index : { count - 2, count - 1 }) {
+            QQuickItem *row = nullptr;
+            QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                              Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, index)));
+            QVERIFY(row);
+            row->setProperty("heightSeed",
+                             row->implicitHeight() + 3 * list->height());
+            row->setProperty("heightSeedActive", true);
+            QTRY_VERIFY2(atBottomEdge(list),
+                         qPrintable(QStringLiteral("row %1 grew by 3 viewports "
+                                                   "and the thread left its "
+                                                   "newest reply").arg(index)));
+            // Stays there once settled (no late estimate drags it away).
+            QTest::qWait(300);
+            QVERIFY(atBottomEdge(list));
+        }
+        QVERIFY(list->property("followLatest").toBool());
+    }
+
     void aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow()
     {
         QString root;

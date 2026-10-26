@@ -1422,8 +1422,51 @@ Rectangle {
                         replyList.endPinQueued = false
                         if (replyList.followLatest && !replyList.moving
                                 && !app.threadScroll.motionActive)
-                            replyList.positionViewAtEnd()
+                            replyList.pinToEnd()
                     })
+                }
+                // positionViewAtEnd() trusts the ListView's estimate of rows it
+                // has not laid out; after a row grows by more than a viewport
+                // (a large image) one call can stop short of the end. The pin
+                // re-positions every frame until the list has stayed at its end
+                // for two frames, bounded at 12 attempts, and gives up the
+                // moment the reader scrolls or the wheel engine glides.
+                property int endSettleTries: 0
+                property int endStableTicks: 0
+                function pinToEnd() {
+                    positionViewAtEnd()
+                    endSettleTries = 0
+                    endStableTicks = 0
+                    endSettle.restart()
+                }
+                Timer {
+                    id: endSettle
+                    objectName: "threadEndSettleTimer"
+                    interval: 16
+                    repeat: true
+                    onTriggered: {
+                        if (!replyList.followLatest || replyList.moving
+                                || app.threadScroll.motionActive
+                                || replyList.count <= 0) {
+                            stop()
+                            return
+                        }
+                        if (replyList.atBottomEdge()) {
+                            replyList.endStableTicks += 1
+                            if (replyList.endStableTicks >= 2)
+                                stop()
+                            return
+                        }
+                        replyList.endStableTicks = 0
+                        // The last delegate's end, then the content end: the
+                        // first lays out the real row, the second lands on it.
+                        replyList.positionViewAtIndex(replyList.count - 1,
+                                                      ListView.End)
+                        replyList.positionViewAtEnd()
+                        replyList.endSettleTries += 1
+                        if (replyList.endSettleTries >= 12)
+                            stop()
+                    }
                 }
 
                 delegate: MessageDelegate {
