@@ -14713,7 +14713,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta imagem é de uma conversa cifrada. Os pacotes de autocolantes contêm multimédia normal, não cifrada, por isso o Lightning vai carregar uma nova cópia não cifrada para o seu servidor e adicioná-la ao seu pacote. O seu servidor pode vê-la, e também quem tiver o pacote partilhado consigo. É adicionada como &quot;sticker&quot;; mude-lhe o nome no seu pacote se quiser.</translation>
     </message>
     <message>
         <location line="+13"/>

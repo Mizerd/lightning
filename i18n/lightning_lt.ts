@@ -14760,7 +14760,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šis paveikslėlis yra iš šifruoto pokalbio. Lipdukų rinkiniuose laikoma įprasta, nešifruota medija, todėl Lightning įkels naują, nešifruotą kopiją į jūsų serverį ir pridės ją prie jūsų rinkinio. Jūsų serveris ją mato, kaip ir visi, su kuriais dalijatės rinkiniu. Jis pridedamas kaip &quot;sticker&quot;; jei norite, pervadinkite jį savo rinkinyje.</translation>
     </message>
     <message>
         <location line="+13"/>

@@ -14892,7 +14892,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>هذه الصورة من محادثة مشفرة. تحتوي حزم الملصقات على وسائط عادية غير مشفرة، لذا سيرفع Lightning نسخة جديدة غير مشفرة إلى خادمك ويضيفها إلى حزمتك. يستطيع خادمك رؤيتها، وكذلك أي شخص تشارك معه الحزمة. تُضاف باسم &quot;sticker&quot;؛ ويمكنك إعادة تسميتها في حزمتك إن شئت.</translation>
     </message>
     <message>
         <location line="+13"/>

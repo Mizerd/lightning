@@ -14666,7 +14666,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gambar ini dari percakapan terenkripsi. Paket stiker berisi media biasa tanpa enkripsi, jadi Lightning akan mengunggah salinan baru tanpa enkripsi ke server Anda dan menambahkannya ke paket Anda sendiri. Server Anda dapat melihatnya, begitu juga siapa pun yang Anda bagikan paketnya. Gambar ditambahkan sebagai &quot;sticker&quot;; ganti namanya di paket Anda jika mau.</translation>
     </message>
     <message>
         <location line="+13"/>

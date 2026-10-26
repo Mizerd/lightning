@@ -14713,7 +14713,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta imagen es de una conversación cifrada. Los paquetes de pegatinas contienen multimedia normal sin cifrar, así que Lightning subirá una copia nueva sin cifrar a tu servidor y la añadirá a tu propio paquete. Tu servidor puede verla, y también cualquiera con quien compartas el paquete. Se añade como &quot;sticker&quot;; puedes cambiarle el nombre en tu paquete si quieres.</translation>
     </message>
     <message>
         <location line="+13"/>

@@ -14713,7 +14713,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bild stammt aus einer verschlüsselten Unterhaltung. Sticker-Pakete enthalten normale, unverschlüsselte Medien, daher lädt Lightning eine neue, unverschlüsselte Kopie auf Ihren Server hoch und fügt sie Ihrem eigenen Paket hinzu. Ihr Server kann sie sehen, ebenso alle, mit denen Sie das Paket teilen. Es wird als &quot;sticker&quot; hinzugefügt; Sie können es in Ihrem Paket umbenennen.</translation>
     </message>
     <message>
         <location line="+13"/>
