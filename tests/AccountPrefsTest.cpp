@@ -137,7 +137,9 @@ private Q_SLOTS:
         // next local use replaced it.
         QVariantMap withExtra = entry(QStringLiteral("🧑‍🚀"), 2);
         withExtra.insert("x-future", QStringLiteral("kept"));
-        const QString future = QString(40, QChar(0x1F600));  // a long sequence
+        QString future;  // a long sequence of a non-BMP code point
+        for (int i = 0; i < 40; ++i)
+            future += QString::fromUcs4(U"\U0001F600", 1);
         const auto list = parseRecentEmoji({ { "recent_emoji", QVariantList{
             entry(QStringLiteral("👍"), 0),
             entry(QStringLiteral("🎉"), qlonglong(3000000000LL)),

@@ -348,7 +348,7 @@ private Q_SLOTS:
         const int pos = m_composer->acceptEmoticonCompletionAt(
             8, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"),
                    QStringLiteral("A waving blob")));
-        QCOMPARE(pos, 19);
+        QCOMPARE(pos, 15);  // after "hi :blob_wave: "
         QCOMPARE(m_composer->text(), QStringLiteral("hi :blob_wave: "));
         QCOMPARE(m_composer->selectedEmoticons().size(), 1);
         m_composer->send();
@@ -368,7 +368,9 @@ private Q_SLOTS:
         m_composer->setText(QStringLiteral(":blob"));
         m_composer->acceptEmoticonCompletionAt(
             5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
-        // Typing before and after shifts the range; the image survives.
+        // Typing before and after (one edit at a time, as an editor sends
+        // them) shifts the range; the image survives.
+        m_composer->setText(QStringLiteral("so :blob_wave: "));
         m_composer->setText(QStringLiteral("so :blob_wave: yes"));
         QCOMPARE(m_composer->selectedEmoticons().size(), 1);
         QCOMPARE(m_composer->selectedEmoticons().at(0).toMap()

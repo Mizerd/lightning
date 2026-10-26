@@ -35,7 +35,7 @@ AnchoredPopup {
     readonly property bool compact: reactionMode && !expanded
     signal emojiChosen(string emoji)
     // Composer mode: a custom image row (findEmoticons' shape: key, url, body,
-    // packName). The composer binds it to the inserted `:shortcode:` so the
+    // packName). The composer binds it to the inserted shortcode text so the
     // exact image is sent.
     signal customChosen(var row)
     // The nested tone popup's lifetime, for the owner of transient row
@@ -175,7 +175,7 @@ AnchoredPopup {
     // reaction is an m.reaction whose key is the pack image's mxc URI (the
     // Cinny/Sable convention, an ecosystem extension rather than part of the
     // image-pack standard); MessageDelegate renders such a key as an image. In
-    // the composer a pick inserts `:shortcode:` bound to that exact image.
+    // the composer a pick inserts the shortcode text, bound to that exact image.
     // Doesn't call recordUse(): recents are the Unicode catalogue's.
     readonly property bool customEmojiOffered: app.stickers.available
     readonly property var customEmoji: {

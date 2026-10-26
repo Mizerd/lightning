@@ -699,6 +699,7 @@ Dialog {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             visible: root.confirmingDelete
+            textFormat: Text.PlainText
             color: AppTheme.danger
             font.pixelSize: AppTheme.textMeta
             // Matrix has no delete verb for either store, so this empties the

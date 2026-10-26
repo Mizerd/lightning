@@ -27,8 +27,9 @@ PackImage PackImage::fromVariantMap(const QVariantMap &map)
     // equal to its shortcode.
     image.key = map.contains(QStringLiteral("key"))
         ? map.value(QStringLiteral("key")).toString() : image.shortcode;
+    // Without the flag, an empty key is the one key that is certainly invalid.
     image.keyValid = map.contains(QStringLiteral("keyValid"))
-        ? map.value(QStringLiteral("keyValid")).toBool() : true;
+        ? map.value(QStringLiteral("keyValid")).toBool() : !image.key.isEmpty();
     image.url = map.value(QStringLiteral("url")).toString();
     image.body = map.value(QStringLiteral("body")).toString();
     image.mimetype = map.value(QStringLiteral("mimetype")).toString();

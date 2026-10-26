@@ -426,7 +426,7 @@ private Q_SLOTS:
         QCOMPARE(manager.usablePackCount(), 1);
     }
 
-    void aRowWithoutAUrlOrAShortcodeNeverBecomesATile()
+    void aRowWithoutAUrlNeverBecomesATileAndAnEmptyKeyIsKeptButNotTypable()
     {
         FakeClient client;
         StickerPackManager manager;
@@ -439,7 +439,19 @@ private Q_SLOTS:
                    QStringLiteral("Your pack"),
                    { noUrl, noCode,
                      image(QStringLiteral("cat"), kMxcA, true, false) }) });
-        QCOMPARE(manager.images()->count(), 1);
+        // No url: nothing to show or send. An empty key is a malformed key
+        // another client wrote (Matrix v1.19: show it, let the user repair
+        // it); the sticker still sends by its url, but it is never offered as
+        // a typed `:shortcode:`.
+        QCOMPARE(manager.images()->count(), 2);
+        QCOMPARE(manager.editorImages()->count(), 2);
+        const int validRole = manager.editorImages()->roleNames().key("keyValid");
+        bool sawInvalid = false;
+        for (int i = 0; i < manager.editorImages()->rowCount(); ++i)
+            sawInvalid = sawInvalid
+                || !manager.editorImages()->data(manager.editorImages()->index(i),
+                                                 validRole).toBool();
+        QVERIFY(sawInvalid);
     }
 
     // ---- saving ("add to my stickers") ----------------------------------
