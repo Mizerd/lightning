@@ -1972,14 +1972,6 @@ pub(crate) fn send_sticker(
 // Writing the user's own pack
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-/// Upload a local image file and add it to this account's own pack: the
-/// only way to create a pack from nothing (every other route needs an
-/// existing mxc).
-///
-/// Uploads, then reuses `add_to_user_pack_inner`, so dedupe, collision
-/// handling and the cap are shared with the save path. The MIME is sniffed
-/// from the bytes with the shared sniffer, so SVG is refused.
 /// An image's pixel size read from its header alone (PNG, GIF, WebP, JPEG),
 /// or (0, 0). Never decodes: `info.w`/`info.h` are advisory, but a client
 /// that lacks them (Cinny) draws every sticker square, so a 2:1 image came out
@@ -2057,6 +2049,14 @@ pub(crate) fn header_dimensions(data: &[u8]) -> (u64, u64) {
     }
 }
 
+/// Upload a local image file and add it to this account's own pack: the
+/// only way to create a pack from nothing (every other route needs an
+/// existing mxc).
+///
+/// Uploads, then reuses `add_to_user_pack_inner`, so dedupe, collision
+/// handling and the cap are shared with the save path. The MIME is sniffed
+/// from the bytes with the shared sniffer, so SVG is refused.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn upload_to_user_pack(
     bridge: &RustClient,
     op_id: u64,
