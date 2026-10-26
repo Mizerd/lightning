@@ -100,6 +100,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTimer>
+#include <optional>
 #include <utility>
 #include <QPalette>
 #include <QStyleHints>
@@ -8395,6 +8396,17 @@ void AppController::switchToAccount(const QString &userId)
     if (m_groupCall)
         m_groupCall->abandonOutstandingMembershipWrites();
 
+    // Warm adoption: the live handle is taken from the pool HERE, after the
+    // outgoing session detached (nothing can refuse the switch any more) and
+    // BEFORE the active account changes. That change makes the target the
+    // pool's foreground account, and the pool retires a host for the
+    // foreground account; taken after it, the ticket was refused
+    // ("not-live", live 2026-10-26) and the cold restore then met the
+    // retiring store. The same turn that checked eligibility.
+    std::optional<lightning::accounts::LiveSessionTicket> adoption;
+    if (adopting)
+        adoption = m_sessionPool->takeForAdoption(target);
+
     // S5 (accountsChanged -> accounts() keyring reads) runs inside this
     // call's signal fan-out, so the trace folds it into S4.
     trace::stepBegin(trace::Step::S4);
@@ -8409,17 +8421,15 @@ void AppController::switchToAccount(const QString &userId)
     if (m_mediaVisibility)
         m_mediaVisibility->reloadForAccount();
     bool adopted = false;
-    if (adopting) {
-        // Taken only now, once nothing can refuse the switch: the same turn
-        // that checked eligibility, so the host cannot have changed.
-        if (auto ticket = m_sessionPool->takeForAdoption(target)) {
-            noteLiveAccountsStep(QStringLiteral("switch:adopt"), target);
-            adopted = m_client->adoptLiveSession(*ticket);
-            // Refused by the handle: the client retired it (tokens handed
-            // back) and the cold restore below waits for that close.
-            if (!adopted)
-                noteLiveAccountsStep(QStringLiteral("switch:adopt-fallback"), target);
-        }
+    if (adoption) {
+        noteLiveAccountsStep(QStringLiteral("switch:adopt"), target);
+        adopted = m_client->adoptLiveSession(*adoption);
+        // Refused by the handle: the client retired it (tokens handed back)
+        // and the cold restore below waits for that close.
+        if (!adopted)
+            noteLiveAccountsStep(QStringLiteral("switch:adopt-fallback"), target);
+    } else if (adopting) {
+        noteLiveAccountsStep(QStringLiteral("switch:adopt-refused"), target);
     }
     if (!adopted && !m_client->restoreSession()) {
         qCWarning(lcApp) << "account switch restore failed"
