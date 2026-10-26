@@ -161,6 +161,77 @@ private Q_SLOTS:
             QVERIFY2(read(host).contains(QStringLiteral("property string roomJoinRule")), host);
     }
 
+    // Wave-2 review S4: the media-preview choice is read from the SERVER. On
+    // a new device before the first sync, a failed read is unknown, not
+    // absent: media stays collapsed, invite avatars stay withheld, and no
+    // write is composed; the server's "off" is then adopted.
+    void anUnknownMediaChoiceStaysCollapsedUntilTheServerAnswers()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        c.refresh();
+        QVERIFY(client.reads.contains(QStringLiteral("m.media_preview_config")));
+        Q_EMIT client.accountPrefReadFailed(QStringLiteral("m.media_preview_config"),
+                                            QStringLiteral("timeout"));
+        QVERIFY(!c.mediaPreviewKnown());
+        QVERIFY(c.collapsesMedia(QStringLiteral("public"), false, false));
+        QVERIFY(!c.inviteAvatarsAllowed());
+        c.setMediaPreviews(QStringLiteral("on"));
+        c.setInviteAvatars(true);
+        QVERIFY2(client.writes.isEmpty(), "a write was composed from an unknown choice");
+
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true,
+            { { "media_previews", "off" }, { "invite_avatars", "off" } });
+        QVERIFY(c.mediaPreviewKnown());
+        QVERIFY(c.collapsesMedia(QStringLiteral("public"), false, false));
+        QVERIFY(!c.inviteAvatarsAllowed());
+        // A later failed refresh does not forget a known choice.
+        Q_EMIT client.accountPrefReadFailed(QStringLiteral("m.media_preview_config"),
+                                            QStringLiteral("timeout"));
+        QVERIFY(c.mediaPreviewKnown());
+        QCOMPARE(c.mediaPreviews(), QStringLiteral("off"));
+    }
+
+    // Wave-2 review S4: a write keeps other clients' fields and the
+    // private-rooms marker, and a confirmed write is held against a read that
+    // was already on its way.
+    void aMediaWriteKeepsForeignFieldsAndIsHeldAgainstAStaleRead()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        const QVariantMap stored{ { "media_previews", "private" },
+                                  { "invite_avatars", "on" },
+                                  { "org.other_client.flag", 7 },
+                                  { "org.lightning_matrix.private_rooms", "non_public" } };
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true, stored);
+        c.setInviteAvatars(false);
+        QCOMPARE(client.writes.size(), 1);
+        const QVariantMap written = client.writes.at(0).second;
+        QCOMPARE(written.value("org.other_client.flag").toInt(), 7);
+        QCOMPARE(written.value("org.lightning_matrix.private_rooms").toString(),
+                 QStringLiteral("non_public"));
+        QCOMPARE(written.value("invite_avatars").toString(), QStringLiteral("off"));
+
+        client.reads.clear();
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.media_preview_config"), true, {});
+        QVERIFY(!c.inviteAvatars());
+        QVERIFY(client.reads.contains(QStringLiteral("m.media_preview_config")));
+        // The read issued before the write landed: not adopted, asked again.
+        client.reads.clear();
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true, stored);
+        QVERIFY2(!c.inviteAvatars(), "a stale read snapped the choice back");
+        QCOMPARE(client.reads, QStringList{ QStringLiteral("m.media_preview_config") });
+        // The next write is still built on the confirmed content.
+        client.writes.clear();
+        c.setMediaPreviews(QStringLiteral("on"));
+        QCOMPARE(client.writes.size(), 1);
+        QCOMPARE(client.writes.at(0).second.value("org.other_client.flag").toInt(), 7);
+        QCOMPARE(client.writes.at(0).second.value("invite_avatars").toString(),
+                 QStringLiteral("off"));
+    }
+
     void theNonPublicMarkerIsReadKeptAndWrittenOnlyWhenChosen()
     {
         QVERIFY(!parseMediaPreview({ { "media_previews", "private" } }).privateMeansNonPublic);

@@ -107,7 +107,13 @@ pub(crate) fn change_payload(event_type: &str) -> Value {
 /// what the account holds. So these two are fetched, and a failed fetch is
 /// reported as failed, never as absent.
 pub(crate) fn reads_from_server(event_type: &str) -> bool {
-    event_type == INVITE_PERMISSION_TYPE || event_type == INVITE_PERMISSION_UNSTABLE_TYPE
+    // The media-preview choice too (wave-2 review S4): before the first sync
+    // a new device's empty store answers "absent", which would open the
+    // fail-closed media and invite-avatar gates on the defaults while the
+    // account says "off", and compose a write from nothing.
+    event_type == INVITE_PERMISSION_TYPE
+        || event_type == INVITE_PERMISSION_UNSTABLE_TYPE
+        || event_type == MEDIA_PREVIEW_TYPE
 }
 
 /// `account_pref_failed { pref_type, category }`: a server read that did not
@@ -323,10 +329,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_invite_policy_is_read_from_the_server() {
+    fn the_policy_types_are_read_from_the_server() {
         assert!(reads_from_server(INVITE_PERMISSION_TYPE));
         assert!(reads_from_server(INVITE_PERMISSION_UNSTABLE_TYPE));
-        assert!(!reads_from_server(MEDIA_PREVIEW_TYPE));
+        assert!(reads_from_server(MEDIA_PREVIEW_TYPE));
         assert!(!reads_from_server(RECENT_EMOJI_TYPE));
         let failed = failed_payload(INVITE_PERMISSION_TYPE, "timeout");
         assert_eq!(failed["type"], json!("account_pref_failed"));

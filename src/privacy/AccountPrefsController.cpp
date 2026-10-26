@@ -45,6 +45,12 @@ void AccountPrefsController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::accountPrefReadFailed, this,
             [this](const QString &type, const QString &) {
+        if (type == QLatin1String(kMediaPreviewType)) {
+            // Unknown, not absent: a choice not yet known stays unknown, so
+            // media stays collapsed and invite avatars withheld; one already
+            // known is kept.
+            return;
+        }
         if (type == QLatin1String(kInvitePermissionType))
             m_inviteStableRead = false;
         else if (type == QLatin1String(kInvitePermissionUnstableType))
@@ -123,6 +129,10 @@ void AccountPrefsController::reset()
     m_invitePending = 0;
     m_inviteWriteFailed = false;
     m_inviteReadFailed = false;
+    m_mediaInFlight.clear();
+    m_mediaHeld.clear();
+    m_mediaHolding = false;
+    m_mediaHeldMisses = 0;
     m_inviteInFlight.clear();
     m_inviteHeld.clear();
     m_inviteHeldMisses.clear();
@@ -258,11 +268,14 @@ void AccountPrefsController::writeMedia(const MediaPreview &next)
         return;
     m_media = next;
     m_writeFailed = false;
+    // Built on the account's own copy, so fields other clients own and our
+    // private-rooms marker are carried over.
+    m_mediaInFlight = composeMediaPreview(m_mediaContent, next.mediaPreviews,
+                                          next.inviteAvatars,
+                                          next.privateMeansNonPublic);
     Q_EMIT changed();
-    m_client->writeAccountPref(
-        QString::fromLatin1(kMediaPreviewType),
-        composeMediaPreview(m_mediaContent, next.mediaPreviews,
-                            next.inviteAvatars, next.privateMeansNonPublic));
+    m_client->writeAccountPref(QString::fromLatin1(kMediaPreviewType),
+                               m_mediaInFlight);
 }
 
 void AccountPrefsController::onRead(const QString &type, bool present,
@@ -277,7 +290,22 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         return;
     }
     if (type == QLatin1String(kMediaPreviewType)) {
-        m_mediaContent = present ? content : QVariantMap();
+        const QVariantMap answer = present ? content : QVariantMap();
+        if (m_mediaHolding) {
+            if (answer == m_mediaHeld) {
+                m_mediaHolding = false;
+                m_mediaHeldMisses = 0;
+            } else if (++m_mediaHeldMisses <= kMaxHeldMisses) {
+                // Most likely a read issued before our write landed.
+                if (m_client)
+                    m_client->readAccountPref(type);
+                return;
+            } else {
+                m_mediaHolding = false;   // it keeps disagreeing: the server wins
+                m_mediaHeldMisses = 0;
+            }
+        }
+        m_mediaContent = answer;
         m_mediaConfirmed = present ? parseMediaPreview(content) : MediaPreview();
         m_media = m_mediaConfirmed;
         m_mediaKnown = true;
@@ -370,11 +398,20 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
         return;
     if (ok) {
         m_mediaConfirmed = m_media;
+        m_mediaContent = m_mediaInFlight;
         m_mediaKnown = true;
+        // Held until a server read agrees (a read already in flight carries
+        // the old value).
+        m_mediaHeld = m_mediaInFlight;
+        m_mediaHolding = true;
+        m_mediaHeldMisses = 0;
     } else {
         m_media = m_mediaConfirmed;
         m_writeFailed = true;
     }
+    m_mediaInFlight.clear();
+    if (m_client)
+        m_client->readAccountPref(type);
     Q_EMIT changed();
 }
 

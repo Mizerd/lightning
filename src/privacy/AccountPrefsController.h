@@ -146,6 +146,13 @@ private:
     // A server read of a policy type failed: its value is unknown, so the
     // switch is not offered ("offline") until a read answers.
     bool m_inviteReadFailed = false;
+    // The media-preview choice, read from the server (wave-2 review S4): the
+    // content of a write in flight, and of a confirmed write held against a
+    // read that was already on its way (same rule as the invite policy).
+    QVariantMap m_mediaInFlight;
+    QVariantMap m_mediaHeld;
+    bool m_mediaHolding = false;
+    int m_mediaHeldMisses = 0;
     // type -> content of a write in flight, and of a confirmed write still
     // waiting for a server read that agrees with it. A read requested before
     // the write landed can arrive after it; while held, a disagreeing read is
