@@ -1784,6 +1784,36 @@ private Q_SLOTS:
         QCOMPARE(QGuiApplication::clipboard()->text(), text);
     }
 
+    void anUnreachablePackIsNamedByItsKeyNotLeftBlank()
+    {
+        // Live run 2026-10-26: after leaving a subscribed pack's room the
+        // Settings row had an empty title.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap gone = pack(QStringLiteral("S"), QStringLiteral("room"), QString(), {});
+        gone.insert(QStringLiteral("roomId"), QStringLiteral("!left:example.org"));
+        gone.insert(QStringLiteral("stateKey"), QStringLiteral("Cinny-pack"));
+        gone.insert(QStringLiteral("available"), false);
+        gone.insert(QStringLiteral("unavailable"), QStringLiteral("not_joined"));
+        QVariantMap noKey = gone;
+        noKey.insert(QStringLiteral("stateKey"), QString());
+        noKey.insert(QStringLiteral("id"), QStringLiteral("T"));
+        noKey.insert(QStringLiteral("packId"), QStringLiteral("T"));
+        noKey.insert(QStringLiteral("roomId"), QStringLiteral("!other:example.org"));
+        QVariantMap named = pack(QStringLiteral("N"), QStringLiteral("room"), QStringLiteral("Kept"), {});
+        named.insert(QStringLiteral("available"), false);
+        manager.applySnapshotForTest(kRoom, false, { gone, noKey, named });
+        StickerPackModel *model = manager.packs();
+        QCOMPARE(model->rowCount(), 3);
+        QStringList names;
+        for (int row = 0; row < model->rowCount(); ++row)
+            names << model->data(model->index(row), StickerPackModel::DisplayNameRole).toString();
+        QVERIFY2(names.contains(QStringLiteral("Cinny-pack")), qPrintable(names.join(u'|')));
+        QVERIFY2(names.contains(QStringLiteral("!other:example.org")), qPrintable(names.join(u'|')));
+        QVERIFY2(names.contains(QStringLiteral("Kept")), qPrintable(names.join(u'|')));
+    }
+
     void aRoomV12PackLinkCarriesOurServerAsVia()
     {
         // Live run 2026-10-26: a room v12 id (`!<hash>`, no server part) gave

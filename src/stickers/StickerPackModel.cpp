@@ -1,5 +1,17 @@
 #include "stickers/StickerPackModel.h"
 
+namespace {
+// A subscribed pack that could not be read has no name of its own (live run
+// 2026-10-26: Settings showed a blank title over "you are not in its room").
+// Its key, else its room, still tells the user which one it is.
+QString shownName(const stickers::Pack &pack)
+{
+    if (!pack.displayName.isEmpty() || pack.available)
+        return pack.displayName;
+    return !pack.stateKey.isEmpty() ? pack.stateKey : pack.roomId;
+}
+} // namespace
+
 StickerPackModel::StickerPackModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -17,7 +29,7 @@ QVariant StickerPackModel::data(const QModelIndex &index, int role) const
     const stickers::Pack &pack = m_packs.at(index.row());
     switch (role) {
     case IdRole:            return pack.id;
-    case DisplayNameRole:   return pack.displayName;
+    case DisplayNameRole:   return shownName(pack);
     case AvatarUrlRole:     return pack.avatarUrl;
     case AttributionRole:   return pack.attribution;
     case SourceRole:        return pack.source;
@@ -89,7 +101,7 @@ QVariantMap StickerPackModel::get(int row) const
     const stickers::Pack &pack = m_packs.at(row);
     QVariantMap map;
     map.insert(QStringLiteral("packId"), pack.id);
-    map.insert(QStringLiteral("displayName"), pack.displayName);
+    map.insert(QStringLiteral("displayName"), shownName(pack));
     map.insert(QStringLiteral("avatarUrl"), pack.avatarUrl);
     map.insert(QStringLiteral("attribution"), pack.attribution);
     map.insert(QStringLiteral("source"), pack.source);
