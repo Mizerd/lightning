@@ -91,7 +91,33 @@ FocusScope {
     // it is: the speed menu takes the pointer's hover, and a bar that faded
     // left the menu floating with no visible owner.
     readonly property bool menuOpen:
-        speedMenu.visible || volumeControl.wantVolumeOpen
+        speedMenu.visible || volumeControl.wantVolumeOpen || trackMenu.visible
+
+    // Embedded tracks (M-F08). The menu exists only when there is a choice:
+    // more than one audio track, or any subtitle track. Qt reports what the
+    // backend found in the container; nothing is searched for or downloaded,
+    // and the attachment's Matrix caption is unrelated to these.
+    readonly property var audioTracks:
+        player && player.audioTracks ? player.audioTracks : []
+    readonly property var subtitleTracks:
+        player && player.subtitleTracks ? player.subtitleTracks : []
+    readonly property bool hasTrackChoice:
+        audioTracks.length > 1 || subtitleTracks.length > 0
+    // A track's name: its language and title when the container says,
+    // otherwise its position. Plain text; the container is foreign data.
+    function trackLabel(meta, index) {
+        var parts = []
+        if (meta) {
+            var lang = meta.stringValue(MediaMetaData.Language)
+            var title = meta.stringValue(MediaMetaData.Title)
+            if (lang && lang.length > 0)
+                parts.push(lang)
+            if (title && title.length > 0 && title !== lang)
+                parts.push(title)
+        }
+        return parts.length > 0 ? parts.join(" — ")
+                                : qsTr("Track %1").arg(index + 1)
+    }
 
     // The rate the player is really running at.
     readonly property real rate:
@@ -515,6 +541,20 @@ FocusScope {
         }
 
         ScrimIconButton {
+            id: trackButton
+            objectName: "videoTracksButton"
+            visible: bar.hasTrackChoice && !bar.tight
+            iconName: "format_list_bulleted"
+            iconSize: bar.large ? 22 : 18
+            implicitWidth: bar.buttonSize; implicitHeight: bar.buttonSize
+            iconColorOverride: AppTheme.scrimInk
+            Accessible.name: qsTr("Audio and subtitles")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered && !trackMenu.visible
+            ToolTip.delay: 600
+            onClicked: trackMenu.visible ? trackMenu.close() : trackMenu.open()
+        }
+        ScrimIconButton {
             objectName: "videoExpandButton"
             visible: bar.showExpand
             iconName: bar.expandIcon
@@ -549,6 +589,66 @@ FocusScope {
     // was a few pixels and the menu dropped over the button and the composer
     // below the card. A binding follows the real height instead, floored by
     // the height the rows will take, so even the first frame is placed right.
+    // Audio tracks (when more than one) and subtitles with Off, opening
+    // upward like the speed menu. Selecting keeps position and play state:
+    // the player switches the stream in place.
+    AppMenu {
+        id: trackMenu
+        objectName: "videoTracksMenu"
+        parent: trackButton
+        menuWidth: 220
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        readonly property int rows:
+            (bar.audioTracks.length > 1 ? bar.audioTracks.length + 1 : 0)
+            + (bar.subtitleTracks.length > 0 ? bar.subtitleTracks.length + 2 : 0)
+        x: trackButton.mirrored ? 0 : Math.round(trackButton.width - width)
+        y: -Math.max(height, rows * AppTheme.menuItemHeight + topPadding
+                                + bottomPadding) - 4
+        AppMenuItem {
+            text: qsTr("Audio")
+            enabled: false
+            visible: bar.audioTracks.length > 1
+            height: visible ? implicitHeight : 0
+        }
+        Repeater {
+            model: bar.audioTracks.length > 1 ? bar.audioTracks : []
+            AppMenuItem {
+                required property var modelData
+                required property int index
+                objectName: "videoAudioTrack" + index
+                text: bar.trackLabel(modelData, index)
+                iconName: bar.player && bar.player.activeAudioTrack === index
+                          ? "check" : ""
+                onTriggered: if (bar.player) bar.player.activeAudioTrack = index
+            }
+        }
+        AppMenuItem {
+            text: qsTr("Subtitles")
+            enabled: false
+            visible: bar.subtitleTracks.length > 0
+            height: visible ? implicitHeight : 0
+        }
+        AppMenuItem {
+            objectName: "videoSubtitleOff"
+            visible: bar.subtitleTracks.length > 0
+            height: visible ? implicitHeight : 0
+            text: qsTr("Off")
+            iconName: bar.player && bar.player.activeSubtitleTrack < 0 ? "check" : ""
+            onTriggered: if (bar.player) bar.player.activeSubtitleTrack = -1
+        }
+        Repeater {
+            model: bar.subtitleTracks
+            AppMenuItem {
+                required property var modelData
+                required property int index
+                objectName: "videoSubtitleTrack" + index
+                text: bar.trackLabel(modelData, index)
+                iconName: bar.player && bar.player.activeSubtitleTrack === index
+                          ? "check" : ""
+                onTriggered: if (bar.player) bar.player.activeSubtitleTrack = index
+            }
+        }
+    }
     AppMenu {
         id: speedMenu
         objectName: "videoSpeedMenu"

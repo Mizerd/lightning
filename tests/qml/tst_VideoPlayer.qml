@@ -691,6 +691,19 @@ TestCase {
         verify(!label.visible)
     }
 
+    // ---- M-F08: track menus only when there is a choice ----
+    // The fixture has one audio track and no subtitles, so no menu; the
+    // label falls back to the track's position when the container names
+    // nothing.
+    function test_noTrackMenuWithoutAChoice() {
+        var card = loadedCard({ width: 480, height: 270, y: 300 })
+        var bar = barOf(card)
+        verify(!bar.hasTrackChoice)
+        verify(!findChild(bar, "videoTracksButton").visible,
+               "a track menu with nothing to choose")
+        compare(bar.trackLabel(null, 1), "Track 2")
+    }
+
     // ---- M-F06: a failure says which kind it is ----
     // Every failure used to read "This video cannot be played" with a Retry,
     // including a permanent server refusal and a file this device cannot
