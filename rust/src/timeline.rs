@@ -8253,8 +8253,12 @@ mod tests {
                     r#"alt="A cat &quot;waving&quot; &lt;hello&gt; &amp; bye""#), "{html}");
                 assert!(html.contains(r#"title="Cat_Wave""#), "{html}");
                 assert!(html.contains(r#"height="32""#), "{html}");
-                // No body: the shortcode is the description.
-                assert!(html.contains(r#"alt="plain" title="plain""#), "{html}");
+                // No body: the shortcode is the description. (The outgoing
+                // sanitizer re-serialises attributes in its own order, so they
+                // are checked one by one.)
+                assert!(html.contains(r#"alt="plain""#), "{html}");
+                assert!(html.contains(r#"title="plain""#), "{html}");
+                assert!(html.contains(r#"src="mxc://e.org/plain""#), "{html}");
                 assert!(!html.contains("tracker.example"), "{html}");
             }
             other => panic!("unexpected msgtype: {other:?}"),

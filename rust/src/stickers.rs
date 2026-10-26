@@ -4401,7 +4401,9 @@ mod tests {
         let source = include_str!("stickers.rs");
         let production = &source[..source.find("#[cfg(test)]").unwrap()];
         let writes = production.matches(".set_account_data_raw(").count();
-        let forgets = production.matches("    forget_own_write(&client, ").count();
+        // Call sites, not the definition (`fn forget_own_write(`); the shared
+        // writer `write_account_data` passes its own `client` parameter.
+        let forgets = production.matches("    forget_own_write(").count();
         assert_eq!(writes, 3, "a write site was added or removed: update this test");
         assert_eq!(forgets, writes, "every write site calls forget_own_write");
     }
