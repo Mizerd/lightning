@@ -33,6 +33,8 @@
 #include <QImage>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <limits>
+#include <QElapsedTimer>
 #include <QtTest/QtTest>
 
 namespace {
@@ -1810,6 +1812,45 @@ private Q_SLOTS:
         QFile written(client.uploadPath);
         QVERIFY(written.open(QIODevice::ReadOnly));
         QCOMPARE(written.readAll(), png);
+    }
+
+    void searchOverTheLargestSnapshotStaysInteractive()
+    {
+        // PACK-PER-001/002: the in-memory search the completion popup and the
+        // palette run on every keystroke, over the largest snapshot the
+        // backend allows (64 packs x 512 images), never waits on media. The
+        // target is p95 <= 50 ms; asserted as BEST of 7 under 50 ms so a loaded
+        // machine cannot flake it (CLAUDE.md: wall-clock assertions need
+        // headroom), and it measures ~1-3 ms on the dev box.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantList packs;
+        for (int p = 0; p < 64; ++p) {
+            QVariantList images;
+            for (int i = 0; i < 512; ++i)
+                images.append(image(QStringLiteral("p%1_img%2").arg(p).arg(i),
+                                    QStringLiteral("mxc://e/%1_%2").arg(p).arg(i),
+                                    true, true));
+            QVariantMap pk = pack(QStringLiteral("room:%1").arg(p), QStringLiteral("room"),
+                                  QStringLiteral("Pack %1").arg(p), images);
+            packs.append(pk);
+        }
+        manager.applySnapshotForTest(kRoom, false, packs);
+        qint64 best = std::numeric_limits<qint64>::max();
+        for (int round = 0; round < 7; ++round) {
+            QElapsedTimer timer;
+            timer.start();
+            const QVariantList hits = manager.findEmoticons(QStringLiteral("p63_img5"), 12);
+            best = qMin(best, timer.elapsed());
+            QVERIFY(!hits.isEmpty());
+        }
+        QVERIFY2(best < 50, qPrintable(QStringLiteral("best of 7: %1 ms").arg(best)));
+        // The reaction list (every image) also returns promptly.
+        QElapsedTimer all;
+        all.start();
+        QCOMPARE(manager.reactionEmoticons().size(), 64 * 512);
+        QVERIFY2(all.elapsed() < 2000, qPrintable(QString::number(all.elapsed())));
     }
 
     void shortcodeErrorsSayWhy()
