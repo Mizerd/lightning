@@ -19,6 +19,13 @@ import MatrixClient
 // while the search field beside it blinked. The delegate toggles at the
 // platform's cursor flash rate while the field is active and not idle.
 //
+// That rate is also the app's "stop the cursor blinking" preference:
+// AppController sets Qt.styleHints.cursorFlashTime to 0 while it is on (and
+// back to the platform's value when it is off), so reading the hint honours
+// it with no second setting -- preference on: one steady caret, always;
+// off: blink while active, then the solid caret after `idleMs`. The hint is
+// NOTIFYable, so a change applies at once.
+//
 // Use: `cursorDelegate: idleCaret.delegate` and `IdleCaret { id: idleCaret;
 // field: theTextArea }` inside the field.
 Item {

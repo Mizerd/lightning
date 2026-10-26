@@ -315,8 +315,15 @@ private slots:
     // (live FAIL on a private Xvfb, 2026-10-26).
     void theComposerCaretBlinksThenGoesSolidWhenIdle()
     {
-        if (QGuiApplication::styleHints()->cursorFlashTime() <= 0)
-            QSKIP("this platform does not blink carets");
+        // The app's "stop the cursor blinking" preference is applied through
+        // this style hint (AppController); pin a blinking value here and
+        // restore whatever was there.
+        QStyleHints *hints = QGuiApplication::styleHints();
+        const int originalFlash = hints->cursorFlashTime();
+        const auto restoreFlash = qScopeGuard([&] {
+            hints->setCursorFlashTime(originalFlash);
+        });
+        hints->setCursorFlashTime(400);
         QQuickItem *input = item("composerInput");
         QVERIFY(input);
         QQuickItem *idle = findItem(input, QStringLiteral("idleCaret"));
@@ -356,6 +363,17 @@ private slots:
         QVERIFY(cursor->isVisible());
         const QSet<bool> again = sample(qMin(800, period * 3 / 2));
         QVERIFY2(again.contains(false), "activity did not restore blinking");
+
+        // The preference off (flash time 0): steady from the first keystroke,
+        // never a blink, before or after the idle spell.
+        hints->setCursorFlashTime(0);
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QCOMPARE(sample(800), QSet<bool>{ true });
+        // And back on: blinking resumes without a restart.
+        hints->setCursorFlashTime(400);
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QVERIFY2(sample(700).contains(false),
+                 "the caret did not blink again after the preference came back");
         input->setProperty("text", QString());
     }
 
