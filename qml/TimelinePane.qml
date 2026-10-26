@@ -4373,6 +4373,39 @@ Rectangle {
                 // wheel/touchpad gesture at settle. No message content, ids or
                 // URLs are logged.
                 readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
+                // Ten-second counts include idle time at the live edge, which
+                // gesture-only summaries and the frame probe cannot describe.
+                property int perfMediaCached: 0
+                property int perfPreviewRefreshes: 0
+                function notePreviewRefresh() {
+                    if (scrollTrace) perfPreviewRefreshes += 1
+                }
+                Connections {
+                    target: app.mediaBridge
+                    enabled: timeline.scrollTrace
+                    function onMediaCached(cacheKey) {
+                        timeline.perfMediaCached += 1
+                    }
+                }
+                Timer {
+                    interval: 10000
+                    repeat: true
+                    running: timeline.scrollTrace
+                    onTriggered: {
+                        console.info("scroll-perf-window"
+                            + " rows=" + timeline.count
+                            + " srcRows=" + (app.timeline ? app.timeline.count : -1)
+                            + " winSkip=" + timeline.rowWindowSkip
+                            + " visibleRows=" + Math.max(0, timeline.visibleLastRow
+                                                       - timeline.visibleFirstRow + 1)
+                            + " bandLast=" + timeline.mediaBandLastRow
+                            + " mediaCached=" + timeline.perfMediaCached
+                            + " previewRefreshes=" + timeline.perfPreviewRefreshes
+                            + " motion=" + (timeline.userScrollActive ? 1 : 0))
+                        timeline.perfMediaCached = 0
+                        timeline.perfPreviewRefreshes = 0
+                    }
+                }
                 property bool diagActive: false
                 property int diagEvents: 0
                 property int diagPixelEvents: 0

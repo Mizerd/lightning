@@ -402,6 +402,56 @@ private Q_SLOTS:
 
     void init() { m_browser.opened.clear(); }
 
+    // Every retained preview has a MediaBridge connection. An unrelated
+    // media completion must not invalidate all of their image-source bindings.
+    void unrelatedMediaCompletionDoesNotReevaluateLoadedPreviews()
+    {
+        FakePreviewClient fake;
+        AppController controller(AppController::MockBackend);
+        usePreviews(controller, fake);
+        const QVariantMap row = rowState(controller.linkPreviews(), fake,
+                                        kImageUrl, imageFields());
+        {
+            Delegate direct;
+            QVERIFY(createDelegate(controller, row, direct));
+            QQuickItem *directCard = find(direct, QStringLiteral("directMediaPreview"));
+            QVERIFY(directCard);
+            QCOMPARE(directCard->property("previewTick").toInt(), 0);
+            Q_EMIT controller.mediaBridge()->mediaCached(
+                QStringLiteral("thumb:unrelated-synthetic-media"));
+            QCoreApplication::processEvents();
+            QCOMPARE(directCard->property("previewTick").toInt(), 0);
+        }
+        QVariantMap mxcRow = row;
+        mxcRow.insert(QStringLiteral("imageSource"),
+                      QStringLiteral("mxc://fixture.invalid/preview"));
+        {
+            Delegate direct;
+            QVERIFY(createDelegate(controller, mxcRow, direct));
+            QQuickItem *directCard = find(direct, QStringLiteral("directMediaPreview"));
+            QVERIFY(directCard);
+            Q_EMIT controller.mediaBridge()->mediaCached(
+                QStringLiteral("mxcimg:512:mxc://fixture.invalid/preview"));
+            QCoreApplication::processEvents();
+            QCOMPARE(directCard->property("previewTick").toInt(), 1);
+        }
+        controller.linkPreviews()->setInlineMedia(false);
+        Delegate article;
+        QVERIFY(createDelegate(controller, mxcRow, article));
+        QQuickItem *articleCard = find(article, QStringLiteral("linkPreviewCard"));
+        QVERIFY(articleCard);
+        QCOMPARE(articleCard->property("previewTick").toInt(), 0);
+
+        Q_EMIT controller.mediaBridge()->mediaCached(
+            QStringLiteral("thumb:unrelated-synthetic-media"));
+        QCoreApplication::processEvents();
+        QCOMPARE(articleCard->property("previewTick").toInt(), 0);
+        Q_EMIT controller.mediaBridge()->mediaCached(
+            QStringLiteral("mxcimg:512:mxc://fixture.invalid/preview"));
+        QCoreApplication::processEvents();
+        QCOMPARE(articleCard->property("previewTick").toInt(), 1);
+    }
+
     // Akira's question: a link's image must open in Lightning, not send the
     // reader to the browser.
     void aLinkImageOpensTheInAppViewer()

@@ -5152,7 +5152,18 @@ Item {
             property int previewTick: 0
             Connections {
                 target: app.mediaBridge
-                function onMediaCached(cacheKey) { directMedia.previewTick += 1 }
+                function onMediaCached(cacheKey) {
+                    // Inline data is already cached synchronously. Only the
+                    // matching mxc fetch can change this preview's source;
+                    // otherwise every media completion re-evaluates every
+                    // loaded link card in the unvirtualized timeline.
+                    if (directMedia.sourceText.indexOf("mxc://") === 0
+                        && cacheKey.endsWith(":" + directMedia.sourceText)) {
+                        directMedia.previewTick += 1
+                        if (root.timelineView && root.timelineView.notePreviewRefresh)
+                            root.timelineView.notePreviewRefresh()
+                    }
+                }
                 function onAnimatedMediaReady(cacheKey) {
                     if (cacheKey === "mxcanim:" + directMedia.sourceText)
                         directMedia.animationTick += 1
@@ -5325,7 +5336,15 @@ Item {
             property int previewTick: 0
             Connections {
                 target: app.mediaBridge
-                function onMediaCached(cacheKey) { previewTick += 1 }
+                function onMediaCached(cacheKey) {
+                    var source = card.p.imageSource || ""
+                    if (source.indexOf("mxc://") === 0
+                        && cacheKey.endsWith(":" + source)) {
+                        card.previewTick += 1
+                        if (root.timelineView && root.timelineView.notePreviewRefresh)
+                            root.timelineView.notePreviewRefresh()
+                    }
+                }
             }
             readonly property string previewStatic: {
                 var _ = previewTick
