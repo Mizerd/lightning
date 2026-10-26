@@ -735,24 +735,6 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // through the authenticated media path at 64 px (20 px rendered, doubled
     // for HiDPI). The composer turns an installed `:shortcode:` into an inline
     // image on send.
-    // Hidden packs, custom-image recents and favourites: this device only.
-    m_stickers->setLocalStatePath(
-        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
-        + QStringLiteral("/image-packs-local.ini"));
-    // A confirmed "add this private image to my stickers": the decrypted bytes
-    // come through the bridge's keyed full-payload fetch.
-    m_stickers->setPrivateMediaFetch([this](const QString &mediaKey) {
-        m_mediaBridge->fetchFullForStar(mediaKey);
-    });
-    connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, m_stickers.get(),
-            [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
-                   const QString &) {
-                m_stickers->onPrivateMediaBytes(mediaKey, ok, bytes);
-            });
-    // A chosen custom emoji that was actually sent counts as a use.
-    m_composer->setCustomEmojiUseRecorder([this](const QVariantMap &row) {
-        m_stickers->recordCustomUse(row);
-    });
     m_composer->setEmoticonSearch(
         [this](const QString &prefix, int limit) {
             return m_stickers->findEmoticons(prefix, limit);
@@ -863,6 +845,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gif->setTransport(m_gifTransport.get());
     m_gifSend      = std::make_unique<GifSendController>(this);
     m_stickers     = std::make_unique<StickerPackManager>(this);
+    // Wired here, after the manager exists: these used to run ~130 lines
+    // earlier, on a null m_stickers, and every start crashed in
+    // setLocalStatePath (QString::operator=, wave-2 master build gui-2).
+    // Hidden packs, custom-image recents and favourites: this device only.
+    m_stickers->setLocalStatePath(
+        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
+        + QStringLiteral("/image-packs-local.ini"));
+    // A confirmed "add this private image to my stickers": the decrypted bytes
+    // come through the bridge's keyed full-payload fetch.
+    m_stickers->setPrivateMediaFetch([this](const QString &mediaKey) {
+        m_mediaBridge->fetchFullForStar(mediaKey);
+    });
+    connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, m_stickers.get(),
+            [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
+                   const QString &) {
+                m_stickers->onPrivateMediaBytes(mediaKey, ok, bytes);
+            });
+    // A chosen custom emoji that was actually sent counts as a use.
+    m_composer->setCustomEmojiUseRecorder([this](const QVariantMap &row) {
+        m_stickers->recordCustomUse(row);
+    });
     m_gifSend->setRecentModel(m_gif->recent());
     // A starred-GIF send reads the stored bytes from disk by content hash.
     m_gifSend->setLocalGifReader([this](const QString &hash) {
