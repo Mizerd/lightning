@@ -154,10 +154,16 @@ impl SearchIndex {
     fn ensure_schema(&self) -> Result<(), String> {
         // WAL so indexing writes do not block search reads; NORMAL synchronous,
         // since losing an index tail on power loss only costs a re-index.
+        // journal_size_limit: without one the WAL file keeps its high-water
+        // size for good (measured: 4 MiB beside a 143 KiB index), and one big
+        // room batch from "index all rooms" grows it past that, since nothing
+        // checkpoints inside a transaction. Truncated back to 1 MiB after a
+        // checkpoint instead.
         self.conn
             .execute_batch(
                 "PRAGMA journal_mode=WAL;
                  PRAGMA synchronous=NORMAL;
+                 PRAGMA journal_size_limit=1048576;
 
                  CREATE TABLE IF NOT EXISTS messages(
                      id            INTEGER PRIMARY KEY,
@@ -1534,6 +1540,14 @@ mod tests {
             rusqlite::ffi::sqlite3_commit_hook(ix.conn.handle(), None, std::ptr::null_mut());
         }
         drop(commits);
+    }
+
+    // The index's WAL is bounded on disk; see ensure_schema.
+    #[test]
+    fn theIndexWalHasASizeLimit() {
+        let ix = index();
+        let limit: i64 = ix.conn.query_row("PRAGMA journal_size_limit", [], |r| r.get(0)).unwrap();
+        assert_eq!(limit, 1024 * 1024);
     }
 
     #[test]
