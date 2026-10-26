@@ -1044,7 +1044,12 @@ private:
     // homeserver while adding an account does not tear down the signed-in
     // session. It has no store and so no generation; m_oauthInFlight is the
     // guard.
-    bool ensureOAuthBootstrapHandle();
+    bool ensureOAuthBootstrapHandle(const QString &homeserver);
+    // Hands a store-less sign-in handle its route (NetworkRoute.h,
+    // rustJsonForSignIn): by account when `userId` is a saved one, else by
+    // the server being signed in to.
+    void applySignInRoute(void *handle, const QString &homeserver,
+                          const QString &userId = QString());
     // beginOAuthLogin()/beginOAuthSignUp(): one flow, `createAccount` adds
     // prompt=create.
     void startOAuthAttempt(const QString &homeserver, bool createAccount);

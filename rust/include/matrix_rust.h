@@ -1262,7 +1262,9 @@ char *mx_rust_set_media_store_key(void *client, const unsigned char *key,
  * {"state":"configured","kind":"http"|"socks5","host","port","username"?,
  * "password"?}. A route applies to every client this handle's store builds;
  * "unavailable" makes building one fail ("network route unavailable") and
- * nothing ever goes direct instead. Anything that does not parse is recorded
+ * nothing ever goes direct instead. A handle with no store (the OAuth/SSO
+ * bootstrap, the whoami probe) keeps a route of its own for its in-memory
+ * clients. Anything that does not parse is recorded
  * as "unavailable" and reported as an error. SENSITIVE: the caller scrubs
  * `route_json`. Returns "" or "error: ...". */
 char *mx_rust_set_network_route(void *client, const char *route_json);

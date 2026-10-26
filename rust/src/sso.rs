@@ -63,7 +63,7 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_providers", async move {
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_begin", async move {

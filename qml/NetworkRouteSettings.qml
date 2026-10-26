@@ -181,7 +181,10 @@ ColumnLayout {
         color: AppTheme.stormTextSecondary
         font.pixelSize: AppTheme.textMeta
         text: qsTr("With a proxy, everything this account sends to its homeserver "
-                   + "goes through it: sign-in, sync, encryption keys and media. "
+                   + "goes through it: sync, encryption keys, media, and signing "
+                   + "this account in again. A brand-new account's first sign-in "
+                   + "connects directly, and a sign-in page opened in your browser "
+                   + "uses the browser's own network settings. "
                    + "If the proxy can't be reached, or its password can't be read "
                    + "from the keyring, the account stays offline instead of "
                    + "connecting directly. Link previews then come from your "

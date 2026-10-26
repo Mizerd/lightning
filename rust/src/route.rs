@@ -184,13 +184,24 @@ fn registry() -> &'static Mutex<HashMap<PathBuf, Entry>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Records this handle's route for its store (`None`: no route, the system
-/// default as before). An empty path (the in-memory bootstrap client of a
-/// first sign-in) is never routed: see docs/network-profiles.md.
-pub(crate) fn set(owner: usize, store_path: &Path, state: Option<RouteState>) {
+/// The registry key of a handle's route: its store path, or for a handle
+/// with none (the OAuth/SSO bootstrap, the whoami probe, a refused sign-in's
+/// revocation) a key of its own that no real path can equal (it holds a NUL).
+/// C++ picks that handle's route from the account the sign-in is for
+/// (matrix/NetworkRoute.h, rustJsonForSignIn).
+pub(crate) fn key_for(owner: usize, store_path: &Path) -> PathBuf {
     if store_path.as_os_str().is_empty() {
-        return;
+        PathBuf::from(format!("\u{0}lightning-handle-{owner:x}"))
+    } else {
+        store_path.to_path_buf()
     }
+}
+
+/// Records this handle's route (`None`: no route, the system default as
+/// before), under `key_for(owner, store_path)`.
+pub(crate) fn set(owner: usize, store_path: &Path, state: Option<RouteState>) {
+    let key = key_for(owner, store_path);
+    let store_path = key.as_path();
     let mut map = registry().lock().unwrap_or_else(|p| p.into_inner());
     match state {
         Some(state) => {
@@ -203,6 +214,8 @@ pub(crate) fn set(owner: usize, store_path: &Path, state: Option<RouteState>) {
 }
 
 pub(crate) fn forget(owner: usize, store_path: &Path) {
+    let key = key_for(owner, store_path);
+    let store_path = key.as_path();
     let mut map = registry().lock().unwrap_or_else(|p| p.into_inner());
     if map.get(store_path).is_some_and(|e| e.owner == owner) {
         map.remove(store_path);
@@ -325,9 +338,32 @@ mod tests {
         assert!(routed(&a));
         set(3, &a, None);
         assert!(!routed(&a));
-        // The in-memory bootstrap path is never routed.
+        // A store-less handle's route is its own: keyed by the handle, never
+        // by the empty path another store-less handle also has.
         set(4, Path::new(""), Some(RouteState::Unavailable));
         assert!(!routed(Path::new("")));
+        assert!(routed(&key_for(4, Path::new(""))));
+        assert!(!routed(&key_for(5, Path::new(""))));
+        assert_ne!(key_for(4, Path::new("")), key_for(5, Path::new("")));
+        forget(4, Path::new(""));
+        assert!(!routed(&key_for(4, Path::new(""))));
+    }
+
+    /// The OAuth bootstrap case the review asked for: an in-memory client
+    /// built for a store-less handle follows that handle's route and refuses
+    /// an unusable one, before any request.
+    #[test]
+    fn a_store_less_handles_memory_client_follows_its_own_route() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let owner = 0xb007usize;
+        set(owner, Path::new(""), Some(RouteState::Unavailable));
+        let key = key_for(owner, Path::new(""));
+        let refused = rt.block_on(crate::build_memory_client("http://127.0.0.1:9", &key));
+        assert_eq!(refused.err().as_deref(), Some(ROUTE_UNAVAILABLE));
+        // Another store-less handle without a route is untouched by it.
+        let other = key_for(owner + 1, Path::new(""));
+        assert!(matches!(client_for(&other), Ok(None)));
+        forget(owner, Path::new(""));
     }
 
     #[test]
@@ -362,6 +398,42 @@ mod tests {
         let err = result.err().expect("an unusable route refuses the build");
         assert_eq!(err, ROUTE_UNAVAILABLE);
         assert!(!dir.exists(), "no store was created");
+    }
+
+    /// Review note: no `LIGHTNING_RUST_LOG` value can switch on the transport
+    /// crates' tracing, which can print the proxy and its credentials. Read
+    /// back from the parsed filter itself (its Display lists the directives it
+    /// holds): every transport target is `off`, and no directive that would
+    /// outrank it (a longer, more specific transport target) survives.
+    #[test]
+    fn the_sdk_log_filter_never_enables_the_http_transport() {
+        for requested in [
+            "trace",
+            "reqwest=trace",
+            "hyper_util=trace,hyper=trace,h2=trace",
+            "reqwest::connect=trace",
+            "hyper_util::client::legacy::connect::proxy=trace",
+            "matrix_sdk=trace,reqwest[{x}]=trace",
+            " reqwest = trace ",
+        ] {
+            let clamped = crate::clamp_transport_tracing(requested);
+            let filter = tracing_subscriber::EnvFilter::try_new(&clamped).expect("valid filter");
+            let shown = filter.to_string();
+            for directive in shown.split(',') {
+                let target = directive.split(['=', '[']).next().unwrap_or("").trim();
+                for t in ["reqwest", "hyper_util", "hyper", "h2"] {
+                    if target == t {
+                        assert!(directive.trim().ends_with("=off"), "{requested} -> {shown}");
+                    }
+                    assert!(!target.starts_with(&format!("{t}::")), "{requested} -> {shown}");
+                }
+            }
+            for t in ["reqwest", "hyper_util", "hyper", "h2"] {
+                assert!(shown.contains(&format!("{t}=off")), "{requested} -> {shown}");
+            }
+        }
+        // What was asked for otherwise is kept.
+        assert!(crate::clamp_transport_tracing("matrix_sdk=debug").starts_with("matrix_sdk=debug,"));
     }
 
     /// Fail closed against a real dead proxy: a request through a proxy on a

@@ -1283,6 +1283,7 @@ fn install_sdk_tracing() {
         } else {
             requested
         };
+        let directives = clamp_transport_tracing(&directives);
         let filter = match tracing_subscriber::EnvFilter::try_new(&directives) {
             Ok(filter) => filter,
             Err(err) => {
@@ -1303,6 +1304,33 @@ fn install_sdk_tracing() {
             eprintln!("matrix-sdk tracing enabled: {directives}");
         }
     });
+}
+
+/// The HTTP transport crates, whose debug and trace output can carry a
+/// proxy's address and credentials (reqwest's `Intercepted` prints the proxy
+/// URI; hyper-util's proxy connectors trace their handshake). Never enabled
+/// by `LIGHTNING_RUST_LOG`, whatever it asks for (docs/network-profiles.md).
+const CLAMPED_TRANSPORT_TARGETS: [&str; 4] = ["reqwest", "hyper_util", "hyper", "h2"];
+
+/// `LIGHTNING_RUST_LOG`'s directives with every directive that names a
+/// transport target dropped, and each transport target pinned `off`. A
+/// target directive outranks a bare level (`trace`) in an `EnvFilter`, so a
+/// global level cannot reach them either.
+fn clamp_transport_tracing(directives: &str) -> String {
+    let names_transport = |directive: &str| {
+        let target = directive.split(['=', '[']).next().unwrap_or("").trim();
+        CLAMPED_TRANSPORT_TARGETS
+            .iter()
+            .any(|t| target == *t || target.starts_with(&format!("{t}::")))
+    };
+    let mut kept: Vec<String> = directives
+        .split(',')
+        .map(str::trim)
+        .filter(|d| !d.is_empty() && !names_transport(d))
+        .map(str::to_owned)
+        .collect();
+    kept.extend(CLAMPED_TRANSPORT_TARGETS.iter().map(|t| format!("{t}=off")));
+    kept.join(",")
 }
 
 #[no_mangle]

@@ -72,6 +72,23 @@ QVariantMap summary(const SettingsManager *settings, const SecretStore *store,
 QByteArray rustJson(const SettingsManager *settings, const SecretStore *store,
                     const QString &userId);
 
+// The route for a store-less sign-in handle (the OAuth and SSO bootstrap,
+// the whoami probe, a refused sign-in's revocation). With `userId` of a saved
+// account: that account's rustJson(). Otherwise from the server being signed
+// in to (`homeserver`, as typed or recorded): the route of the saved
+// account(s) on that server that have one, so signing a routed account in
+// again goes through its proxy, never direct. Several routed accounts on one
+// server with different routes, or one that cannot be used: "unavailable"
+// (the sign-in is refused, not sent direct). No routed account there: "none"
+// (a new account's first sign-in is direct, documented). Matching compares
+// the host[:port] of the typed value with the account's recorded homeserver
+// URL and with its user id's server name.
+QByteArray rustJsonForSignIn(const SettingsManager *settings, const SecretStore *store,
+                             const QString &homeserver, const QString &userId = {});
+
+// host[:port], lower case, with no scheme, path or trailing dot/slash.
+QString serverKey(const QString &homeserverOrServerName);
+
 // The state rustJson() chose, for a log line: "none", "unavailable",
 // "http" or "socks5". Never the host, never a credential.
 QString describeJson(const QByteArray &json);

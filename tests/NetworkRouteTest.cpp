@@ -371,6 +371,57 @@ private Q_SLOTS:
         QVERIFY(settings.networkRouteConfigured(kOther));
     }
 
+    // Review M2: a store-less sign-in handle (OAuth/SSO bootstrap, whoami
+    // probe, revocation) follows the route of the saved account it signs in
+    // again; before, it always went direct. A new account's first sign-in
+    // (no routed account on that server) stays direct, as documented.
+    void aSignInToARoutedAccountsServerFollowsItsRoute()
+    {
+        FakeStore store;
+        SettingsManager settings;
+        settings.setSecretStore(&store);
+        settings.saveSession(kHs, kUser, QStringLiteral("DEVICE"), QStringLiteral("syt"));
+        // Nothing routed yet: direct.
+        QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)), QStringLiteral("none"));
+
+        QCOMPARE(route::save(&settings, &store, kUser, socks(QStringLiteral("alice")),
+                             route::PasswordChange::Replace, kPassword),
+                 QString());
+        // As typed, recorded, by server name, with a trailing slash, by account.
+        for (const QString &typed : {kHs, QStringLiteral("route.example"),
+                                     QStringLiteral("https://ROUTE.example/"),
+                                     QStringLiteral(" route.example ")}) {
+            const QJsonObject json = parsed(route::rustJsonForSignIn(&settings, &store, typed));
+            QCOMPARE(json.value(QStringLiteral("state")).toString(), QStringLiteral("configured"));
+            QCOMPARE(json.value(QStringLiteral("password")).toString(), kPassword);
+        }
+        QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, QString(), kUser)),
+                 QStringLiteral("configured"));
+        // Another server: a new account there signs in direct.
+        QCOMPARE(state(route::rustJsonForSignIn(&settings, &store,
+                                                QStringLiteral("https://elsewhere.example"))),
+                 QStringLiteral("none"));
+        // The routed account's route cannot be used: refused, never direct.
+        store.locked = true;
+        QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)),
+                 QStringLiteral("unavailable"));
+        store.locked = false;
+
+        // Two routed accounts on that server with different routes: which one
+        // is signing in is unknown, so neither is guessed.
+        settings.saveSession(kHs, kOther, QStringLiteral("DEVICE2"), QStringLiteral("syt2"));
+        route::Route other = socks();
+        other.port = 2080;
+        QCOMPARE(route::save(&settings, &store, kOther, other, route::PasswordChange::Keep, {}),
+                 QString());
+        QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)),
+                 QStringLiteral("unavailable"));
+        // Named by account, each gets its own.
+        QCOMPARE(parsed(route::rustJsonForSignIn(&settings, &store, kHs, kOther))
+                     .value(QStringLiteral("port")).toInt(),
+                 2080);
+    }
+
     // The Settings contract, read from source: the password field is never
     // filled from the controller, nothing reads a password out of the route,
     // the copy states the fail-closed rule and its consequences, and the card
@@ -404,6 +455,10 @@ private Q_SLOTS:
         // The fail-closed rule is said where the user sets the proxy.
         QVERIFY(qml.contains(QLatin1String("stays offline instead of")));
         QVERIFY(qml.contains(QLatin1String("connecting directly")));
+        // Review M2: the copy says exactly what sign-in it covers.
+        QVERIFY(qml.contains(QLatin1String("this account in again")));
+        QVERIFY(qml.contains(QLatin1String("first sign-in")));
+        QVERIFY(qml.contains(QLatin1String("browser's own network settings")));
 
         QFile screen(QStringLiteral(SETTINGS_SCREEN_QML_PATH));
         QVERIFY(screen.open(QIODevice::ReadOnly | QIODevice::Text));

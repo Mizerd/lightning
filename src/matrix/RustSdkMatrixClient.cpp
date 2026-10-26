@@ -758,6 +758,26 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     return true;
 }
 
+void RustSdkMatrixClient::applySignInRoute(void *handle, const QString &homeserver,
+                                           const QString &userId)
+{
+    namespace route = matrix::network_route;
+    if (!handle)
+        return;
+    // A store-less handle has no account yet: the route of the saved account
+    // on this server that has one (NetworkRoute.h). A route Rust cannot use
+    // refuses every request on this handle; nothing goes direct instead.
+    QByteArray json = route::rustJsonForSignIn(
+        m_settings, m_settings ? m_settings->secretStore() : nullptr, homeserver, userId);
+    const QString state = route::describeJson(json);
+    const QString result = takeRustString(mx_rust_set_network_route(handle, json.constData()));
+    json.fill('\0');
+    json.clear();
+    // The state only: never the host, never a credential, never the server.
+    qCInfo(lcRust) << "sign-in network route" << "state=" << state
+                   << "applied=" << result.isEmpty();
+}
+
 bool RustSdkMatrixClient::applyNetworkRoute(const QString &slug)
 {
     namespace route = matrix::network_route;
@@ -1917,7 +1937,7 @@ bool RustSdkMatrixClient::detachSession()
 // Phase B, completeOAuthLogin(), is the only place that opens a store, after
 // the homeserver has named the account and device.
 
-bool RustSdkMatrixClient::ensureOAuthBootstrapHandle()
+bool RustSdkMatrixClient::ensureOAuthBootstrapHandle(const QString &homeserver)
 {
     releaseAuthHandle();
     m_authHandle = mx_rust_oauth_bootstrap_create();
@@ -1926,6 +1946,7 @@ bool RustSdkMatrixClient::ensureOAuthBootstrapHandle()
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
         return false;
     }
+    applySignInRoute(m_authHandle, homeserver);
     // Signing in from the login screen: there is no session handle, so the poll
     // timer may be stopped.
     if (!m_pollTimer.isActive())
@@ -1968,7 +1989,7 @@ void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
         Q_EMIT authMethodsDiscovered(hs, false, false, false);
         return;
     }
-    if (!ensureOAuthBootstrapHandle()) {
+    if (!ensureOAuthBootstrapHandle(hs)) {
         Q_EMIT authMethodsDiscovered(hs, false, false, false);
         return;
     }
@@ -2005,7 +2026,7 @@ void RustSdkMatrixClient::startOAuthAttempt(const QString &homeserver,
         return;
     }
 
-    if (!ensureOAuthBootstrapHandle()) {
+    if (!ensureOAuthBootstrapHandle(hs)) {
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
     }
@@ -2100,6 +2121,7 @@ void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
     m_providersHandle = mx_rust_oauth_bootstrap_create();
     if (!m_providersHandle)
         return;
+    applySignInRoute(m_providersHandle, hs);
     // From the login screen there is no session handle, so the poll timer may
     // be stopped.
     if (!m_pollTimer.isActive())
@@ -2168,7 +2190,7 @@ void RustSdkMatrixClient::beginSsoLogin(const QString &homeserver,
     if (m_ssoInFlight || m_oauthInFlight)
         return;
 
-    if (!ensureOAuthBootstrapHandle()) {
+    if (!ensureOAuthBootstrapHandle(hs)) {
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
     }
@@ -2535,6 +2557,9 @@ void RustSdkMatrixClient::revokeRefusedSignIn(void *signInHandle,
     }
     // One at a time: an older refusal still waiting is given up.
     releaseRevokeHandle();
+    // The handle the sign-in ran on already carries its route; the account is
+    // named now, so its own route (if it is a saved one) is the one to use.
+    applySignInRoute(signInHandle, homeserver, userId);
     // Flow word and nothing else: no account, device or server.
     qCInfo(lcRust) << "browser sign-in not kept on this device; ending the "
                       "session the server issued for it"
@@ -2598,6 +2623,7 @@ bool RustSdkMatrixClient::startAdoptedSessionCheck(
         m_adoptedSessionsChecked.insert(userId);
         return restoreSession();
     }
+    applySignInRoute(m_whoamiHandle, identity.homeserver, userId);
     m_adoptedSessionCheck = {userId, deviceId, identity.homeserver};
     qCInfo(lcRust) << "checking an adopted sign-in with the server before using it"
                    << "slug=" << identity.slug;

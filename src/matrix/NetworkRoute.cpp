@@ -232,6 +232,55 @@ QByteArray rustJson(const SettingsManager *settings, const SecretStore *store,
     return QJsonDocument(out).toJson(QJsonDocument::Compact);
 }
 
+QString serverKey(const QString &value)
+{
+    QString v = value.trimmed().toLower();
+    const qsizetype scheme = v.indexOf(QLatin1String("://"));
+    if (scheme >= 0)
+        v = v.mid(scheme + 3);
+    const qsizetype slash = v.indexOf(QLatin1Char('/'));
+    if (slash >= 0)
+        v = v.left(slash);
+    while (v.endsWith(QLatin1Char('.')))
+        v.chop(1);
+    return v;
+}
+
+QByteArray rustJsonForSignIn(const SettingsManager *settings, const SecretStore *store,
+                             const QString &homeserver, const QString &userId)
+{
+    if (!settings)
+        return stateOnly("none");
+    if (!userId.isEmpty() && settings->hasSavedAccount(userId))
+        return rustJson(settings, store, userId);
+    const QString wanted = serverKey(homeserver);
+    if (wanted.isEmpty())
+        return stateOnly("none");
+    QByteArray chosen;
+    for (const QString &uid : settings->savedAccountUserIds()) {
+        if (!settings->networkRouteConfigured(uid))
+            continue;
+        const QString recorded = serverKey(
+            settings->accountRecord(uid).value(QStringLiteral("homeserver")).toString());
+        const qsizetype colon = uid.indexOf(QLatin1Char(':'));
+        const QString serverName = colon > 0 ? serverKey(uid.mid(colon + 1)) : QString();
+        if (wanted != recorded && wanted != serverName)
+            continue;
+        QByteArray json = rustJson(settings, store, uid);
+        if (chosen.isEmpty()) {
+            chosen = json;
+        } else if (chosen != json) {
+            // Two routed accounts there disagree: which one is signing in is
+            // not known yet, so neither route is guessed and none is skipped.
+            json.fill('\0');
+            chosen.fill('\0');
+            return stateOnly("unavailable");
+        }
+        json.fill('\0');
+    }
+    return chosen.isEmpty() ? stateOnly("none") : chosen;
+}
+
 QString describeJson(const QByteArray &json)
 {
     const QJsonObject object = QJsonDocument::fromJson(json).object();

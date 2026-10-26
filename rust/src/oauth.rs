@@ -432,7 +432,7 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_discover", async move {
@@ -545,7 +545,7 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
         let state_slot = Arc::clone(&bridge.oauth_state);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_begin", async move {
@@ -1017,7 +1017,7 @@ pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
         let refresh_token = unsafe { cstr_arg(refresh_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "revoke_refused_sign_in", async move {
@@ -1063,7 +1063,7 @@ pub unsafe extern "C" fn mx_rust_whoami_probe(
         let access_token = unsafe { cstr_arg(access_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
-        let route_of = bridge.store_path.clone();
+        let route_of = crate::route::key_for(ptr as usize, &bridge.store_path);
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "whoami_probe", async move {

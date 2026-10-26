@@ -220,19 +220,22 @@ they are not account traffic, and the Settings text says they use the system's
 network settings.
 
 **Known limits of v1 (documented, not hidden).**
-* **First sign-in is direct, and so is any browser (OAuth) sign-in.** A route
-  belongs to a saved account, and a new account has no record until its first
-  sign-in succeeds. In-memory clients built for a handle (`build_memory_client`:
-  OAuth discovery and begin, SSO providers and begin, the whoami adoption
-  probe, a refused sign-in's revocation) follow that handle's route, but the
-  OAuth Phase A bootstrap handle (`mx_rust_oauth_bootstrap_create`) has no
-  store path and so never has a route: an OAuth sign-in, including signing a
-  routed account in again, reaches the homeserver's discovery and token
-  endpoints directly, and the browser page is a hand-off anyway. A password
-  sign-in of a saved account that still has its record IS routed (it builds
-  on the account's own handle). Sign-out removes the record and the password,
-  so signing the same account in again afterwards is a first sign-in. A route
-  can be set right after, and applies from the next connect.
+* **A new account's first sign-in is direct; signing a routed account in
+  again is not.** A route belongs to a saved account, and a new account has no
+  record until its first sign-in succeeds. Store-less sign-in handles (the
+  OAuth/SSO bootstrap, the SSO provider probe, the whoami adoption probe, a
+  refused sign-in's revocation) get a route of their own (`route::key_for`
+  keys a store-less handle by itself): by account when the account is known
+  (`rustJsonForSignIn(..., userId)`), otherwise from the server being signed
+  in to — the route of the saved account on that server that has one, so an
+  expired sign-in of a routed account goes through its proxy. Two routed
+  accounts on one server with different routes make the sign-in
+  `unavailable` (refused, never direct) until one is named. Matching uses the
+  host[:port] of the typed value against the recorded homeserver and the user
+  id's server name. The sign-in page itself opens in the user's browser and
+  uses the browser's network settings; the Settings copy says so. Sign-out
+  removes the record and the password, so signing the same account in again
+  afterwards is a first sign-in.
 * **Applies on the next connect.** Saving does not rebuild the session that is
   open; restart or switch away and back. The Settings copy says so.
 * **No connection test**, and no "using proxy" indicator outside Settings.
@@ -258,6 +261,12 @@ gets it, a refused keyring write stores nothing, every unusable state is
 `unavailable` and never `none`, sign-out takes it and leaves another account's,
 and a source contract on the Settings card. `CallControllerTest` and
 `RtcSessionTest`: calls refused for a routed account. Live: NOT TESTED.
+
+**Logging.** `LIGHTNING_RUST_LOG` can never enable `reqwest`, `hyper_util`,
+`hyper` or `h2` (their debug/trace output can print the proxy URI):
+`clamp_transport_tracing` drops any directive naming them and pins each
+`off`, which outranks a bare `trace`. Without `LIGHTNING_RUST_LOG` no
+subscriber is installed at all.
 
 **Dependency.** `rust/Cargo.toml`: reqwest gains the `socks` feature. No new
 crate, no lock change (see section 1).
