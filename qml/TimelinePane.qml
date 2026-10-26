@@ -53,6 +53,15 @@ Rectangle {
     signal discoverRoomsRequested()
 
     property var currentRoom: ({})
+    // Bumped on every SpaceManager change: bindings that read a Space's
+    // name through spaceName() (a call, so no dependency of its own) read
+    // this too, or the Space Home title kept the old name after a rename.
+    property int spacesTick: 0
+    Connections {
+        target: (typeof app !== "undefined" && app) ? app.spaces : null
+        ignoreUnknownSignals: true
+        function onSpacesChanged() { root.spacesTick++ }
+    }
     readonly property bool composerFocusable:
         app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
         && currentRoom.membership === "joined" && currentRoom.isSpace !== true
@@ -1355,6 +1364,7 @@ Rectangle {
                                     return app.currentRoomId
                                 // With no room open, Space Home shows the
                                 // Space's name.
+                                var _dep = root.spacesTick
                                 if (app.spaces
                                         && app.spaces.activeSpaceId.length > 0
                                         && app.spaces.activeSpaceId.charAt(0) === "!")

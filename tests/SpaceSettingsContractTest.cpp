@@ -286,6 +286,21 @@ private Q_SLOTS:
         QCOMPARE(property.notifySignal().name(), QByteArray("membersChanged"));
     }
 
+    // Renaming a Space from Space Home left the pane's title on the old name
+    // (live, 2026-10-26): the title read spaceName(), a call, so nothing told
+    // it the Space changed. It reads the SpaceManager change tick too.
+    void theSpaceHomeTitleFollowsARename()
+    {
+        const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
+        const int title = pane.indexOf(QStringLiteral("objectName: \"roomHeaderTitle\""));
+        QVERIFY(title > 0);
+        const int call = pane.indexOf(QStringLiteral("app.spaces.spaceName("), title);
+        QVERIFY(call > title);
+        QVERIFY2(pane.mid(title, call - title).contains(QStringLiteral("root.spacesTick")),
+                 "the Space Home title has no dependency on Space changes");
+        QVERIFY(pane.contains(QStringLiteral("function onSpacesChanged() { root.spacesTick++ }")));
+    }
+
     // The action row wraps instead of running off the pane.
 
     void theSpaceHomeActionRowWraps()
