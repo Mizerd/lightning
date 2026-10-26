@@ -324,6 +324,13 @@ private slots:
             hints->setCursorFlashTime(originalFlash);
         });
         hints->setCursorFlashTime(400);
+        // A room must be open: without one the composer is disabled and
+        // cannot take focus. Later cases expect none, so put it back.
+        const QString originalRoom = m_controller->currentRoomId();
+        const auto restoreRoom = qScopeGuard([&] {
+            m_controller->setCurrentRoomId(originalRoom);
+        });
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
         QQuickItem *input = item("composerInput");
         QVERIFY(input);
         QQuickItem *idle = findItem(input, QStringLiteral("idleCaret"));
