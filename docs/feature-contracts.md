@@ -803,6 +803,27 @@ backend capability checks and honest live-test status.
   rail, header, composer and dialog density; the one-hour grouping window;
   measured Nheko parity (NOT TESTED). Exporting while the preset is selected
   writes effective values, and an import applies them to the selected profile.
+- **Thread and density follow-ups (2026-10-26, wave 2).**
+  * Nheko compact also tightens chrome through `AppTheme.compactDensity`
+    (read from the settings): `headerBandHeight` 60 -> 48 (room, room list,
+    Room information, Settings; the thread header derives from it),
+    `roomRowPaddingV` 6 -> 4, composer outer inset 20/16 -> 12/8. No text size
+    changes. Dialogs, menus and the Channels presenter are not converted yet.
+  * Room list, Spaces rail and side panel widths are remembered per layout
+    preset (device-local; Nheko compact under `nhekoCompactWidths/`, starting
+    from the Lightning width); export and import carry the Lightning widths
+    (`settingsport::readSettings` / `writeSettings`).
+  * A followed thread re-pins to its newest reply when rows above it grow
+    (it used to open part-way through its history); a reply arriving while
+    the reader is up in the thread is counted on a jump pill and sends no
+    receipt; the header has an explicit Mark this thread read
+    (`ThreadController::markReadNow`, threaded receipt only).
+  * The Inline style no longer draws a thread reply's `is_falling_back`
+    `m.in_reply_to` as a quote card (`event_item_to_json`); an explicit
+    in-thread reply still quotes.
+  * Classic room list: an "Unread/Mention above/below" pill scrolls the list
+    to the nearest off-screen unread room without opening it
+    (`RoomListModel::attentionRowFrom`).
 - **Thread panel parity (2026-10-23).** The panel composer has the room
   composer's `:shortcode` completion popup and `:alias: ` auto-convert
   through the SAME C++ rules (`MessageComposer::emojiCompletionsForText`,
