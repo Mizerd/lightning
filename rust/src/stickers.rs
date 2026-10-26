@@ -4640,6 +4640,61 @@ mod tests {
                    HomeDecision::Refuse("network".into()));
     }
 
+    // A live Space child change (and a pack change) reaches C++ as a
+    // `sticker_packs_changed` poke for that room, through the SDK's own sync
+    // processing: the GUI round could not stage a live Space edit.
+    #[tokio::test]
+    async fn pack_and_space_changes_in_sync_poke_cpp_with_their_room() {
+        use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id, serde::Raw};
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_base::RequestedRequiredStates;
+        use std::collections::VecDeque;
+        use std::sync::Mutex;
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let events: crate::EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        let _handles = install_change_handlers(&client, Arc::clone(&events));
+
+        let space = room_id!("!space:example.org");
+        let room = room_id!("!room:example.org");
+        let state = |ty: &str, key: &str, id: &str, content: Value| {
+            Raw::from_json_string(json!({
+                "type": ty, "state_key": key, "event_id": id,
+                "sender": "@other:example.org", "origin_server_ts": 1_700_000_000_000_u64,
+                "content": content,
+            }).to_string()).expect("raw")
+        };
+        let mut space_update = v5::response::Room::default();
+        space_update.timeline = vec![
+            state("m.space.child", room.as_str(), "$c1", json!({ "via": ["example.org"] })),
+            state("m.room.topic", "", "$t1", json!({ "topic": "not a pack change" })),
+        ];
+        let mut room_update = v5::response::Room::default();
+        room_update.timeline = vec![
+            state("m.room.image_pack", "k", "$p1", json!({ "images": {} })),
+            state("m.space.parent", space.as_str(), "$sp", json!({ "via": ["example.org"], "canonical": true })),
+        ];
+        let mut response = v5::Response::new("pos-1".to_owned());
+        response.rooms.insert(space.to_owned(), space_update);
+        response.rooms.insert(room.to_owned(), room_update);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+
+        let queued: Vec<Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        let pokes_for = |id: &str| queued.iter().filter(|v| **v == change_payload(id)).count();
+        assert_eq!(pokes_for(space.as_str()), 1, "{queued:?}");
+        assert_eq!(pokes_for(room.as_str()), 2, "{queued:?}");
+        assert_eq!(queued.len(), 3, "the topic change must not poke: {queued:?}");
+    }
+
     // ---- remembering a server "not found" -------------------------------
 
     use std::sync::atomic::{AtomicUsize, Ordering};
