@@ -2057,6 +2057,13 @@ private Q_SLOTS:
             "root.stickers.uploadImagesToPack(root.packId, selectedFiles)")));
         // Copy link goes through the testable C++ copy.
         QVERIFY(editor.contains(QStringLiteral("root.stickers.copyShareText(root.packId)")));
+        // Our own upload is never "changed elsewhere": the comparison waits
+        // while it runs and the base is re-taken after it (live run).
+        QVERIFY(editor.contains(QStringLiteral("&& !root.transferring")));
+        const int finished = editor.indexOf(QStringLiteral("function onTransferFinished("));
+        QVERIFY(finished >= 0);
+        QVERIFY(editor.mid(finished, 700).contains(QStringLiteral("kind === \"upload\"")));
+        QVERIFY(editor.mid(finished, 700).contains(QStringLiteral("rebaseTimer.restart()")));
         // Start a new pack room: only from the explicit button, with `true`.
         QCOMPARE(editor.count(QStringLiteral("migrateUserPack(true)")), 1);
         QVERIFY(editor.contains(QStringLiteral("category === \"home_unavailable\"")));

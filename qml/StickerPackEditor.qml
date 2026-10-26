@@ -93,6 +93,7 @@ Dialog {
     /// What changed since `base` that this editor did not do.
     readonly property var remoteChange: root.visible && root.stickers
         && root.stickers.revision >= 0 && !root.ownEditPending
+        && !root.transferring
         ? root.stickers.comparePack(root.packId, root.base) : ({ any: false })
     /// An own edit is in flight: its echo is not "changed elsewhere".
     property bool ownEditPending: false
@@ -117,6 +118,13 @@ Dialog {
         function onTransferFinished(kind, ok, category, added, skipped, failed, name) {
             if (kind === "emoji" || !root.visible)
                 return
+            // Our own "Add images" wrote the pack once per image: like an own
+            // edit, it is not "changed elsewhere" (live run 2026-10-26 showed
+            // "changed elsewhere (4 added)" for the user's own upload).
+            if (kind === "upload") {
+                root.ownEditPending = true
+                rebaseTimer.restart()
+            }
             root.noticeIsError = !ok
             root.notice = root.stickers.transferMessage(
                 kind, ok, category, added, skipped, failed, name)
