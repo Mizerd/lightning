@@ -224,6 +224,46 @@ private Q_SLOTS:
     }
 
     // The sort menu checks what the list does while nothing was ever chosen.
+    // Live 2026-10-26: in a Space with no rooms the "Invites" section header
+    // was drawn over the empty state ("InvRooms added to this Space…"). With
+    // no rows there is no header: none visible, and none overlapping the
+    // empty state's area.
+    void anEmptyListDrawsNoSectionHeaderOverItsEmptyState()
+    {
+        Fixture f;
+        QVERIFY(load(f, kPresenter, 320, 400));
+        auto headers = [&] {
+            QList<QQuickItem *> all, out;
+            visualTree(f.item.get(), all);
+            for (QQuickItem *it : all) {
+                if (it->objectName() == QStringLiteral("roomListSectionHeader"))
+                    out.append(it);
+            }
+            return out;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(!headers().isEmpty(), kTimeoutMs);
+        bool anyShown = false;
+        for (QQuickItem *h : headers())
+            anyShown = anyShown || h->isVisible();
+        QVERIFY2(anyShown, "fixture: a populated list shows its section headers");
+
+        f.controller->roomList()->setSearchQuery(QStringLiteral("zz-no-room-matches-this"));
+        QTRY_COMPARE_WITH_TIMEOUT(f.controller->roomList()->rowCount(), 0, kTimeoutMs);
+        auto *empty = byName(f.item.get(), QStringLiteral("roomListEmptyState"));
+        QVERIFY(empty);
+        QTRY_VERIFY_WITH_TIMEOUT(empty->isVisible(), kTimeoutMs);
+        QCoreApplication::processEvents();
+        const QRectF emptyRect = empty->mapRectToScene(
+            QRectF(0, 0, empty->width(), empty->height()));
+        for (QQuickItem *h : headers()) {
+            QVERIFY2(!h->isVisible(),
+                     "a section header is still visible over an empty list");
+            const QRectF r = h->mapRectToScene(QRectF(0, 0, h->width(), h->height()));
+            QVERIFY(!h->isVisible() || !r.intersects(emptyRect));
+        }
+        f.controller->roomList()->setSearchQuery(QString());
+    }
+
     void theSortMenuChecksTheEffectiveDefault()
     {
         Fixture f;
