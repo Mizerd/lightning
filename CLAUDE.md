@@ -528,9 +528,7 @@ as unfinished, and do not turn a possible future idea into a commitment.
 Preserve these invariants:
 
 - A true `m.thread` reply must not render as a standalone ordinary message in
-  the main room timeline in the Thread panel style. The Inline style
-  deliberately interleaves them as TAGGED rows (`docs/feature-contracts.md`,
-  Thread style); the sending rules below hold in both styles.
+  the main room timeline.
 - Thread roots remain in the main timeline and may show compact summary cards.
 - Thread replies belong to SDK `TimelineFocus::Thread` timelines.
 - Normal rich replies that are not `m.thread` events remain visible in main.
