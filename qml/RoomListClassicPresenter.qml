@@ -207,6 +207,131 @@ Item {
         }
     }
 
+    // Q3: unread rooms scrolled out of sight above or below the list. A pill
+    // on that edge scrolls the LIST to the nearest one -- it opens nothing,
+    // so the open conversation, its draft and its read state are untouched
+    // (next-unread-room navigation is the separate command that opens one).
+    // Recomputed on a short debounce after scrolling or model changes, never
+    // per frame; the model answers with one bounded pass.
+    property int attentionAboveRow: -1
+    property int attentionBelowRow: -1
+    property bool attentionAboveIsMention: false
+    property bool attentionBelowIsMention: false
+    function refreshAttentionLocator() {
+        if (!app.roomList || roomList.count <= 0 || roomList.height <= 0) {
+            attentionAboveRow = -1
+            attentionBelowRow = -1
+            return
+        }
+        var first = roomList.indexAt(roomList.width / 2, roomList.contentY + 1)
+        var last = roomList.indexAt(roomList.width / 2,
+                                    roomList.contentY + roomList.height - 2)
+        if (first < 0)
+            first = 0
+        if (last < 0)
+            last = roomList.count - 1
+        var aboveMention = first > 0
+            ? app.roomList.attentionRowFrom(first - 1, -1, true) : -1
+        var above = aboveMention >= 0 ? aboveMention
+            : (first > 0 ? app.roomList.attentionRowFrom(first - 1, -1, false) : -1)
+        var belowMention = app.roomList.attentionRowFrom(last + 1, 1, true)
+        var below = belowMention >= 0 ? belowMention
+            : app.roomList.attentionRowFrom(last + 1, 1, false)
+        attentionAboveRow = above
+        attentionAboveIsMention = aboveMention >= 0
+        attentionBelowRow = below
+        attentionBelowIsMention = belowMention >= 0
+    }
+    Timer {
+        id: attentionDebounce
+        interval: 120
+        onTriggered: root.refreshAttentionLocator()
+    }
+    Connections {
+        target: roomList
+        function onContentYChanged() { attentionDebounce.restart() }
+        function onHeightChanged() { attentionDebounce.restart() }
+        function onCountChanged() { attentionDebounce.restart() }
+    }
+    Connections {
+        target: app.roomList
+        function onDataChanged() { attentionDebounce.restart() }
+        function onModelReset() { attentionDebounce.restart() }
+        function onLayoutChanged() { attentionDebounce.restart() }
+    }
+    Component.onCompleted: attentionDebounce.restart()
+
+    component AttentionPill: AbstractButton {
+        id: pill
+        property int targetRow: -1
+        property bool mention: false
+        property bool below: false
+        visible: targetRow >= 0
+        z: 30
+        anchors.horizontalCenter: parent.horizontalCenter
+        focusPolicy: Qt.StrongFocus
+        hoverEnabled: true
+        implicitHeight: 26
+        implicitWidth: pillRow.implicitWidth + 20
+        text: below ? (mention ? qsTr("Mention below") : qsTr("Unread below"))
+                    : (mention ? qsTr("Mention above") : qsTr("Unread above"))
+        Accessible.role: Accessible.Button
+        Accessible.name: text
+        Accessible.description: qsTr("Scrolls the conversation list; "
+                                     + "opens nothing")
+        onClicked: roomList.positionViewAtIndex(targetRow, ListView.Center)
+        background: Rectangle {
+            radius: height / 2
+            color: pill.mention ? AppTheme.mentionBadge
+                 : pill.down ? AppTheme.accentPressed
+                 : pill.hovered ? AppTheme.accentHover : AppTheme.accent
+        }
+        contentItem: Row {
+            id: pillRow
+            spacing: AppTheme.spacingXS
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: pill.below ? "expand_more" : "expand_less"
+                size: 16
+                color: pill.mention ? AppTheme.mentionBadgeText
+                                    : AppTheme.accentText
+            }
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                text: pill.text
+                color: pill.mention ? AppTheme.mentionBadgeText
+                                    : AppTheme.accentText
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightBold
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: (parent.height + 6) / 2
+            color: "transparent"
+            border.color: AppTheme.focusRing
+            border.width: 2
+            visible: pill.visualFocus
+        }
+    }
+    AttentionPill {
+        objectName: "roomListAttentionAbove"
+        anchors.top: parent.top
+        anchors.topMargin: AppTheme.spacing6
+        targetRow: root.attentionAboveRow
+        mention: root.attentionAboveIsMention
+    }
+    AttentionPill {
+        objectName: "roomListAttentionBelow"
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: AppTheme.spacing6
+        below: true
+        targetRow: root.attentionBelowRow
+        mention: root.attentionBelowIsMention
+    }
+
     // Empty/loading state: glyph, heading, one line and the actions that
     // resolve it, using the same dialogs as the header buttons.
     ColumnLayout {

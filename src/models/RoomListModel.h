@@ -155,6 +155,14 @@ public:
     /// skipped (a decision, not unread mail), and so are `markedUnread` rooms,
     /// which the user deliberately kept for later.
     Q_INVOKABLE int markAllRoomsRead();
+    // The room list's off-screen attention locator (Q3): the nearest shown
+    // row from `fromRow` (inclusive), walking `step` (+1 down, -1 up), that
+    // counts as unread under its notification mode -- or, with
+    // `mentionsOnly`, that has a mention it may show. -1 when none. Reads
+    // the same rules as the row badges, so a muted room never draws the
+    // locator; one bounded pass over the shown rows, never a fetch.
+    Q_INVOKABLE int attentionRowFrom(int fromRow, int step,
+                                     bool mentionsOnly = false) const;
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
     // Favourites (Matrix `m.favourite` tag). The toggle is not applied locally;
     // see the .cpp. isRoomFavourite() reads the client's full room set, so it

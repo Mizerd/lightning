@@ -210,6 +210,46 @@ private Q_SLOTS:
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
     }
 
+    // Q3: the off-screen attention locator asks the model for the nearest
+    // row needing attention in a direction. Unread rows count, a mention is
+    // found separately, and quiet rows are passed over.
+    void theAttentionLocatorFindsTheNearestUnreadAndMentionRows()
+    {
+        FakeClient client;
+        RoomInfo quiet = room(QStringLiteral("!a:x"), QStringLiteral("A"), 1);
+        RoomInfo unread = room(QStringLiteral("!b:x"), QStringLiteral("B"), 2);
+        unread.unreadCount = 2;
+        unread.hasUnreadMessages = true;
+        RoomInfo mention = room(QStringLiteral("!c:x"), QStringLiteral("C"), 3);
+        mention.unreadCount = 1;
+        mention.highlightCount = 1;
+        mention.hasUnreadMessages = true;
+        RoomInfo quiet2 = room(QStringLiteral("!d:x"), QStringLiteral("D"), 4);
+        client.mirror = { quiet, unread, mention, quiet2 };
+        RoomListModel model;
+        model.setClient(&client);
+        model.setDeferReordering(false);
+        QTRY_COMPARE(model.rowCount(), 4);
+        auto rowOf = [&](const QString &id) {
+            for (int row = 0; row < model.rowCount(); ++row)
+                if (model.data(model.index(row), RoomListModel::RoomIdRole)
+                        .toString() == id)
+                    return row;
+            return -1;
+        };
+        const int b = rowOf(QStringLiteral("!b:x"));
+        const int c = rowOf(QStringLiteral("!c:x"));
+        const int last = model.rowCount() - 1;
+        QVERIFY(b >= 0 && c >= 0);
+        QCOMPARE(model.attentionRowFrom(0, 1), qMin(b, c));
+        QCOMPARE(model.attentionRowFrom(0, 1, true), c);
+        QCOMPARE(model.attentionRowFrom(last, -1), qMax(b, c));
+        QCOMPARE(model.attentionRowFrom(b, -1, true),
+                 c < b ? c : -1);
+        QCOMPARE(model.attentionRowFrom(last + 5, 1), -1);
+        QCOMPARE(model.attentionRowFrom(0, 0), -1);
+    }
+
     // End to end through SettingsManager (MASTER-1 H2): nothing stored is
     // "never chosen" (-1, the Space's order inside a Space); an explicit
     // Activity is stored even though it equals the default and stays

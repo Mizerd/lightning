@@ -1081,6 +1081,25 @@ void RoomListModel::setNotificationModeSource(
     notificationModeChanged();
 }
 
+int RoomListModel::attentionRowFrom(int fromRow, int step,
+                                    bool mentionsOnly) const
+{
+    if (step == 0)
+        return -1;
+    step = step > 0 ? 1 : -1;
+    const int rows = int(m_rooms.size());
+    for (int row = fromRow; row >= 0 && row < rows; row += step) {
+        const RoomInfo &r = m_rooms.at(row);
+        if (r.membership != RoomInfo::Joined || r.isSpace)
+            continue;
+        const int mode = notificationModeOf(r.id);
+        if (mentionsOnly ? roomunread::mentionCount(r, mode) > 0
+                         : roomunread::countsAsUnread(r, mode))
+            return row;
+    }
+    return -1;
+}
+
 int RoomListModel::shownUnread(const RoomInfo &r) const
 {
     return r.membership == RoomInfo::Joined
