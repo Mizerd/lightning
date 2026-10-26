@@ -1123,9 +1123,11 @@ pub(crate) fn fetch_packs(
         // Usable in this room because it sits in those spaces; not a
         // subscription. Same record precedence as the room itself.
         let mut ancestry_len = 0usize;
+        let mut ancestry_ids: Vec<String> = Vec::new();
         if !room_id.is_empty() {
             let ancestors = canonical_ancestry(&client, &room_id).await;
             ancestry_len = ancestors.len();
+            ancestry_ids = ancestors.clone();
             for space_id in ancestors {
                 if packs.len() >= MAX_PACKS {
                     break;
@@ -1171,6 +1173,7 @@ pub(crate) fn fetch_packs(
             json!({
                 "type": "sticker_packs",
                 "canonical_ancestors": ancestry_len,
+                "canonical_ancestor_ids": ancestry_ids,
                 "op_id": op_id,
                 "lifecycle": lifecycle,
                 "room_id": room_id,
@@ -3154,6 +3157,25 @@ pub(crate) fn install_change_handlers(
                 forget_room(&client, room.room_id().as_str());
                 enqueue(&q, change_payload(room.room_id().as_str()));
             }
+        },
+    ));
+    // The canonical ancestry a room's Space packs come from: a parent claim
+    // in the room or a child entry in a Space changed, so which Space packs
+    // apply may have changed too (PACK-PRO-023, PACK-LTN-015).
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: matrix_sdk::ruma::events::space::parent::SyncSpaceParentEvent,
+              room: matrix_sdk::Room| {
+            let q = Arc::clone(&q);
+            async move { enqueue(&q, change_payload(room.room_id().as_str())) }
+        },
+    ));
+    let q = Arc::clone(&events);
+    handles.push(client.add_event_handler(
+        move |_ev: matrix_sdk::ruma::events::space::child::SyncSpaceChildEvent,
+              room: matrix_sdk::Room| {
+            let q = Arc::clone(&q);
+            async move { enqueue(&q, change_payload(room.room_id().as_str())) }
         },
     ));
     let q = Arc::clone(&events);

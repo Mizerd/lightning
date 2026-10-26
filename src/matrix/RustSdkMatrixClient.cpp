@@ -12606,6 +12606,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       .toBool() },
                 { QStringLiteral("legacyOnlySubscriptions"),
                   event.value(QStringLiteral("legacy_only_subscriptions")).toInt() },
+                { QStringLiteral("canonicalAncestorIds"),
+                  event.value(QStringLiteral("canonical_ancestor_ids")).toVariant()
+                      .toStringList() },
             });
         Q_EMIT stickerPacksReceived(
             static_cast<quint64>(

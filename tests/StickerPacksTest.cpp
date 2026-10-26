@@ -1058,6 +1058,25 @@ private Q_SLOTS:
         QCOMPARE(client.fetchCalls, 2);
     }
 
+    void aParentSpaceChangeRereadsTheSpacePacks()
+    {
+        // PACK-PRO-023: a canonical Space's child list changing (or the room's
+        // own parent claim) can add or drop that Space's packs; the snapshot
+        // remembers which Spaces it walked and re-reads when one changes.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.setActiveRoomId(kRoom);
+        manager.refresh();
+        Q_EMIT client.stickerPackSnapshotMeta(client.lastFetchOp,
+            { { QStringLiteral("canonicalAncestorIds"),
+                QStringList{ QStringLiteral("!space:example.org") } } });
+        Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false, twoPacks());
+        const int before = client.fetchCalls;
+        Q_EMIT client.stickerPacksChanged(QStringLiteral("!space:example.org"));
+        QTRY_COMPARE(client.fetchCalls, before + 1);
+    }
+
     void aSyncChangeRereadsOnceAndOnlyWhenItConcernsTheSnapshot()
     {
         // PACK-LTN-002 / PACK-PER-008: another device's subscription edit or a

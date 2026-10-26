@@ -460,6 +460,9 @@ private:
     QTimer *m_changeRefresh = nullptr;
     QVariantMap m_pendingMeta;
     QVariantMap m_snapshotMeta;
+    // The canonical Spaces the last snapshot walked (their child-list changes
+    // re-read it).
+    QStringList m_snapshotAncestors;
     bool m_lastMirrorFailed = false;
 
     // Every mxc in the account's own pack, for isSaved().

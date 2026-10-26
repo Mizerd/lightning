@@ -260,7 +260,10 @@ void StickerPackManager::onPacksChanged(const QString &roomId)
     // snapshot shows: account data always can; a room only when it is the
     // snapshot's room or one of its packs is subscribed.
     if (!roomId.isEmpty() && roomId != m_snapshotRoomId) {
-        bool referenced = false;
+        // A room the snapshot shows packs from, or one of the Spaces its packs
+        // were reached through (a Space's child list changing can add or drop
+        // the active room's canonical ancestry).
+        bool referenced = m_snapshotAncestors.contains(roomId);
         for (const stickers::Pack &pack : m_packs->packs()) {
             if (pack.roomId == roomId) {
                 referenced = true;
@@ -871,6 +874,8 @@ void StickerPackManager::onPacksReceived(quint64 opId, const QString &roomId,
         return;
     m_fetchOp = 0;
     m_snapshotMeta = m_pendingMeta;
+    m_snapshotAncestors = m_snapshotMeta.value(QStringLiteral("canonicalAncestorIds"))
+                              .toStringList();
     m_pendingMeta.clear();
     applySnapshot(roomId, roomCanManage, packs);
     if (m_refreshOwed) {
