@@ -7,6 +7,9 @@
 
 #include <QtTest/QtTest>
 
+#include <algorithm>
+#include <cmath>
+
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlComponent>
@@ -39,6 +42,28 @@ int channelDelta(const QColor &a, const QColor &b)
 
 constexpr int kTolerance = 8;
 
+// Source-over: what a translucent `top` renders as on opaque `bottom`.
+QColor over(const QColor &top, const QColor &bottom)
+{
+    const double a = top.alphaF();
+    return QColor(int(std::lround(top.red() * a + bottom.red() * (1 - a))),
+                  int(std::lround(top.green() * a + bottom.green() * (1 - a))),
+                  int(std::lround(top.blue() * a + bottom.blue() * (1 - a))));
+}
+
+double contrastRatio(const QColor &a, const QColor &b)
+{
+    auto lum = [](const QColor &c) {
+        auto ch = [](double v) {
+            return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * ch(c.redF()) + 0.7152 * ch(c.greenF())
+               + 0.0722 * ch(c.blueF());
+    };
+    const double la = lum(a), lb = lum(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
 const char *kScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -69,6 +94,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokDangerFill"; visible: false; color: AppTheme.buttonDangerFill }
     Rectangle { objectName: "tokDangerInk"; visible: false; color: AppTheme.buttonDangerInk }
     Rectangle { objectName: "tokFocusRing"; visible: false; color: AppTheme.focusRing }
+    Rectangle { objectName: "tokSecondaryFill"; visible: false; color: AppTheme.buttonSecondaryFill }
 
     Column {
         x: 24
@@ -209,8 +235,27 @@ private slots:
         assertFlatFill(img, primary, token("tokAccent"), "primary");
         auto *secondary = item("secondaryButton");
         QVERIFY(secondary);
-        // Secondary sits on the window background with only its 1px border.
-        assertFlatFill(img, secondary, token("tokBackground"), "secondary");
+        // Secondary (since 2026-10-25, master prompt Part 6 2.2): a flat
+        // translucent tint of its own ink over whatever it sits on, so an
+        // enabled secondary reads as a control before hover. The old
+        // transparent field vanished on cards (Space Home Rename/Save).
+        const QColor tint = token("tokSecondaryFill");
+        QVERIFY2(tint.alpha() > 0 && tint.alpha() < 255,
+                 "the secondary resting fill must be a translucent tint");
+        const QColor rest = over(tint, token("tokBackground"));
+        assertFlatFill(img, secondary, rest, "secondary");
+        // It must be visibly NOT the surface beneath it...
+        QVERIFY2(channelDelta(rest, token("tokBackground")) >= 6,
+                 qPrintable(QStringLiteral("secondary rest %1 is indistinguishable "
+                                           "from the background %2")
+                                .arg(rest.name(), token("tokBackground").name())));
+        // ...and its label must stay readable on the tint.
+        auto *label = findItem(secondary, QStringLiteral("buttonLabel"));
+        QVERIFY(label);
+        const double ratio = contrastRatio(
+            label->property("color").value<QColor>(), rest);
+        QVERIFY2(ratio >= 4.5, qPrintable(QStringLiteral("secondary label %1:1")
+                                              .arg(ratio, 0, 'f', 2)));
         QCOMPARE(secondary->property("kind").toString(),
                  QStringLiteral("secondary"));
     }
