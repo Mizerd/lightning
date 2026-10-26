@@ -2488,11 +2488,20 @@ Popup {
                                             onClicked: root.beginEdit(groupRow.modelData.members[0],
                                                 root.labelForRole(groupRow.modelData.members[0]))
                                         }
-                                        RowLayout {
+                                        // Name and members on one line,
+                                        // the actions under them: in one
+                                        // row the buttons squeezed the
+                                        // group's name to "Send ...".
+                                        ColumnLayout {
                                             id: groupRowLayout
-                                            anchors.fill: parent
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
                                             anchors.leftMargin: AppTheme.spacing8
                                             anchors.rightMargin: AppTheme.spacing6
+                                            spacing: AppTheme.spacing4
+                                          RowLayout {
+                                            Layout.fillWidth: true
                                             spacing: AppTheme.spacing8
                                             Rectangle {
                                                 implicitWidth: 26
@@ -2552,6 +2561,11 @@ Popup {
                                                     elide: Label.ElideRight
                                                 }
                                             }
+                                          }
+                                          RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 26 + AppTheme.spacing8
+                                            spacing: AppTheme.spacing6
                                             EditorButton {
                                                 objectName: "themeColorGroupRenameButton_" + groupRow.modelData.id
                                                 implicitHeight: 26
@@ -2578,6 +2592,7 @@ Popup {
                                                                       function () { root.undoEdit() })
                                                 }
                                             }
+                                          }
                                         }
                                     }
                                 }
@@ -3350,6 +3365,67 @@ Popup {
                         }
                     }
 
+                    // A member of a user colour group: said FIRST, above the
+                    // picker, because the picker edits the whole group. Text
+                    // on its own line, the action under it (in a row the label
+                    // was squeezed to one word per line).
+                    Rectangle {
+                        objectName: "themeEditingGroupScope"
+                        visible: root.editingColorGroup !== null
+                                 && root.editingRole.length > 0
+                        Layout.fillWidth: true
+                        implicitHeight: groupScopeCol.implicitHeight + AppTheme.spacing8 * 2
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.editorInset
+                        border.width: 1
+                        border.color: AppTheme.editorAccent
+                        ColumnLayout {
+                            id: groupScopeCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: AppTheme.spacing8
+                            spacing: AppTheme.spacing6
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing6
+                                Icon {
+                                    Layout.alignment: Qt.AlignTop
+                                    name: "link"
+                                    size: 16
+                                    color: AppTheme.editorAccent
+                                }
+                                Label {
+                                    objectName: "themeEditingGroupScopeText"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                    text: root.editingColorGroup !== null
+                                          ? qsTr("Linked in %1: this colour changes all %n element(s): %2",
+                                                 "custom theme colour group",
+                                                 root.editingColorGroup.members.length)
+                                            .arg(root.editingColorGroup.name)
+                                            .arg(root.editingColorGroup.labels.join(", "))
+                                          : ""
+                                    color: AppTheme.editorText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.menuSectionSize
+                                }
+                            }
+                            EditorButton {
+                                objectName: "themeDetachFromGroupButton"
+                                implicitHeight: 28
+                                text: qsTr("Edit this element only")
+                                onClicked: {
+                                    var label = root.labelForRole(root.editingRole)
+                                    if (root.store.detachFromColorGroup(root.editingRole))
+                                        root.announce(qsTr("%1 now has its own colour").arg(label),
+                                                      function () { root.undoEdit() })
+                                }
+                            }
+                        }
+                    }
+
                     ColorPickerPanel {
                         id: picker
                         objectName: "themeColorPicker"
@@ -3433,57 +3509,6 @@ Popup {
                             }
                         }
                         onClosed: root.editingRole = ""
-                    }
-
-                    // A member of a user colour group: say that the picker
-                    // edits the whole group, and offer to take this element out.
-                    Rectangle {
-                        objectName: "themeEditingGroupScope"
-                        visible: root.editingColorGroup !== null
-                        Layout.fillWidth: true
-                        implicitHeight: groupScopeRow.implicitHeight + AppTheme.spacing8 * 2
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.editorInset
-                        border.width: 1
-                        border.color: AppTheme.editorAccent
-                        RowLayout {
-                            id: groupScopeRow
-                            anchors.fill: parent
-                            anchors.margins: AppTheme.spacing8
-                            spacing: AppTheme.spacing8
-                            Icon {
-                                name: "link"
-                                size: 16
-                                color: AppTheme.editorAccent
-                            }
-                            Label {
-                                objectName: "themeEditingGroupScopeText"
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                textFormat: Text.PlainText
-                                text: root.editingColorGroup !== null
-                                      ? qsTr("Linked in %1: this colour changes all %n element(s): %2",
-                                             "custom theme colour group",
-                                             root.editingColorGroup.members.length)
-                                        .arg(root.editingColorGroup.name)
-                                        .arg(root.editingColorGroup.labels.join(", "))
-                                      : ""
-                                color: AppTheme.editorText
-                                font.family: AppTheme.uiFont
-                                font.pixelSize: AppTheme.menuSectionSize
-                            }
-                            EditorButton {
-                                objectName: "themeDetachFromGroupButton"
-                                implicitHeight: 28
-                                text: qsTr("Edit this element only")
-                                onClicked: {
-                                    var label = root.labelForRole(root.editingRole)
-                                    if (root.store.detachFromColorGroup(root.editingRole))
-                                        root.announce(qsTr("%1 now has its own colour").arg(label),
-                                                      function () { root.undoEdit() })
-                                }
-                            }
-                        }
                     }
 
                     // How the open role is tied to the rest of the theme, as
