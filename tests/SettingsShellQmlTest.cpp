@@ -5154,6 +5154,16 @@ private slots:
         if (auto *search = item("settingsSearchField"))
             search->setProperty("text", QString());
         m_controller->showSettingsSection(section);
+        // Branches stay open across page changes since the multi-open nav;
+        // each case starts from the opened page's branch alone and the nav
+        // at its top, so one case's expanded tree cannot move the next
+        // case's targets (the copy-link click missed after the outline
+        // sweep had opened and scrolled every branch).
+        if (auto *screen = item("settingsScreenRoot"))
+            screen->setProperty("expandedOutlines",
+                                QVariantMap{ { section, true } });
+        if (auto *nav = item("settingsNavFlick"))
+            nav->setProperty("contentY", 0.0);
         QCoreApplication::processEvents();
         if (auto *flick = item("settingsContentFlick"))
             flick->setProperty("contentY", 0.0);
@@ -5538,6 +5548,14 @@ private slots:
         QQuickItem *button = nullptr;
         QTRY_VERIFY((button = visibleItem(
             QStringLiteral("settingsSearchResultCopyLink_0"))) != nullptr);
+        // Click where the button really is: inside the nav viewport once the
+        // column has laid out the results, not at a pre-layout position.
+        auto *nav = item("settingsNavFlick");
+        QVERIFY(nav);
+        QTRY_VERIFY([&] {
+            const QPointF p = button->mapToItem(nav, QPointF(0, 0));
+            return p.y() >= 0 && p.y() + button->height() <= nav->height();
+        }());
         clickItem(button);
         QCOMPARE(clipboard->text(),
                  QStringLiteral("lightning://settings/appearance?focus=reducedMotionCheck"));

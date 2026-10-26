@@ -2125,6 +2125,14 @@ Item {
                             Accessible.name: qsTr("Search settings")
                             onTextChanged: {
                                 root.settingsSearchQuery = text
+                                // The results replace the tree under this
+                                // field, which is at the top of the column: a
+                                // nav column left scrolled down by several
+                                // open branches would otherwise show the
+                                // results (and this field) out of view, with
+                                // contentY no longer matching the much shorter
+                                // column.
+                                navFlick.contentY = 0
                                 // A pasted settings link opens its setting and
                                 // leaves the box empty.
                                 if (root.openSettingsLink(text))
