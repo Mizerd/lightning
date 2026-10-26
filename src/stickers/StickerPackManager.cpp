@@ -1668,6 +1668,40 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
     startBatch(QStringLiteral("emoji"), QString(), items, skipped);
 }
 
+// -- Two editors on one pack ---------------------------------------------------
+
+QVariantMap StickerPackManager::packImageMap(const QString &packId) const
+{
+    QVariantMap out;
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0)
+        return out;
+    for (const stickers::PackImage &image : m_packs->packs().at(row).images)
+        out.insert(image.key, image.url + QChar(0x1f) + image.body);
+    return out;
+}
+
+QVariantMap StickerPackManager::comparePack(const QString &packId,
+                                            const QVariantMap &base) const
+{
+    const QVariantMap now = packImageMap(packId);
+    QStringList added, removed, changed;
+    for (auto it = now.cbegin(); it != now.cend(); ++it) {
+        if (!base.contains(it.key()))
+            added << it.key();
+        else if (base.value(it.key()) != it.value())
+            changed << it.key();
+    }
+    for (auto it = base.cbegin(); it != base.cend(); ++it)
+        if (!now.contains(it.key()))
+            removed << it.key();
+    return QVariantMap{ { QStringLiteral("added"), added },
+                        { QStringLiteral("removed"), removed },
+                        { QStringLiteral("changed"), changed },
+                        { QStringLiteral("any"),
+                          !added.isEmpty() || !removed.isEmpty() || !changed.isEmpty() } };
+}
+
 // -- Local view state ----------------------------------------------------------
 
 void StickerPackManager::setLocalStatePath(const QString &path)

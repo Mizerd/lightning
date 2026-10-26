@@ -53,6 +53,7 @@ Dialog {
         if (root.stickers)
             root.stickers.editorPackId = id
         root.info = root.stickers ? root.stickers.packInfo(id) : ({})
+        root.base = root.stickers ? root.stickers.packImageMap(id) : ({})
         root.packId = id
         root.packName = name
         root.canManage = manageable
@@ -86,6 +87,15 @@ Dialog {
     property var describingKey: null
     /// packInfo() of the pack, taken at openFor (dialect, room, availability).
     property var info: ({})
+    /// The images as this editor last accepted them (open, own save, or the
+    /// user acknowledging a change from elsewhere).
+    property var base: ({})
+    /// What changed since `base` that this editor did not do.
+    readonly property var remoteChange: root.visible && root.stickers
+        && root.stickers.revision >= 0 && !root.ownEditPending
+        ? root.stickers.comparePack(root.packId, root.base) : ({ any: false })
+    /// An own edit is in flight: its echo is not "changed elsewhere".
+    property bool ownEditPending: false
     readonly property bool isStable: !!root.info && root.info.namespace === "stable"
                                      && root.packId !== "user"
     /// Why the name being typed cannot be used, "" when it can. Fed by the one
@@ -171,6 +181,11 @@ Dialog {
                                    + "unchanged; try again later.")
         }
         function onEditFinished(ok, category, shortcode) {
+            // Our own change is now part of what this editor accepts; the
+            // re-read that follows refreshes the base when it lands.
+            root.ownEditPending = ok
+            if (ok)
+                rebaseTimer.restart()
             root.renamingKey = null
             root.describingKey = null
             root.removingKey = null
@@ -364,6 +379,52 @@ Dialog {
                     kind: "ghost"
                     size: "sm"
                     onClicked: root.confirmingMigrate = false
+                }
+            }
+        }
+
+        // Another device or member changed this pack while it was open. Edits
+        // here always apply to the latest copy (nothing is overwritten), so
+        // this only tells the user what moved under them.
+        Rectangle {
+            objectName: "stickerPackChangedElsewhere"
+            Layout.fillWidth: true
+            visible: !!root.remoteChange && root.remoteChange.any === true
+            color: AppTheme.hover
+            radius: AppTheme.radiusControl
+            implicitHeight: changedRow.implicitHeight + AppTheme.spacing8 * 2
+            RowLayout {
+                id: changedRow
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing8
+                spacing: AppTheme.spacing8
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.textMeta
+                    text: {
+                        var c = root.remoteChange || {}
+                        var parts = []
+                        if (c.added && c.added.length > 0)
+                            parts.push(qsTr("%n added", "", c.added.length))
+                        if (c.removed && c.removed.length > 0)
+                            parts.push(qsTr("%n removed", "", c.removed.length))
+                        if (c.changed && c.changed.length > 0)
+                            parts.push(qsTr("%n changed", "", c.changed.length))
+                        return qsTr("This pack was changed elsewhere while you "
+                                    + "had it open (%1). The list shows the "
+                                    + "latest version; your next change applies "
+                                    + "to it.").arg(parts.join(", "))
+                    }
+                }
+                AppButton {
+                    objectName: "stickerPackChangedOk"
+                    text: qsTr("Got it")
+                    kind: "ghost"
+                    size: "sm"
+                    onClicked: root.base = root.stickers.packImageMap(root.packId)
                 }
             }
         }
@@ -767,6 +828,18 @@ Dialog {
                   : qsTr("This removes every image and the pack's name. It "
                          + "cannot be undone, and for a room's pack everyone "
                          + "in the room loses it.")
+        }
+    }
+
+    // After an own successful edit, the authoritative re-read replaces the
+    // base once it has landed (a short settle covers the refresh round trip).
+    Timer {
+        id: rebaseTimer
+        interval: 3000
+        onTriggered: {
+            if (root.stickers)
+                root.base = root.stickers.packImageMap(root.packId)
+            root.ownEditPending = false
         }
     }
 

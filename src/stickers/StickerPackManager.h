@@ -212,6 +212,16 @@ public:
     bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
+    // -- Two editors on one pack ---------------------------------------------
+    // The pack's images as {key: "url\u001fbody"}, the editor's base when it
+    // opens; comparePack() then says what changed since, from another device
+    // or member: {added, removed, changed} (lists of keys). Writes are
+    // intent-based (each re-reads the server copy first), so this is for
+    // telling the user, never for overwriting anyone (PACK-PRO-045).
+    Q_INVOKABLE QVariantMap packImageMap(const QString &packId) const;
+    Q_INVOKABLE QVariantMap comparePack(const QString &packId,
+                                        const QVariantMap &base) const;
+
     // -- Local, per-account view choices (this device only) ------------------
     // Stored in a small INI file (setLocalStatePath; AppController points it
     // into the app's config dir; unset = memory only), keyed by a hash of the

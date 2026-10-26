@@ -1720,6 +1720,29 @@ private Q_SLOTS:
         QCOMPARE(client.roomUploadCalls, 4);
     }
 
+    void anEditorCanTellWhatAnotherDeviceChanged()
+    {
+        // PACK-PRO-045 / PACK-UX-023: the base taken at open, compared with a
+        // later snapshot, names what was added, removed and changed elsewhere.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        const QVariantMap base = manager.packImageMap(QStringLiteral("user"));
+        QCOMPARE(base.size(), 2);
+        QVERIFY(!manager.comparePack(QStringLiteral("user"), base)
+                     .value(QStringLiteral("any")).toBool());
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"), QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false, QStringLiteral("new body")),
+                     image(QStringLiteral("fox"), kMxcC, true, false) }) });
+        const QVariantMap diff = manager.comparePack(QStringLiteral("user"), base);
+        QVERIFY(diff.value(QStringLiteral("any")).toBool());
+        QCOMPARE(diff.value(QStringLiteral("added")).toStringList(), QStringList{ "fox" });
+        QCOMPARE(diff.value(QStringLiteral("removed")).toStringList(), QStringList{ "wave" });
+        QCOMPARE(diff.value(QStringLiteral("changed")).toStringList(), QStringList{ "cat" });
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;
