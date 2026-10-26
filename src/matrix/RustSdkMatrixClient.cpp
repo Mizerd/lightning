@@ -12,6 +12,7 @@
 
 #include "accounts/HostRetirementPool.h"
 #include "accounts/RevocationProofs.h"
+#include "accounts/RustBridgeApi.h"
 #include "accounts/SessionTokenCustody.h"
 #include "accounts/StoreOwnershipRegistry.h"
 #include "app/SettingsManager.h"
@@ -1337,7 +1338,14 @@ bool RustSdkMatrixClient::adoptLiveSession(
     applyMediaStoreKey(ticket.slug);
     ensurePollTimer();
 
-    const QString refusal = takeRustString(mx_rust_bg_promote(m_rustHandle));
+    // A routed account (network profile) is never adopted: its background
+    // handle was built without the route the foreground applies, and a warm
+    // switch must not carry traffic past it. The pool refuses it first; this
+    // is the client's own guard, through the same normal retirement.
+    const bool routed = m_settings && m_settings->networkRouteConfigured(ticket.userId);
+    const QString refusal = routed
+        ? QStringLiteral("error: routed account")
+        : takeRustString(mx_rust_bg_promote(m_rustHandle));
     if (!refusal.isEmpty()) {
         qCWarning(lcRust) << "adoption refused by the handle; falling back to a"
                              " cold restore" << "acct=" << ticket.slug;
@@ -1352,12 +1360,50 @@ bool RustSdkMatrixClient::adoptLiveSession(
     }
     // Refused while the handle was Background; a foreground handle takes them.
     applyPerHandleSettings(/*adopted=*/true);
+    reconcileAdoptedTokens();
     qCInfo(lcRust) << "adopted a live background session" << "acct=" << ticket.slug;
     setState(Connecting);
     // The promotion enqueued a token-free login_ok: the ordinary path reports
     // loginSucceeded(), and startSync() then starts a foreground sync loop on
     // the same Client.
     return true;
+}
+
+void RustSdkMatrixClient::reconcileAdoptedTokens()
+{
+    // Review M1: a rotation the SDK recorded after the background host's last
+    // drain is in the handle, not in the keyring, and adoption detached
+    // custody. Compare the live pair with what the host last persisted: write
+    // the newer pair once, and answer the newest ledger rotation either way so
+    // a refresh waiting inside matrix-sdk is released.
+    // SENSITIVE: never log `json` or the snapshot's tokens.
+    const QString json = takeRustString(mx_rust_take_custody(m_rustHandle));
+    const lightning::accounts::CustodySnapshot live =
+        lightning::accounts::parseCustodyJson(json.toUtf8());
+    if (!live.valid || !live.hasSession)
+        return;
+    const auto plan = lightning::accounts::custody::reconcileAdopted(
+        live.accessToken, m_persistedAccessDigest, live.ledgerGeneration);
+    bool saved = plan.answerSavedIfNoWrite;
+    if (plan.write) {
+        const QString owner = tokenOwnerForRunningSession();
+        if (!owner.isEmpty() && m_settings && !m_lifecycle.signingOut()
+            && m_settings->updateSessionTokens(owner, live.accessToken,
+                                               live.refreshToken)) {
+            m_persistedAccessDigest =
+                lightning::accounts::custody::accessTokenDigest(live.accessToken);
+            saved = true;
+            qCInfo(lcRust) << "adoption: a rotation after the host's last write is saved"
+                           << "slug=" << matrix::app_data::safeUserSlug(owner);
+        } else {
+            qCWarning(lcRust) << "adoption: a rotation after the host's last write is "
+                                 "not saved yet; retrying";
+            scheduleRotatedTokenWrite();
+        }
+    }
+    if (plan.answerGeneration > 0)
+        mx_rust_session_tokens_persisted(m_rustHandle, plan.answerGeneration,
+                                         saved ? 1 : 0);
 }
 
 void RustSdkMatrixClient::releaseRustHandle()

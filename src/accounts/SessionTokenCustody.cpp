@@ -73,6 +73,16 @@ bool retryWriteNeeded(const QString &currentAccess, const QByteArray &persistedD
     return !(currentAccess.isEmpty() || accessTokenDigest(currentAccess) == persistedDigest);
 }
 
+AdoptionReconcile reconcileAdopted(const QString &liveAccess, const QByteArray &persistedDigest,
+                                   quint64 ledgerGeneration)
+{
+    AdoptionReconcile out;
+    out.write = retryWriteNeeded(liveAccess, persistedDigest);
+    out.answerGeneration = ledgerGeneration;
+    out.answerSavedIfNoWrite = !out.write && !liveAccess.isEmpty();
+    return out;
+}
+
 bool needsHandback(const QString &finalAccess, const QByteArray &lastWrittenDigest)
 {
     return !finalAccess.isEmpty() && accessTokenDigest(finalAccess) != lastWrittenDigest;

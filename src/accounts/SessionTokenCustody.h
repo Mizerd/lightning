@@ -59,6 +59,23 @@ PersistAnswer persistAnswerFor(LiveWrite outcome);
 // retryRotatedTokenWrite: write only when currentAccess non-empty and its digest != persisted.
 bool retryWriteNeeded(const QString &currentAccess, const QByteArray &persistedDigest);
 
+// Warm account adoption (master prompt Part 4 §4, review M1): a rotation the
+// SDK recorded after the background host's LAST drain is in the handle and
+// not in the keyring, and adoption detaches custody, so nothing else would
+// ever notice it. Right after the promotion the foreground compares the
+// handle's live pair with the digest the host last persisted: `write` when
+// they differ (exactly one keyring write of the newer pair), and the newest
+// ledger rotation is answered either way, so a refresh waiting inside
+// matrix-sdk is released. `answerSavedIfNoWrite`: the keyring already holds
+// the live pair, so the answer is Saved without a write.
+struct AdoptionReconcile {
+    bool write = false;
+    quint64 answerGeneration = 0;   // 0: nothing waits
+    bool answerSavedIfNoWrite = false;
+};
+AdoptionReconcile reconcileAdopted(const QString &liveAccess, const QByteArray &persistedDigest,
+                                   quint64 ledgerGeneration);
+
 // Retirement worker: hand back when finalAccess non-empty and digest != last written.
 bool needsHandback(const QString &finalAccess, const QByteArray &lastWrittenDigest);
 

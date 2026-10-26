@@ -1020,6 +1020,9 @@ private:
         const matrix::app_data::AccountIdentity &identity);
     // The per-handle settings every fresh (or adopted) handle is given.
     void applyPerHandleSettings(bool adopted = false);
+    // Warm adoption, review M1: write a rotation the host never persisted and
+    // answer the newest ledger rotation. Right after a successful promotion.
+    void reconcileAdoptedTokens();
     bool ensureRustHandleForStorePath(const QString &storePath,
                                       const QString &slug);
     // Hand the new handle its media-store key (MediaStoreKey.h): the saved

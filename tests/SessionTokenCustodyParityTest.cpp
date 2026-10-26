@@ -295,6 +295,7 @@ class SessionTokenCustodyParityTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void anAdoptedSessionWritesOnlyARotationTheKeyringLacks();
     void theDigestIsTheOldDigest();
     void parsingMatchesTheOldInlineParse();
     void theOwnerLookupReadsWhatItAlwaysRead();
@@ -580,6 +581,33 @@ void SessionTokenCustodyParityTest::theHandbackWriteMatchesTheOldLoop()
     }
     QCOMPARE(rows, 8 * 2 * 4 * 2 * 3 * 3 * 2 * 2 * 2);
     QCOMPARE(outcomes.size(), 6);
+}
+
+// Review M1 (wave 3): the SDK rotated after the background host's last drain,
+// so the handle holds a newer pair than the keyring. Adoption must write that
+// pair exactly once and answer the waiting rotation; an unrotated session
+// writes nothing and still answers Saved; no live session does nothing.
+void SessionTokenCustodyParityTest::anAdoptedSessionWritesOnlyARotationTheKeyringLacks()
+{
+    const QByteArray persisted = custody::accessTokenDigest(QStringLiteral("access-1"));
+
+    const auto rotated = custody::reconcileAdopted(QStringLiteral("access-2"), persisted, 3);
+    QVERIFY(rotated.write);
+    QCOMPARE(rotated.answerGeneration, quint64(3));
+    QVERIFY(!rotated.answerSavedIfNoWrite);
+
+    const auto same = custody::reconcileAdopted(QStringLiteral("access-1"), persisted, 2);
+    QVERIFY(!same.write);
+    QCOMPARE(same.answerGeneration, quint64(2));
+    QVERIFY(same.answerSavedIfNoWrite);
+
+    const auto none = custody::reconcileAdopted(QString(), persisted, 0);
+    QVERIFY(!none.write);
+    QCOMPARE(none.answerGeneration, quint64(0));
+    QVERIFY(!none.answerSavedIfNoWrite);
+
+    // A host that never persisted (empty digest) still gets its pair written.
+    QVERIFY(custody::reconcileAdopted(QStringLiteral("access-9"), QByteArray(), 0).write);
 }
 
 QTEST_GUILESS_MAIN(SessionTokenCustodyParityTest)
