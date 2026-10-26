@@ -1151,6 +1151,13 @@ ApplicationWindow {
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
         QVERIFY(!item("timelineListView")->hasActiveFocus());
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
+        // Issue #55: the resume shortcut reselects what was selected.
+        QTest::keyClick(m_window, Qt::Key_W,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        QTRY_COMPARE(pane->property("keyboardSelectedEventId").toString(), previous);
+        QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
+        QTRY_VERIFY(item("composerInput")->hasActiveFocus());
 
         // Outline on: the same selection is outlined, focus still elsewhere.
         m_controller->settings()->setShowSelectionOnReturn(true);
