@@ -458,8 +458,16 @@ private slots:
         QVERIFY2(row.contains(QStringLiteral("Avatar {")),
                  "a channel row draws no avatar, so every room in a Space "
                  "looks identical");
-        QVERIFY2(row.contains(QStringLiteral("mxc: root.avatarUrl")),
+        // The room's own picture; only an INVITE's is withheld, and only
+        // while the account's invite_avatars choice says so (2026-10-25).
+        QVERIFY2(row.contains(QStringLiteral("mxc: root.inviteAvatarWithheld ? \"\" : root.avatarUrl")),
                  "the avatar is never given the room's own picture");
+        const int gate = row.indexOf(QStringLiteral("property bool inviteAvatarWithheld:"));
+        QVERIFY2(gate > 0, "the invite-avatar gate is gone");
+        const QString gateBody = row.mid(gate, row.indexOf(QLatin1Char(')'), gate) - gate);
+        QVERIFY2(gateBody.contains(QStringLiteral("root.isInvite")),
+                 "the avatar gate is not limited to invitations, so joined "
+                 "rooms lose their picture");
         const QString presenter =
             read(QStringLiteral("RoomChannelsPresenter.qml"));
         QVERIFY2(presenter.contains(QStringLiteral("avatarUrl: rowLoader.model.avatarUrl")),

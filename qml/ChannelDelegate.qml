@@ -31,6 +31,13 @@ ItemDelegate {
     /// An invited, unjoined room. It gets its own glyph and always reads as
     /// unread, since it's waiting on the user.
     property bool isInvite: false
+    // An invitation's picture is a stranger's choice: it loads only when the
+    // account allows it (MSC4278 invite_avatars, fail-closed until known).
+    // A joined room always shows its own picture.
+    readonly property bool inviteAvatarWithheld:
+        root.isInvite
+        && !(typeof app !== "undefined" && app && app.accountPrefs
+             && app.accountPrefs.inviteAvatarsAllowed)
     property bool encrypted: false
     property int unreadCount: 0
     property int highlightCount: 0
@@ -178,10 +185,7 @@ ItemDelegate {
             colorKey: root.identityColorKey.length > 0 ? root.identityColorKey : root.roomId
             // A stranger's invite picture loads only when the account allows
             // it (MSC4278 invite_avatars, fail-closed until known).
-            mxc: (root.isInvite
-                  && !(typeof app !== "undefined" && app && app.accountPrefs
-                       && app.accountPrefs.inviteAvatarsAllowed))
-                 ? "" : root.avatarUrl
+            mxc: root.inviteAvatarWithheld ? "" : root.avatarUrl
         }
 
         // A small ringed badge on the avatar's corner: invite or lock. The lock
