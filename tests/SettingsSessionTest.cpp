@@ -94,6 +94,9 @@ private Q_SLOTS:
     void initTestCase();
     void init();
     void aParticipantVolumeReachesTheDiskImmediately();
+    void writesAreGatheredIntoOneThrottledFlush();
+    void aPendingWriteReachesTheDiskOnDestruction();
+    void anUnchangedValueDoesNotDirtyTheSettingsFile();
     void aWindowsDeviceIdSurvivesBeingStored();
     void clearsOnlySelectedAccount();
     void clearsMetadataWhenTokenIsAlreadyMissing();
@@ -252,6 +255,132 @@ void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
              qPrintable(QStringLiteral("volume not on disk; file said:\n%1")
                             .arg(onDisk)));
     QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
+}
+
+namespace {
+QByteArray settingsFileBytes(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+// Lets a posted QSettings update request reach the manager's filter, then
+// writes it, so the next assertion starts from a file with nothing pending.
+void settle(SettingsManager &settings)
+{
+    QCoreApplication::processEvents();
+    settings.flushPendingWrites();
+    QVERIFY(!settings.hasUnflushedWrites());
+}
+} // namespace
+
+// QSettings rewrites the whole file (new file, fsync, rename, lock file) on
+// the event-loop turn after ANY change. A run of changes, a slider drag for
+// instance, now reaches the disk as one write within kFlushDelayMs. Old code:
+// the first processEvents() below rewrote the file, so the value was on disk
+// at once, and every later turn rewrote it again.
+void SettingsSessionTest::writesAreGatheredIntoOneThrottledFlush()
+{
+    // Resolved before any unsynced write: constructing a QSettings syncs the
+    // shared per-path QConfFile.
+    const QString path = QSettings().fileName();
+    SettingsManager settings;
+    settle(settings);
+
+    settings.setRoomListWidth(301);
+    QCoreApplication::processEvents();
+    QVERIFY(settings.hasUnflushedWrites());
+    QCOMPARE(settings.roomListWidth(), 301); // in-process view is current
+    QVERIFY2(!settingsFileBytes(path).contains("roomListWidth=301"),
+             "the file was rewritten on the first event-loop turn");
+
+    for (int width = 302; width <= 320; ++width) {
+        settings.setRoomListWidth(width);
+        QCoreApplication::processEvents();
+    }
+    QVERIFY(!settingsFileBytes(path).contains("roomListWidth=3"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(settingsFileBytes(path).contains("roomListWidth=320"),
+                             SettingsManager::kFlushDelayMs * 5);
+    QVERIFY(!settings.hasUnflushedWrites());
+}
+
+// Nothing is lost by the throttle when the manager goes away first (quit,
+// account teardown): the destructor writes what was pending.
+void SettingsSessionTest::aPendingWriteReachesTheDiskOnDestruction()
+{
+    const QString path = QSettings().fileName();
+    {
+        SettingsManager settings;
+        settle(settings);
+        settings.setRoomListWidth(333);
+        QCoreApplication::processEvents();
+        QVERIFY(settings.hasUnflushedWrites());
+        QVERIFY(!settingsFileBytes(path).contains("roomListWidth=333"));
+    }
+    QVERIFY(settingsFileBytes(path).contains("roomListWidth=333"));
+}
+
+// Values learned again and again (a window restored to the saved geometry, a
+// video's size and shape on every fetch, the same draft saved on every room
+// switch) are not written again: any setValue, even of the stored value,
+// rewrites the whole file. Old code: each repeat below left a write pending.
+void SettingsSessionTest::anUnchangedValueDoesNotDirtyTheSettingsFile()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    settings.saveSession(QStringLiteral("https://matrix.example"),
+                         QStringLiteral("@alice:matrix.example"),
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settle(settings);
+
+    const auto repeatIsClean = [&](const char *what, const auto &write) {
+        write();
+        settle(settings); // the first write is a real change
+        write();
+        QCoreApplication::processEvents();
+        QVERIFY2(!settings.hasUnflushedWrites(),
+                 qPrintable(QStringLiteral("repeating %1 dirtied the file")
+                                .arg(QLatin1String(what))));
+    };
+
+    repeatIsClean("the window geometry",
+                  [&] { settings.saveWindowGeometry(40, 30, 900, 700); });
+    repeatIsClean("a video's dimensions", [&] {
+        settings.setKnownVideoDimensions(QStringLiteral("$video"), 640, 360);
+    });
+    repeatIsClean("a media size", [&] {
+        settings.setKnownMediaSizeBytes(QStringLiteral("$video"), 123456);
+    });
+    const QVariantMap draft{{QStringLiteral("text"), QStringLiteral("hello")}};
+    repeatIsClean("a draft",
+                  [&] { settings.setRoomDraft(QStringLiteral("!room:x"), draft); });
+
+    // A real change still writes, and reads back.
+    settings.saveWindowGeometry(41, 30, 900, 700);
+    QCoreApplication::processEvents();
+    QVERIFY(settings.hasUnflushedWrites());
+    settle(settings);
+    settings.setKnownVideoDimensions(QStringLiteral("$video"), 1280, 720);
+    QCoreApplication::processEvents();
+    QVERIFY(settings.hasUnflushedWrites());
+    QCOMPARE(settings.knownVideoDimensions(QStringLiteral("$video")), QSize(1280, 720));
+    settle(settings);
+    const QVariantMap edited{{QStringLiteral("text"), QStringLiteral("hello!")}};
+    settings.setRoomDraft(QStringLiteral("!room:x"), edited);
+    QCoreApplication::processEvents();
+    QVERIFY(settings.hasUnflushedWrites());
+    QCOMPARE(settings.roomDraft(QStringLiteral("!room:x")), edited);
+    // Another entry became the most recent, so re-touching the first one is
+    // an LRU move and is written.
+    settle(settings);
+    settings.setKnownMediaSizeBytes(QStringLiteral("$other"), 99);
+    settle(settings);
+    settings.setKnownMediaSizeBytes(QStringLiteral("$video"), 123456);
+    QCoreApplication::processEvents();
+    QVERIFY(settings.hasUnflushedWrites());
 }
 
 // A Windows device id (a device path starting with backslashes) can be

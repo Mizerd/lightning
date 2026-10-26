@@ -16,8 +16,10 @@
 #include "matrix/MediaStoreKey.h"
 #include "models/ConversationOrder.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QEvent>
 #include <QHash>
 #include <QLocale>
 #include <QLoggingCategory>
@@ -252,6 +254,21 @@ SettingsManager::SettingsManager(QObject *parent)
     : QObject(parent)
     , m_store(std::make_unique<QSettings>())
 {
+    // The flush throttle (see kFlushDelayMs): QSettings posts itself an
+    // UpdateRequest after a change and rewrites the file when it arrives. The
+    // filter holds that back and a single-shot timer writes once instead. Not
+    // restarted by later writes, so a steady stream of them still reaches the
+    // disk within kFlushDelayMs.
+    m_flushTimer.setSingleShot(true);
+    m_flushTimer.setInterval(kFlushDelayMs);
+    m_flushTimer.setTimerType(Qt::CoarseTimer);
+    connect(&m_flushTimer, &QTimer::timeout, this,
+            [this] { m_store->sync(); });
+    m_store->installEventFilter(this);
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        connect(app, &QCoreApplication::aboutToQuit, this,
+                &SettingsManager::flushPendingWrites);
+    }
     if (!m_store->contains(kHomeserver)) {
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
     }
@@ -312,6 +329,30 @@ SettingsManager::SettingsManager(QObject *parent)
         }
     }
     loadWindowGeometry();
+}
+
+SettingsManager::~SettingsManager()
+{
+    flushPendingWrites();
+}
+
+void SettingsManager::flushPendingWrites()
+{
+    m_flushTimer.stop();
+    // A sync with nothing changed reads and writes nothing.
+    m_store->sync();
+}
+
+bool SettingsManager::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_store.get() && event->type() == QEvent::UpdateRequest) {
+        // QSettings keeps the change pending (and posts no further request)
+        // until the timer's sync() clears it.
+        if (!m_flushTimer.isActive())
+            m_flushTimer.start();
+        return true;
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 QString SettingsManager::accountKey(const QString &slug, const char *subKey) const
@@ -3003,6 +3044,12 @@ void SettingsManager::setRoomDraft(const QString &draftKey,
         + slug + QLatin1String("/drafts/");
     const QString indexKey = base + QLatin1String("index");
     QStringList index = m_store->value(indexKey).toStringList();
+    // Saved on every room switch and after every typing pause: the same draft
+    // that is already the most recent entry is not a change, and any setValue
+    // rewrites the whole settings file.
+    if (!draft.isEmpty() && !index.isEmpty() && index.constLast() == hash
+        && m_store->value(base + hash).toMap() == draft)
+        return;
     if (draft.isEmpty()) {
         m_store->remove(base + hash);
         if (index.removeAll(hash) > 0)
@@ -3049,6 +3096,9 @@ void SettingsManager::touchMediaInfoIndex(const QString &slug,
         + slug + QLatin1String("/media/");
     const QString indexKey = mediaInfoIndexKeyForSlug(slug);
     QStringList index = m_store->value(indexKey).toStringList();
+    // Already the most recent: nothing to reorder or evict.
+    if (!index.isEmpty() && index.constLast() == hash)
+        return;
     index.removeOne(hash);
     index.append(hash);
     while (index.size() > kVideoDimsCap) {
@@ -3082,9 +3132,12 @@ void SettingsManager::setKnownMediaSizeBytes(const QString &mediaKey,
     if (slug.isEmpty())
         return;
     const QString hash = videoDimsHash(mediaKey);
-    m_store->setValue(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
-                          + QLatin1String("/media/payload-size/") + hash,
-                      bytes);
+    // Learned again on every fetch of the same media; a value already stored
+    // is not written again (any setValue rewrites the whole settings file).
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/media/payload-size/") + hash;
+    if (m_store->value(key).toLongLong() != bytes)
+        m_store->setValue(key, bytes);
     touchMediaInfoIndex(slug, hash);
 }
 
@@ -3098,9 +3151,12 @@ void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
     if (slug.isEmpty())
         return;
     const QString hash = videoDimsHash(mediaKey);
-    m_store->setValue(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
-                          + QLatin1String("/media/video-dims/") + hash,
-                      QSize(width, height));
+    // Learned again from every poster of the same video; see
+    // setKnownMediaSizeBytes.
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/media/video-dims/") + hash;
+    if (m_store->value(key).toSize() != QSize(width, height))
+        m_store->setValue(key, QSize(width, height));
     touchMediaInfoIndex(slug, hash);
 }
 
@@ -3890,6 +3946,16 @@ void SettingsManager::saveWindowGeometry(int x, int y, int width, int height)
     if (width < kWindowMinWidth || height < kWindowMinHeight)
         return;
     const QString group = QLatin1String(kWindowGeometry);
+    // A move that ends where it started, or a restore to the saved size, is
+    // not a change; any setValue rewrites the whole settings file.
+    // Compared as ints: after a restart the file hands back strings.
+    const auto same = [&](const char *key, int value) {
+        const QString k = group + QLatin1String(key);
+        return m_store->contains(k) && m_store->value(k).toInt() == value;
+    };
+    if (same("/x", x) && same("/y", y) && same("/width", width)
+        && same("/height", height))
+        return;
     m_store->setValue(group + QLatin1String("/x"), x);
     m_store->setValue(group + QLatin1String("/y"), y);
     m_store->setValue(group + QLatin1String("/width"), width);

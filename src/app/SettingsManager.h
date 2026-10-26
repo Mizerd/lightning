@@ -10,6 +10,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -612,6 +613,26 @@ public:
     static constexpr int kMaxThemeId = CustomTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
+    // Writes a change still waiting for the flush throttle (below).
+    ~SettingsManager() override;
+
+    // QSettings rewrites the WHOLE settings file (a new file, fsync'd, renamed
+    // over the old one, plus its lock file) once per event-loop turn that saw
+    // any setValue or remove, even of an unchanged value. A slider drag or a
+    // run of media cards learning their sizes rewrote it many times a second.
+    // Writes are now gathered and flushed at most once per kFlushDelayMs; the
+    // in-process view of every value is current at once (QSettings answers
+    // from its cache), and the places that must reach the disk at once
+    // (session records, call volumes, sign-out markers) still call sync().
+    // A pending write is flushed on quit and on destruction.
+    static constexpr int kFlushDelayMs = 1000;
+    // True while a write is waiting for the throttled flush. For tests and
+    // diagnostics: a setter that stored nothing new must leave this false.
+    bool hasUnflushedWrites() const { return m_flushTimer.isActive(); }
+    // Write any pending change now.
+    void flushPendingWrites();
+
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     // Inject the process-wide SecretStore. Call once, right after
     // construction. Scopes a store shared with other installs to this one,
@@ -1681,6 +1702,9 @@ private:
                              const QString &deviceId);
 
     std::unique_ptr<QSettings> m_store;
+    // Declared after m_store, so it is destroyed first and ~QSettings then
+    // writes whatever the throttle still held.
+    QTimer m_flushTimer;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
     // Captured once in the constructor; see the CONSTANT properties.
     QRect m_initialWindowGeometry;
