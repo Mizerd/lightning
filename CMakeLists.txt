@@ -1969,7 +1969,8 @@ if(BUILD_TESTING)
     target_include_directories(network-route-test PRIVATE src)
     target_compile_definitions(network-route-test PRIVATE
         NETWORK_ROUTE_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/NetworkRouteSettings.qml"
-        SETTINGS_SCREEN_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml")
+        SETTINGS_SCREEN_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml"
+        NETWORK_ROUTE_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(network-route-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME network-route COMMAND network-route-test)
 

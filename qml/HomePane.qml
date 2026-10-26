@@ -116,9 +116,17 @@ Item {
     readonly property string connectionNotice: syncFailed
         ? qsTr("Lightning can't sync with your server. Your rooms stay "
                + "available, but new messages may not arrive.")
-        : (offline ? qsTr("You appear to be offline. Reconnecting — "
-                          + "your rooms stay available.")
+        : (offline ? (routed
+                      ? qsTr("Offline: this account's proxy or homeserver can't be "
+                             + "reached. Lightning keeps trying through the proxy, "
+                             + "never directly — your rooms stay available.")
+                      : qsTr("You appear to be offline. Reconnecting — "
+                             + "your rooms stay available."))
                    : "")
+    // A network route (Settings > Account > Network): a failure may be the
+    // proxy, and nothing reconnects around it (docs/network-profiles.md).
+    readonly property bool routed: !!app.networkRoute && !!app.networkRoute.route
+        && (app.networkRoute.route.kind || "none") !== "none"
 
     // "Chat background" in Make it yours: this account's own picture behind
     // every room.

@@ -468,6 +468,26 @@ private Q_SLOTS:
         QVERIFY(settings.contains(QLatin1String("anchor: \"networkRouteCard\"")));
     }
 
+    // Found live (2026-10-26): a routed account was told "or directly, your
+    // IP" on the preview gate and a generic "you appear to be offline" when
+    // its proxy was down. Both now say the account never goes direct.
+    void theProxyIsNamedWhereADirectFallbackUsedToBe()
+    {
+        const auto read = [](const char *name) {
+            QFile f(QStringLiteral(NETWORK_ROUTE_QML_DIR "/") + QLatin1String(name));
+            return f.open(QIODevice::ReadOnly | QIODevice::Text)
+                ? QString::fromUtf8(f.readAll()) : QString();
+        };
+        const QString home = read("HomePane.qml");
+        QVERIFY(!home.isEmpty());
+        QVERIFY(home.contains(QLatin1String("app.networkRoute.route.kind")));
+        QVERIFY(home.contains(QLatin1String("never directly")));
+        const QString row = read("MessageDelegate.qml");
+        QVERIFY(!row.isEmpty());
+        QVERIFY(row.contains(QLatin1String("app.networkRoute.route.kind")));
+        QCOMPARE(row.count(QStringLiteral("— never direct\")")), 2);
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

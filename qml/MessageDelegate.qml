@@ -5445,7 +5445,18 @@ Item {
                             // the loaded card
                             // (consentGateIsNarrowerThanTheStateItLeadsTo); the
                             // full text is the tooltip.
-                            text: root.roomEncrypted
+                            // An account with a network route never takes
+                            // the direct fallback (rust/src/rooms.rs), so it
+                            // must not be told its IP is at stake.
+                            readonly property bool routed:
+                                typeof app !== "undefined" && !!app && !!app.networkRoute
+                                && !!app.networkRoute.route
+                                && (app.networkRoute.route.kind || "none") !== "none"
+                            text: routed
+                                  ? (root.roomEncrypted
+                                     ? qsTr("Your server sees this URL — never direct")
+                                     : qsTr("Your server loads it — never direct"))
+                                  : root.roomEncrypted
                                   ? qsTr("Your server sees this URL — or directly, your IP")
                                   : qsTr("Your server loads it — or directly, your IP")
                             color: root.roomEncrypted ? AppTheme.warning
