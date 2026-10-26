@@ -17853,31 +17853,6 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>غير مقروء في الأعلى</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>غير مقروء في الأسفل</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>إشارة في الأعلى</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>إشارة في الأسفل</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>يمرّر قائمة المحادثات؛ لا يفتح شيئًا</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>الدعوات</translation>
@@ -18012,6 +17987,34 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>استكشاف الغرف</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>غير مقروء في الأعلى</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>غير مقروء في الأسفل</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>إشارة في الأعلى</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>إشارة في الأسفل</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>يمرّر قائمة المحادثات؛ لا يفتح شيئًا</translation>
     </message>
 </context>
 <context>

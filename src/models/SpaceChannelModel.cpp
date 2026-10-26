@@ -680,6 +680,31 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
     }
 }
 
+int SpaceChannelModel::attentionRowFrom(int fromRow, int step,
+                                        bool mentionsOnly) const
+{
+    if (step == 0)
+        return -1;
+    step = step > 0 ? 1 : -1;
+    const int rows = int(m_rows.size());
+    for (int i = fromRow; i >= 0 && i < rows; i += step) {
+        const Row &row = m_rows.at(i);
+        if (row.kind == RoomKind) {
+            if (row.isInvite)
+                continue;
+            if (mentionsOnly ? row.highlight > 0
+                             : (row.unread > 0 || row.highlight > 0))
+                return i;
+        } else if ((row.kind == SpaceKind || row.kind == GroupKind)
+                   && isCollapsed(row.id)) {
+            if (mentionsOnly ? row.hiddenHighlight > 0
+                             : (row.hiddenUnread > 0 || row.hiddenHighlight > 0))
+                return i;
+        }
+    }
+    return -1;
+}
+
 int SpaceChannelModel::rowForRoom(const QString &roomId) const
 {
     if (roomId.isEmpty())

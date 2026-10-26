@@ -17691,31 +17691,6 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>Neperskaityta aukščiau</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>Neperskaityta žemiau</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>Paminėjimas aukščiau</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>Paminėjimas žemiau</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>Slenka pokalbių sąrašą; nieko neatveria</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>Kvietimai</translation>
@@ -17850,6 +17825,34 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>Naršykite kambarius</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>Neperskaityta aukščiau</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>Neperskaityta žemiau</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>Paminėjimas aukščiau</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>Paminėjimas žemiau</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Slenka pokalbių sąrašą; nieko neatveria</translation>
     </message>
 </context>
 <context>

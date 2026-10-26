@@ -1133,6 +1133,7 @@ set(APP_QML_FILES
     qml/RoomActionsMenu.qml
     # The room-list column hosts two interchangeable navigation layouts.
     qml/RoomListClassicPresenter.qml
+    qml/RoomListAttentionLocator.qml
     qml/RoomChannelsPresenter.qml
     qml/ChannelDelegate.qml
     qml/ChannelCategoryHeader.qml

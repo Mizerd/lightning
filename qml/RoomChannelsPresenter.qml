@@ -269,6 +269,14 @@ Item {
             }
         }
     }
+    // Q3: unread rooms (or collapsed folders hiding them) scrolled out of
+    // sight; the same locator as the Classic list.
+    RoomListAttentionLocator {
+        z: 30
+        anchors.fill: channelList
+        list: channelList
+        attentionModel: app.spaceChannels
+    }
 
     // Middle-click autoscroll, a sibling of the view, as in the Classic list.
     // A room or account switch ends it.

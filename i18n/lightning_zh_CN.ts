@@ -17577,31 +17577,6 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>上方有未读</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>下方有未读</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>上方有提及</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>下方有提及</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>滚动会话列表；不会打开任何内容</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>邀请</translation>
@@ -17736,6 +17711,34 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>探索房间</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>上方有未读</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>下方有未读</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>上方有提及</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>下方有提及</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>滚动会话列表；不会打开任何内容</translation>
     </message>
 </context>
 <context>

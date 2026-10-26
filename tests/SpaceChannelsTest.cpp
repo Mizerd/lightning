@@ -880,6 +880,40 @@ private Q_SLOTS:
                               SpaceChannelModel::HiddenUnreadRole).toInt(), 0);
     }
 
+    // Q3 in the Channels list: the off-screen locator finds the nearest room
+    // with activity in either direction, prefers a mention when asked, and
+    // points at a COLLAPSED folder hiding activity rather than at nothing.
+    void theAttentionLocatorFindsUnreadRoomsAndCollapsedFolders()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
+
+        const int backend = rowOfName(f.model, QStringLiteral("backend"));
+        const int frontend = rowOfName(f.model, QStringLiteral("frontend"));
+        const int general = rowOfName(f.model, QStringLiteral("general"));
+        QVERIFY(backend >= 0 && frontend >= 0 && general >= 0);
+        const int last = f.model.rowCount() - 1;
+
+        QCOMPARE(f.model.attentionRowFrom(0, 1), qMin(backend, frontend));
+        QCOMPARE(f.model.attentionRowFrom(0, 1, true), frontend);
+        QCOMPARE(f.model.attentionRowFrom(last, -1),
+                 qMax(backend, frontend));
+        // Nothing above the first room with activity has any (general,
+        // random, the headers and navigation rows are all quiet).
+        QCOMPARE(f.model.attentionRowFrom(qMin(backend, frontend) - 1, -1), -1);
+        QCOMPARE(f.model.attentionRowFrom(last + 5, 1), -1);
+        QCOMPARE(f.model.attentionRowFrom(0, 0), -1);
+
+        // Collapsed, the folder itself is where the activity is.
+        f.model.toggleCollapsed(QStringLiteral("!eng:x"));
+        const int eng = rowOfName(f.model, QStringLiteral("Engineering"));
+        QVERIFY(eng >= 0);
+        QCOMPARE(f.model.attentionRowFrom(0, 1), eng);
+        QCOMPARE(f.model.attentionRowFrom(0, 1, true), eng);
+        QCOMPARE(f.model.attentionRowFrom(f.model.rowCount() - 1, -1), eng);
+    }
+
     void collapseStateSurvivesARebuildAndAReload()
     {
         // Collapse state is stored, since rows are rebuilt on every arriving

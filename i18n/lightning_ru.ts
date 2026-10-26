@@ -17691,31 +17691,6 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>Непрочитанное выше</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>Непрочитанное ниже</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>Упоминание выше</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>Упоминание ниже</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>Прокручивает список бесед; ничего не открывает</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>Приглашения</translation>
@@ -17850,6 +17825,34 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>Найти комнаты</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>Непрочитанное выше</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>Непрочитанное ниже</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>Упоминание выше</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>Упоминание ниже</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Прокручивает список бесед; ничего не открывает</translation>
     </message>
 </context>
 <context>

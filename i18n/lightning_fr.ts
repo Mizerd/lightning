@@ -17634,31 +17634,6 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>Non lu au-dessus</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>Non lu en dessous</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>Mention au-dessus</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>Mention en dessous</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>Fait défiler la liste des conversations ; n’ouvre rien</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>Invitations</translation>
@@ -17793,6 +17768,34 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>Explorer les salons</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>Non lu au-dessus</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>Non lu en dessous</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>Mention au-dessus</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>Mention en dessous</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Fait défiler la liste des conversations ; n’ouvre rien</translation>
     </message>
 </context>
 <context>

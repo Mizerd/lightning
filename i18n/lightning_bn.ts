@@ -17625,31 +17625,6 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>ওপরে অপঠিত</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>নিচে অপঠিত</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>ওপরে উল্লেখ</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>নিচে উল্লেখ</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>কথোপকথনের তালিকা স্ক্রল করে; কিছু খোলে না</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
@@ -17784,6 +17759,34 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>রুম অন্বেষণ করুন</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>ওপরে অপঠিত</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>নিচে অপঠিত</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>ওপরে উল্লেখ</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>নিচে উল্লেখ</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>কথোপকথনের তালিকা স্ক্রল করে; কিছু খোলে না</translation>
     </message>
 </context>
 <context>

@@ -17634,31 +17634,6 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>Ungelesen oben</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>Ungelesen unten</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>Erwähnung oben</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>Erwähnung unten</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>Scrollt die Unterhaltungsliste; öffnet nichts</translation>
-    </message>
-    <message>
         <location line="-251"/>
         <source>People</source>
         <translation>Personen</translation>
@@ -17793,6 +17768,34 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>Räume entdecken</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>Ungelesen oben</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>Ungelesen unten</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>Erwähnung oben</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>Erwähnung unten</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Scrollt die Unterhaltungsliste; öffnet nichts</translation>
     </message>
 </context>
 <context>

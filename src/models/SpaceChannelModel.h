@@ -213,6 +213,14 @@ public:
     /// The row showing `roomId`, or -1. A Space folder does not match its own
     /// id, or the whole group would read as "the room you are in".
     Q_INVOKABLE int rowForRoom(const QString &roomId) const;
+    // The Channels list's off-screen attention locator (Q3), as
+    // RoomListModel::attentionRowFrom: the nearest row from `fromRow`
+    // (inclusive) walking `step` that needs attention -- a room with an
+    // unread count or a mention, or a COLLAPSED header hiding one (collapsing
+    // never hides activity, so the locator points at the header). -1 when
+    // none. Same counts the row badges draw; one bounded pass.
+    Q_INVOKABLE int attentionRowFrom(int fromRow, int step,
+                                     bool mentionsOnly = false) const;
 
     /// Synthetic header ids: never sent anywhere; the '@' prefix keeps them
     /// from colliding with room ids.

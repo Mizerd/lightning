@@ -17577,31 +17577,6 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
-        <source>Unread above</source>
-        <translation>Belum dibaca di atas</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Unread below</source>
-        <translation>Belum dibaca di bawah</translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Mention above</source>
-        <translation>Sebutan di atas</translation>
-    </message>
-    <message>
-        <location line="-1"/>
-        <source>Mention below</source>
-        <translation>Sebutan di bawah</translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Scrolls the conversation list; opens nothing</source>
-        <translation>Menggulir daftar percakapan; tidak membuka apa pun</translation>
-    </message>
-    <message>
         <location line="-141"/>
         <source>Invites</source>
         <translation>Undangan</translation>
@@ -17736,6 +17711,34 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+6"/>
         <source>Explore rooms</source>
         <translation>Jelajahi ruang</translation>
+    </message>
+</context>
+<context>
+    <name>RoomListAttentionLocator</name>
+    <message>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+284"/>
+        <source>Unread above</source>
+        <translation>Belum dibaca di atas</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Unread below</source>
+        <translation>Belum dibaca di bawah</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mention above</source>
+        <translation>Sebutan di atas</translation>
+    </message>
+    <message>
+        <location line="-1"/>
+        <source>Mention below</source>
+        <translation>Sebutan di bawah</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Menggulir daftar percakapan; tidak membuka apa pun</translation>
     </message>
 </context>
 <context>
