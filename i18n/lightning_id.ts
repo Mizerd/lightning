@@ -826,7 +826,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8255"/>
+        <location filename="../src/app/AppController.cpp" line="+8253"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -1102,18 +1102,18 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gunakan tanggal yang valid dengan format YYYY-MM-DD, dengan “Dari” tidak setelah “Sampai”.</translation>
     </message>
     <message>
-        <location line="-5547"/>
-        <location line="+3286"/>
+        <location line="-5544"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ini adalah notifikasi uji. Jika Anda dapat membacanya, notifikasi desktop berfungsi.</translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation>Sebutan baru</translation>
     </message>
@@ -11498,7 +11498,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Unggahan gagal. Coba lagi atau hapus.</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Pesan ini terlalu panjang untuk dikirim (%1 KB; batasnya sekitar %2 KB). Persingkat atau bagi menjadi beberapa pesan.</translation>
     </message>
@@ -17737,7 +17737,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation>Belum dibaca di atas</translation>
     </message>
@@ -17765,12 +17765,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+146"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+164"/>
         <source>Invites</source>
         <translation>Undangan</translation>
     </message>
     <message>
-        <location line="-110"/>
+        <location line="-128"/>
         <source>People</source>
         <translation>Orang</translation>
     </message>
@@ -17790,13 +17790,13 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Percakapan</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation>Dalam panggilan</translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+109"/>
+        <location line="-123"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation>Favorit</translation>
     </message>
@@ -17806,7 +17806,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Prioritas rendah</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation>Masuk untuk melihat ruang</translation>
     </message>
@@ -27025,7 +27025,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation>Ekspor paket</translation>
     </message>
@@ -27564,7 +27564,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation>Sebuah paket</translation>
     </message>

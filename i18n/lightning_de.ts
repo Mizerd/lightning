@@ -835,24 +835,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="+7158"/>
+        <location filename="../src/app/AppController.cpp" line="+7156"/>
         <location line="+1194"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-7740"/>
-        <location line="+3286"/>
+        <location filename="../src/app/AppController.cpp" line="-7737"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation>Neue Erwähnungen</translation>
     </message>
@@ -11533,7 +11533,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Upload fehlgeschlagen. Erneut versuchen oder entfernen.</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Diese Nachricht ist zu lang zum Senden (%1 KB; das Limit liegt bei etwa %2 KB). Kürze sie oder teile sie auf mehrere Nachrichten auf.</translation>
     </message>
@@ -17794,7 +17794,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation>Ungelesen oben</translation>
     </message>
@@ -17842,7 +17842,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Unterhaltungen</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation>In einem Anruf</translation>
     </message>
@@ -17852,8 +17852,8 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Einladungen</translation>
     </message>
     <message>
-        <location line="-107"/>
-        <location line="+109"/>
+        <location line="-125"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
@@ -17863,7 +17863,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Niedrige Priorität</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation>Melde dich an, um Räume zu sehen</translation>
     </message>
@@ -27104,7 +27104,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation>Paket exportieren</translation>
     </message>
@@ -27662,7 +27662,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation>Ein Paket</translation>
     </message>

@@ -834,7 +834,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8255"/>
+        <location filename="../src/app/AppController.cpp" line="+8253"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1111,18 +1111,18 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Usa fechas reales en formato YYYY-MM-DD, con «Desde» no posterior a «Hasta».</translation>
     </message>
     <message>
-        <location line="-5547"/>
-        <location line="+3286"/>
+        <location line="-5544"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta es una notificación de prueba. Si puedes leerla, las notificaciones de escritorio funcionan.</translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation>Menciones nuevas</translation>
     </message>
@@ -11533,7 +11533,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Ha fallado la subida. Reintenta o quita el adjunto.</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Este mensaje es demasiado largo para enviarlo (%1 KB; el límite es de unos %2 KB). Acórtalo o divídelo en varios mensajes.</translation>
     </message>
@@ -17794,7 +17794,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation>No leído arriba</translation>
     </message>
@@ -17822,12 +17822,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+146"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+164"/>
         <source>Invites</source>
         <translation>Invitaciones</translation>
     </message>
     <message>
-        <location line="-110"/>
+        <location line="-128"/>
         <source>People</source>
         <translation>Personas</translation>
     </message>
@@ -17847,13 +17847,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Conversaciones</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation>En una llamada</translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+109"/>
+        <location line="-123"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation>Favoritos</translation>
     </message>
@@ -17863,7 +17863,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Prioridad baja</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation>Inicia sesión para ver tus salas</translation>
     </message>
@@ -27104,7 +27104,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation>Exportar paquete</translation>
     </message>
@@ -27662,7 +27662,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation>Un paquete</translation>
     </message>

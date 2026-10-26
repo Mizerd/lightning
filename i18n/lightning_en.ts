@@ -832,7 +832,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8255"/>
+        <location filename="../src/app/AppController.cpp" line="+8253"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1109,18 +1109,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5547"/>
-        <location line="+3286"/>
+        <location line="-5544"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11522,7 +11522,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17783,7 +17783,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17811,12 +17811,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+146"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+164"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-110"/>
+        <location line="-128"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17836,13 +17836,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+109"/>
+        <location line="-123"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17852,7 +17852,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27084,7 +27084,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27642,7 +27642,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation type="unfinished"></translation>
     </message>

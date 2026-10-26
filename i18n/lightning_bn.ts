@@ -832,7 +832,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8255"/>
+        <location filename="../src/app/AppController.cpp" line="+8253"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1109,18 +1109,18 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
     </message>
     <message>
-        <location line="-5547"/>
-        <location line="+3286"/>
+        <location line="-5544"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>এটি একটি পরীক্ষামূলক বিজ্ঞপ্তি। এটি পড়তে পারলে ডেস্কটপ বিজ্ঞপ্তি কাজ করছে।</translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation>নতুন উল্লেখ</translation>
     </message>
@@ -11524,7 +11524,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>এই বার্তাটি পাঠানোর জন্য খুব বড় (%1 KB; সীমা প্রায় %2 KB)। এটি ছোট করুন অথবা কয়েকটি বার্তায় ভাগ করুন।</translation>
     </message>
@@ -17785,7 +17785,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation>ওপরে অপঠিত</translation>
     </message>
@@ -17813,12 +17813,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+146"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+164"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
     </message>
     <message>
-        <location line="-110"/>
+        <location line="-128"/>
         <source>People</source>
         <translation>লোক</translation>
     </message>
@@ -17838,13 +17838,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>কথোপকথন</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation>কলে আছেন</translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+109"/>
+        <location line="-123"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation>প্রিয়</translation>
     </message>
@@ -17854,7 +17854,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কম অগ্রাধিকার</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation>রুম দেখতে সাইন ইন করুন</translation>
     </message>
@@ -27095,7 +27095,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation>প্যাক এক্সপোর্ট করুন</translation>
     </message>
@@ -27653,7 +27653,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation>একটি প্যাক</translation>
     </message>

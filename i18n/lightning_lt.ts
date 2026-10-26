@@ -842,7 +842,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8255"/>
+        <location filename="../src/app/AppController.cpp" line="+8253"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1120,18 +1120,18 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
     </message>
     <message>
-        <location line="-5547"/>
-        <location line="+3286"/>
+        <location line="-5544"/>
+        <location line="+3283"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3282"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Tai bandomasis pranešimas. Jei jį matote, darbalaukio pranešimai veikia.</translation>
     </message>
     <message>
-        <location line="+434"/>
+        <location line="+431"/>
         <source>New mentions</source>
         <translation>Nauji paminėjimai</translation>
     </message>
@@ -11568,7 +11568,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+373"/>
         <source>This message is too long to send (%1 KB; the limit is about %2 KB). Shorten it or split it into several messages.</source>
         <translation>Ši žinutė per ilga, kad ją būtų galima išsiųsti (%1 KB; riba – apie %2 KB). Sutrumpinkite ją arba padalykite į kelias žinutes.</translation>
     </message>
@@ -17851,7 +17851,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListAttentionLocator</name>
     <message>
-        <location filename="../qml/RoomListAttentionLocator.qml" line="+86"/>
+        <location filename="../qml/RoomListAttentionLocator.qml" line="+90"/>
         <source>Unread above</source>
         <translation>Neperskaityta aukščiau</translation>
     </message>
@@ -17879,12 +17879,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+146"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+164"/>
         <source>Invites</source>
         <translation>Kvietimai</translation>
     </message>
     <message>
-        <location line="-110"/>
+        <location line="-128"/>
         <source>People</source>
         <translation>Žmonės</translation>
     </message>
@@ -17904,13 +17904,13 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pokalbiai</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+122"/>
         <source>In a call</source>
         <translation>Dalyvauja skambutyje</translation>
     </message>
     <message>
-        <location line="-105"/>
-        <location line="+109"/>
+        <location line="-123"/>
+        <location line="+127"/>
         <source>Favourites</source>
         <translation>Mėgstamiausi</translation>
     </message>
@@ -17920,7 +17920,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Žemas prioritetas</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+114"/>
         <source>Sign in to see rooms</source>
         <translation>Prisijunkite, kad pamatytumėte kambarius</translation>
     </message>
@@ -27183,7 +27183,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+130"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+138"/>
         <source>Export pack</source>
         <translation>Eksportuoti rinkinį</translation>
     </message>
@@ -27760,7 +27760,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         </translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+335"/>
         <source>A pack</source>
         <translation>Rinkinys</translation>
     </message>
