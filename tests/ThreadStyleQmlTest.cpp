@@ -724,6 +724,19 @@ ApplicationWindow {
         auto *list = item("threadReplyList");
         QVERIFY(list);
         QTRY_VERIFY(list->property("atYEnd").toBool());
+        // The mock thread fits in the view; make it taller than the view so
+        // there is somewhere to scroll (the pin keeps the end in view).
+        const int count = list->property("count").toInt();
+        QVERIFY(count >= 2);
+        QQuickItem *row = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, count - 1)));
+        QVERIFY(row);
+        row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
+        row->setProperty("heightSeedActive", true);
+        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
+        QTRY_VERIFY(list->property("atYEnd").toBool());
         const QPointF top = list->mapToScene(QPointF(list->width() / 2, 40));
         const QPointF bottom =
             list->mapToScene(QPointF(list->width() / 2, list->height() - 40));
