@@ -2620,17 +2620,18 @@ impl TimelineRegistry {
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
             let reason = if reason.is_empty() { None } else { Some(reason.as_str()) };
-            if room.redact(&event_id, reason, None).await.is_err()
-                && registry.is_current(room_gen, lifecycle)
-            {
+            let result = room.redact(&event_id, reason, None).await;
+            if registry.is_current(room_gen, lifecycle) {
                 enqueue(
                     &events,
                     json!({
-                        "type": "timeline_send_failed",
+                        "type": "timeline_redaction_finished",
                         "room_id": room_id,
+                        "event_id": event_id.as_str(),
                         "room_generation": room_gen,
                         "lifecycle": lifecycle,
-                        "category": "redact_rejected",
+                        "ok": result.is_ok(),
+                        "error": result.err().map(|e| e.to_string()).unwrap_or_default(),
                     }),
                 );
             }

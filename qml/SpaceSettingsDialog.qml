@@ -3,8 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Space settings: one modal for everything Lightning can change about a Space,
-// from the rail's menu and Space Home.
+// Space settings, and the same permission editor when Room Information opens
+// a room's power levels. Both target ordinary Matrix rooms.
 //
 // A Space is a Matrix room: every control writes ordinary room state through
 // RoomInfoController, gated on the real required power level for that event,
@@ -20,8 +20,11 @@ AppDialog {
     id: root
     objectName: "spaceSettingsDialog"
 
-    /// The Space being edited; never a plain room.
+    /// The Matrix room being edited (a Space unless roomMode is true).
     property string spaceId: ""
+    // Room Information opens this same editor at its Permissions section.
+    property bool roomMode: false
+    property string roomName: ""
     /// Where app.roomInfo pointed when this opened, restored on close: the
     /// controller is shared with Room Information and Space Home.
     property string _restoreRoomId: ""
@@ -48,6 +51,8 @@ AppDialog {
     property int spacesTick: 0
     readonly property var info: {
         var _dep = root.spacesTick
+        if (root.roomMode)
+            return ({ name: root.roomName, avatarUrl: "" })
         return app.spaces && spaceId.length > 0
                ? app.spaces.spaceInfo(spaceId) : ({})
     }
@@ -59,6 +64,7 @@ AppDialog {
     function openFor(targetSpaceId) {
         if (!targetSpaceId || targetSpaceId.length === 0)
             return
+        roomMode = false
         spaceId = targetSpaceId
         _restoreRoomId = app.roomInfo ? app.roomInfo.roomId : ""
         if (app.roomInfo)
@@ -90,6 +96,21 @@ AppDialog {
         // administrator.
         if (app.roomClosure)
             app.roomClosure.checkServerAdmin()
+        open()
+    }
+
+    function openPermissionsForRoom(roomId, displayName) {
+        if (!roomId)
+            return
+        roomMode = true
+        roomName = displayName || roomId
+        spaceId = roomId
+        _restoreRoomId = app.roomInfo ? app.roomInfo.roomId : ""
+        if (app.roomInfo)
+            app.roomInfo.roomId = roomId
+        section = 2
+        bodyFlick.contentY = 0
+        memberError = ""
         open()
     }
 
@@ -146,7 +167,39 @@ AppDialog {
     /// m.call.member is deliberately absent: Lightning sends the MSC3401
     /// unstable identifier and a Space has no timeline for calls.
     /// m.room.power_levels has one row, not two.
-    readonly property var permissionGroups: [
+    readonly property var permissionGroups: roomMode ? [
+        { title: qsTr("Members"), note: qsTr("The level every member starts at."),
+          rows: [{ key: "users_default", label: qsTr("Default power") }] },
+        { title: qsTr("Messages and notifications"), note: "",
+          rows: [
+              { key: "events_default", label: qsTr("Send messages") },
+              { key: "notifications.room", label: qsTr("Notify everyone (@room)") }
+          ] },
+        { title: qsTr("Moderation"), note: "",
+          rows: [
+              { key: "invite", label: qsTr("Invite") },
+              { key: "kick", label: qsTr("Kick") },
+              { key: "ban", label: qsTr("Ban") },
+              { key: "redact", label: qsTr("Remove messages") }
+          ] },
+        { title: qsTr("Room profile"), note: "",
+          rows: [
+              { key: "m.room.name", label: qsTr("Room name") },
+              { key: "m.room.avatar", label: qsTr("Room avatar") },
+              { key: "m.room.topic", label: qsTr("Room topic") }
+          ] },
+        { title: qsTr("Settings"),
+          note: qsTr("Set \"Edit power levels\" above your own level and you can never lower it again."),
+          rows: [
+              { key: "m.room.join_rules", label: qsTr("Change room access") },
+              { key: "m.room.canonical_alias", label: qsTr("Publish address") },
+              { key: "m.room.power_levels", label: qsTr("Edit power levels") },
+              { key: "m.room.history_visibility", label: qsTr("History visibility") },
+              { key: "m.room.guest_access", label: qsTr("Guest access") },
+              { key: "m.room.tombstone", label: qsTr("Upgrade room") },
+              { key: "state_default", label: qsTr("Other settings") }
+          ] }
+    ] : [
         {
             title: qsTr("Users"),
             // Notes are group-level: a per-row Label whose text can be "" would
@@ -222,7 +275,8 @@ AppDialog {
             }
             Label {
                 objectName: "spaceSettingsHeaderName"
-                text: root.info.name || qsTr("Space")
+                text: root.info.name || (root.roomMode ? qsTr("Room")
+                                                      : qsTr("Space"))
                 textFormat: Text.PlainText
                 elide: Label.ElideRight
                 Layout.maximumWidth: 260
@@ -274,7 +328,7 @@ AppDialog {
 
                 Repeater {
                     id: navRepeater
-                    model: root.sections
+                    model: root.roomMode ? [root.sections[2]] : root.sections
                     delegate: Rectangle {
                         id: navRow
                         required property var modelData
@@ -283,7 +337,10 @@ AppDialog {
                         Layout.fillWidth: true
                         implicitHeight: 34
                         radius: AppTheme.radiusMd
-                        readonly property bool current: root.section === index
+                        readonly property int sectionIndex:
+                            root.roomMode ? 2 : index
+                        readonly property bool current:
+                            root.section === sectionIndex
                         color: current ? AppTheme.stormSelection
                                : navHover.hovered ? AppTheme.hover
                                                   : "transparent"
@@ -291,28 +348,31 @@ AppDialog {
                             id: navHover
                             cursorShape: Qt.PointingHandCursor
                         }
-                        TapHandler { onTapped: root.section = navRow.index }
+                        TapHandler { onTapped: root.section = navRow.sectionIndex }
                         // Keyboard: Tab reaches the rows, Up/Down move between
                         // them and Return/Space/Enter select.
                         activeFocusOnTab: true
                         function _goto(i) {
-                            var n = root.sections.length
+                            var n = root.roomMode ? 1 : root.sections.length
                             root.section = Math.max(0, Math.min(n - 1, i))
-                            var target = navRepeater.itemAt(root.section)
+                            if (root.roomMode)
+                                root.section = 2
+                            var target = navRepeater.itemAt(
+                                root.roomMode ? 0 : root.section)
                             if (target)
                                 target.forceActiveFocus(Qt.TabFocusReason)
                         }
                         Keys.onUpPressed: navRow._goto(navRow.index - 1)
                         Keys.onDownPressed: navRow._goto(navRow.index + 1)
-                        Keys.onReturnPressed: root.section = navRow.index
-                        Keys.onEnterPressed: root.section = navRow.index
-                        Keys.onSpacePressed: root.section = navRow.index
+                        Keys.onReturnPressed: root.section = navRow.sectionIndex
+                        Keys.onEnterPressed: root.section = navRow.sectionIndex
+                        Keys.onSpacePressed: root.section = navRow.sectionIndex
                         border.width: activeFocus ? 2 : 0
                         border.color: AppTheme.bolt
                         Accessible.role: Accessible.Button
                         Accessible.name: navRow.modelData.label
                         Accessible.focusable: true
-                        Accessible.onPressAction: root.section = navRow.index
+                        Accessible.onPressAction: root.section = navRow.sectionIndex
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: AppTheme.spacing12
@@ -403,10 +463,12 @@ AppDialog {
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
-                        text: qsTr("Loading this space's members. What you "
-                                   + "can change depends on them, so the "
-                                   + "controls stay disabled until they "
-                                   + "arrive.")
+                        text: root.roomMode
+                              ? qsTr("Loading this room's members. Controls remain disabled until the roster arrives.")
+                              : qsTr("Loading this space's members. What you "
+                                     + "can change depends on them, so the "
+                                     + "controls stay disabled until they "
+                                     + "arrive.")
                     }
 
                     // ══ GENERAL ══
@@ -1392,13 +1454,9 @@ AppDialog {
                             font.pixelSize: AppTheme.textMeta
                             // The offer policy, stated, so a disabled control
                             // does not look like a bug.
-                            text: qsTr("You can only require a level at or "
-                                       + "below your own, and only set a "
-                                       + "member's role below your own — never "
-                                       + "for someone at or above it. A space "
-                                       + "using a custom level shows that "
-                                       + "number rather than being "
-                                       + "relabelled.")
+                            text: root.roomMode
+                                  ? qsTr("You can only require a level at or below your own, and only set a member's role below your own — never for someone at or above it. A room using a custom level shows that number.")
+                                  : qsTr("You can only require a level at or below your own, and only set a member's role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.")
                         }
                         Label {
                             Layout.fillWidth: true
@@ -1408,8 +1466,9 @@ AppDialog {
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            text: qsTr("You don't have permission to change "
-                                       + "roles or permissions in this space.")
+                            text: root.roomMode
+                                  ? qsTr("You don't have permission to change roles or permissions in this room.")
+                                  : qsTr("You don't have permission to change roles or permissions in this space.")
                         }
                         // No thresholds from the backend means unknown, never
                         // "everything is 0".
@@ -1422,9 +1481,11 @@ AppDialog {
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            text: qsTr("This space's permission levels haven't "
-                                       + "loaded on this backend, so they are "
-                                       + "not shown.")
+                            text: root.roomMode
+                                  ? qsTr("This room's permission levels haven't loaded on this backend, so they are not shown.")
+                                  : qsTr("This space's permission levels haven't "
+                                         + "loaded on this backend, so they are "
+                                         + "not shown.")
                         }
                         Label {
                             Layout.fillWidth: true
@@ -1743,6 +1804,48 @@ AppDialog {
                                                    app.roomInfo.usersDefaultPowerLevel,
                                                    text, roleRow.isOwn)
                                 }
+                                AppTextField {
+                                    id: customMemberLevel
+                                    objectName: "memberCustomPowerLevel"
+                                    storm: true
+                                    Layout.preferredWidth: 68
+                                    enabled: root.infoIsOurs
+                                             && app.roomInfo.canChangePowerLevels
+                                             && !app.roomInfo.powerLevelPending
+                                    placeholderText: qsTr("Level")
+                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                    validator: IntValidator { bottom: -100; top: 100 }
+                                    readonly property int parsedLevel:
+                                        text.trim().length === 0 ? -1000
+                                                                 : parseInt(text.trim(), 10)
+                                    Accessible.name: qsTr("Custom level for %1")
+                                                         .arg(roleRow.name)
+                                    onAccepted: if (applyMemberLevel.enabled)
+                                                    applyMemberLevel.clicked()
+                                }
+                                IconButton {
+                                    id: applyMemberLevel
+                                    objectName: "applyMemberCustomPowerLevel"
+                                    iconName: "check"
+                                    implicitWidth: 28
+                                    implicitHeight: 28
+                                    enabled: !isNaN(customMemberLevel.parsedLevel)
+                                             && app.roomInfo.canSetPowerLevel(
+                                                    roleRow.uid,
+                                                    customMemberLevel.parsedLevel)
+                                             && !app.roomInfo.powerLevelPending
+                                    Accessible.name: qsTr("Set custom level for %1")
+                                                         .arg(roleRow.name)
+                                    onClicked: {
+                                        roleConfirm.openFor(
+                                            roleRow.uid, roleRow.name,
+                                            customMemberLevel.parsedLevel,
+                                            qsTr("Custom (%1)").arg(
+                                                customMemberLevel.parsedLevel),
+                                            roleRow.isOwn)
+                                        customMemberLevel.text = ""
+                                    }
+                                }
                             }
                         }
                     }
@@ -1980,7 +2083,8 @@ AppDialog {
             sourceComponent: MenuSectionLabel {
                 leftPadding: AppTheme.menuItemPadding + 6
                 rightPadding: AppTheme.menuItemPadding
-                text: qsTr("Role in this space")
+                text: root.roomMode ? qsTr("Role in this room")
+                                    : qsTr("Role in this space")
             }
         }
         Repeater {
@@ -2097,9 +2201,10 @@ AppDialog {
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
-                text: qsTr("Set %1 to %2 in this space? Roles in the space's "
-                           + "rooms are set in each room.")
-                          .arg(roleConfirm.name).arg(roleConfirm.label)
+                text: (root.roomMode
+                       ? qsTr("Set %1 to %2 in this room?")
+                       : qsTr("Set %1 to %2 in this space? Roles in the space's rooms are set in each room."))
+                      .arg(roleConfirm.name).arg(roleConfirm.label)
                 color: AppTheme.stormText
             }
             Label {
@@ -2132,8 +2237,10 @@ AppDialog {
                 visible: roleConfirm.losesRoleControl
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
-                text: qsTr("You will also no longer be able to change roles "
-                           + "or permissions in this space.")
+                text: root.roomMode
+                      ? qsTr("You will also no longer be able to change roles or permissions in this room.")
+                      : qsTr("You will also no longer be able to change roles "
+                             + "or permissions in this space.")
                 color: AppTheme.stormDanger
                 font.pixelSize: AppTheme.textMeta
             }

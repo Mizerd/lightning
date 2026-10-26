@@ -615,6 +615,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                "notifications work."));
     });
     m_forward      = std::make_unique<ForwardController>(this);
+    m_bulkRedaction = std::make_unique<BulkRedactionController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_spaceModeration = std::make_unique<SpaceModerationController>(this);
     m_spaceModeration->setScopeResolver([this](const QString &spaceId) {
@@ -1680,6 +1681,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(this, &AppController::currentRoomIdChanged, this, [this] {
         if (m_forward && m_forward->selecting())
             m_forward->cancelSelecting();
+        if (m_bulkRedaction)
+            m_bulkRedaction->cancel();
     });
 
     // A MatrixRTC announcement that does not ring this account (a group
@@ -2640,6 +2643,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_moderation->setClient(m_client.get());
     m_pushRules->setClient(m_client.get());
     m_forward->setClient(m_client.get());
+    m_bulkRedaction->setClient(m_client.get());
     m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
     m_spaceModeration->setClient(m_client.get());

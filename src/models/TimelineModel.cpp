@@ -3031,8 +3031,8 @@ bool TimelineModel::canRedactEvent(const QString &eventId,
                                    bool canRedactOthers) const
 {
     const auto *event = eventForId(eventId);
-    if (!event || event->redacted || event->isVirtual()
-        || event->type == TimelineEvent::StateChange
+    if (!event || event->redacted || !isVisualMessage(*event)
+        || isThreadReplyAwaitingKeys(*event)
         || event->eventId.startsWith(QLatin1String("local:")))
         return false;
     // A moderator removes another member's message with the same redaction;

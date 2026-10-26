@@ -2008,6 +2008,9 @@ Q_SIGNALS:
     void eventsTruncatedTo(const QString &roomId, int length);
     void eventEdited(const QString &roomId, const QString &eventId);
     void eventRedacted(const QString &roomId, const QString &eventId);
+    // Result of a redaction request, separate from the later timeline diff.
+    void redactionFinished(const QString &roomId, const QString &eventId,
+                           bool ok, const QString &error);
     void reactionsChanged(const QString &roomId, const QString &eventId);
     void eventsPrepended(const QString &roomId, const QList<TimelineEvent> &events);
     void paginationStateChanged(const QString &roomId);

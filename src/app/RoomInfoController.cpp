@@ -1019,6 +1019,7 @@ QStringList RoomInfoController::powerLevelKeys()
     // Rust edge. Built once, since powerLevelKnown() runs per row.
     static const QStringList keys{
         QStringLiteral("users_default"),
+        QStringLiteral("notifications.room"),
         QStringLiteral("events_default"),
         QStringLiteral("state_default"),
         QStringLiteral("invite"),
@@ -1033,6 +1034,8 @@ QStringList RoomInfoController::powerLevelKeys()
         QStringLiteral("m.room.canonical_alias"),
         QStringLiteral("m.room.power_levels"),
         QStringLiteral("m.room.tombstone"),
+        QStringLiteral("m.room.history_visibility"),
+        QStringLiteral("m.room.guest_access"),
     };
     return keys;
 }

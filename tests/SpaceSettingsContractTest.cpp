@@ -414,6 +414,28 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.powerLevelForKey(")));
     }
 
+    void roomInformationReusesThePermissionMatrix()
+    {
+        const QString panel = readQml(QStringLiteral("RoomInfoPanel.qml"));
+        const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        QVERIFY(panel.contains(QStringLiteral("root.roomPermissionsDialog.openPermissionsForRoom(")));
+        QVERIFY(dialog.contains(QStringLiteral("function openPermissionsForRoom(")));
+        QVERIFY(dialog.contains(QStringLiteral("section = 2")));
+        QVERIFY(dialog.contains(QStringLiteral("roomMode ? [")));
+        for (const QString &key : {QStringLiteral("events_default"),
+                                   QStringLiteral("notifications.room"),
+                                   QStringLiteral("redact"),
+                                   QStringLiteral("m.room.power_levels"),
+                                   QStringLiteral("m.room.history_visibility")}) {
+            QVERIFY2(dialog.contains(QStringLiteral("key: \"%1\"").arg(key)),
+                     qPrintable(key));
+            QVERIFY(RoomInfoController::powerLevelKeys().contains(key));
+        }
+        QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.canSetPowerLevel(")));
+        QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.canSetPowerLevelKey(")));
+        QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.powerMatrixError")));
+    }
+
     // No row for `m.call.member`: it governs neither the identifier Lightning
     // sends nor the stable one.
     void theMatrixOffersNoCallMemberRow()

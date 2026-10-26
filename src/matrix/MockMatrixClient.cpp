@@ -1056,12 +1056,17 @@ void MockMatrixClient::redactEvent(const QString &roomId,
 {
     Q_UNUSED(reason);
     auto *ev = findEvent(roomId, eventId);
-    if (!ev) return;
+    if (!ev) {
+        Q_EMIT redactionFinished(roomId, eventId, false,
+                                 tr("Message not found."));
+        return;
+    }
     ev->redacted = true;
     ev->body.clear();
     // The mock keeps reactions on their target event, so nothing to remove by
     // id.
     Q_EMIT eventRedacted(roomId, eventId);
+    Q_EMIT redactionFinished(roomId, eventId, true, {});
 }
 
 void MockMatrixClient::toggleReaction(const QString &roomId,

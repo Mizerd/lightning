@@ -584,6 +584,8 @@ set(APP_SOURCES
     src/app/NotificationTroubleshooter.cpp
     src/app/ForwardController.h
     src/app/ForwardController.cpp
+    src/app/BulkRedactionController.h
+    src/app/BulkRedactionController.cpp
     src/app/DraftStore.h
     src/app/DraftStore.cpp
     src/app/RichComposerBridge.h
@@ -1223,6 +1225,7 @@ set(APP_QML_FILES
     qml/MediaBrowser.qml
     qml/EmojiCompletionPopup.qml
     qml/ForwardSelectionDialog.qml
+    qml/BulkRedactionBar.qml
     qml/MediaBrowserTile.qml
     qml/MediaBrowserRow.qml
     qml/JumpToDateDialog.qml

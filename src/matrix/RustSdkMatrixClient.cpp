@@ -4160,9 +4160,10 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
         reasonBytes.constData()));
     if (!result.isEmpty()) {
-        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
-                                 ? result.mid(7)
-                                 : result);
+        const QString error = result.startsWith(QLatin1String("error: "))
+                                  ? result.mid(7) : result;
+        Q_EMIT errorOccurred(error);
+        Q_EMIT redactionFinished(realRoom, eventId, false, error);
     }
 }
 
@@ -7734,6 +7735,20 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("timeline_retry_decryption")) {
         handleTimelineRetryDecryption(event);
+        return;
+    }
+    if (type == QLatin1String("timeline_redaction_finished")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        const QString eventId = event.value(QStringLiteral("event_id")).toString();
+        if (roomId.isEmpty() || eventId.isEmpty())
+            return;
+        const bool ok = event.value(QStringLiteral("ok")).toBool();
+        const QString error = event.value(QStringLiteral("error")).toString();
+        if (!ok)
+            Q_EMIT errorOccurred(error.isEmpty()
+                                     ? tr("The message could not be deleted.")
+                                     : error);
+        Q_EMIT redactionFinished(roomId, eventId, ok, error);
         return;
     }
     if (type == QLatin1String("timeline_send_failed")) {

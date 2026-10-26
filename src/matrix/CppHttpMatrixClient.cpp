@@ -1307,7 +1307,12 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
                                         const QString &eventId,
                                         const QString &reason)
 {
-    if (!m_loggedIn) { Q_EMIT errorOccurred(tr("Not signed in.")); return; }
+    if (!m_loggedIn) {
+        const QString error = tr("Not signed in.");
+        Q_EMIT errorOccurred(error);
+        Q_EMIT redactionFinished(roomId, eventId, false, error);
+        return;
+    }
     const QString txnId = nextTxnId();
 
     QUrl url = endpoint(QStringLiteral("/rooms/%1/redact/%2/%3")
@@ -1320,11 +1325,16 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
     if (!reason.isEmpty()) body.insert(QStringLiteral("reason"), reason);
     QNetworkReply *reply = m_nam->put(
         req, QJsonDocument(body).toJson(QJsonDocument::Compact));
-    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, roomId, eventId] {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            Q_EMIT errorOccurred(tr("Redaction failed: %1").arg(
-                extractMatrixError(reply->readAll(), reply->errorString())));
+            const QString error = tr("Redaction failed: %1").arg(
+                extractMatrixError(reply->readAll(), reply->errorString()));
+            Q_EMIT errorOccurred(error);
+            Q_EMIT redactionFinished(roomId, eventId, false, error);
+        } else {
+            Q_EMIT redactionFinished(roomId, eventId, true, {});
         }
         // Actual event mutation arrives via /sync as m.room.redaction.
     });

@@ -37,7 +37,11 @@ Item {
     // of its normal action (open an image, follow a link, react).
     /// The open room's display name, for "with context" forwarding.
     property string sourceRoomName: ""
-    readonly property bool selectionMode: app.forward.selecting === true
+    readonly property bool bulkSelectionMode:
+        app.bulkRedaction.selecting === true
+        && root.timelineModel.roomId === app.bulkRedaction.timelineId
+    readonly property bool selectionMode:
+        app.forward.selecting === true || root.bulkSelectionMode
     /// What a row's own surfaces are gated on while selecting. The selection
     /// TapHandler's grab permissions do not suspend child handlers (they receive
     /// the press first), so each surface checks this explicitly.
@@ -69,7 +73,10 @@ Item {
                && app.roomInfo.canRedactOthers === true)
     // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
-        model.isVirtual !== true && model.redacted !== true
+        root.bulkSelectionMode
+        ? root.timelineModel.canRedactEvent(root.eventIdForActions(),
+                                            root.canRedactOthers)
+        : model.isVirtual !== true && model.redacted !== true
         && model.isLocalEcho !== true
         && !root.isCallEvent && !root.isStateActivity
         && !root.isThreadKeyWait
@@ -83,12 +90,20 @@ Item {
     // every toggle and carries the dependency.
     readonly property bool rowSelected:
         root.selectionMode && root.rowSelectable
-        && app.forward.selectedCount > 0
-        && app.forward.isSelected(root.eventIdForActions())
+        && (root.bulkSelectionMode
+            ? app.bulkRedaction.selectedCount > 0
+              && app.bulkRedaction.isSelected(root.eventIdForActions())
+            : app.forward.selectedCount > 0
+              && app.forward.isSelected(root.eventIdForActions()))
 
     function toggleSelectionForThisRow() {
         if (!root.rowSelectable)
             return
+        if (root.bulkSelectionMode) {
+            app.bulkRedaction.toggleFromPointer(root.eventIdForActions(),
+                                                root.canRedactOthers)
+            return
+        }
         app.forward.toggleSelected(root.eventIdForActions(), {
             redacted: model.redacted === true,
             isLocalEcho: model.isLocalEcho === true,
@@ -4318,7 +4333,12 @@ Item {
         root.menuEventId = model.eventId
         switch (action) {
         case "timeline.forwardMessage": beginForward(); return true
-        case "timeline.deleteMessage": deleteThisMessage(); return true
+        case "timeline.deleteMessage":
+            if (root.bulkSelectionMode)
+                app.bulkRedaction.toggle(root.menuEventId, root.canRedactOthers)
+            else
+                deleteThisMessage()
+            return true
         case "timeline.copyMessageText": copyMessageText(); return true
         case "timeline.copyMessageLink": copyMessageLink(); return true
         }
@@ -4909,6 +4929,21 @@ Item {
                     app.forward.beginSelecting(
                         root.timelineModel.realRoomIdForEvent(root.menuEventId))
                     root.toggleSelectionForThisRow()
+                }
+            }
+            AppMenuItem {
+                objectName: "selectMessagesToDeleteMenuItem"
+                iconName: "delete"
+                text: qsTr("Select messages to delete")
+                visible: !root.readOnlyView
+                         && root.timelineModel.canRedactEvent(
+                             root.menuEventId, root.canRedactOthers)
+                enabled: visible && !app.bulkRedaction.running
+                onTriggered: {
+                    app.forward.cancelSelecting()
+                    app.bulkRedaction.begin(root.timelineModel)
+                    app.bulkRedaction.toggle(root.menuEventId,
+                                             root.canRedactOthers)
                 }
             }
             AppMenuItem {

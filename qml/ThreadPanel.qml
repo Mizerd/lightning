@@ -18,6 +18,13 @@ Rectangle {
         role: "sidePanel"
         flatFill: false
     }
+    BulkRedactionBar {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 100
+        timelineModel: app.thread.model
+    }
 
     signal closeRequested()
     // The host shows this panel in the main conversation column (Settings >
@@ -1218,6 +1225,12 @@ Rectangle {
                             return true
                         app.thread.beginReply(selectedEventId)
                         panel.focusComposer()
+                        break
+                    case "timeline.deleteMessage":
+                        var selected = rowForEvent(selectedEventId)
+                        var rowItem = selected >= 0 ? itemAtIndex(selected) : null
+                        if (rowItem && rowItem.runSelectionAction)
+                            rowItem.runSelectionAction(action)
                         break
                     default: return false
                     }

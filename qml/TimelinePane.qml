@@ -6890,6 +6890,11 @@ Rectangle {
             }
         }
 
+        BulkRedactionBar {
+            Layout.fillWidth: true
+            timelineModel: app.timeline
+        }
+
         // Selection bar for multi-message forwarding, above the composer.
         // Escape and Cancel both leave the mode.
         Rectangle {

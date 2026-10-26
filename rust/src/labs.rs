@@ -840,6 +840,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("timeline_diff", UiOnly),
         ("timeline_error", UiOnly),
         ("timeline_pagination", UiOnly),
+        ("timeline_redaction_finished", UiOnly),
         ("timeline_reset", UiOnly),
         ("timeline_retry_decryption", UiOnly),
         ("timeline_send_failed", UiOnly),

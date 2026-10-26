@@ -387,6 +387,21 @@ Rectangle {
                     font.weight: AppTheme.weightDisplay
                 }
                 IconButton {
+                    objectName: "roomPermissionsButton"
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusControl
+                    iconName: "lock"
+                    iconSize: 18
+                    Accessible.name: qsTr("Room permissions")
+                    onClicked: {
+                        if (!root.roomPermissionsDialog)
+                            root.roomPermissionsDialog =
+                                roomPermissionsDialogComponent.createObject(root)
+                        root.roomPermissionsDialog.openPermissionsForRoom(
+                            app.roomInfo.roomId, root.roomData.name || "")
+                    }
+                }
+                IconButton {
                     implicitWidth: 30; implicitHeight: 30
                     radius: AppTheme.radiusControl
                     iconName: "close"
@@ -2473,6 +2488,13 @@ Rectangle {
             // Navigation belongs to the host.
             onJumpToEventRequested: (eventId) =>
                 root.jumpToEventRequested(eventId)
+        }
+    }
+    property var roomPermissionsDialog: null
+    Component {
+        id: roomPermissionsDialogComponent
+        SpaceSettingsDialog {
+            objectName: "roomPermissionsDialog"
         }
     }
 

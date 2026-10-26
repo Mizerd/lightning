@@ -3106,6 +3106,7 @@ async fn members_snapshot_json(
             "events_default": i64::from(power_levels.events_default),
             "state_default": i64::from(power_levels.state_default),
             "users_default": users_default,
+            "notifications.room": i64::from(power_levels.notifications.room),
             "m.space.child": state_level(StateEventType::SpaceChild),
             "m.room.name": state_level(StateEventType::RoomName),
             "m.room.avatar": state_level(StateEventType::RoomAvatar),
@@ -4162,6 +4163,7 @@ pub(crate) fn set_room_power_level_key(
 
     let mut changes = RoomPowerLevelChanges::new();
     let mut event_type: Option<StateEventType> = None;
+    let notification_level = key == "notifications.room";
     match key.as_str() {
         "ban" => changes.ban = Some(level),
         "invite" => changes.invite = Some(level),
@@ -4180,6 +4182,9 @@ pub(crate) fn set_room_power_level_key(
         }
         "m.room.power_levels" => event_type = Some(StateEventType::RoomPowerLevels),
         "m.room.tombstone" => event_type = Some(StateEventType::RoomTombstone),
+        "m.room.history_visibility" => event_type = Some(StateEventType::RoomHistoryVisibility),
+        "m.room.guest_access" => event_type = Some(StateEventType::RoomGuestAccess),
+        "notifications.room" => {},
         _ => return Err("unsupported power level key".to_owned()),
     }
 
@@ -4189,7 +4194,16 @@ pub(crate) fn set_room_power_level_key(
     let key_for_event = key.clone();
     bridge.spawn_room_action(async move {
         let result = async {
-            match event_type {
+            if notification_level {
+                let mut levels = room.power_levels().await
+                    .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+                levels.notifications.room = target_level;
+                let content = RoomPowerLevelsEventContent::try_from(levels)
+                    .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+                room.send_state_event(content).await.map(|_| ())
+                    .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+            } else {
+                match event_type {
                 Some(state_type) => {
                     let mut levels = room
                         .power_levels()
@@ -4215,6 +4229,7 @@ pub(crate) fn set_room_power_level_key(
                     .apply_power_level_changes(changes)
                     .await
                     .map_err(|err| classify_room_error(&err.to_string()).to_owned()),
+                }
             }
         }
         .await;

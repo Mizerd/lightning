@@ -4,6 +4,7 @@
 #include "app/RoomDiscoveryController.h"
 #include "app/DraftStore.h"
 #include "app/ForwardController.h"
+#include "app/BulkRedactionController.h"
 #include "app/ModerationController.h"
 #include "app/NotificationTroubleshooter.h"
 #include "app/PushRulesController.h"
@@ -496,6 +497,7 @@ class AppController : public QObject
                    READ notificationTroubleshooter CONSTANT)
     // Message forwarding; see ForwardController.
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
+    Q_PROPERTY(BulkRedactionController* bulkRedaction READ bulkRedaction CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     // Kick / ban / unban from a Space, with the optional cascade to its rooms.
     Q_PROPERTY(SpaceModerationController* spaceModeration
@@ -866,6 +868,7 @@ public:
     NotificationTroubleshooter *notificationTroubleshooter() const
     { return m_notificationTroubleshooter.get(); }
     ForwardController *forward() const { return m_forward.get(); }
+    BulkRedactionController *bulkRedaction() const { return m_bulkRedaction.get(); }
     // OAuth accounts manage devices in the account console, not via a
     // password prompt. Evaluated when the Sessions page opens.
     Q_INVOKABLE bool activeAccountIsOAuth() const
@@ -2003,6 +2006,7 @@ private:
     std::unique_ptr<PushRulesController> m_pushRules;
     std::unique_ptr<NotificationTroubleshooter> m_notificationTroubleshooter;
     std::unique_ptr<ForwardController> m_forward;
+    std::unique_ptr<BulkRedactionController> m_bulkRedaction;
     // Media keys this account asked to star or copy; the shared media fetch
     // result must be claimed. Cleared on sign-out.
     QSet<QString> m_pendingStarKeys;

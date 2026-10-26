@@ -11,6 +11,7 @@
 
 #include "app/AppController.h"
 #include "app/ForwardController.h"
+#include "app/BulkRedactionController.h"
 #include "app/SettingsManager.h"
 #include "app/ShortcutRegistry.h"
 #include "auth/AuthManager.h"
@@ -21,6 +22,18 @@
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "models/ReverseListProxyModel.h"
+
+class DeferredRedactionClient : public MockMatrixClient
+{
+public:
+    using MockMatrixClient::MockMatrixClient;
+    QStringList requestedIds;
+    void redactEvent(const QString &, const QString &eventId,
+                     const QString &) override
+    {
+        requestedIds.append(eventId);
+    }
+};
 
 class MessageSelectionQmlTest : public QObject
 {
@@ -303,6 +316,128 @@ ApplicationWindow {
         Q_EMIT mock->eventChangedAt(m_controller->currentRoomId(), row, event);
         QTest::keyClick(m_window, Qt::Key_R);
         QVERIFY(!m_controller->composer()->isReplying());
+    }
+
+    void bulkDeletionUsesTheSelectedTimelineAndStopsBetweenRequests()
+    {
+        openJoinedRoom();
+        auto *model = m_controller->timeline();
+        auto *bulk = m_controller->bulkRedaction();
+        QStringList ids;
+        for (int row = 0; row < model->rowCount(); ++row) {
+            const QString id = model->eventIdAt(row);
+            if (model->canRedactEvent(id, true))
+                ids.append(id);
+            if (ids.size() == 2)
+                break;
+        }
+        QCOMPARE(ids.size(), 2);
+        bulk->begin(model);
+        bulk->selectRange(ids.first(), ids.last(), true);
+        QVERIFY(bulk->selectedCount() >= 2);
+        bulk->start(QStringLiteral("test reason"));
+        QCOMPARE(bulk->total(), bulk->selectedCount());
+        // The mock acknowledges the first request synchronously. The next
+        // request must wait for the pacing timer, leaving a cancellation gap.
+        QCOMPARE(bulk->completed(), 1);
+        bulk->cancel();
+        QVERIFY(bulk->cancelled());
+        QVERIFY(!bulk->running());
+        QCOMPARE(bulk->completed(), 1);
+        QVERIFY(bulk->total() >= 2);
+        QTest::qWait(350);
+        QCOMPARE(bulk->completed(), 1);
+    }
+
+    void bulkDeleteControlsUseBothTimelineHosts()
+    {
+        auto source = [](const QString &name) {
+            QFile file(QStringLiteral(QML_DIR "/") + name);
+            return file.open(QIODevice::ReadOnly)
+                       ? QString::fromUtf8(file.readAll()) : QString{};
+        };
+        const QString room = source(QStringLiteral("TimelinePane.qml"));
+        const QString thread = source(QStringLiteral("ThreadPanel.qml"));
+        const QString row = source(QStringLiteral("MessageDelegate.qml"));
+        const QString bar = source(QStringLiteral("BulkRedactionBar.qml"));
+        QVERIFY(room.contains(QStringLiteral("timelineModel: app.timeline")));
+        QVERIFY(thread.contains(QStringLiteral("timelineModel: app.thread.model")));
+        QVERIFY(thread.contains(QStringLiteral("case \"timeline.deleteMessage\"")));
+        QVERIFY(row.contains(QStringLiteral("root.timelineModel.canRedactEvent(")));
+        QVERIFY(row.contains(QStringLiteral("toggleFromPointer(")));
+        QVERIFY(bar.contains(QStringLiteral("app.bulkRedaction.start(reason.text.trim())")));
+        QVERIFY(bar.contains(QStringLiteral("app.bulkRedaction.cancel()")));
+    }
+
+    void bulkDeletionWaitsForEachResultAndCountsFailures()
+    {
+        DeferredRedactionClient client;
+        TimelineModel model;
+        const QString room = QStringLiteral("!bulk:example.org");
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 3; ++i) {
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$bulk-%1:example.org").arg(i);
+            event.roomId = room;
+            event.sender = QStringLiteral("@peer:example.org");
+            event.body = QStringLiteral("Fixture");
+            event.type = TimelineEvent::TextMessage;
+            events.append(event);
+        }
+        client.resetTimelineForTest(room, events, 0);
+        model.setClient(&client);
+        model.setRoomId(room);
+        BulkRedactionController bulk;
+        bulk.setClient(&client);
+        bulk.begin(&model);
+        bulk.selectRange(events.first().eventId, events.last().eventId, true);
+        QCOMPARE(bulk.selectedCount(), 3);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        QCOMPARE(bulk.completed(), 0);
+        Q_EMIT client.redactionFinished(room, client.requestedIds.first(),
+                                        false, QStringLiteral("M_FORBIDDEN"));
+        QCOMPARE(bulk.completed(), 1);
+        QCOMPARE(bulk.failed(), 1);
+        QCOMPARE(bulk.error(), QStringLiteral("M_FORBIDDEN"));
+        QTRY_COMPARE(client.requestedIds.size(), 2);
+        Q_EMIT client.redactionFinished(room, client.requestedIds.at(1), true, {});
+        QTRY_COMPARE(client.requestedIds.size(), 3);
+        Q_EMIT client.redactionFinished(room, client.requestedIds.at(2), true, {});
+        QTRY_VERIFY(!bulk.running());
+        QCOMPARE(bulk.completed(), 3);
+        QCOMPARE(bulk.failed(), 1);
+
+        bulk.cancel();
+        client.requestedIds.clear();
+        bulk.begin(&model);
+        bulk.selectRange(events.first().eventId, events.last().eventId, true);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        Q_EMIT client.redactionFinished(room, client.requestedIds.first(),
+                                        false, QStringLiteral("M_LIMIT_EXCEEDED"));
+        QTRY_VERIFY(!bulk.running());
+        QVERIFY(bulk.cancelled());
+        QCOMPARE(bulk.completed(), 1);
+        QCOMPARE(client.requestedIds.size(), 1);
+
+        bulk.cancel();
+        client.requestedIds.clear();
+        bulk.begin(&model);
+        bulk.toggle(events.first().eventId, true);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        bulk.cancel(); // The first request is already on the wire.
+        client.requestedIds.clear();
+        bulk.begin(&model);
+        bulk.toggle(events.last().eventId, true);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        Q_EMIT client.redactionFinished(room, events.first().eventId, true, {});
+        QCOMPARE(bulk.completed(), 0); // Old result cannot finish the new batch.
+        Q_EMIT client.redactionFinished(room, events.last().eventId, true, {});
+        QTRY_VERIFY(!bulk.running());
+        QCOMPARE(bulk.completed(), 1);
     }
 
     void rowFocusCannotReplyToHiddenSelection()
