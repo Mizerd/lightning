@@ -1875,6 +1875,9 @@ QString SfuCallController::joinRefusalMessage(const QString &block)
         return tr("This call has ended.");
     if (block == QLatin1String("no_media_transport"))
         return tr("This build has no calling media support.");
+    // A route cannot carry call media (docs/network-profiles.md).
+    if (block == QLatin1String("network_route"))
+        return tr("Calls aren't available while this account uses a proxy.");
     if (block == QLatin1String("media_encryption_unavailable"))
         return tr("This room is encrypted, and encrypted calls aren't "
                   "available yet on this build.");
