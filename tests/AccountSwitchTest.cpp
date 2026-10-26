@@ -754,11 +754,11 @@ private Q_SLOTS:
                  QStringLiteral("@bob:two.example"));
     }
 
-    // Saved room positions and selections are keyed by room id alone, and
-    // test accounts share rooms. Add-account emits no loggedOut, so the new
-    // account inherited the previous one's saved selection and anchor for
-    // any shared room until clearCrossAccountCaches() dropped them.
-    void addingAnAccountForgetsThePreviousAccountsSavedNavigation()
+    // Saved room positions and selections are keyed by (account, room): test
+    // accounts share rooms. Keyed by room alone, a newly added account
+    // restored the previous one's place in a shared room; cleared on every
+    // switch instead, A -> B -> A lost A's places. Neither may happen.
+    void savedNavigationIsPerAccountAndSurvivesASwitchBack()
     {
         AppController app(AppController::MockBackend);
         FakeSecretStore secrets;
@@ -777,14 +777,23 @@ private Q_SLOTS:
                                            12.0, false);
         QVERIFY(app.pagination()->hasHistoricalScrollAnchor(shared));
 
+        // Add Bob: he sees nothing saved for the shared room.
         app.showLogin();
         app.auth()->login(kHsTwo, QStringLiteral("bob"),
                           QStringLiteral("pw"));
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
-        QCOMPARE(app.auth()->currentUserId(),
-                 QStringLiteral("@bob:two.example"));
+        const QString bob = app.auth()->currentUserId();
+        QCOMPARE(bob, QStringLiteral("@bob:two.example"));
         QCOMPARE(app.pagination()->savedSelection(shared), QString());
         QVERIFY(!app.pagination()->hasHistoricalScrollAnchor(shared));
+
+        // Back to Alice: her anchor and selection are still there.
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+        QCOMPARE(app.pagination()->savedSelection(shared),
+                 QStringLiteral("$alice-pick"));
+        QVERIFY(app.pagination()->hasHistoricalScrollAnchor(shared));
     }
 
     void removingBackgroundAccountKeepsActiveSession()

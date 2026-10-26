@@ -2975,9 +2975,12 @@ live, and the server answers presence. Research and design: vault note
   scrolling or taking focus. **Show the message selection outline when
   returning** (`ui/showSelectionOnReturn`, default off) also outlines it while
   focus stays where it was. Both records are memory-only navigation state
-  (event ids), bounded at 64 rooms, and cleared with the anchors on sign-out
-  and on every account switch (the cold switch detaches the session, which
-  emits `loggedOut`). A selected event that leaves the model is dropped, not
+  (event ids). Both they and the scroll anchors are keyed by (account user
+  id, room id), bounded at 64 entries overall: two accounts sharing a room
+  never see each other's place, and A -> B -> A finds A's places again. They
+  survive the local detach of a switch and are forgotten for one account on
+  its real sign-out or removal (`PaginationController::forgetAccount`). A
+  selected event that leaves the model is dropped, not
   replaced by another event.
 - Not done: "do not move when the selection is already inside the restored
   viewport" (mode 2 centres the selection); thread-panel selections are not

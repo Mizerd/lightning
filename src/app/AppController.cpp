@@ -7626,6 +7626,10 @@ void AppController::onLoggedOut()
         return;
     }
     clearQueuedAccountSwitch("sign-out");
+    // The signed-out account's saved room positions and selections go with
+    // it (they are kept per account across switches).
+    if (m_pagination && !m_lastSessionUserId.isEmpty())
+        m_pagination->forgetAccount(m_lastSessionUserId);
     // A genuine sign-out (including removal of the active account). The
     // starred-GIF store of the account that was active must not survive, like
     // the Rust crypto store. m_lastSessionUserId is read before it is cleared
@@ -7846,10 +7850,6 @@ void AppController::clearCrossAccountCaches()
     // previous account's file tags and cover art are forgotten with it.
     m_voicePlayback->clearSession();
     m_playback->stopAll();
-    // Saved room positions and selections are keyed by room id alone; an
-    // add-account emits no loggedOut, so they are dropped here too.
-    if (m_pagination)
-        m_pagination->forgetSavedNavigation();
     // The previous account's video positions go with it; after stopAll(),
     // which makes a playing card remember its position synchronously.
     m_playback->forgetResumePositions();
@@ -8597,6 +8597,10 @@ void AppController::removeAccount(const QString &userId)
     }
     if (!m_settings->hasSavedAccount(target))
         return;
+    // Its saved room positions and selections (kept per account) go now; a
+    // removal that has to be retried loses nothing that matters.
+    if (m_pagination)
+        m_pagination->forgetAccount(target);
     // Live accounts (Labs): an account running in the background is signed
     // out on the server and its store released before anything is deleted
     // (DECISION 7). Never the active account, whose removal is today's.

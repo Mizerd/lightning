@@ -360,10 +360,11 @@ void PaginationController::saveScrollAnchor(const QString &roomId,
 {
     if (roomId.isEmpty())
         return;
+    const QString key = navigationKey(roomId);
     if (m_scrollAnchors.size() >= kMaxScrollAnchors
-        && !m_scrollAnchors.contains(roomId))
+        && !m_scrollAnchors.contains(key))
         m_scrollAnchors.erase(m_scrollAnchors.begin());
-    m_scrollAnchors.insert(roomId, { eventId, pixelOffset, followingLatest });
+    m_scrollAnchors.insert(key, { eventId, pixelOffset, followingLatest });
 }
 
 void PaginationController::saveFollowingLatest(const QString &roomId)
@@ -384,7 +385,7 @@ void PaginationController::cancelNavigation()
 
 bool PaginationController::hasHistoricalScrollAnchor(const QString &roomId) const
 {
-    const auto it = m_scrollAnchors.constFind(roomId);
+    const auto it = m_scrollAnchors.constFind(navigationKey(roomId));
     return it != m_scrollAnchors.cend() && !it->followingLatest
         && !it->eventId.isEmpty();
 }
@@ -395,24 +396,44 @@ void PaginationController::saveSelection(const QString &roomId,
     if (roomId.isEmpty())
         return;
     if (eventId.isEmpty()) {
-        m_savedSelections.remove(roomId);
+        m_savedSelections.remove(navigationKey(roomId));
         return;
     }
+    const QString key = navigationKey(roomId);
     if (m_savedSelections.size() >= kMaxScrollAnchors
-        && !m_savedSelections.contains(roomId))
+        && !m_savedSelections.contains(key))
         m_savedSelections.erase(m_savedSelections.begin());
-    m_savedSelections.insert(roomId, eventId);
+    m_savedSelections.insert(key, eventId);
 }
 
 QString PaginationController::savedSelection(const QString &roomId) const
 {
-    return m_savedSelections.value(roomId);
+    return m_savedSelections.value(navigationKey(roomId));
 }
 
-void PaginationController::forgetSavedNavigation()
+QString PaginationController::navigationKey(const QString &roomId) const
 {
-    m_scrollAnchors.clear();
-    m_savedSelections.clear();
+    // Two accounts can share a room, so the room id alone is not a key. The
+    // client's user id is the account the reader is in when a position is
+    // saved or restored (saves on leaving a room run before a switch
+    // detaches the session).
+    const QString account = m_client ? m_client->currentUserId() : QString{};
+    return account + QChar(0x1f) + roomId;
+}
+
+void PaginationController::forgetAccount(const QString &userId)
+{
+    const QString prefix = userId + QChar(0x1f);
+    const auto drop = [&prefix](auto &map) {
+        for (auto it = map.begin(); it != map.end();) {
+            if (it.key().startsWith(prefix))
+                it = map.erase(it);
+            else
+                ++it;
+        }
+    };
+    drop(m_scrollAnchors);
+    drop(m_savedSelections);
 }
 
 bool PaginationController::hasHistoricalReturn(const QString &roomId,
@@ -420,7 +441,7 @@ bool PaginationController::hasHistoricalReturn(const QString &roomId,
 {
     if (mode == 1)
         return false;
-    if (mode == 2 && !m_savedSelections.value(roomId).isEmpty())
+    if (mode == 2 && !m_savedSelections.value(navigationKey(roomId)).isEmpty())
         return true;
     return hasHistoricalScrollAnchor(roomId);
 }
@@ -436,13 +457,14 @@ void PaginationController::restoreConversation(const QString &roomId,
         Q_EMIT restoreLatestRequested();
         return;
     }
-    const QString selection = mode == 2 ? m_savedSelections.value(roomId)
+    const QString selection = mode == 2
+        ? m_savedSelections.value(navigationKey(roomId))
                                         : QString{};
     if (selection.isEmpty()) {
         restoreScrollAnchor(roomId);
         return;
     }
-    const auto anchor = m_scrollAnchors.constFind(roomId);
+    const auto anchor = m_scrollAnchors.constFind(navigationKey(roomId));
     const qreal offset =
         (anchor != m_scrollAnchors.cend() && !anchor->followingLatest
          && anchor->eventId == selection)
@@ -469,7 +491,7 @@ void PaginationController::restoreScrollAnchor(const QString &roomId)
 {
     if (roomId.isEmpty() || roomId != m_roomId)
         return;
-    const auto it = m_scrollAnchors.constFind(roomId);
+    const auto it = m_scrollAnchors.constFind(navigationKey(roomId));
     if (it == m_scrollAnchors.cend() || it->followingLatest
         || it->eventId.isEmpty()) {
         Q_EMIT restoreLatestRequested();
@@ -929,8 +951,10 @@ void PaginationController::onLoggedOut()
                          << m_generation;
     resetPerRoomState();
     clearNavigation();
-    m_scrollAnchors.clear();
-    m_savedSelections.clear();
+    // Saved positions and selections are kept, per account: loggedOut also
+    // fires for the local detach of every account switch, and A -> B -> A
+    // must find A's places again. A real sign-out or removal forgets that
+    // account through forgetAccount() (AppController).
     emitStateChanged();
 }
 
@@ -961,7 +985,7 @@ void PaginationController::locateNavigationTarget(int row)
     if (!highlight && m_restoreIsSelection) {
         offset = m_restoreOffset;
     } else if (!highlight) {
-        const auto it = m_scrollAnchors.constFind(m_roomId);
+        const auto it = m_scrollAnchors.constFind(navigationKey(m_roomId));
         if (it != m_scrollAnchors.cend())
             offset = it->pixelOffset;
     }

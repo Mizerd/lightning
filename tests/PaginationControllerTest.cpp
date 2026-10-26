@@ -1758,10 +1758,13 @@ private Q_SLOTS:
         QCOMPARE(located.count(), 4);
         QCOMPARE(located.last().at(1).toReal(), 17.5);
 
-        // Account isolation: sign-out (and every account switch, which
-        // detaches the session the same way) forgets both.
+        // Account isolation: that account's sign-out (AppController calls
+        // forgetAccount) forgets both; a detach alone does not.
         controller.saveSelection(kRoomA, QStringLiteral("$picked:example.org"));
         client.logout();
+        QCOMPARE(controller.savedSelection(kRoomA),
+                 QStringLiteral("$picked:example.org"));
+        controller.forgetAccount(QStringLiteral("@me:example.org"));
         QCOMPARE(controller.savedSelection(kRoomA), QString());
     }
 
@@ -1799,7 +1802,10 @@ private Q_SLOTS:
         QCOMPARE(located.first().at(1).toReal(), 9.0);
     }
 
-    void logoutClearsRoomScrollAnchors()
+    // Saved anchors are kept per account across loggedOut (every account
+    // switch's local detach emits it, and A -> B -> A must find A's place);
+    // the account's real sign-out forgets them through forgetAccount().
+    void forgetAccountClearsThatAccountsRoomScrollAnchors()
     {
         FakeClient client;
         TimelineModel model;
@@ -1813,6 +1819,10 @@ private Q_SLOTS:
                                     QStringLiteral("$anchor:example.org"),
                                     1, false);
         client.logout();
+        QVERIFY(controller.hasHistoricalScrollAnchor(kRoomA));
+        controller.forgetAccount(QStringLiteral("@someone-else:example.org"));
+        QVERIFY(controller.hasHistoricalScrollAnchor(kRoomA));
+        controller.forgetAccount(QStringLiteral("@me:example.org"));
         QSignalSpy latest(&controller,
                           &PaginationController::restoreLatestRequested);
         controller.restoreScrollAnchor(kRoomA);

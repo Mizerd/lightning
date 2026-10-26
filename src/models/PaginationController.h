@@ -222,16 +222,16 @@ public:
                                          int mode) const;
     // The message selection last held in `roomId`, kept apart from the
     // viewport anchor: restoring one never implies the other. Navigation
-    // state only (an event id), memory-only, cleared on sign-out and on an
-    // account switch with the anchors.
+    // state only (an event id), memory-only, kept per account like the
+    // anchors and forgotten with them on that account's sign-out or removal.
     Q_INVOKABLE void saveSelection(const QString &roomId,
                                    const QString &eventId);
     Q_INVOKABLE QString savedSelection(const QString &roomId) const;
-    // Forget every saved scroll anchor and selection. Both are keyed by room
-    // id alone, and two accounts can share a room: the account change that
-    // emits no loggedOut (add-account) must call this, or the next account
-    // restores the previous one's position and selection.
-    void forgetSavedNavigation();
+    // Saved scroll anchors and selections are keyed by (account, room): two
+    // accounts can share a room. They survive account switches (the local
+    // detach emits loggedOut too) and are dropped for one account on its real
+    // sign-out or removal through this.
+    void forgetAccount(const QString &userId);
     // True when restoreScrollAnchor() will put the reader in history rather
     // than at the live edge, so the pane can keep its presentation gate
     // closed until that restore has landed.
@@ -422,6 +422,9 @@ private:
     QString m_navigationMessage;
     QTimer m_highlightTimer;
     QTimer m_navigationMessageTimer;
+    // Both keyed by navigationKey(): account user id, U+001F, room id. One
+    // overall bound (kMaxScrollAnchors) across accounts.
+    QString navigationKey(const QString &roomId) const;
     QHash<QString, ScrollAnchor> m_scrollAnchors;
     QHash<QString, QString> m_savedSelections;
     // The running Restore targets a saved selection: its pixel offset is
