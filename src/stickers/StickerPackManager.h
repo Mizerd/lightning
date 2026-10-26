@@ -7,6 +7,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <functional>
 #include <memory>
 
 class QTimer;
@@ -212,6 +213,27 @@ public:
     bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
+    // -- Republishing a private (encrypted) image into the personal pack -------
+    // Matrix packs hold plain media only, so an encrypted image can enter one
+    // only as a NEW, UNENCRYPTED upload. QML asks first (the visibility and
+    // destination are spelled out); only the confirmed call reaches here, and
+    // it fetches the decrypted bytes for this account, refuses anything not a
+    // plain raster image, and uploads them to the personal pack. Cancelling
+    // before the bytes arrive uploads nothing (PACK-PRO-041, PACK-LTN-032,
+    // PACK-UX-015/016). The account is captured at the call: an answer that
+    // arrives after an account switch is dropped.
+    void setPrivateMediaFetch(std::function<void(const QString &mediaKey)> fetch)
+    {
+        m_privateMediaFetch = std::move(fetch);
+    }
+    Q_INVOKABLE void republishPrivateImage(const QString &mediaKey,
+                                           const QString &body);
+    Q_INVOKABLE void cancelRepublish();
+    bool republishing() const { return !m_republishKey.isEmpty(); }
+    // Bytes for a fetch (AppController forwards MediaBridge::mediaBytesForStar).
+    void onPrivateMediaBytes(const QString &mediaKey, bool ok,
+                             const QByteArray &bytes);
+
     // -- Sharing ---------------------------------------------------------------
     // Text to share a room or Space pack: its name, where it lives and a
     // standard matrix.to room link (Matrix has no pack link; any client can
@@ -512,6 +534,10 @@ private:
     quint64 m_roomsOp = 0;
     quint64 m_migrateOp = 0;
     QList<BatchItem> m_failedUploads;
+    std::function<void(const QString &)> m_privateMediaFetch;
+    QString m_republishKey;
+    QString m_republishBody;
+    QString m_republishAccount;
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;

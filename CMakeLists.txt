@@ -1219,6 +1219,7 @@ set(APP_QML_FILES
     qml/MediaBrowserRow.qml
     qml/JumpToDateDialog.qml
     qml/StickerPackEditor.qml
+    qml/PrivateImageRepublishDialog.qml
     qml/StickerPicker.qml
     qml/PolicyListDialog.qml
     qml/AddWidgetDialog.qml

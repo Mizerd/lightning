@@ -951,6 +951,9 @@ void StickerPackManager::onLoggedOut()
     m_saveScope.clear();
     m_roomsOp = 0;
     m_migrateOp = 0;
+    m_republishKey.clear();
+    m_republishBody.clear();
+    m_republishAccount.clear();
     m_refreshOwed = false;
     m_refreshOwedDeep = false;
     m_deepRoomId.clear();
@@ -1666,6 +1669,75 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
     if (items.isEmpty() && skipped == 0)
         return;
     startBatch(QStringLiteral("emoji"), QString(), items, skipped);
+}
+
+// -- Republishing a private image ----------------------------------------------
+
+void StickerPackManager::republishPrivateImage(const QString &mediaKey,
+                                               const QString &body)
+{
+    if (!m_client || !available() || mediaKey.isEmpty() || !m_privateMediaFetch
+        || !m_republishKey.isEmpty() || m_saveOp != 0)
+        return;
+    m_republishKey = mediaKey;
+    m_republishBody = body;
+    m_republishAccount = m_client->currentUserId();
+    emitStateChanged();
+    m_privateMediaFetch(mediaKey);
+}
+
+void StickerPackManager::cancelRepublish()
+{
+    if (m_republishKey.isEmpty())
+        return;
+    m_republishKey.clear();
+    m_republishBody.clear();
+    m_republishAccount.clear();
+    emitStateChanged();
+}
+
+void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
+                                             const QByteArray &bytes)
+{
+    if (m_republishKey.isEmpty() || mediaKey != m_republishKey)
+        return;
+    const QString body = m_republishBody;
+    const QString account = m_republishAccount;
+    m_republishKey.clear();
+    m_republishBody.clear();
+    m_republishAccount.clear();
+    // A different account by now, or signed out: nothing is uploaded anywhere.
+    if (!m_client || m_client->currentUserId() != account) {
+        emitStateChanged();
+        return;
+    }
+    // Plain raster only (never SVG or anything active), as every pack image.
+    if (!ok || bytes.isEmpty() || bytes.size() > stickers::archive::kMaxImageBytes
+        || stickers::archive::extensionForBytes(bytes).isEmpty()) {
+        emitStateChanged();
+        Q_EMIT saveFinished(false, ok ? QStringLiteral("unsupported_image")
+                                      : QStringLiteral("fetch_failed"),
+                            QString(), QStringLiteral("account"));
+        return;
+    }
+    if (!m_convertedDir || !m_convertedDir->isValid())
+        m_convertedDir = std::make_unique<QTemporaryDir>(
+            QDir::tempPath() + QStringLiteral("/lightning-republish-XXXXXX"));
+    const QString path = m_convertedDir->isValid()
+        ? QDir(m_convertedDir->path()).filePath(
+              QStringLiteral("%1.%2").arg(m_nextConverted++)
+                  .arg(stickers::archive::extensionForBytes(bytes)))
+        : QString();
+    QFile out(path);
+    if (path.isEmpty() || !out.open(QIODevice::WriteOnly)
+        || out.write(bytes) != bytes.size()) {
+        emitStateChanged();
+        Q_EMIT saveFinished(false, QStringLiteral("write_failed"), QString(),
+                            QStringLiteral("account"));
+        return;
+    }
+    out.close();
+    startUpload(QUrl::fromLocalFile(path), body, QStringLiteral("sticker"));
 }
 
 // -- Sharing -------------------------------------------------------------------

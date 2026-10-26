@@ -1768,6 +1768,50 @@ private Q_SLOTS:
         QVERIFY(manager.shareText(QStringLiteral("user")).isEmpty());
     }
 
+    void aPrivateImageIsUploadedOnlyAfterConfirmationAndNeverToAnotherAccount()
+    {
+        // PACK-PRO-041 / PACK-LTN-032 / PACK-UX-015/016: the manager fetches
+        // the decrypted bytes only on the confirmed call; a cancel, an
+        // account switch or non-raster bytes upload nothing.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QStringList fetched;
+        manager.setPrivateMediaFetch([&fetched](const QString &k) { fetched << k; });
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(40, 'p');
+
+        // Cancel before the bytes arrive: nothing is uploaded.
+        manager.republishPrivateImage(QStringLiteral("key1"), QStringLiteral("A cat"));
+        QCOMPARE(fetched, QStringList{ QStringLiteral("key1") });
+        manager.cancelRepublish();
+        manager.onPrivateMediaBytes(QStringLiteral("key1"), true, png);
+        QCOMPARE(client.uploadCalls, 0);
+
+        // Another account by the time the bytes land: nothing is uploaded.
+        manager.republishPrivateImage(QStringLiteral("key2"), QStringLiteral("A cat"));
+        client.userId = QStringLiteral("@someone-else:example.org");
+        manager.onPrivateMediaBytes(QStringLiteral("key2"), true, png);
+        QCOMPARE(client.uploadCalls, 0);
+        client.userId = QStringLiteral("@me:example.org");
+
+        // SVG (or anything not a plain raster) is refused.
+        QSignalSpy refused(&manager, &StickerPackManager::saveFinished);
+        manager.republishPrivateImage(QStringLiteral("key3"), QString());
+        manager.onPrivateMediaBytes(QStringLiteral("key3"), true,
+                                    QByteArray("<svg xmlns='http://www.w3.org/2000/svg'/>"));
+        QCOMPARE(client.uploadCalls, 0);
+        QCOMPARE(refused.count(), 1);
+
+        // Confirmed and valid: one upload to the personal pack, of a file
+        // holding exactly those bytes.
+        manager.republishPrivateImage(QStringLiteral("key4"), QStringLiteral("A cat"));
+        manager.onPrivateMediaBytes(QStringLiteral("key4"), true, png);
+        QCOMPARE(client.uploadCalls, 1);
+        QFile written(client.uploadPath);
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        QCOMPARE(written.readAll(), png);
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;

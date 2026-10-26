@@ -739,6 +739,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_stickers->setLocalStatePath(
         QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
         + QStringLiteral("/image-packs-local.ini"));
+    // A confirmed "add this private image to my stickers": the decrypted bytes
+    // come through the bridge's keyed full-payload fetch.
+    m_stickers->setPrivateMediaFetch([this](const QString &mediaKey) {
+        m_mediaBridge->fetchFullForStar(mediaKey);
+    });
+    connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, m_stickers.get(),
+            [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
+                   const QString &) {
+                m_stickers->onPrivateMediaBytes(mediaKey, ok, bytes);
+            });
     // A chosen custom emoji that was actually sent counts as a use.
     m_composer->setCustomEmojiUseRecorder([this](const QVariantMap &row) {
         m_stickers->recordCustomUse(row);

@@ -4647,6 +4647,23 @@ Item {
                     model.mediaWidth || 0, model.mediaHeight || 0,
                     model.mediaSize || 0)
             }
+            // An image or sticker from an ENCRYPTED conversation has no plain
+            // mxc a pack could hold: it can enter the personal pack only as a
+            // new unencrypted upload, after the dialog says exactly that.
+            AppMenuItem {
+                objectName: "republishPrivateImageMenuItem"
+                iconName: "star"
+                text: qsTr("Add to my stickers…")
+                visible: model.isEncrypted === true
+                         && (model.isSticker === true || model.isImage === true)
+                         && (model.mediaKey || "").length > 0
+                         && app.stickers.available
+                enabled: visible && !app.stickers.saving
+                onTriggered: {
+                    republishLoader.active = true
+                    republishLoader.item.ask(model.mediaKey || "", model.body || "")
+                }
+            }
             // The same sticker into the room's own pack. im.ponies.room_emotes
             // is room state, so this is power-level gated in Rust. Offered only
             // when a snapshot for this room reported the permission; unknown
@@ -7783,6 +7800,15 @@ Item {
                     font.pixelSize: AppTheme.scaled(11)
                 }
             }
+        }
+    }
+
+    // Built only when "Add to my stickers…" is chosen on a private image.
+    Loader {
+        id: republishLoader
+        active: false
+        sourceComponent: PrivateImageRepublishDialog {
+            onClosed: Qt.callLater(function () { republishLoader.active = false })
         }
     }
 }
