@@ -171,8 +171,13 @@ AbstractButton {
     background: Rectangle {
         radius: root._radius
         color: {
+            // Disabled, every kind but ghost: a faint tint of the disabled ink
+            // inside the disabled edge, so the control keeps its shape on any
+            // surface. A filled kind used to take cardElevated, which is the
+            // card these buttons sit on: an unchanged Rename on the Space Home
+            // card read as stray text (button audit, 2026-10-26).
             if (!root.enabled)
-                return root._filled ? AppTheme.buttonDisabledFill : "transparent"
+                return root.ghost ? "transparent" : AppTheme.buttonDisabledTint
             if (root.primary)
                 return root.down ? AppTheme.buttonPrimaryPressed
                      : root.hovered ? AppTheme.buttonPrimaryHover
@@ -191,7 +196,8 @@ AbstractButton {
             if (root.storm)
                 return root.down ? AppTheme.stormSelection
                      : root.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
-                     : "transparent"
+                     : root.ghost ? "transparent"
+                     : Qt.alpha(AppTheme.stormTextSecondary, 0.06)
             if (root.ghost)
                 return root.down ? AppTheme.buttonGhostPressed
                      : root.hovered ? AppTheme.buttonGhostHover
@@ -204,7 +210,7 @@ AbstractButton {
                  : root.hovered ? AppTheme.buttonGhostHover
                  : AppTheme.buttonSecondaryFill
         }
-        border.width: (root._filled || root.ghost) ? 0 : 1
+        border.width: root.ghost ? 0 : (root._filled && root.enabled) ? 0 : 1
         border.color: {
             if (!root.enabled) return AppTheme.buttonDisabledBorder
             if (root.danger)

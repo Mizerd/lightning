@@ -14,6 +14,7 @@
 #include <QImage>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 
@@ -95,6 +96,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokDangerInk"; visible: false; color: AppTheme.buttonDangerInk }
     Rectangle { objectName: "tokFocusRing"; visible: false; color: AppTheme.focusRing }
     Rectangle { objectName: "tokSecondaryFill"; visible: false; color: AppTheme.buttonSecondaryFill }
+    Rectangle { objectName: "tokDisabledTint"; visible: false; color: AppTheme.buttonDisabledTint }
 
     Column {
         x: 24
@@ -267,7 +269,16 @@ private slots:
         auto *disabled = item("disabledPrimary");
         QVERIFY(danger && disabled);
         assertFlatFill(img, danger, token("tokBackground"), "danger-rest");
-        assertFlatFill(img, disabled, token("tokCardElevated"), "disabled");
+        // Disabled (2026-10-26 button audit): a faint tint of the disabled
+        // ink over whatever is behind it, inside a 1px edge, so the shape
+        // survives on a cardElevated card (the old cardElevated fill vanished
+        // there). It must stay visibly unlike the enabled primary.
+        const QColor disabledRest = over(token("tokDisabledTint"), token("tokBackground"));
+        assertFlatFill(img, disabled, disabledRest, "disabled");
+        QVERIFY(channelDelta(disabledRest, token("tokAccent")) > 40);
+        auto *disabledBg = disabled->property("background").value<QQuickItem *>();
+        QVERIFY(disabledBg);
+        QCOMPARE(QQmlProperty::read(disabledBg, QStringLiteral("border.width")).toInt(), 1);
         // The danger label uses the danger tone. The label is a named child:
         // AppButton's contentItem wraps an optional icon and the label.
         auto *label = findItem(danger, QStringLiteral("buttonLabel"));

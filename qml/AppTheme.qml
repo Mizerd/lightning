@@ -1365,6 +1365,9 @@ QtObject {
                                                   ? _p.buttonDisabledInk : textDisabled
     readonly property color buttonDisabledBorder: _p.buttonDisabledBorder !== undefined
                                                   ? _p.buttonDisabledBorder : border
+    // A disabled AppButton's resting fill: the disabled ink at a low alpha,
+    // so the shape survives on a card whose colour equals buttonDisabledFill.
+    readonly property color buttonDisabledTint:   Qt.alpha(buttonDisabledInk, 0.08)
     // Three heights, one radius, one horizontal rhythm.
     readonly property int   buttonHeightSm:       26
     readonly property int   buttonHeight:         32
