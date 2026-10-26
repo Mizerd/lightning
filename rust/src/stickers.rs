@@ -1741,14 +1741,80 @@ pub(crate) fn base_for_edit(read: PackRead) -> Result<Value, String> {
     }
 }
 
+/// How a room-pack read may answer.
+///
+/// * `Snapshot` (picker, manager, subscriptions): the local store first, and a
+///   remembered server "not found" (15 min) before asking. Cheap, and a
+///   slightly stale picture is harmless there.
+/// * `Fresh` (every WRITER): the server only. A writer replaces the whole
+///   state event, so it must start from the server's current copy: our own
+///   write reaches the store only with its sync echo, so two quick edits based
+///   on the store lose the first; and a remembered "absent" may predate a pack
+///   another client has just created, which a create or add would overwrite.
+///   Only the server's own M_NOT_FOUND is an absence; any failure refuses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadPolicy {
+    Snapshot,
+    Fresh,
+}
+
+/// The policy, apart from the client (testable). `store` is the local read,
+/// `memo_absent` the remembered "not found", `ask` the server read. Returns
+/// the answer and whether a server "not found" should now be remembered.
+pub(crate) async fn read_pack_with_policy<S, Q, QF>(
+    policy: ReadPolicy,
+    store: S,
+    memo_absent: bool,
+    ask: Q,
+) -> (PackRead, bool)
+where
+    S: std::future::Future<Output = Option<Value>>,
+    Q: FnOnce() -> QF,
+    QF: std::future::Future<Output = PackRead>,
+{
+    if policy == ReadPolicy::Snapshot {
+        if let Some(content) = store.await {
+            return (PackRead::Found(content), false);
+        }
+        if memo_absent {
+            return (PackRead::Absent, false);
+        }
+    }
+    let read = ask().await;
+    let remember = policy == ReadPolicy::Snapshot && read == PackRead::Absent;
+    (read, remember)
+}
+
 /// One room pack by state key, and the room's name (the MSC's default display
-/// name). Sliding sync does not deliver custom state types, so a store miss
-/// is normal and the bounded `/state` read answers (as in `banner.rs`).
+/// name), for READING (see `ReadPolicy::Snapshot`). Sliding sync does not
+/// deliver custom state types, so a store miss is normal and the bounded
+/// `/state` read answers (as in `banner.rs`).
 async fn read_one_room_pack(
     client: &matrix_sdk::Client,
     room_id: &str,
     state_key: &str,
     namespace: Namespace,
+) -> (PackRead, String) {
+    read_room_pack_with(client, room_id, state_key, namespace, ReadPolicy::Snapshot).await
+}
+
+/// The same record as the server holds it NOW, for a writer (see
+/// `ReadPolicy::Fresh`): never the store, never the remembered absence.
+async fn read_room_pack_fresh(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    state_key: &str,
+    namespace: Namespace,
+) -> PackRead {
+    read_room_pack_with(client, room_id, state_key, namespace, ReadPolicy::Fresh).await.0
+}
+
+async fn read_room_pack_with(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    state_key: &str,
+    namespace: Namespace,
+    policy: ReadPolicy,
 ) -> (PackRead, String) {
     use matrix_sdk::ruma::api::client::state::get_state_event_for_key;
 
@@ -1758,46 +1824,50 @@ async fn read_one_room_pack(
     let name = room.name().unwrap_or_default();
     let event_type = namespace.room_type();
 
-    if let Ok(Some(raw)) = room
-        .get_state_event(StateEventType::from(event_type), state_key)
-        .await
-    {
+    // A server "no such event" is remembered per (account, room, type, key),
+    // so a legacy-only subscription does not ask for its missing stable twin
+    // on every refresh; sync delivering either type there, or a write of ours,
+    // drops the mark (`forget_room`). Snapshot reads only.
+    let account = account_key(client);
+    let memo = format!("state|{room_id}|{event_type}|{state_key}");
+    let memo_absent =
+        absent_answers().is_absent(&account, &memo, std::time::Instant::now());
+    let store = async {
+        let Ok(Some(raw)) = room
+            .get_state_event(StateEventType::from(event_type), state_key)
+            .await
+        else {
+            return None;
+        };
         let json = match &raw {
             RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
             RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
         };
-        if let Ok(value) = serde_json::from_str::<Value>(&json) {
-            if let Some(content) = value.get("content") {
-                if content.get("images").is_some() {
-                    return (PackRead::Found(content.clone()), name);
-                }
-            }
-        }
-    }
-
-    // A server "no such event" is remembered per (account, room, type, key),
-    // so a legacy-only subscription does not ask for its missing stable twin
-    // on every refresh; sync delivering either type there, or a write of ours,
-    // drops the mark (`forget_room`).
-    let account = account_key(client);
-    let memo = format!("state|{room_id}|{event_type}|{state_key}");
-    if absent_answers().is_absent(&account, &memo, std::time::Instant::now()) {
-        return (PackRead::Absent, name);
-    }
-    let config = RequestConfig::new()
-        .disable_retry()
-        .timeout(PACK_REQUEST_TIMEOUT);
-    let request = get_state_event_for_key::v3::Request::new(
-        room.room_id().to_owned(),
-        StateEventType::from(event_type),
-        state_key.to_owned(),
-    );
-    let read = match client.send(request).with_request_config(config).await {
-        Ok(response) => classify_pack_read(Ok(response.event_or_content.get())),
-        Err(err) => classify_pack_read(Err(err.to_string())),
+        let value = serde_json::from_str::<Value>(&json).ok()?;
+        let content = value.get("content")?;
+        content.get("images").is_some().then(|| content.clone())
     };
-    if read == PackRead::Absent {
+    let room_ref = &room;
+    let ask = move || async move {
+        let room = room_ref;
+        let config = RequestConfig::new()
+            .disable_retry()
+            .timeout(PACK_REQUEST_TIMEOUT);
+        let request = get_state_event_for_key::v3::Request::new(
+            room.room_id().to_owned(),
+            StateEventType::from(event_type),
+            state_key.to_owned(),
+        );
+        match client.send(request).with_request_config(config).await {
+            Ok(response) => classify_pack_read(Ok(response.event_or_content.get())),
+            Err(err) => classify_pack_read(Err(err.to_string())),
+        }
+    };
+    let (read, remember) = read_pack_with_policy(policy, store, memo_absent, ask).await;
+    if remember {
         absent_answers().mark_absent(&account, &memo, std::time::Instant::now());
+    } else if matches!(read, PackRead::Found(_)) {
+        absent_answers().forget(&account, &memo);
     }
     (read, name)
 }
@@ -2125,7 +2195,7 @@ async fn add_to_room_pack_inner(
     // Only the server's own "not found" is a first use; a failed read writes
     // nothing (PACK-LTN-017).
     let existing =
-        base_for_add(read_one_room_pack(client, room_id, state_key, namespace).await.0)?;
+        base_for_add(read_room_pack_fresh(client, room_id, state_key, namespace).await)?;
 
     // A stable image has no per-image usage (it is pack-wide in v1.19); a
     // legacy room image keeps the conservative "sticker".
@@ -2396,7 +2466,7 @@ async fn edit_room_pack_inner(
         return Err("forbidden".to_owned());
     }
     let existing =
-        base_for_edit(read_one_room_pack(client, room_id, state_key, namespace).await.0)?;
+        base_for_edit(read_room_pack_fresh(client, room_id, state_key, namespace).await)?;
     let (content, code) = edit.apply_in(existing, namespace)?;
     let written = room
         .send_state_event_raw(namespace.room_type(), state_key, content)
@@ -2471,9 +2541,8 @@ pub(crate) fn create_room_pack(
             if !can_manage_room_packs(&client, &room_id, Namespace::Stable).await {
                 return Err("forbidden".to_owned());
             }
-            let read = read_one_room_pack(&client, &room_id, &state_key, Namespace::Stable)
-                .await
-                .0;
+            let read = read_room_pack_fresh(&client, &room_id, &state_key, Namespace::Stable)
+                .await;
             let content = plan_create(read, &name, &usage)?;
             let written = room
                 .send_state_event_raw(STABLE_ROOM_PACK, &state_key, content)
@@ -2835,6 +2904,30 @@ async fn marked_home_rooms(client: &matrix_sdk::Client) -> Vec<String> {
     out
 }
 
+/// What `ensure_pack_home` does, pure. Create ONLY on a confirmed-absent
+/// journal with no marked room; a failed journal read refuses, and a journal
+/// naming a room the account is no longer in refuses too (the user left it;
+/// silently making another would be the duplicate this exists to prevent).
+#[derive(Debug, PartialEq)]
+pub(crate) enum HomeDecision {
+    UseJournal,
+    UseMarked(String),
+    Create,
+    Refuse(String),
+}
+
+pub(crate) fn plan_pack_home(journal: &PackRead, journal_joined: bool, marked: &[String]) -> HomeDecision {
+    match journal {
+        PackRead::Failed(category) => HomeDecision::Refuse(category.clone()),
+        PackRead::Found(_) if journal_joined => HomeDecision::UseJournal,
+        _ => match marked.first() {
+            Some(room) => HomeDecision::UseMarked(room.clone()),
+            None if *journal == PackRead::Absent => HomeDecision::Create,
+            None => HomeDecision::Refuse("home_unavailable".to_owned()),
+        },
+    }
+}
+
 /// Find this account's pack home, creating it only when nothing says one
 /// exists. Order: the journal's room if joined; else a joined room carrying
 /// the marker (a create whose response was lost, or another device's); else
@@ -2844,22 +2937,35 @@ async fn ensure_pack_home(client: &matrix_sdk::Client) -> Result<(String, bool, 
     use matrix_sdk::ruma::api::client::room::create_room;
     use matrix_sdk::ruma::api::client::room::Visibility;
 
-    let journal = read_global_account_data(client, PACK_HOME_TYPE).await;
+    // The journal as the SERVER holds it: a store miss or a remembered "not
+    // found" is not proof that no home exists, and a failed read must never
+    // lead to creating a second room.
+    let journal = account_data_read(
+        client
+            .account()
+            .fetch_account_data(GlobalAccountDataEventType::from(PACK_HOME_TYPE))
+            .await,
+    );
     let marked = marked_home_rooms(client).await;
     let duplicates = marked.len().saturating_sub(1);
-    if let Some(room_id) = journal
-        .as_ref()
-        .and_then(|j| j.get("room_id"))
-        .and_then(|v| v.as_str())
-    {
-        if joined_room(client, room_id).is_ok() {
-            return Ok((room_id.to_owned(), false, duplicates));
+    let journal_room = match &journal {
+        PackRead::Found(j) => j.get("room_id").and_then(|v| v.as_str()).map(str::to_owned),
+        _ => None,
+    };
+    let journal_joined = journal_room
+        .as_deref()
+        .is_some_and(|id| joined_room(client, id).is_ok());
+    match plan_pack_home(&journal, journal_joined, &marked) {
+        HomeDecision::UseJournal => {
+            return Ok((journal_room.unwrap_or_default(), false, duplicates));
         }
-    }
-    if let Some(room_id) = marked.first() {
-        write_account_data(client, PACK_HOME_TYPE, &json!({ "room_id": room_id, "version": 1 }))
-            .await?;
-        return Ok((room_id.clone(), false, duplicates));
+        HomeDecision::UseMarked(room_id) => {
+            write_account_data(client, PACK_HOME_TYPE, &json!({ "room_id": room_id, "version": 1 }))
+                .await?;
+            return Ok((room_id, false, duplicates));
+        }
+        HomeDecision::Refuse(category) => return Err(category),
+        HomeDecision::Create => {}
     }
     let creation: matrix_sdk::ruma::serde::Raw<create_room::v3::CreationContent> =
         matrix_sdk::ruma::serde::Raw::from_json_string(
@@ -2947,7 +3053,7 @@ pub(crate) fn migrate_user_pack(bridge: &RustClient, op_id: u64) -> Result<(), S
             for (partition, content) in plan.packs {
                 let key = partition.state_key();
                 let existing =
-                    read_one_room_pack(&client, &room_id, key, Namespace::Stable).await.0;
+                    read_room_pack_fresh(&client, &room_id, key, Namespace::Stable).await;
                 let content = merge_for_resume(existing, content)?;
                 let sent = room.send_state_event_raw(STABLE_ROOM_PACK, key, content).await;
                 forget_room(&client, &room_id);
@@ -4311,6 +4417,83 @@ mod tests {
         assert_eq!(merged["pack"]["display_name"], json!("Renamed"));
         assert_eq!(merge_for_resume(PackRead::Failed("network".into()), planned).unwrap_err(),
                    "network");
+    }
+
+    #[test]
+    fn a_writer_reads_the_server_even_when_the_store_or_the_memo_disagree() {
+        // Review M1: writers based edits on the store (our own write reaches it
+        // only with its sync echo, so a second quick edit lost the first) and
+        // trusted a remembered "absent" (so a pack another client had just
+        // created was overwritten by a create or add).
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let older = json!({ "images": { "a": { "url": "mxc://e/old" } } });
+        let newer = json!({ "images": { "a": { "url": "mxc://e/old" },
+                                         "b": { "url": "mxc://e/new" } } });
+        // Store holds an older copy than the server.
+        let (fresh, _) = rt.block_on(read_pack_with_policy(
+            ReadPolicy::Fresh, async { Some(older.clone()) }, false,
+            || async { PackRead::Found(newer.clone()) }));
+        assert_eq!(fresh, PackRead::Found(newer.clone()));
+        let (snap, _) = rt.block_on(read_pack_with_policy(
+            ReadPolicy::Snapshot, async { Some(older.clone()) }, false,
+            || async { PackRead::Found(newer.clone()) }));
+        assert_eq!(snap, PackRead::Found(older.clone()), "snapshots stay cheap");
+        // The memo says absent, the server has it.
+        let (fresh, remember) = rt.block_on(read_pack_with_policy(
+            ReadPolicy::Fresh, async { None }, true,
+            || async { PackRead::Found(newer.clone()) }));
+        assert_eq!(fresh, PackRead::Found(newer.clone()));
+        assert!(!remember);
+        assert_eq!(base_for_add(fresh).unwrap(), newer);
+        let (snap, _) = rt.block_on(read_pack_with_policy(
+            ReadPolicy::Snapshot, async { None }, true,
+            || async { PackRead::Found(newer.clone()) }));
+        assert_eq!(snap, PackRead::Absent);
+        // A fresh failure is a failure (a writer refuses), never absent.
+        let (failed, _) = rt.block_on(read_pack_with_policy(
+            ReadPolicy::Fresh, async { Some(older.clone()) }, false,
+            || async { PackRead::Failed("network".into()) }));
+        assert!(base_for_add(failed).is_err());
+    }
+
+    #[test]
+    fn every_room_pack_writer_reads_fresh() {
+        // The policy above only helps if each writer asks for it.
+        let source = include_str!("stickers.rs");
+        let production = &source[..source.find("#[cfg(test)]").unwrap()];
+        for writer in ["async fn add_to_room_pack_inner(", "async fn edit_room_pack_inner(",
+                       "pub(crate) fn create_room_pack(", "pub(crate) fn migrate_user_pack("] {
+            let start = production.find(writer).unwrap_or_else(|| panic!("{writer}"));
+            let end = production[start + writer.len()..]
+                .find("\nasync fn ")
+                .into_iter()
+                .chain(production[start + writer.len()..].find("\npub(crate) "))
+                .min()
+                .map(|n| start + writer.len() + n)
+                .unwrap_or(production.len());
+            let body = &production[start..end];
+            assert!(body.contains("read_room_pack_fresh("), "{writer} must read fresh");
+            assert!(!body.contains("read_one_room_pack("), "{writer} reads a snapshot");
+        }
+    }
+
+    #[test]
+    fn a_pack_home_is_created_only_on_a_confirmed_absence_with_no_marked_room() {
+        // Review S1: an unreadable journal read as "none", so a timeout could
+        // create a second home room.
+        let marked = vec!["!home:e".to_owned()];
+        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &[]),
+                   HomeDecision::Refuse("network".into()));
+        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &marked),
+                   HomeDecision::Refuse("network".into()));
+        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), true, &marked),
+                   HomeDecision::UseJournal);
+        assert_eq!(plan_pack_home(&PackRead::Absent, false, &marked),
+                   HomeDecision::UseMarked("!home:e".into()));
+        assert_eq!(plan_pack_home(&PackRead::Absent, false, &[]), HomeDecision::Create);
+        // The journal names a room the account left: no silent second room.
+        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), false, &[]),
+                   HomeDecision::Refuse("home_unavailable".into()));
     }
 
     // ---- remembering a server "not found" -------------------------------
