@@ -834,7 +834,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8218"/>
+        <location filename="../src/app/AppController.cpp" line="+8237"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -955,7 +955,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6317"/>
+        <location filename="../src/app/AppController.cpp" line="-6320"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
@@ -1007,13 +1007,13 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4647"/>
-        <location line="+949"/>
+        <location line="+4650"/>
+        <location line="+951"/>
         <source>Not connected</source>
         <translation>Sem ligação</translation>
     </message>
     <message>
-        <location line="-5648"/>
+        <location line="-5653"/>
         <source>Connecting…</source>
         <translation>A ligar…</translation>
     </message>
@@ -1086,12 +1086,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4388"/>
+        <location line="+4391"/>
         <source>Not signed in.</source>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-4386"/>
+        <location line="-4389"/>
         <source>Room-key import failed.</source>
         <translation>A importação de chaves de sala falhou.</translation>
     </message>
@@ -1111,18 +1111,18 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Use datas reais no formato YYYY-MM-DD, com «De» não posterior a «Até».</translation>
     </message>
     <message>
-        <location line="-5515"/>
-        <location line="+3265"/>
+        <location line="-5531"/>
+        <location line="+3281"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3264"/>
+        <location line="-3280"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta é uma notificação de teste. Se a conseguir ler, as notificações do ambiente de trabalho funcionam.</translation>
     </message>
     <message>
-        <location line="+418"/>
+        <location line="+434"/>
         <source>New mentions</source>
         <translation>Novas menções</translation>
     </message>
@@ -1333,15 +1333,15 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Limpar os dados locais deste dispositivo não resolveria isto e destruiria chaves de encriptação de que ainda precisa.</translation>
     </message>
     <message>
-        <location line="+613"/>
-        <location line="+940"/>
+        <location line="+616"/>
+        <location line="+942"/>
         <location line="+859"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>A remoção não terminou: os dados da conta ainda estão em uso. Nada foi eliminado.</translation>
     </message>
     <message>
-        <location line="-1779"/>
+        <location line="-1781"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. As suas outras contas continuam neste dispositivo; desbloqueie o porta-chaves e reinicie o Lightning para continuar com elas.</translation>
     </message>
@@ -1373,12 +1373,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+177"/>
-        <location line="+685"/>
+        <location line="+687"/>
         <source>That account is not signed in on this device.</source>
         <translation>Essa conta não tem sessão iniciada neste dispositivo.</translation>
     </message>
     <message>
-        <location line="-662"/>
+        <location line="-664"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>O início de sessão dessa conta expirou. Inicie sessão novamente.</translation>
     </message>
@@ -1388,7 +1388,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>O porta-chaves do sistema já não devolve o início de sessão guardado dessa conta. Nada foi eliminado: volte a iniciar sessão nela para continuar neste dispositivo.</translation>
     </message>
     <message>
-        <location line="+371"/>
+        <location line="+373"/>
         <location line="+844"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Esta conta não pode ser removida enquanto o porta-chaves do sistema não puder ser lido: o seu início de sessão guardado está lá e ficaria para trás. Desbloqueie o porta-chaves, ou inicie-o, e tente novamente.</translation>
@@ -1431,8 +1431,8 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2511"/>
-        <location line="+1182"/>
+        <location filename="../src/app/AppController.cpp" line="-2516"/>
+        <location line="+1185"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. Desbloqueie-o e tente novamente.</translation>
     </message>
@@ -1491,7 +1491,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+797"/>
+        <location filename="../qml/AppTheme.qml" line="+803"/>
         <source>Storm</source>
         <translation>Storm</translation>
     </message>
@@ -6985,7 +6985,7 @@ Tamanho: %3</translation>
         <translation>Clique com o botão direito para adicionar ou remover dos favoritos</translation>
     </message>
     <message>
-        <location line="+315"/>
+        <location line="+319"/>
         <source>No recently used emoji</source>
         <translation>Nenhum emoji usado recentemente</translation>
     </message>
@@ -7282,7 +7282,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2926"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2935"/>
         <source>Voice message</source>
         <translation>Mensagem de voz</translation>
     </message>
@@ -10669,7 +10669,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1465"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1466"/>
         <location line="+682"/>
         <source>The file could not be downloaded.</source>
         <translation>Não foi possível transferir o ficheiro.</translation>
@@ -12144,13 +12144,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2505"/>
+        <location line="+2507"/>
         <location line="+1135"/>
         <source>Retry</source>
         <translation>Tentar novamente</translation>
     </message>
     <message>
-        <location line="-3610"/>
+        <location line="-3612"/>
         <location line="+1329"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
@@ -12162,12 +12162,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1527"/>
+        <location line="+1529"/>
         <source>Hide image</source>
         <translation>Ocultar imagem</translation>
     </message>
     <message>
-        <location line="-1523"/>
+        <location line="-1525"/>
         <source>Hide</source>
         <translation>Ocultar</translation>
     </message>
@@ -12330,7 +12330,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Adicionar aos meus autocolantes…</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+20"/>
         <source>Add to this room&apos;s stickers</source>
         <translation>Adicione aos adesivos desta sala</translation>
     </message>
@@ -12401,7 +12401,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Reproduzir %1</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+95"/>
         <source>Resume from %1</source>
         <translation>Retomar a partir de %1</translation>
     </message>
@@ -12458,12 +12458,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="-4060"/>
-        <location line="+1505"/>
+        <location line="+1507"/>
         <source>Edit</source>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-4439"/>
+        <location line="-4441"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -12497,22 +12497,22 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="-654"/>
         <location line="+652"/>
-        <location line="+4099"/>
+        <location line="+4101"/>
         <location line="+440"/>
         <location line="+586"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5777"/>
+        <location line="-5779"/>
         <location line="+66"/>
         <location line="+585"/>
-        <location line="+4700"/>
+        <location line="+4702"/>
         <source>Image</source>
         <translation>Imagem</translation>
     </message>
     <message>
-        <location line="-5349"/>
+        <location line="-5351"/>
         <source>Attachment</source>
         <translation>Anexo</translation>
     </message>
@@ -12578,7 +12578,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>(editada)</translation>
     </message>
     <message>
-        <location line="+1729"/>
+        <location line="+1731"/>
         <source>Add :%1: to my emoji</source>
         <translation>Adicionar :%1: aos meus emojis</translation>
     </message>
@@ -12618,13 +12618,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Denunciar a mensagem</translation>
     </message>
     <message>
-        <location line="-647"/>
-        <location line="+664"/>
+        <location line="-649"/>
+        <location line="+666"/>
         <source>Delete</source>
         <translation>Eliminar</translation>
     </message>
     <message>
-        <location line="-659"/>
+        <location line="-661"/>
         <source>Remove message?</source>
         <translation>Remover mensagem?</translation>
     </message>
@@ -12639,7 +12639,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Remover</translation>
     </message>
     <message>
-        <location line="+699"/>
+        <location line="+701"/>
         <source>Message details</source>
         <translation>Detalhes da mensagem</translation>
     </message>
@@ -12716,12 +12716,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Alvo da resposta</translation>
     </message>
     <message>
-        <location line="-2133"/>
+        <location line="-2135"/>
         <source>Show preview</source>
         <translation>Mostrar a pré-visualização</translation>
     </message>
     <message>
-        <location line="+1973"/>
+        <location line="+1975"/>
         <source>Remove edits?</source>
         <translation>Remover as edições?</translation>
     </message>
@@ -12741,7 +12741,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Isto fecha a votação e publica o resultado. Uma sondagem não pode ser reaberta.</translation>
     </message>
     <message>
-        <location line="-595"/>
+        <location line="-597"/>
         <source>Delete message?</source>
         <translation>Eliminar a mensagem?</translation>
     </message>
@@ -12751,7 +12751,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Isto remove a mensagem para todos na sala. Não pode ser desfeito.</translation>
     </message>
     <message>
-        <location line="+930"/>
+        <location line="+932"/>
         <source>Open link in browser</source>
         <translation>Abrir a ligação no navegador</translation>
     </message>
@@ -12804,20 +12804,20 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+396"/>
-        <location line="+1161"/>
+        <location line="+1159"/>
         <location line="+313"/>
         <source>Download %1</source>
         <translation>Transferir %1</translation>
     </message>
     <message>
-        <location line="-1472"/>
-        <location line="+1161"/>
+        <location line="-1470"/>
+        <location line="+1159"/>
         <location line="+316"/>
         <source>Download</source>
         <translation>Transferir</translation>
     </message>
     <message>
-        <location line="-1040"/>
+        <location line="-1038"/>
         <source>Remove from saved</source>
         <translation>Remover dos guardados</translation>
     </message>
@@ -12843,26 +12843,26 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>O autocolante não carregou — clique para tentar novamente</translation>
     </message>
     <message>
-        <location line="-6216"/>
+        <location line="-6218"/>
         <location line="+70"/>
         <location line="+588"/>
-        <location line="+4698"/>
-        <location line="+1185"/>
-        <location line="+92"/>
+        <location line="+4700"/>
+        <location line="+1186"/>
+        <location line="+89"/>
         <source>Video</source>
         <translation>Vídeo</translation>
     </message>
     <message>
-        <location line="-147"/>
-        <location line="+165"/>
+        <location line="-145"/>
+        <location line="+163"/>
         <source>video</source>
         <translation>vídeo</translation>
     </message>
     <message>
         <location line="-6645"/>
         <location line="+654"/>
-        <location line="+4808"/>
-        <location line="+1385"/>
+        <location line="+4810"/>
+        <location line="+1383"/>
         <location line="+4"/>
         <location line="+30"/>
         <source>File</source>
@@ -12889,8 +12889,8 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Falha ao guardar</translation>
     </message>
     <message>
-        <location line="-1417"/>
-        <location line="+1474"/>
+        <location line="-1415"/>
+        <location line="+1472"/>
         <source>file</source>
         <translation>ficheiro</translation>
     </message>
@@ -14706,17 +14706,17 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>PrivateImageRepublishDialog</name>
     <message>
-        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
+        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+42"/>
         <source>Add this private image to your stickers?</source>
         <translation>Adicionar esta imagem privada aos seus autocolantes?</translation>
     </message>
     <message>
         <location line="+12"/>
-        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation>Esta imagem é de uma conversa cifrada. Os pacotes de autocolantes contêm multimédia normal, não cifrada, por isso o Lightning vai carregar uma nova cópia não cifrada para o seu servidor e adicioná-la ao seu pacote. O seu servidor pode vê-la, e também quem tiver o pacote partilhado consigo.</translation>
+        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+13"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
@@ -17634,7 +17634,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+277"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
         <source>Unread above</source>
         <translation>Por ler acima</translation>
     </message>
@@ -17664,7 +17664,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Convites</translation>
     </message>
     <message>
-        <location line="-103"/>
+        <location line="-110"/>
         <source>People</source>
         <translation>Pessoas</translation>
     </message>
@@ -17684,13 +17684,13 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Conversas</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+104"/>
         <source>In a call</source>
         <translation>Numa chamada</translation>
     </message>
     <message>
-        <location line="-98"/>
-        <location line="+102"/>
+        <location line="-105"/>
+        <location line="+109"/>
         <source>Favourites</source>
         <translation>Favoritos</translation>
     </message>
@@ -27293,7 +27293,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>StickerPackManager</name>
     <message>
-        <location filename="../src/stickers/StickerPackManager.cpp" line="+1073"/>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+1081"/>
         <source>Enter a name.</source>
         <translation>Introduza um nome.</translation>
     </message>
@@ -27313,7 +27313,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Outra imagem deste pacote já usa esse nome.</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+332"/>
         <source>You do not have permission to change this pack.</source>
         <translation>Não tem permissão para alterar este pacote.</translation>
     </message>
@@ -27473,7 +27473,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         </translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+321"/>
         <source>A pack</source>
         <translation>Um pacote</translation>
     </message>
@@ -29266,7 +29266,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Marcar este tópico como lido</translation>
     </message>
     <message>
-        <location line="+1109"/>
+        <location line="+1131"/>
         <source>Jump to the newest reply</source>
         <translation>Ir para a resposta mais recente</translation>
     </message>
@@ -29279,7 +29279,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1374"/>
+        <location line="-1396"/>
         <source>Yesterday</source>
         <translation>Ontem</translation>
     </message>
@@ -29442,12 +29442,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Ainda não há respostas. Comece a conversa abaixo.</translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+550"/>
         <source>Loading older replies…</source>
         <translation>A carregar respostas mais antigas…</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>A responder a %1</translation>
@@ -29736,7 +29736,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1655"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1664"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 mudou o nome de exibição de «%2» para «%3» e mudou o avatar.</translation>
     </message>
@@ -29786,7 +29786,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>%1 iniciou uma chamada.</translation>
     </message>
     <message>
-        <location line="+1385"/>
+        <location line="+1389"/>
         <source>%1 is typing…</source>
         <translation>%1 está a escrever…</translation>
     </message>
@@ -31576,7 +31576,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Leitor de vídeo</translation>
     </message>
     <message>
-        <location line="+529"/>
+        <location line="+534"/>
         <source>Downloading…</source>
         <translation>A transferir…</translation>
     </message>

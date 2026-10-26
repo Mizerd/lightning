@@ -834,7 +834,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8218"/>
+        <location filename="../src/app/AppController.cpp" line="+8237"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -955,7 +955,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6317"/>
+        <location filename="../src/app/AppController.cpp" line="-6320"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1007,13 +1007,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4647"/>
-        <location line="+949"/>
+        <location line="+4650"/>
+        <location line="+951"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5648"/>
+        <location line="-5653"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1086,12 +1086,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4388"/>
+        <location line="+4391"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4386"/>
+        <location line="-4389"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
@@ -1111,18 +1111,18 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-5515"/>
-        <location line="+3265"/>
+        <location line="-5531"/>
+        <location line="+3281"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3264"/>
+        <location line="-3280"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
     <message>
-        <location line="+418"/>
+        <location line="+434"/>
         <source>New mentions</source>
         <translation>Nouvelles mentions</translation>
     </message>
@@ -1333,15 +1333,15 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Effacer les données locales de cet appareil ne résoudrait pas ce problème et détruirait des clés de chiffrement dont vous avez encore besoin.</translation>
     </message>
     <message>
-        <location line="+613"/>
-        <location line="+940"/>
+        <location line="+616"/>
+        <location line="+942"/>
         <location line="+859"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>La suppression n&apos;a pas abouti : les données du compte sont encore utilisées. Rien n&apos;a été supprimé.</translation>
     </message>
     <message>
-        <location line="-1779"/>
+        <location line="-1781"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning ne peut pas lire les connexions enregistrées sur cet appareil pour le moment : le trousseau système est verrouillé ou indisponible. Vos autres comptes restent sur cet appareil ; déverrouillez le trousseau et redémarrez Lightning pour continuer avec eux.</translation>
     </message>
@@ -1373,12 +1373,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+177"/>
-        <location line="+685"/>
+        <location line="+687"/>
         <source>That account is not signed in on this device.</source>
         <translation>Ce compte n&apos;est pas connecté sur cet appareil.</translation>
     </message>
     <message>
-        <location line="-662"/>
+        <location line="-664"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>La connexion de ce compte a expiré. Reconnectez-vous.</translation>
     </message>
@@ -1388,7 +1388,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Votre trousseau système ne renvoie plus la connexion enregistrée de ce compte. Rien n&apos;a été supprimé : reconnectez-vous à ce compte pour continuer sur cet appareil.</translation>
     </message>
     <message>
-        <location line="+371"/>
+        <location line="+373"/>
         <location line="+844"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Ce compte ne peut pas être supprimé tant que le trousseau système est illisible : sa connexion enregistrée y est encore et serait laissée derrière. Déverrouillez le trousseau, ou démarrez-le, puis réessayez.</translation>
@@ -1431,8 +1431,8 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2511"/>
-        <location line="+1182"/>
+        <location filename="../src/app/AppController.cpp" line="-2516"/>
+        <location line="+1185"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning ne peut pas lire les connexions enregistrées sur cet appareil pour le moment : le trousseau système est verrouillé ou indisponible. Déverrouillez-le et réessayez.</translation>
     </message>
@@ -1491,7 +1491,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+797"/>
+        <location filename="../qml/AppTheme.qml" line="+803"/>
         <source>Storm</source>
         <translation>Storm</translation>
     </message>
@@ -6985,7 +6985,7 @@ Taille : %3</translation>
         <translation>Clic droit pour ajouter aux favoris ou les retirer</translation>
     </message>
     <message>
-        <location line="+315"/>
+        <location line="+319"/>
         <source>No recently used emoji</source>
         <translation>Aucun émoji utilisé récemment</translation>
     </message>
@@ -7282,7 +7282,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2926"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2935"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
@@ -10669,7 +10669,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1465"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1466"/>
         <location line="+682"/>
         <source>The file could not be downloaded.</source>
         <translation>Le fichier n&apos;a pas pu être téléchargé.</translation>
@@ -12144,13 +12144,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2505"/>
+        <location line="+2507"/>
         <location line="+1135"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-3610"/>
+        <location line="-3612"/>
         <location line="+1329"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
@@ -12162,12 +12162,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1527"/>
+        <location line="+1529"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1523"/>
+        <location line="-1525"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -12330,7 +12330,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ajouter à mes autocollants…</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+20"/>
         <source>Add to this room&apos;s stickers</source>
         <translation>Ajouter aux autocollants de cette pièce</translation>
     </message>
@@ -12401,7 +12401,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lire %1</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+95"/>
         <source>Resume from %1</source>
         <translation>Reprendre à %1</translation>
     </message>
@@ -12458,12 +12458,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="-4060"/>
-        <location line="+1505"/>
+        <location line="+1507"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4439"/>
+        <location line="-4441"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -12497,22 +12497,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-654"/>
         <location line="+652"/>
-        <location line="+4099"/>
+        <location line="+4101"/>
         <location line="+440"/>
         <location line="+586"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5777"/>
+        <location line="-5779"/>
         <location line="+66"/>
         <location line="+585"/>
-        <location line="+4700"/>
+        <location line="+4702"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-5349"/>
+        <location line="-5351"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -12578,7 +12578,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>(modifié)</translation>
     </message>
     <message>
-        <location line="+1729"/>
+        <location line="+1731"/>
         <source>Add :%1: to my emoji</source>
         <translation>Ajouter :%1: à mes emoji</translation>
     </message>
@@ -12618,13 +12618,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Signaler le message</translation>
     </message>
     <message>
-        <location line="-647"/>
-        <location line="+664"/>
+        <location line="-649"/>
+        <location line="+666"/>
         <source>Delete</source>
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="-659"/>
+        <location line="-661"/>
         <source>Remove message?</source>
         <translation>Supprimer le message ?</translation>
     </message>
@@ -12639,7 +12639,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="+699"/>
+        <location line="+701"/>
         <source>Message details</source>
         <translation>Détails du message</translation>
     </message>
@@ -12716,12 +12716,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-2133"/>
+        <location line="-2135"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+1973"/>
+        <location line="+1975"/>
         <source>Remove edits?</source>
         <translation>Supprimer les modifications ?</translation>
     </message>
@@ -12741,7 +12741,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cela clôt le vote et publie le résultat. Un sondage ne peut pas être rouvert.</translation>
     </message>
     <message>
-        <location line="-595"/>
+        <location line="-597"/>
         <source>Delete message?</source>
         <translation>Supprimer le message ?</translation>
     </message>
@@ -12751,7 +12751,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cela supprime le message pour tout le monde dans le salon. Cette action est irréversible.</translation>
     </message>
     <message>
-        <location line="+930"/>
+        <location line="+932"/>
         <source>Open link in browser</source>
         <translation>Ouvrir le lien dans le navigateur</translation>
     </message>
@@ -12804,20 +12804,20 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+396"/>
-        <location line="+1161"/>
+        <location line="+1159"/>
         <location line="+313"/>
         <source>Download %1</source>
         <translation>Télécharger %1</translation>
     </message>
     <message>
-        <location line="-1472"/>
-        <location line="+1161"/>
+        <location line="-1470"/>
+        <location line="+1159"/>
         <location line="+316"/>
         <source>Download</source>
         <translation>Télécharger</translation>
     </message>
     <message>
-        <location line="-1040"/>
+        <location line="-1038"/>
         <source>Remove from saved</source>
         <translation>Retirer des enregistrés</translation>
     </message>
@@ -12843,26 +12843,26 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-6216"/>
+        <location line="-6218"/>
         <location line="+70"/>
         <location line="+588"/>
-        <location line="+4698"/>
-        <location line="+1185"/>
-        <location line="+92"/>
+        <location line="+4700"/>
+        <location line="+1186"/>
+        <location line="+89"/>
         <source>Video</source>
         <translation>Vidéo</translation>
     </message>
     <message>
-        <location line="-147"/>
-        <location line="+165"/>
+        <location line="-145"/>
+        <location line="+163"/>
         <source>video</source>
         <translation>vidéo</translation>
     </message>
     <message>
         <location line="-6645"/>
         <location line="+654"/>
-        <location line="+4808"/>
-        <location line="+1385"/>
+        <location line="+4810"/>
+        <location line="+1383"/>
         <location line="+4"/>
         <location line="+30"/>
         <source>File</source>
@@ -12889,8 +12889,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec de l&apos;enregistrement</translation>
     </message>
     <message>
-        <location line="-1417"/>
-        <location line="+1474"/>
+        <location line="-1415"/>
+        <location line="+1472"/>
         <source>file</source>
         <translation>fichier</translation>
     </message>
@@ -14706,17 +14706,17 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>PrivateImageRepublishDialog</name>
     <message>
-        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
+        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+42"/>
         <source>Add this private image to your stickers?</source>
         <translation>Ajouter cette image privée à vos autocollants ?</translation>
     </message>
     <message>
         <location line="+12"/>
-        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation>Cette image provient d’une conversation chiffrée. Les packs d’autocollants contiennent des médias ordinaires non chiffrés, donc Lightning enverra une nouvelle copie non chiffrée sur votre serveur et l’ajoutera à votre propre pack. Votre serveur peut la voir, ainsi que toute personne avec qui vous partagez le pack.</translation>
+        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+13"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -17634,7 +17634,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+277"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
         <source>Unread above</source>
         <translation>Non lu au-dessus</translation>
     </message>
@@ -17664,7 +17664,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Invitations</translation>
     </message>
     <message>
-        <location line="-103"/>
+        <location line="-110"/>
         <source>People</source>
         <translation>Personnes</translation>
     </message>
@@ -17684,13 +17684,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Conversations</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+104"/>
         <source>In a call</source>
         <translation>En communication</translation>
     </message>
     <message>
-        <location line="-98"/>
-        <location line="+102"/>
+        <location line="-105"/>
+        <location line="+109"/>
         <source>Favourites</source>
         <translation>Favoris</translation>
     </message>
@@ -27293,7 +27293,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>StickerPackManager</name>
     <message>
-        <location filename="../src/stickers/StickerPackManager.cpp" line="+1073"/>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+1081"/>
         <source>Enter a name.</source>
         <translation>Saisissez un nom.</translation>
     </message>
@@ -27313,7 +27313,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Une autre image de ce pack utilise déjà ce nom.</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+332"/>
         <source>You do not have permission to change this pack.</source>
         <translation>Vous n’avez pas l’autorisation de modifier ce pack.</translation>
     </message>
@@ -27473,7 +27473,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+321"/>
         <source>A pack</source>
         <translation>Un pack</translation>
     </message>
@@ -29266,7 +29266,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Marquer ce fil comme lu</translation>
     </message>
     <message>
-        <location line="+1109"/>
+        <location line="+1131"/>
         <source>Jump to the newest reply</source>
         <translation>Aller à la réponse la plus récente</translation>
     </message>
@@ -29279,7 +29279,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="-1374"/>
+        <location line="-1396"/>
         <source>Yesterday</source>
         <translation>Hier</translation>
     </message>
@@ -29442,12 +29442,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Aucune réponse pour l&apos;instant. Démarrez la conversation ci-dessous.</translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+550"/>
         <source>Loading older replies…</source>
         <translation>Chargement des réponses plus anciennes…</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>Réponse à %1</translation>
@@ -29736,7 +29736,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1655"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1664"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -29786,7 +29786,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1385"/>
+        <location line="+1389"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -31576,7 +31576,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Lecteur vidéo</translation>
     </message>
     <message>
-        <location line="+529"/>
+        <location line="+534"/>
         <source>Downloading…</source>
         <translation>Téléchargement…</translation>
     </message>

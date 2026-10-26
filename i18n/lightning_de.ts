@@ -835,24 +835,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="+7124"/>
-        <location line="+1182"/>
+        <location filename="../src/app/AppController.cpp" line="+7140"/>
+        <location line="+1185"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-7696"/>
-        <location line="+3265"/>
+        <location filename="../src/app/AppController.cpp" line="-7715"/>
+        <location line="+3281"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3264"/>
+        <location line="-3280"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
     <message>
-        <location line="+418"/>
+        <location line="+434"/>
         <source>New mentions</source>
         <translation>Neue Erwähnungen</translation>
     </message>
@@ -904,13 +904,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4647"/>
-        <location line="+949"/>
+        <location line="+4650"/>
+        <location line="+951"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5648"/>
+        <location line="-5653"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -978,12 +978,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4388"/>
+        <location line="+4391"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4386"/>
+        <location line="-4389"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1204,15 +1204,15 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das Löschen der lokalen Daten dieses Geräts würde das nicht beheben und Verschlüsselungsschlüssel zerstören, die du noch brauchst.</translation>
     </message>
     <message>
-        <location line="+613"/>
-        <location line="+940"/>
+        <location line="+616"/>
+        <location line="+942"/>
         <location line="+859"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Entfernen nicht abgeschlossen: Die Daten des Kontos sind noch in Gebrauch. Es wurde nichts gelöscht.</translation>
     </message>
     <message>
-        <location line="-1779"/>
+        <location line="-1781"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Deine anderen Konten sind weiterhin auf diesem Gerät; entsperre den Schlüsselbund und starte Lightning neu, um mit ihnen fortzufahren.</translation>
     </message>
@@ -1249,12 +1249,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+46"/>
-        <location line="+685"/>
+        <location line="+687"/>
         <source>That account is not signed in on this device.</source>
         <translation>Dieses Konto ist auf diesem Gerät nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-662"/>
+        <location line="-664"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Die Anmeldung dieses Kontos ist abgelaufen. Melde dich erneut an.</translation>
     </message>
@@ -1274,7 +1274,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das ausgewählte Konto konnte nicht aktiviert werden.</translation>
     </message>
     <message>
-        <location line="+285"/>
+        <location line="+287"/>
         <location line="+844"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Dieses Konto kann nicht entfernt werden, solange der System-Schlüsselbund nicht gelesen werden kann: Seine gespeicherte Anmeldung liegt dort und würde zurückbleiben. Entsperre oder starte den Schlüsselbund und versuche es erneut.</translation>
@@ -1491,7 +1491,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+797"/>
+        <location filename="../qml/AppTheme.qml" line="+803"/>
         <source>Storm</source>
         <translation>Storm</translation>
     </message>
@@ -6985,7 +6985,7 @@ Größe: %3</translation>
         <translation>Rechtsklick zum Hinzufügen zu oder Entfernen aus den Favoriten</translation>
     </message>
     <message>
-        <location line="+315"/>
+        <location line="+319"/>
         <source>No recently used emoji</source>
         <translation>Keine zuletzt verwendeten Emojis</translation>
     </message>
@@ -7282,7 +7282,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2926"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2935"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -10669,7 +10669,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1465"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1466"/>
         <location line="+682"/>
         <source>The file could not be downloaded.</source>
         <translation>Die Datei konnte nicht heruntergeladen werden.</translation>
@@ -12013,9 +12013,9 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-661"/>
         <location line="+70"/>
         <location line="+588"/>
-        <location line="+4698"/>
-        <location line="+1185"/>
-        <location line="+92"/>
+        <location line="+4700"/>
+        <location line="+1186"/>
+        <location line="+89"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
@@ -12033,25 +12033,25 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-654"/>
         <location line="+652"/>
-        <location line="+4099"/>
+        <location line="+4101"/>
         <location line="+440"/>
         <location line="+586"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5777"/>
+        <location line="-5779"/>
         <location line="+66"/>
         <location line="+585"/>
-        <location line="+4700"/>
+        <location line="+4702"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-5350"/>
+        <location line="-5352"/>
         <location line="+654"/>
-        <location line="+4808"/>
-        <location line="+1385"/>
+        <location line="+4810"/>
+        <location line="+1383"/>
         <location line="+4"/>
         <location line="+30"/>
         <source>File</source>
@@ -12279,13 +12279,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2505"/>
+        <location line="+2507"/>
         <location line="+1135"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="-3610"/>
+        <location line="-3612"/>
         <location line="+1329"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
@@ -12297,12 +12297,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1527"/>
+        <location line="+1529"/>
         <source>Hide image</source>
         <translation>Bild ausblenden</translation>
     </message>
     <message>
-        <location line="-1523"/>
+        <location line="-1525"/>
         <source>Hide</source>
         <translation>Ausblenden</translation>
     </message>
@@ -12335,12 +12335,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1505"/>
+        <location line="+1507"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location line="-1481"/>
+        <location line="-1483"/>
         <source>More message actions</source>
         <translation>Weitere Nachrichtenaktionen</translation>
     </message>
@@ -12471,7 +12471,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Zu meinen Stickern hinzufügen…</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+20"/>
         <source>Add to this room&apos;s stickers</source>
         <translation>Zu den Stickern dieses Raums hinzufügen</translation>
     </message>
@@ -12582,13 +12582,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nachricht melden</translation>
     </message>
     <message>
-        <location line="-647"/>
-        <location line="+664"/>
+        <location line="-649"/>
+        <location line="+666"/>
         <source>Delete</source>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2858"/>
+        <location line="-2860"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
@@ -12618,7 +12618,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Entfernen</translation>
     </message>
     <message>
-        <location line="+699"/>
+        <location line="+701"/>
         <source>Message details</source>
         <translation>Nachrichtendetails</translation>
     </message>
@@ -12748,26 +12748,26 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+396"/>
-        <location line="+1161"/>
+        <location line="+1159"/>
         <location line="+313"/>
         <source>Download %1</source>
         <translation>%1 herunterladen</translation>
     </message>
     <message>
-        <location line="-1473"/>
-        <location line="+1474"/>
+        <location line="-1471"/>
+        <location line="+1472"/>
         <source>file</source>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-1473"/>
-        <location line="+1161"/>
+        <location line="-1471"/>
+        <location line="+1159"/>
         <location line="+316"/>
         <source>Download</source>
         <translation>Herunterladen</translation>
     </message>
     <message>
-        <location line="-1040"/>
+        <location line="-1038"/>
         <source>Remove from saved</source>
         <translation>Aus Gespeichertem entfernen</translation>
     </message>
@@ -12799,12 +12799,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+270"/>
-        <location line="+165"/>
+        <location line="+163"/>
         <source>video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-148"/>
+        <location line="-146"/>
         <source>Replay %1</source>
         <translation>%1 erneut abspielen</translation>
     </message>
@@ -12819,7 +12819,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>%1 abspielen</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+95"/>
         <source>Resume from %1</source>
         <translation>Ab %1 fortsetzen</translation>
     </message>
@@ -14706,17 +14706,17 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>PrivateImageRepublishDialog</name>
     <message>
-        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
+        <location filename="../qml/PrivateImageRepublishDialog.qml" line="+42"/>
         <source>Add this private image to your stickers?</source>
         <translation>Dieses private Bild zu Ihren Stickern hinzufügen?</translation>
     </message>
     <message>
         <location line="+12"/>
-        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation>Dieses Bild stammt aus einer verschlüsselten Unterhaltung. Sticker-Pakete enthalten normale, unverschlüsselte Medien, daher lädt Lightning eine neue, unverschlüsselte Kopie auf Ihren Server hoch und fügt sie Ihrem eigenen Paket hinzu. Ihr Server kann sie sehen, ebenso alle, mit denen Sie das Paket teilen.</translation>
+        <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with. It is added as &quot;sticker&quot;; rename it in your pack if you like.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+13"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
@@ -17634,7 +17634,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+277"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+284"/>
         <source>Unread above</source>
         <translation>Ungelesen oben</translation>
     </message>
@@ -17659,7 +17659,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Scrollt die Unterhaltungsliste; öffnet nichts</translation>
     </message>
     <message>
-        <location line="-244"/>
+        <location line="-251"/>
         <source>People</source>
         <translation>Personen</translation>
     </message>
@@ -17679,7 +17679,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Unterhaltungen</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+104"/>
         <source>In a call</source>
         <translation>In einem Anruf</translation>
     </message>
@@ -17689,8 +17689,8 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Einladungen</translation>
     </message>
     <message>
-        <location line="-100"/>
-        <location line="+102"/>
+        <location line="-107"/>
+        <location line="+109"/>
         <source>Favourites</source>
         <translation>Favoriten</translation>
     </message>
@@ -27293,7 +27293,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>StickerPackManager</name>
     <message>
-        <location filename="../src/stickers/StickerPackManager.cpp" line="+1073"/>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+1081"/>
         <source>Enter a name.</source>
         <translation>Gib einen Namen ein.</translation>
     </message>
@@ -27313,7 +27313,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Ein anderes Bild in diesem Paket verwendet diesen Namen bereits.</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+332"/>
         <source>You do not have permission to change this pack.</source>
         <translation>Sie dürfen dieses Paket nicht ändern.</translation>
     </message>
@@ -27473,7 +27473,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+321"/>
         <source>A pack</source>
         <translation>Ein Paket</translation>
     </message>
@@ -29266,7 +29266,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Diesen Thread als gelesen markieren</translation>
     </message>
     <message>
-        <location line="+1109"/>
+        <location line="+1131"/>
         <source>Jump to the newest reply</source>
         <translation>Zur neuesten Antwort springen</translation>
     </message>
@@ -29279,7 +29279,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         </translation>
     </message>
     <message>
-        <location line="-1374"/>
+        <location line="-1396"/>
         <source>Yesterday</source>
         <translation>Gestern</translation>
     </message>
@@ -29442,12 +29442,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Noch keine Antworten. Beginne unten die Unterhaltung.</translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+550"/>
         <source>Loading older replies…</source>
         <translation>Ältere Antworten werden geladen …</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+174"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>Antwort an %1</translation>
@@ -29736,7 +29736,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1655"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1664"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -29786,7 +29786,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 hat einen Anruf gestartet.</translation>
     </message>
     <message>
-        <location line="+1385"/>
+        <location line="+1389"/>
         <source>%1 is typing…</source>
         <translation>%1 schreibt …</translation>
     </message>
@@ -31576,7 +31576,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Videoplayer</translation>
     </message>
     <message>
-        <location line="+529"/>
+        <location line="+534"/>
         <source>Downloading…</source>
         <translation>Wird heruntergeladen…</translation>
     </message>
