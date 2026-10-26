@@ -233,6 +233,11 @@ public:
     // event (deduplicated; never room-wide). A no-op unless viewerAtLatest,
     // and while a reply search is moving the reader to an older reply.
     Q_INVOKABLE void markRead();
+    // The explicit "Mark this thread read" action: one threaded receipt for
+    // the newest loaded reply of THIS thread, whether or not the reader is
+    // scrolled to it -- the user asked. Never room-wide, deduplicated like
+    // markRead, and announced (threadReadSent) only when the server accepts.
+    Q_INVOKABLE void markReadNow();
     // Threads view lifecycle for the current room.
     Q_INVOKABLE void openList(const QString &roomId);
     Q_INVOKABLE void closeList();

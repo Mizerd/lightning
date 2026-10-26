@@ -1198,6 +1198,21 @@ void ThreadController::markRead()
     m_client->markThreadRead(m_roomId, m_rootEventId, opId);
 }
 
+void ThreadController::markReadNow()
+{
+    if (!m_client || m_state != Ready)
+        return;
+    qint64 latestMs = 0;
+    const QString latest = m_model.latestReadableEventId(&latestMs);
+    if (latest.isEmpty() || latest == m_lastMarkedReadEventId)
+        return;
+    m_lastMarkedReadEventId = latest;
+    const quint64 opId = m_nextThreadReadId++;
+    m_pendingThreadReads.insert(
+        opId, {m_roomId, m_rootEventId, latest, latestMs});
+    m_client->markThreadRead(m_roomId, m_rootEventId, opId);
+}
+
 bool ThreadController::threadUnreadHint(const QString &rootEventId) const
 {
     if (!m_client || rootEventId.isEmpty())

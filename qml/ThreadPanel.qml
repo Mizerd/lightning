@@ -332,6 +332,22 @@ Rectangle {
                     ToolTip.delay: 500
                     onClicked: app.thread.setFollowed(!app.thread.followed)
                 }
+                // Mark this thread read: one threaded receipt for its newest
+                // reply, even while scrolled up (the reader asked). Never the
+                // room: other threads and the room keep their unread state.
+                IconButton {
+                    objectName: "threadMarkReadButton"
+                    visible: app.thread.active
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusControl
+                    iconName: "done_all"
+                    iconSize: 18
+                    Accessible.name: qsTr("Mark this thread read")
+                    ToolTip.text: Accessible.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.thread.markReadNow()
+                }
                 // Moves the open thread between the side panel and the main
                 // column. A presentation change of the same conversation: it
                 // writes the placement setting and never closes or reopens

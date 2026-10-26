@@ -872,6 +872,28 @@ private Q_SLOTS:
         QCOMPARE(controller.state(), ThreadController::Ready);
     }
 
+    // The explicit Mark this thread read: the user asked, so it sends the
+    // thread's receipt even while the reader is not at the newest reply,
+    // where the automatic path reads nothing; it stays deduplicated.
+    void markReadNowSendsTheThreadReceiptOnRequest()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        controller.setViewerAtLatest(false);
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 0);
+        QVERIFY(QMetaObject::invokeMethod(&controller, "markReadNow"));
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+        QVERIFY(QMetaObject::invokeMethod(&controller, "markReadNow"));
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+    }
+
     // The Activity bell hears of a thread read only once the homeserver
     // accepted it, as the main room's mark-as-read does. A failed receipt
     // must leave the rows (it used to clear them on the request). Answers
