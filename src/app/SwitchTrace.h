@@ -89,6 +89,16 @@ bool active();
 // Opens a trace. No-op unless enabled(). An open trace is first finished as
 // Superseded.
 void begin(const QString &fromUserId, const QString &toUserId, Path path = Path::Cold);
+// T0 (master prompt Part 4 §5): the moment a switch to `toUserId` was asked
+// for, before any live-account release, queueing behind a running switch or
+// keyring read. The next begin() for the same target reports the lead from
+// it (`intent_lead_ms`) and the first correct frame measured from it
+// (`first_frame_from_intent_ms`), so the total never restarts at a later
+// barrier. The earliest pending intent for a target is kept (a re-entry of
+// the same switch does not move it); an intent for another target replaces
+// it (the newest click wins); one older than kIntentMaxAgeMs is ignored.
+void noteIntent(const QString &toUserId);
+constexpr qint64 kIntentMaxAgeMs = 120000;
 // Durations ACCUMULATE; begin/end nest per step (only the outermost pair
 // counts); an unmatched end is ignored. No-op unless active(). S11 only
 // begins once markLoginSucceeded() has run, and only once per trace.
@@ -174,6 +184,7 @@ struct Record {
     qint64 firstFrameMs = -1;
     qint64 roomInteractiveMs = -1;
     int loggedInFlips = 0;
+    qint64 intentLeadMs = -1;  // T0 (noteIntent) -> begin()
 
     qint64 step(Step s) const { return steps[int(s) - 1]; }
 };

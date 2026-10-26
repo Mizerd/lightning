@@ -279,6 +279,42 @@ private Q_SLOTS:
                  QStringLiteral("900"));
     }
 
+    // T0 at the click (Part 4 §5): the lead before begin() (a live-account
+    // release, a queue behind a running switch) is reported, and the first
+    // frame is also measured from the click. A re-entry keeps the first T0;
+    // a click on another account replaces it.
+    void theIntentIsTZeroAndTheTotalNeverRestarts()
+    {
+        st::noteIntent(QStringLiteral("@b:example.org"));
+        g_now += 300;
+        st::noteIntent(QStringLiteral("@b:example.org")); // re-entry
+        g_now += 200;
+        st::begin(QStringLiteral("@a:example.org"),
+                  QStringLiteral("@b:example.org"));
+        QCOMPARE(st::currentRecordForTest().intentLeadMs, qint64(500));
+        st::markLoginSucceeded();
+        g_now += 100;
+        st::markFirstFrame();
+        st::finish(st::Outcome::Ok);
+        const QStringList lines = traceLines();
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(fieldOf(lines.first(), QStringLiteral("intent_lead_ms")),
+                 QStringLiteral("500"));
+        QCOMPARE(fieldOf(lines.first(),
+                         QStringLiteral("first_frame_from_intent_ms")),
+                 QStringLiteral("600"));
+
+        // Newest click wins; the old target's intent does not leak.
+        st::noteIntent(QStringLiteral("@b:example.org"));
+        g_now += 50;
+        st::noteIntent(QStringLiteral("@c:example.org"));
+        g_now += 50;
+        st::begin(QStringLiteral("@a:example.org"),
+                  QStringLiteral("@b:example.org"));
+        QCOMPARE(st::currentRecordForTest().intentLeadMs, qint64(-1));
+        st::finish(st::Outcome::Refused);
+    }
+
     void s11BeginsOnceAndOnlyAfterLogin()
     {
         st::begin({}, QStringLiteral("@b:example.org"));
@@ -477,7 +513,8 @@ private Q_SLOTS:
                      "rust_since_start_sync_ms=9 rust_reset_serialize_ms=11 "
                      "reset_poll_ms=12 reset_parse_ms=13 model_ms=14 "
                      "first_frame_ms=15 room_interactive_ms=-1 "
-                     "logged_in_flips=3"));
+                     "logged_in_flips=3 intent_lead_ms=-1 "
+                     "first_frame_from_intent_ms=-1"));
 
         // A real trace: accounts appear as slugs, never as MXIDs.
         st::begin(QStringLiteral("@alice:example.org"),

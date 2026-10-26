@@ -47,6 +47,8 @@ struct State {
     Record last;
     quint64 nextId = 1;
     int lastLoggedIn = -1; // -1 never observed
+    qint64 intentMs = -1;  // noteIntent(), -1 none pending
+    QString intentSlug;
 };
 
 State &state()
@@ -186,7 +188,26 @@ void begin(const QString &fromUserId, const QString &toUserId, Path path)
     t.rec.fromSlug = matrix::app_data::safeUserSlug(fromUserId);
     t.rec.toSlug = matrix::app_data::safeUserSlug(toUserId);
     t.beginMs = nowMs();
+    if (s.intentMs >= 0 && s.intentSlug == t.rec.toSlug
+        && t.beginMs - s.intentMs <= kIntentMaxAgeMs)
+        t.rec.intentLeadMs = std::max<qint64>(0, t.beginMs - s.intentMs);
+    s.intentMs = -1;
+    s.intentSlug.clear();
     s.open = std::move(t);
+}
+
+void noteIntent(const QString &toUserId)
+{
+    if (!enabled())
+        return;
+    State &s = state();
+    const QString slug = matrix::app_data::safeUserSlug(toUserId);
+    const qint64 now = nowMs();
+    const bool stale = s.intentMs < 0 || now - s.intentMs > kIntentMaxAgeMs;
+    if (!stale && s.intentSlug == slug)
+        return; // the same switch re-entering keeps its T0
+    s.intentMs = now;
+    s.intentSlug = slug;
 }
 
 void stepBegin(Step step)
@@ -418,6 +439,10 @@ QString formatLine(const Record &r)
     field("first_frame_ms", r.firstFrameMs);
     field("room_interactive_ms", r.roomInteractiveMs);
     field("logged_in_flips", r.loggedInFlips);
+    field("intent_lead_ms", r.intentLeadMs);
+    field("first_frame_from_intent_ms",
+          r.intentLeadMs >= 0 && r.firstFrameMs >= 0
+              ? r.intentLeadMs + r.firstFrameMs : -1);
     return parts.join(QLatin1Char(' '));
 }
 
@@ -444,6 +469,8 @@ void resetForTest()
     s.last = Record{};
     s.nextId = 1;
     s.lastLoggedIn = -1;
+    s.intentMs = -1;
+    s.intentSlug.clear();
 }
 
 } // namespace lightning::switchtrace

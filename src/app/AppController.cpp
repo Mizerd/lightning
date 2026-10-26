@@ -8203,6 +8203,9 @@ void AppController::switchToAccount(const QString &userId)
     const QString target = userId.trimmed();
     if (target.isEmpty())
         return;
+    // LIGHTNING_SWITCH_TRACE T0: the accepted request, before any release,
+    // queueing or keyring read (a no-op unless the trace is enabled).
+    lightning::switchtrace::noteIntent(target);
     // The newest click wins, as it already does while a live (Labs) account
     // is being released: a target chosen while a switch is running is
     // remembered (replacing any earlier one) and runs when it completes.
