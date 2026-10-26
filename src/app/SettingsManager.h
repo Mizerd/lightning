@@ -1354,6 +1354,16 @@ public:
     // a real change only.
     KeepRunningResult setKeepRunningFor(const QString &userId, bool on);
     bool keepRunningFor(const QString &userId) const;
+    // The account's network route, the non-secret half only: {kind, host,
+    // port, username}, or an empty map for none (docs/network-profiles.md).
+    // Device-local: stored in the account's record, so it goes with it, and
+    // never synced or exported. Validation and the password are
+    // matrix/NetworkRoute.h's; this only stores. setNetworkRouteRecord()
+    // refuses an id with no saved record, takes an empty map (or no "kind")
+    // as "no route", flushes, and emits networkRouteChanged(userId).
+    QVariantMap networkRouteRecord(const QString &userId) const;
+    bool setNetworkRouteRecord(const QString &userId, const QVariantMap &record);
+    bool networkRouteConfigured(const QString &userId) const;
     // The pinned accounts, in savedAccountUserIds() order.
     QStringList keepRunningUserIds() const;
     // When the account was last live (foreground or background), UNIX ms; 0
@@ -1571,6 +1581,8 @@ Q_SIGNALS:
     void accountsChanged();
     // setKeepRunningFor() changed this account's pin. Never accountsChanged().
     void keepRunningChanged(const QString &userId);
+    // setNetworkRouteRecord() wrote this account's route.
+    void networkRouteChanged(const QString &userId);
 
 private:
     // Per-account appearance state; friends so the private helpers stay

@@ -50,6 +50,8 @@ public:
     using MockMatrixClient::MockMatrixClient;
 
     bool supportsCallSignaling() const override { return true; }
+    bool networkRouteActive() const override { return routed; }
+    bool routed = false;
     QString currentUserId() const override
     {
         return simulatedUserId.isEmpty() ? MockMatrixClient::currentUserId()
@@ -3383,6 +3385,39 @@ private Q_SLOTS:
 
         media.deliverConnected(QStringLiteral("call-1"));
         QCOMPARE(calls.state(), CallController::State::Active);
+    }
+
+    // A routed account (docs/network-profiles.md) neither places nor answers
+    // a legacy call: the media would leave directly. Refused before anything
+    // is sent or produced, with its own token.
+    void aRoutedAccountNeitherPlacesNorAnswersACall()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        client.routed = true;
+
+        QVERIFY(!calls.placeCall(QStringLiteral("!r:x")));
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("network_route"));
+        QVERIFY(!calls.placeCallWithOffer(QStringLiteral("!r:x"), QStringLiteral("v=0 offer"),
+                                          60000, QString()));
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("network_route"));
+        QCOMPARE(calls.state(), CallController::State::Idle);
+
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 remote-offer"));
+        client.emitSignal(invite);
+        QCOMPARE(calls.state(), CallController::State::Ringing);
+        QVERIFY(!calls.answer());
+        QCOMPARE(calls.lastRefusal(), QStringLiteral("network_route"));
+        QVERIFY(media.answerRequests.isEmpty());
+        QVERIFY(client.sent.isEmpty());
+
+        // Without the route the same ring is answered.
+        client.routed = false;
+        QVERIFY(calls.answer());
     }
 
     void answerRefusesWithoutBackendOfferOrOnRtc()

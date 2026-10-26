@@ -24,6 +24,7 @@
 #include "matrix/EventPreview.h"
 #include "matrix/LoginFailureText.h"
 #include "matrix/MediaStoreKey.h"
+#include "matrix/NetworkRoute.h"
 #include "matrix/PushRulesSnapshot.h"
 #include "matrix/RoomRecencyRule.h"
 #include "matrix/RustSessionPolicy.h"
@@ -738,8 +739,45 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     }
 
     applyMediaStoreKey(slug);
+    if (!applyNetworkRoute(slug)) {
+        // Never left without a route it should have: no handle at all.
+        mx_rust_destroy(m_rustHandle);
+        m_rustHandle = nullptr;
+        m_handleGeneration = 0;
+        if (m_storeOwnershipSerial != 0) {
+            ownership.noteClosed(m_storeOwnershipSerial, true);
+            m_storeOwnershipSerial = 0;
+        }
+        Q_EMIT errorOccurred(tr("This account's network route could not be applied, so "
+                                "Lightning will not connect it directly. Check the proxy "
+                                "in Settings."));
+        return false;
+    }
     ensurePollTimer();
     return true;
+}
+
+bool RustSdkMatrixClient::applyNetworkRoute(const QString &slug)
+{
+    namespace route = matrix::network_route;
+    // The saved account that owns this store, as for the media key. A first
+    // sign-in has no record yet and so no route: it connects as the system
+    // does (docs/network-profiles.md, "first sign-in").
+    const QString owner = (m_storePathOverride.isEmpty() && m_settings)
+        ? m_settings->accountOwningStoreSlug(slug)
+        : QString();
+    QByteArray json = route::rustJson(m_settings, m_settings ? m_settings->secretStore() : nullptr,
+                                      owner);
+    const QString state = route::describeJson(json);
+    const QString result = takeRustString(mx_rust_set_network_route(m_rustHandle,
+                                                                    json.constData()));
+    json.fill('\0');
+    json.clear();
+    m_networkRouteActive = state != QLatin1String("none");
+    // The state only: never the host, never a credential.
+    qCInfo(lcRust) << "network route" << "slug=" << slug << "state=" << state
+                   << "applied=" << result.isEmpty();
+    return result.isEmpty();
 }
 
 void RustSdkMatrixClient::applyMediaStoreKey(const QString &slug)
@@ -1359,6 +1397,7 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_handleGeneration = 0;
     m_storePath.clear();
     m_mediaKeyOutcome.clear();
+    m_networkRouteActive = false;
     setMediaKeepState({});
     m_timelineTracker.reset();
     m_threadTracker.reset();

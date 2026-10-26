@@ -241,6 +241,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(AppLocale::instance(), &AppLocale::changed,
             m_settings.get(), &SettingsManager::clockFormatChanged);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
+    m_networkRoute = std::make_unique<NetworkRouteController>(m_settings.get(), this);
     // Constructed before any QML exists so the first frame already carries
     // the user's bindings.
     m_shortcuts = std::make_unique<ShortcutRegistry>(m_settings.get(), this);
@@ -4445,6 +4446,9 @@ LocalizationManager *AppController::localization() const
 { return m_localization.get(); }
 CustomThemeStore *AppController::customTheme() const
 { return m_customTheme.get(); }
+
+NetworkRouteController *AppController::networkRoute() const
+{ return m_networkRoute.get(); }
 RailLayoutStore *AppController::railLayout() const
 { return m_railLayout.get(); }
 

@@ -160,6 +160,7 @@ constexpr const char *kComponents[] = {
     "ChatBackgroundSettings",
     "SettingsBackupSection",
     "MediaPreviewSettings",
+    "NetworkRouteSettings",
     "GradientEditor",
     // Theme editor levels (2026-10-13): the Simple/Groups/Elements switch, the
     // undo toast, the inheritance row and the Simple panel. Empty defaults.

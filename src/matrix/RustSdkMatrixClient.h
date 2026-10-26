@@ -686,6 +686,7 @@ public:
                            const QVariantMap &filters = {}) override;
     bool supportsIgnoredUsers() const override { return true; }
     bool supportsCallSignaling() const override { return true; }
+    bool networkRouteActive() const override { return m_networkRouteActive; }
     quint64 callInvite(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &offerType,
                        const QString &offerSdp, quint64 lifetimeMs,
@@ -1025,6 +1026,9 @@ private:
     // account's key from the SecretStore, or none (an in-memory media store).
     // Before any sign-in or restore builds the client.
     void applyMediaStoreKey(const QString &slug);
+    // Hands this handle its account's network route (matrix/NetworkRoute.h).
+    // False when Rust refused it; the handle is then destroyed, never kept.
+    bool applyNetworkRoute(const QString &slug);
     // Ask the handle where its media store opened (once a client is built)
     // and publish mediaKeepState from that and the key's resolution.
     void refreshMediaKeepState();
@@ -1437,6 +1441,8 @@ private:
     // What applyMediaStoreKey resolved for this handle: "no-saved-account",
     // "no-key" or "key". Read by refreshMediaKeepState().
     QString m_mediaKeyOutcome;
+    // This handle's account has a network route (usable or not).
+    bool m_networkRouteActive = false;
     QString m_mediaKeepState;
     // Latched so the periodic backstop logs the fault once per transition;
     // cleared when a later check agrees.

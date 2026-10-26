@@ -129,6 +129,10 @@ Rectangle {
         case "no_permission":
             return qsTr("You can't join calls in this room. A room admin "
                         + "can raise your power level in it.");
+        case "network_route":
+            // The account's traffic goes through a proxy, which cannot carry
+            // call media (docs/network-profiles.md).
+            return qsTr("Calls aren't available while this account uses a proxy");
         case "media_encryption_unavailable":
             // Encrypted room without call media E2EE: joining would expose
             // media to the SFU.
@@ -153,6 +157,8 @@ Rectangle {
             return qsTr("The caller's connection details didn't arrive.");
         case "not_ringing":
             return qsTr("That call is no longer ringing.");
+        case "network_route":
+            return qsTr("Calls aren't available while this account uses a proxy.");
         default:
             return qsTr("Couldn't answer this call.");
         }

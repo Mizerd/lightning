@@ -78,6 +78,10 @@ Item {
           keywords: qsTr("password change account security"),
           section: "account", breadcrumb: qsTr("Account"),
           anchor: "changePasswordCard" },
+        { title: qsTr("Network and proxy"),
+          keywords: qsTr("network proxy socks http connection tor"),
+          section: "account", breadcrumb: qsTr("Account"),
+          anchor: "networkRouteCard" },
         { title: qsTr("Homeserver"), keywords: qsTr("homeserver server url"),
           section: "account", breadcrumb: qsTr("Account"),
           anchor: "homeserverField" },
@@ -863,6 +867,7 @@ Item {
         "account": [
             { label: qsTr("Profile"), anchors: ["accountIdentityCard"] },
             { label: qsTr("Password"), anchors: ["changePasswordCard"] },
+            { label: qsTr("Network"), anchors: ["networkRouteCard"] },
         ],
         "appearance": [
             { label: qsTr("Theme"), anchors: ["featuredThemeFlow"] },
@@ -8732,6 +8737,15 @@ Item {
                             visible: !!app.passwordChange
                                      && app.passwordChange.available
                             ChangePasswordSection {
+                                width: parent.width
+                            }
+                        }
+
+                        // This account's proxy (docs/network-profiles.md).
+                        SettingsCard {
+                            objectName: "networkRouteCard"
+                            visible: !!app.networkRoute && app.networkRoute.available
+                            NetworkRouteSettings {
                                 width: parent.width
                             }
                         }

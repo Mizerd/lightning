@@ -184,6 +184,10 @@ constexpr auto kAccountIndexAllOffer = "indexAllOffer";
 // Labs (concurrent live accounts). See setKeepRunningFor / setLastLiveAtFor.
 constexpr auto kAccountKeepRunning  = "keepRunning";
 constexpr auto kAccountLastLiveAt   = "lastLiveAt";
+// The account's network route, device-local (docs/network-profiles.md). The
+// non-secret half only; a proxy password is in the SecretStore
+// (matrix/NetworkRoute.h). Never synced, never exported.
+constexpr auto kAccountNetworkRoute = "networkRoute";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
 constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 
@@ -855,6 +859,55 @@ SettingsManager::setKeepRunningFor(const QString &userId, bool on)
         m_store->remove(key); // default: keep the file compact
     Q_EMIT keepRunningChanged(userId);
     return KeepRunningResult::Ok;
+}
+
+QVariantMap SettingsManager::networkRouteRecord(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return {};
+    const QString group = accountKey(slug, kAccountNetworkRoute) + QLatin1Char('/');
+    const QString kind = m_store->value(group + QLatin1String("kind")).toString();
+    if (kind.isEmpty())
+        return {};
+    return {
+        {QStringLiteral("kind"), kind},
+        {QStringLiteral("host"), m_store->value(group + QLatin1String("host")).toString()},
+        {QStringLiteral("port"), m_store->value(group + QLatin1String("port")).toInt()},
+        {QStringLiteral("username"),
+         m_store->value(group + QLatin1String("username")).toString()},
+    };
+}
+
+bool SettingsManager::setNetworkRouteRecord(const QString &userId, const QVariantMap &record)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return false;
+    const QString groupKey = accountKey(slug, kAccountNetworkRoute);
+    m_store->remove(groupKey);
+    const QString kind = record.value(QStringLiteral("kind")).toString();
+    if (!kind.isEmpty()) {
+        const QString group = groupKey + QLatin1Char('/');
+        m_store->setValue(group + QLatin1String("kind"), kind);
+        m_store->setValue(group + QLatin1String("host"),
+                          record.value(QStringLiteral("host")).toString());
+        m_store->setValue(group + QLatin1String("port"),
+                          record.value(QStringLiteral("port")).toInt());
+        const QString username = record.value(QStringLiteral("username")).toString();
+        if (!username.isEmpty())
+            m_store->setValue(group + QLatin1String("username"), username);
+    }
+    // Flushed now: a route the user just set must still be there if the
+    // process dies before the deferred sync, or the next start goes direct.
+    m_store->sync();
+    Q_EMIT networkRouteChanged(userId);
+    return true;
+}
+
+bool SettingsManager::networkRouteConfigured(const QString &userId) const
+{
+    return !networkRouteRecord(userId).isEmpty();
 }
 
 bool SettingsManager::keepRunningFor(const QString &userId) const

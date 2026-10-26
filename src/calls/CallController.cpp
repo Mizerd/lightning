@@ -487,6 +487,12 @@ bool CallController::sessionLive() const
 bool CallController::placeCall(const QString &roomId, const QString &invitee)
 {
     m_lastRefusal.clear();
+    if (m_client && m_client->networkRouteActive()) {
+        // A routed account does not call: the media would leave directly
+        // (docs/network-profiles.md). CallControllerTest pins this token.
+        m_lastRefusal = QStringLiteral("network_route");
+        return false;
+    }
     if (!m_mediaBackend) {
         // No backend can produce an offer; a stubbed one would place a call
         // that dies at the peer.
@@ -535,6 +541,12 @@ bool CallController::answer()
     m_lastRefusal.clear();
     if (m_state != State::Ringing) {
         m_lastRefusal = QStringLiteral("not_ringing");
+        return false;
+    }
+    if (m_client && m_client->networkRouteActive()) {
+        // A routed account does not call: the media would leave directly
+        // (docs/network-profiles.md). CallControllerTest pins this token.
+        m_lastRefusal = QStringLiteral("network_route");
         return false;
     }
     if (!m_mediaBackend) {
@@ -591,6 +603,12 @@ bool CallController::placeCallWithOffer(const QString &roomId,
                                         const QString &invitee)
 {
     m_lastRefusal.clear();
+    if (m_client && m_client->networkRouteActive()) {
+        // A routed account does not call: the media would leave directly
+        // (docs/network-profiles.md). CallControllerTest pins this token.
+        m_lastRefusal = QStringLiteral("network_route");
+        return false;
+    }
     if (!m_client || !m_client->supportsCallSignaling()) {
         m_lastRefusal = QStringLiteral("unsupported_backend");
         return false;

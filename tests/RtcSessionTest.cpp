@@ -37,6 +37,8 @@ public:
     quint64 nextOp = 1;
     bool rtcSupported = true;
     bool refuseOps = false;
+    bool routed = false;
+    bool networkRouteActive() const override { return routed; }
     QStringList sessionReads;
     QList<bool> sessionReadPreferredServer;
     QStringList transportRooms;
@@ -163,6 +165,7 @@ private Q_SLOTS:
     void ownDeviceIsDistinctFromOwnUser();
     void oneFacePerPersonAcrossDevices();
     void joinBlockKeepsItsCausesApart();
+    void aRoutedAccountIsBlockedFromJoiningWhateverElseIsTrue();
     void unsupportedBackendDoesNothingAtAll();
     void availabilityNeedsAPositiveTransport();
     void anUnansweredReadReleasesItsRoom();
@@ -416,6 +419,30 @@ void RtcSessionTest::oneFacePerPersonAcrossDevices()
     // ...but two people, and two faces.
     QCOMPARE(controller.participantUserIds(kRoom).count(), 2);
     QCOMPARE(controller.participantFaces(kRoom).count(), 2);
+}
+
+// A network route (a proxy) cannot carry a call, so a routed account is
+// refused up front with its own reason, ahead of every other gate: a joinable
+// room must still say "network_route", and the reason disappears with the
+// route.
+void RtcSessionTest::aRoutedAccountIsBlockedFromJoiningWhateverElseIsTrue()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setRoomEncrypted(kRoom, false);
+    controller.setMediaAvailable(true);
+    controller.discover(kRoom);
+    Q_EMIT client.rtcTransportsReceived(
+        client.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+
+    client.routed = true;
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::NetworkRoute);
+    QCOMPARE(controller.joinBlockReason(kRoom), QStringLiteral("network_route"));
+    client.routed = false;
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
 }
 
 void RtcSessionTest::joinBlockKeepsItsCausesApart()

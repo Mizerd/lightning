@@ -989,6 +989,9 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
 {
     if (!supported())
         return JoinBlock::Unsupported;
+    // Before every other reason: nothing else would make the call possible.
+    if (m_client->networkRouteActive())
+        return JoinBlock::NetworkRoute;
     const auto it = m_sessions.constFind(roomId);
     if (it != m_sessions.cend() && it->slotClosed)
         return JoinBlock::SessionClosed;
@@ -1029,6 +1032,7 @@ QString RtcController::joinBlockReason(const QString &roomId) const
     case JoinBlock::DiscoveryFailed:  return QStringLiteral("discovery_failed");
     case JoinBlock::SessionClosed:    return QStringLiteral("session_closed");
     case JoinBlock::NoMediaTransport: return QStringLiteral("no_media_transport");
+    case JoinBlock::NetworkRoute:     return QStringLiteral("network_route");
     case JoinBlock::NoPermission:      return QStringLiteral("no_permission");
     case JoinBlock::MediaEncryptionUnavailable:
         return QStringLiteral("media_encryption_unavailable");

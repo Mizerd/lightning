@@ -17,6 +17,7 @@
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
+#include "app/NetworkRouteController.h"
 #include "media/MediaVisibilityStore.h"
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
@@ -322,6 +323,8 @@ class AppController : public QObject
     Q_PROPERTY(LocalizationManager* localization READ localization CONSTANT)
     // Per-account custom palette overrides.
     Q_PROPERTY(CustomThemeStore* customTheme READ customTheme CONSTANT)
+    // Settings > Account > Network: the active account's proxy route.
+    Q_PROPERTY(NetworkRouteController* networkRoute READ networkRoute CONSTANT)
     // Device-local Spaces rail order and folders.
     Q_PROPERTY(RailLayoutStore* railLayout READ railLayout CONSTANT)
     // The rows the Spaces rail draws, plus live drag state; see RailEntryModel.
@@ -692,6 +695,7 @@ public:
     GlobalShortcutsPortal *globalShortcuts() const { return m_globalShortcuts.get(); }
     LocalizationManager *localization() const;
     CustomThemeStore *customTheme() const;
+    NetworkRouteController *networkRoute() const;
     RailLayoutStore *railLayout() const;
     RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
@@ -1799,6 +1803,7 @@ private:
     std::unique_ptr<ShortcutRegistry> m_shortcuts;
     std::unique_ptr<GlobalShortcutsPortal> m_globalShortcuts;
     std::unique_ptr<CustomThemeStore> m_customTheme;
+    std::unique_ptr<NetworkRouteController> m_networkRoute;
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;

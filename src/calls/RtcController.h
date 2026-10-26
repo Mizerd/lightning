@@ -72,6 +72,9 @@ public:
         /// No SFU media engine in this build: a join would publish a
         /// membership nobody can connect to.
         NoMediaTransport,
+        /// This account's traffic follows a network route (a proxy), which
+        /// cannot carry a call; joining would connect directly.
+        NetworkRoute,
         /// This account may not write `org.matrix.msc3401.call.member` here
         /// (default power levels put state events at 50, so this is the
         /// ordinary member's case), so the server would refuse the join.

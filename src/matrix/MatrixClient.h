@@ -1435,6 +1435,10 @@ public:
     // m.rtc.notification/decline). SDP strings are opaque inputs from the media
     // backend, never logged or echoed. Non-capable backends return 0.
     virtual bool supportsCallSignaling() const { return false; }
+    // The account's traffic follows a network route (an explicit proxy,
+    // docs/network-profiles.md). Calls are not carried by one, so they are
+    // refused rather than made directly from the address the route hides.
+    virtual bool networkRouteActive() const { return false; }
     virtual quint64 callInvite(const QString &roomId, const QString &callId,
                                const QString &partyId,
                                const QString &offerType,

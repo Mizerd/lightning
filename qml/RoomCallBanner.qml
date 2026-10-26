@@ -53,6 +53,10 @@ Rectangle {
             // The room's power levels forbid writing call membership; known
             // from the room snapshot before the click.
             return qsTr("You can't start or join calls in this room");
+        case "network_route":
+            // The account's traffic goes through a proxy, which cannot carry
+            // call media (docs/network-profiles.md).
+            return qsTr("Calls aren't available while this account uses a proxy");
         case "media_encryption_unavailable":
             // The room is encrypted and call media E2EE is not active, so the
             // SFU could read the media.

@@ -104,6 +104,10 @@ Item {
             return qsTr("Joining calls isn't supported yet in this build");
         case "no_permission":
             return qsTr("You can't join calls in this room");
+        case "network_route":
+            // The account's traffic goes through a proxy, which cannot carry
+            // call media (docs/network-profiles.md).
+            return qsTr("Calls aren't available while this account uses a proxy");
         case "media_encryption_unavailable":
             return qsTr("This room is encrypted, and encrypted calls "
                         + "aren't available in this build");

@@ -101,6 +101,23 @@ SessionPool::SessionPool(Deps deps, QObject *parent)
     });
     if (m_deps.settings) {
         connect(m_deps.settings, &SettingsManager::keepRunningChanged, this, &SessionPool::schedule);
+        // A route set on an account running in the background stops it: a
+        // routed account runs in the foreground only (docs/network-profiles.md),
+        // and the session already open was built without the route.
+        connect(m_deps.settings, &SettingsManager::networkRouteChanged, this,
+                [this](const QString &uid) {
+            if (!m_deps.settings->networkRouteConfigured(uid))
+                return schedule();
+            if (m_reading.contains(uid)) {
+                m_keyring->cancelFor(uid);
+                abandonStart(uid, m_reading.value(uid));
+            }
+            if (m_hosts.contains(uid))
+                retireHost(uid, true);
+            else if (!m_stopping.contains(uid) && uid != m_foreground)
+                setState(uid, LiveState::NotLive);
+            schedule();
+        });
         connect(m_deps.settings, &SettingsManager::accountsChanged, this, &SessionPool::schedule);
         connect(m_deps.settings, &SettingsManager::roomNotificationModeChanged, this,
                 [this](const QString &roomId) {
@@ -292,6 +309,11 @@ SessionPool::Eligibility SessionPool::eligibility(const QString &uid) const
     SettingsManager *settings = m_deps.settings;
     if (!settings || !settings->hasSavedAccount(uid) || !settings->keepRunningFor(uid))
         return Eligibility::NoRecord;
+    // A routed account runs in the foreground only: a background handle would
+    // need the route's password from the keyring worker too, and until it has
+    // one it must not open at all rather than open direct.
+    if (settings->networkRouteConfigured(uid))
+        return Eligibility::Skip;
     if (m_storeBusy.contains(uid) || m_scheduler->permanentlyRefused(uid))
         return Eligibility::Refused;
     // Revoked this run (the foreground's or a host's own proof): only a
@@ -571,6 +593,16 @@ void SessionPool::createHost(const QString &uid, const QByteArray &mediaKeyIn,
                               << "acct=" << slugOf(uid);
         if (m_reading.contains(uid))   // setForegroundUserId() may have ended it
             abandonStart(uid, hs);
+        scrubAll();
+        return;
+    }
+
+    // A route set while the keyring read was in flight: never opened.
+    if (settings->networkRouteConfigured(uid)) {
+        qCInfo(lcSessionPool) << "a background start was refused: the account has a network route"
+                              << "acct=" << slugOf(uid);
+        abandonStart(uid, hs);
+        setState(uid, LiveState::NotLive);
         scrubAll();
         return;
     }

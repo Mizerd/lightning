@@ -551,6 +551,11 @@ set(APP_SOURCES
     src/app/CustomAppIcon.cpp
     src/app/CustomThemeStore.h
     src/app/CustomThemeStore.cpp
+    # Settings > Account > Network: the per-account proxy route.
+    src/app/NetworkRouteController.h
+    src/app/NetworkRouteController.cpp
+    src/matrix/NetworkRoute.h
+    src/matrix/NetworkRoute.cpp
     src/app/FontManager.h
     src/app/FontManager.cpp
     src/app/StormBandPainter.h
@@ -1239,6 +1244,7 @@ set(APP_QML_FILES
     qml/ChatBackgroundSettings.qml
     qml/SettingsBackupSection.qml
     qml/MediaPreviewSettings.qml
+    qml/NetworkRouteSettings.qml
     qml/ChatBackgroundDialog.qml
     qml/ThemedSurface.qml
     qml/GradientEditor.qml
@@ -1939,6 +1945,33 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME notification-context-builder
         COMMAND notification-context-builder-test)
+
+    # The per-account network route (docs/network-profiles.md): validation,
+    # where each half is kept (the password only in the SecretStore, never
+    # read back to QML), that sign-out takes it, and that every state that
+    # cannot be used reaches Rust as "unavailable", never as "none".
+    qt_add_executable(network-route-test
+        tests/NetworkRouteTest.cpp
+        src/matrix/NetworkRoute.h
+        src/matrix/NetworkRoute.cpp
+        src/app/NetworkRouteController.h
+        src/app/NetworkRouteController.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/media/MediaVisibilityStore.h
+        src/media/MediaVisibilityStore.cpp
+        src/storage/SecretStore.h
+        src/storage/InsecureFallbackSecretStore.h
+        src/storage/InsecureFallbackSecretStore.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(network-route-test PRIVATE src)
+    target_compile_definitions(network-route-test PRIVATE
+        NETWORK_ROUTE_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/NetworkRouteSettings.qml"
+        SETTINGS_SCREEN_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml")
+    target_link_libraries(network-route-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME network-route COMMAND network-route-test)
 
     qt_add_executable(custom-theme-test
         tests/CustomThemeTest.cpp
