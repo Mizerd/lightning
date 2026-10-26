@@ -521,6 +521,12 @@ private:
     // Thread composer choices from its completion popup, ":code:" ->
     // {url, body}; mutable because the send pass spends them.
     mutable QVariantMap m_threadEmoticonChoices;
+    // The custom images an edited message already shows, recovered from its
+    // sanitized html (`<img data-mx-emoticon src=mxc alt title>`, in order)
+    // onto their `:shortcode:` ranges in the edit text, so an edit keeps the
+    // images it was sent with rather than today's same-name ones.
+    static QList<EmoticonRef> emoticonRefsFromHtml(const QString &text,
+                                                   const QString &sanitizedHtml);
     static QList<EmoticonRef> shiftEmoticonRefs(const QList<EmoticonRef> &refs,
                                                 const QString &oldText,
                                                 const QString &newText);

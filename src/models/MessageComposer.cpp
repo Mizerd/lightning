@@ -796,8 +796,17 @@ void MessageComposer::sendInternal(bool allowCommands)
     if (!m_editingEventId.isEmpty()) {
         // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
-        m_client->editMessage(editTargetTimelineId(), m_editingEventId, body,
-                              mentionIds);
+        // The same custom-image pass a new message gets: the images the
+        // message was sent with (seeded by beginEdit) and any chosen since.
+        QString editBody = body;
+        QVariantMap editSpec;
+        applyOutgoingEmojiWith(editBody, editSpec, selectedEmoticonMap());
+        if (editSpec.isEmpty())
+            m_client->editMessage(editTargetTimelineId(), m_editingEventId, body,
+                                  mentionIds);
+        else
+            m_client->editMessage(editTargetTimelineId(), m_editingEventId,
+                                  editBody, mentionIds, editSpec);
     } else {
         // Attachments go first (each its own local echo), then the text as a
         // separate message, unless the text rides as a caption. The caption is
@@ -1522,6 +1531,57 @@ QVariantMap MessageComposer::selectedEmoticonMap() const
 }
 
 QList<MessageComposer::EmoticonRef>
+MessageComposer::emoticonRefsFromHtml(const QString &text,
+                                      const QString &sanitizedHtml)
+{
+    QList<EmoticonRef> refs;
+    if (sanitizedHtml.isEmpty() || text.isEmpty())
+        return refs;
+    static const QRegularExpression img(
+        QStringLiteral("<img data-mx-emoticon src=\"(mxc://[^\"]+)\"([^>]*)>"));
+    static const QRegularExpression altAttr(QStringLiteral(" alt=\"([^\"]*)\""));
+    static const QRegularExpression titleAttr(QStringLiteral(" title=\"([^\"]*)\""));
+    const auto unescape = [](QString v) {
+        v.replace(QLatin1String("&quot;"), QLatin1String("\""));
+        v.replace(QLatin1String("&lt;"), QLatin1String("<"));
+        v.replace(QLatin1String("&gt;"), QLatin1String(">"));
+        v.replace(QLatin1String("&#39;"), QLatin1String("'"));
+        v.replace(QLatin1String("&amp;"), QLatin1String("&"));
+        return v;
+    };
+    qsizetype from = 0;
+    auto it = img.globalMatch(sanitizedHtml);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        const QString attrs = m.captured(2);
+        QString key = unescape(titleAttr.match(attrs).captured(1));
+        const QString alt = unescape(altAttr.match(attrs).captured(1));
+        if (key.isEmpty())
+            key = alt;
+        // Some clients write the title as ":code:".
+        if (key.size() > 2 && key.startsWith(QLatin1Char(':'))
+            && key.endsWith(QLatin1Char(':')))
+            key = key.mid(1, key.size() - 2);
+        if (key.isEmpty())
+            continue;
+        const QString code = QLatin1Char(':') + key + QLatin1Char(':');
+        const qsizetype at = text.indexOf(code, from);
+        if (at < 0)
+            continue;
+        EmoticonRef ref;
+        ref.displayText = code;
+        ref.url = unescape(m.captured(1));
+        ref.body = (alt == key) ? QString() : alt;
+        ref.key = key;
+        ref.start = int(at);
+        ref.length = int(code.size());
+        refs.append(ref);
+        from = at + code.size();
+    }
+    return refs;
+}
+
+QList<MessageComposer::EmoticonRef>
 MessageComposer::shiftEmoticonRefs(const QList<EmoticonRef> &refs,
                                    const QString &oldText,
                                    const QString &newText)
@@ -1700,7 +1760,8 @@ void MessageComposer::beginEdit(const QString &eventId,
     // Flush the conversation's draft before the text is replaced: edit mode
     // never saves, so a pending debounce would otherwise lose the last second
     // of typing, and cancelling must find the draft to restore.
-    if (m_editingEventId.isEmpty()) {
+    const bool wasEditing = !m_editingEventId.isEmpty();
+    if (!wasEditing) {
         m_draftDebounce.stop();
         saveDraftNow();
     }
@@ -1727,6 +1788,13 @@ void MessageComposer::beginEdit(const QString &eventId,
         m_mentionRefs =
             mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
     }
+    // The draft's own image choices wait with the draft (restoreDraft brings
+    // them back on cancel); the edit gets the images the message was sent
+    // with. Without this an edit went out as plain `:shortcode:` text (live
+    // run 2026-10-26).
+    if (!wasEditing && !m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
+        m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
+    m_emoticonRefs = emoticonRefsFromHtml(m_text, sanitizedHtml);
     Q_EMIT editStateChanged();
     Q_EMIT mentionRangesChanged();
     Q_EMIT textChanged();

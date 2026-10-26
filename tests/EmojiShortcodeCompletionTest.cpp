@@ -8,6 +8,7 @@
 // acceptUnicodeEmojiCompletionAt or maybeAutoConvertShortcodeBeforeCursor
 // existed.
 
+#include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
 
@@ -70,8 +71,9 @@ public:
                            const QVariantMap &) override
     { sentBodies.append(body); }
     void editMessage(const QString &, const QString &, const QString &body,
-                     const QStringList &, const QVariantMap &) override
-    { sentBodies.append(body); }
+                     const QStringList &, const QVariantMap &spec) override
+    { sentBodies.append(body); sentSpecs.append(spec); editBodies.append(body); }
+    QStringList editBodies;
 };
 
 } // namespace
@@ -462,6 +464,51 @@ private Q_SLOTS:
         m_composer->send();
         QCOMPARE(uses.size(), 1);
         QCOMPARE(uses.at(0).value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/2"));
+    }
+
+    void anEditKeepsTheImagesTheMessageWasSentWith()
+    {
+        // PACK-LIVE-011 (live run 2026-10-26): editing a message that shows a
+        // chosen custom image sent plain ":redball:" text, because beginEdit
+        // recovered mentions but not images and the edit lane sent no emoji
+        // spec at all. The image is the one the message carried, even though
+        // no pack resolves that shortcode today.
+        m_composer->setText(QStringLiteral("draft :blob_wave:"));
+        m_composer->bindEmoticonAt(6, row(QStringLiteral("blob_wave"),
+                                          QStringLiteral("mxc://x/draft"), QString()));
+        m_composer->beginEdit(
+            QStringLiteral("$e"), QStringLiteral("hi :old_cat: there"),
+            QStringLiteral("hi <img data-mx-emoticon src=\"mxc://x/old\" "
+                           "alt=\"A cat &amp; hat\" title=\"old_cat\" height=\"20\" "
+                           "width=\"20\"> there"),
+            kRoom);
+        m_composer->setText(QStringLiteral("hi :old_cat: there!"));
+        m_composer->send();
+        QCOMPARE(m_client->editBodies.size(), 1);
+        const QVariantMap emoticons = m_client->sentSpecs.last()
+            .value(QStringLiteral("emoticons")).toMap();
+        const QVariantMap cat = emoticons.value(QStringLiteral(":old_cat:")).toMap();
+        QCOMPARE(cat.value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/old"));
+        QCOMPARE(cat.value(QStringLiteral("body")).toString(), QStringLiteral("A cat & hat"));
+    }
+
+    void cancellingAnEditGivesTheDraftItsOwnImagesBack()
+    {
+        // Memory-only drafts (no settings; the room is unknown to the client).
+        auto *drafts = new DraftStore(m_composer);   // lives as long as the composer
+        drafts->setClient(m_client);
+        m_composer->setDraftStore(drafts);
+        m_composer->setText(QStringLiteral("draft :blob_wave:"));
+        m_composer->bindEmoticonAt(6, row(QStringLiteral("blob_wave"),
+                                          QStringLiteral("mxc://x/draft"), QString()));
+        m_composer->beginEdit(QStringLiteral("$e"), QStringLiteral("hi"),
+                              QStringLiteral("hi"), kRoom);
+        m_composer->cancelReplyOrEdit();
+        QCOMPARE(m_composer->text(), QStringLiteral("draft :blob_wave:"));
+        const QVariantList selected = m_composer->selectedEmoticons();
+        QCOMPARE(selected.size(), 1);
+        QCOMPARE(selected.at(0).toMap().value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://x/draft"));
     }
 
     void aThreadPopupChoiceIsSentByTheThreadAndSpent()
