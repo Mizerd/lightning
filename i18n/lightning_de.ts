@@ -6253,94 +6253,94 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+284"/>
         <location line="+142"/>
         <source>Colour group</source>
-        <translation type="unfinished"></translation>
+        <translation>Farbgruppe</translation>
     </message>
     <message>
         <location line="-23"/>
         <location line="+107"/>
         <source>%1 is not an editable colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ist keine bearbeitbare Farbe.</translation>
     </message>
     <message>
         <location line="-102"/>
         <source>Choose at least two elements to group.</source>
-        <translation type="unfinished"></translation>
+        <translation>Wählen Sie mindestens zwei Elemente zum Gruppieren.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That is not a colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>Das ist keine Farbe.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Create a theme first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Erstellen Sie zuerst ein Design.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This theme already has the maximum number of colour groups.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Design hat bereits die maximale Anzahl an Farbgruppen.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 has a gradient. Remove it first, or leave it out of the group: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 hat einen Verlauf. Entfernen Sie ihn zuerst oder lassen Sie es aus der Gruppe: Eine Gruppe verknüpft nur Volltonfarben.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+96"/>
         <source>%1 is already in another group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ist bereits in einer anderen Gruppe.</translation>
     </message>
     <message>
         <location line="-75"/>
         <source>Group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Those elements could not be grouped.</source>
-        <translation type="unfinished"></translation>
+        <translation>Diese Elemente konnten nicht gruppiert werden.</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Rename group to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe in %1 umbenennen</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 has a gradient. Remove it first: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 hat einen Verlauf. Entfernen Sie ihn zuerst: Eine Gruppe verknüpft nur Volltonfarben.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 is already in this group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ist bereits in dieser Gruppe.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>That group no longer exists.</source>
-        <translation type="unfinished"></translation>
+        <translation>Diese Gruppe existiert nicht mehr.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Add %1 to %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 zu %2 hinzufügen</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That element could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Element konnte nicht hinzugefügt werden.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Edit %1 on its own</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 einzeln bearbeiten</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Ungroup %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe %1 auflösen</translation>
     </message>
 </context>
 <context>
@@ -11052,27 +11052,27 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+16"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished"></translation>
+        <translation>Eingehende Raumeinladungen erlauben</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Your homeserver does not support blocking invitations, so this cannot be changed here. You can still mute invitation notifications or ignore a person.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ihr Homeserver unterstützt das Blockieren von Einladungen nicht, daher lässt sich das hier nicht ändern. Sie können Einladungsbenachrichtigungen weiterhin stummschalten oder eine Person ignorieren.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Could not ask your homeserver whether it can block invitations. Try again when you are connected.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ihr Homeserver konnte nicht gefragt werden, ob er Einladungen blockieren kann. Versuchen Sie es erneut, wenn Sie verbunden sind.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Checking whether your homeserver can block invitations…</source>
-        <translation type="unfinished"></translation>
+        <translation>Es wird geprüft, ob Ihr Homeserver Einladungen blockieren kann…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saving…</source>
-        <translation type="unfinished">Wird gespeichert …</translation>
+        <translation>Wird gespeichert…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -11083,12 +11083,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-16"/>
         <source>Your homeserver rejects new invitations to this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ihr Homeserver lehnt neue Einladungen an dieses Konto ab.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Turn off to have your homeserver reject new invitations to this account. Saved in your account, so other apps follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ausschalten, damit Ihr Homeserver neue Einladungen an dieses Konto ablehnt. Wird in Ihrem Konto gespeichert, sodass andere Apps sich daran halten.</translation>
     </message>
 </context>
 <context>
@@ -21370,22 +21370,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-8104"/>
         <source>Collapse %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 einklappen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ausklappen</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sub-sections shown</source>
-        <translation type="unfinished"></translation>
+        <translation>Unterabschnitte eingeblendet</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sub-sections hidden</source>
-        <translation type="unfinished"></translation>
+        <translation>Unterabschnitte ausgeblendet</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -21735,7 +21735,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+5"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time.</source>
-        <translation>Lightnings eigenes Layout. Nheko kompakt ist ein dichteres Layout, von dem Sie jederzeit zurückwechseln können.</translation>
+        <translation>Das eigene Layout von Lightning. Nheko kompakt ist ein dichteres Layout, von dem Sie jederzeit zurückwechseln können.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26442,17 +26442,17 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location filename="../qml/SpaceTextEditRow.qml" line="+33"/>
         <source>Save</source>
-        <translation type="unfinished">Speichern</translation>
+        <translation>Speichern</translation>
     </message>
     <message>
         <location line="+80"/>
         <source>Saving</source>
-        <translation type="unfinished"></translation>
+        <translation>Wird gespeichert</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No changes to save</source>
-        <translation type="unfinished"></translation>
+        <translation>Keine Änderungen zu speichern</translation>
     </message>
 </context>
 <context>
@@ -26844,33 +26844,33 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message numerus="yes">
         <location line="+11"/>
         <source>Copied into %n standard pack(s) and turned on everywhere. Your older pack is still here.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>In %n Standardpaket kopiert und überall eingeschaltet. Ihr älteres Paket ist noch da.</numerusform>
+            <numerusform>In %n Standardpakete kopiert und überall eingeschaltet. Ihr älteres Paket ist noch da.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Partly done: %n pack(s) were written but not all steps finished. Try again to complete it; nothing is copied twice.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Teilweise erledigt: %n Paket wurde geschrieben, aber nicht alle Schritte wurden abgeschlossen. Versuchen Sie es erneut; nichts wird doppelt kopiert.</numerusform>
+            <numerusform>Teilweise erledigt: %n Pakete wurden geschrieben, aber nicht alle Schritte wurden abgeschlossen. Versuchen Sie es erneut; nichts wird doppelt kopiert.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server did not allow creating the room. Your older pack still works.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ihr Server hat das Erstellen des Raums nicht erlaubt. Ihr älteres Paket funktioniert weiterhin.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is nothing to copy yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Es gibt noch nichts zu kopieren.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That did not work. Your older pack is unchanged; try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>Das hat nicht geklappt. Ihr älteres Paket ist unverändert; versuchen Sie es später erneut.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26926,89 +26926,89 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+11"/>
         <source>Use as</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwenden als</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>Emoji und Sticker</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur Emoji</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur Sticker</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>Wofür das Paket gedacht ist</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This pack uses an older format. Changes are saved in that format so older apps keep working.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Paket verwendet ein älteres Format. Änderungen werden in diesem Format gespeichert, damit ältere Apps weiter funktionieren.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This is your older-format pack. You can copy it into standard packs that other apps and your other devices understand. The first time, this creates a private room named &quot;My emoji and stickers&quot; to hold them. This pack is kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dies ist Ihr Paket im älteren Format. Sie können es in Standardpakete kopieren, die andere Apps und Ihre anderen Geräte verstehen. Beim ersten Mal wird dafür ein privater Raum namens &quot;My emoji and stickers&quot; erstellt. Dieses Paket bleibt erhalten.</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n emoji-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Bild nur als Emoji</numerusform>
+            <numerusform>%n Bilder nur als Emoji</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Bild nur als Sticker</numerusform>
+            <numerusform>%n Bilder nur als Sticker</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) used as both</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Bild für beides</numerusform>
+            <numerusform>%n Bilder für beides</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New packs: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Neue Pakete: %1.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) with invalid names stay here until renamed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Bild mit ungültigem Namen bleibt hier, bis es umbenannt wird.</numerusform>
+            <numerusform>%n Bilder mit ungültigen Namen bleiben hier, bis sie umbenannt werden.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Copy into standard packs</source>
-        <translation type="unfinished"></translation>
+        <translation>In Standardpakete kopieren</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move to standard packs…</source>
-        <translation type="unfinished"></translation>
+        <translation>In Standardpakete übernehmen…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Cancel</source>
-        <translation type="unfinished">Abbrechen</translation>
+        <translation>Abbrechen</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27018,22 +27018,22 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+132"/>
         <source>Invalid name</source>
-        <translation type="unfinished"></translation>
+        <translation>Ungültiger Name</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This name cannot be typed as a shortcode. Rename it to repair it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieser Name lässt sich nicht als Kurzcode eingeben. Benennen Sie ihn um, um das zu beheben.</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Describe the image</source>
-        <translation type="unfinished"></translation>
+        <translation>Bild beschreiben</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image description</source>
-        <translation type="unfinished"></translation>
+        <translation>Bildbeschreibung</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -27059,12 +27059,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+0"/>
         <source>Describe</source>
-        <translation type="unfinished"></translation>
+        <translation>Beschreiben</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>What screen readers and other apps say for this image</source>
-        <translation type="unfinished"></translation>
+        <translation>Was Bildschirmleser und andere Apps zu diesem Bild sagen</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -27084,12 +27084,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+15"/>
         <source>Remove every image from this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Alle Bilder aus diesem Paket entfernen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Empty pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Paket leeren</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27114,7 +27114,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+15"/>
         <source>This removes every image from the pack for everyone who uses it. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>Damit werden alle Bilder für alle, die das Paket nutzen, entfernt. Bereits gesendete Nachrichten behalten ihre Bilder, und die Bilder selbst werden nicht vom Server gelöscht.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27137,7 +27137,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="-3"/>
         <source>Names can be at most 100 characters (this one has %1).</source>
-        <translation type="unfinished"></translation>
+        <translation>Namen dürfen höchstens 100 Zeichen lang sein (dieser hat %1).</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -27323,47 +27323,47 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="-141"/>
         <source>you are not in its room</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie sind nicht in seinem Raum</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>this pack no longer exists</source>
-        <translation type="unfinished"></translation>
+        <translation>dieses Paket existiert nicht mehr</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you cannot see this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie können dieses Paket nicht sehen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>could not be loaded</source>
-        <translation type="unfinished"></translation>
+        <translation>konnte nicht geladen werden</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open, its Spaces and the ones you turned on are listed here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Pakete eines Raums funktionieren in diesem Raum. Schalten Sie „Überall verwenden“ ein, um ein Paket in jedem Raum zu nutzen. Hier stehen die Pakete des geöffneten Raums, seiner Spaces und die, die Sie eingeschaltet haben.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Pack images are stored as regular Matrix media and are visible to the hosting server, including when you use them in encrypted chats.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paketbilder werden als normale Medien in Matrix gespeichert und sind für den hostenden Server sichtbar, auch wenn Sie sie in verschlüsselten Chats verwenden.</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Space pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Space-Paket</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>older format</source>
-        <translation type="unfinished"></translation>
+        <translation>älteres Format</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>turned on in an older app</source>
-        <translation type="unfinished"></translation>
+        <translation>in einer älteren App eingeschaltet</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -27374,32 +27374,32 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+40"/>
         <location line="+1"/>
         <source>New pack name</source>
-        <translation type="unfinished"></translation>
+        <translation>Name des neuen Pakets</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>Emoji und Sticker</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur Emoji</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur Sticker</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>Wofür das Paket gedacht ist</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Create pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Paket erstellen</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -27434,27 +27434,27 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>Saved. Older apps on your other devices may not see this change yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeichert. Ältere Apps auf Ihren anderen Geräten sehen diese Änderung womöglich noch nicht.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paket erstellt. Fügen Sie Bilder über die Stickerauswahl oder „Verwalten“ hinzu.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You do not have permission to add packs to this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie dürfen diesem Raum keine Pakete hinzufügen.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A pack with that key already exists. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ein Paket mit diesem Schlüssel existiert bereits. Versuchen Sie es erneut.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The pack could not be created.</source>
-        <translation type="unfinished"></translation>
+        <translation>Das Paket konnte nicht erstellt werden.</translation>
     </message>
 </context>
 <context>
@@ -27640,9 +27640,9 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location filename="../qml/ThemeEditorDialog.qml" line="+346"/>
         <source>Linked %n element(s)</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Element verknüpft</numerusform>
+            <numerusform>%n Elemente verknüpft</numerusform>
         </translation>
     </message>
     <message>
@@ -27913,58 +27913,58 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+14"/>
         <source>Done selecting</source>
-        <translation type="unfinished"></translation>
+        <translation>Auswahl fertig</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Select elements to link</source>
-        <translation type="unfinished"></translation>
+        <translation>Elemente zum Verknüpfen auswählen</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Choose two or more elements and give them one shared colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Wählen Sie zwei oder mehr Elemente und geben Sie ihnen eine gemeinsame Farbe</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Click elements in the list or the preview to select them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Klicken Sie Elemente in der Liste oder der Vorschau an, um sie auszuwählen.</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n element(s) selected</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Element ausgewählt</numerusform>
+            <numerusform>%n Elemente ausgewählt</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Also changes %n element(s) that follow them: %1</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Ändert auch %n Element, das ihnen folgt: %1</numerusform>
+            <numerusform>Ändert auch %n Elemente, die ihnen folgen: %1</numerusform>
         </translation>
     </message>
     <message>
         <location line="+15"/>
         <source>%1 has a gradient. A group links solid colours: remove the gradient first or leave it out.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 hat einen Verlauf. Eine Gruppe verknüpft Volltonfarben: Entfernen Sie zuerst den Verlauf oder lassen Sie es weg.</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Starts with %1 (the colour of %2)</source>
-        <translation type="unfinished"></translation>
+        <translation>Beginnt mit %1 (der Farbe von %2)</translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
         <source>Move %n element(s) out of their current group</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Element aus seiner aktuellen Gruppe nehmen</numerusform>
+            <numerusform>%n Elemente aus ihrer aktuellen Gruppe nehmen</numerusform>
         </translation>
     </message>
     <message>
@@ -27972,47 +27972,47 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+6"/>
         <location line="+189"/>
         <source>Group name</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppenname</translation>
     </message>
     <message>
         <location line="-175"/>
         <source>Link colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Farben verknüpfen</translation>
     </message>
     <message>
         <location line="+82"/>
         <source>Colour groups</source>
-        <translation type="unfinished"></translation>
+        <translation>Farbgruppen</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Colour group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Farbgruppe %1</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>Rename</source>
-        <translation type="unfinished">Umbenennen</translation>
+        <translation>Umbenennen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rename %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 umbenennen</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Ungroup</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe auflösen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ungroup %1, keeping its colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe %1 auflösen, Farben behalten</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Ungrouped %1; the colours stay</source>
-        <translation type="unfinished"></translation>
+        <translation>Gruppe %1 aufgelöst; die Farben bleiben</translation>
     </message>
     <message>
         <location line="+282"/>
@@ -28032,7 +28032,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+24"/>
         <source>linked: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>verknüpft: %1</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -28113,20 +28113,20 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+35"/>
         <source>Linked in %1: this colour changes all %n element(s): %2</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Verknüpft in %1: Diese Farbe ändert %n Element: %2</numerusform>
+            <numerusform>Verknüpft in %1: Diese Farbe ändert alle %n Elemente: %2</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Edit this element only</source>
-        <translation type="unfinished"></translation>
+        <translation>Nur dieses Element bearbeiten</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 now has its own colour</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 hat jetzt eine eigene Farbe</translation>
     </message>
     <message>
         <location line="+96"/>
@@ -30951,7 +30951,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location filename="../qml/UserPicker.qml" line="+31"/>
         <source>Recent conversations</source>
-        <translation type="unfinished"></translation>
+        <translation>Letzte Unterhaltungen</translation>
     </message>
     <message>
         <location line="+50"/>

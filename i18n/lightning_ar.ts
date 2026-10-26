@@ -6180,94 +6180,94 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+284"/>
         <location line="+142"/>
         <source>Colour group</source>
-        <translation type="unfinished"></translation>
+        <translation>مجموعة ألوان</translation>
     </message>
     <message>
         <location line="-23"/>
         <location line="+107"/>
         <source>%1 is not an editable colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ليس لونًا قابلًا للتعديل.</translation>
     </message>
     <message>
         <location line="-102"/>
         <source>Choose at least two elements to group.</source>
-        <translation type="unfinished"></translation>
+        <translation>اختر عنصرين على الأقل لتجميعهما.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That is not a colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>هذا ليس لونًا.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Create a theme first.</source>
-        <translation type="unfinished"></translation>
+        <translation>أنشئ سمة أولًا.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This theme already has the maximum number of colour groups.</source>
-        <translation type="unfinished"></translation>
+        <translation>تحتوي هذه السمة بالفعل على الحد الأقصى من مجموعات الألوان.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 has a gradient. Remove it first, or leave it out of the group: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>يحتوي %1 على تدرّج. أزله أولًا أو اتركه خارج المجموعة: المجموعة تربط الألوان المصمتة فقط.</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+96"/>
         <source>%1 is already in another group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 موجود بالفعل في مجموعة أخرى.</translation>
     </message>
     <message>
         <location line="-75"/>
         <source>Group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>المجموعة %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Those elements could not be grouped.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر تجميع هذه العناصر.</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Rename group to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>إعادة تسمية المجموعة إلى %1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 has a gradient. Remove it first: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>يحتوي %1 على تدرّج. أزله أولًا: المجموعة تربط الألوان المصمتة فقط.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 is already in this group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 موجود بالفعل في هذه المجموعة.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>That group no longer exists.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم تعد هذه المجموعة موجودة.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Add %1 to %2</source>
-        <translation type="unfinished"></translation>
+        <translation>إضافة %1 إلى %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That element could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّرت إضافة هذا العنصر.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Edit %1 on its own</source>
-        <translation type="unfinished"></translation>
+        <translation>تعديل %1 بمفرده</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Ungroup %1</source>
-        <translation type="unfinished"></translation>
+        <translation>فك تجميع %1</translation>
     </message>
     <message>
         <location line="-2231"/>
@@ -11183,27 +11183,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished"></translation>
+        <translation>السماح بدعوات الغرف الواردة</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Your homeserver does not support blocking invitations, so this cannot be changed here. You can still mute invitation notifications or ignore a person.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يدعم خادمك المنزلي حظر الدعوات، لذا لا يمكن تغيير هذا هنا. لا يزال بإمكانك كتم إشعارات الدعوات أو تجاهل شخص.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Could not ask your homeserver whether it can block invitations. Try again when you are connected.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر سؤال خادمك المنزلي عمّا إذا كان يستطيع حظر الدعوات. حاول مجددًا عند الاتصال.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Checking whether your homeserver can block invitations…</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ التحقق مما إذا كان خادمك المنزلي يستطيع حظر الدعوات…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saving…</source>
-        <translation type="unfinished">جارٍ الحفظ…</translation>
+        <translation>جارٍ الحفظ…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -11214,12 +11214,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-16"/>
         <source>Your homeserver rejects new invitations to this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>يرفض خادمك المنزلي الدعوات الجديدة إلى هذا الحساب.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Turn off to have your homeserver reject new invitations to this account. Saved in your account, so other apps follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>أوقف التشغيل ليرفض خادمك المنزلي الدعوات الجديدة إلى هذا الحساب. يُحفظ في حسابك، لذا تتبعه التطبيقات الأخرى.</translation>
     </message>
 </context>
 <context>
@@ -23210,22 +23210,22 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     <message>
         <location line="+551"/>
         <source>Collapse %1</source>
-        <translation type="unfinished"></translation>
+        <translation>طي %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand %1</source>
-        <translation type="unfinished"></translation>
+        <translation>توسيع %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sub-sections shown</source>
-        <translation type="unfinished"></translation>
+        <translation>الأقسام الفرعية معروضة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sub-sections hidden</source>
-        <translation type="unfinished"></translation>
+        <translation>الأقسام الفرعية مخفية</translation>
     </message>
     <message>
         <location line="+804"/>
@@ -26741,17 +26741,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceTextEditRow.qml" line="+33"/>
         <source>Save</source>
-        <translation type="unfinished">حفظ</translation>
+        <translation>حفظ</translation>
     </message>
     <message>
         <location line="+80"/>
         <source>Saving</source>
-        <translation type="unfinished"></translation>
+        <translation>جارٍ الحفظ</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No changes to save</source>
-        <translation type="unfinished"></translation>
+        <translation>لا تغييرات للحفظ</translation>
     </message>
 </context>
 <context>
@@ -27151,41 +27151,41 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+11"/>
         <source>Copied into %n standard pack(s) and turned on everywhere. Your older pack is still here.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
+            <numerusform>نُسخت إلى %n حزمة قياسية وفُعّلت في كل مكان. لا تزال حزمتك القديمة هنا.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Partly done: %n pack(s) were written but not all steps finished. Try again to complete it; nothing is copied twice.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
+            <numerusform>اكتمل جزئيًا: كُتبت %n حزمة لكن لم تكتمل كل الخطوات. حاول مجددًا لإكمالها؛ لن يُنسخ شيء مرتين.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server did not allow creating the room. Your older pack still works.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم يسمح خادمك بإنشاء الغرفة. لا تزال حزمتك القديمة تعمل.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is nothing to copy yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يوجد ما يُنسخ بعد.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That did not work. Your older pack is unchanged; try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>لم ينجح ذلك. حزمتك القديمة لم تتغير؛ حاول لاحقًا.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -27241,105 +27241,105 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+11"/>
         <source>Use as</source>
-        <translation type="unfinished"></translation>
+        <translation>استخدام كـ</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>رموز تعبيرية وملصقات</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>رموز تعبيرية فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>ملصقات فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>الغرض من الحزمة</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This pack uses an older format. Changes are saved in that format so older apps keep working.</source>
-        <translation type="unfinished"></translation>
+        <translation>تستخدم هذه الحزمة تنسيقًا أقدم. تُحفظ التغييرات بذلك التنسيق كي تستمر التطبيقات الأقدم في العمل.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This is your older-format pack. You can copy it into standard packs that other apps and your other devices understand. The first time, this creates a private room named &quot;My emoji and stickers&quot; to hold them. This pack is kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>هذه حزمتك بالتنسيق الأقدم. يمكنك نسخها إلى حزم قياسية تفهمها التطبيقات الأخرى وأجهزتك الأخرى. في المرة الأولى يُنشئ هذا غرفة خاصة باسم &quot;My emoji and stickers&quot; لحفظها. تبقى هذه الحزمة.</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n emoji-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
+            <numerusform>%n صورة للرموز التعبيرية فقط</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
+            <numerusform>%n صورة للملصقات فقط</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) used as both</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
+            <numerusform>%n صورة تُستخدم للنوعين</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New packs: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>الحزم الجديدة: %1.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) with invalid names stay here until renamed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
+            <numerusform>تبقى %n صورة ذات أسماء غير صالحة هنا حتى تُعاد تسميتها.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Copy into standard packs</source>
-        <translation type="unfinished"></translation>
+        <translation>نسخ إلى حزم قياسية</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move to standard packs…</source>
-        <translation type="unfinished"></translation>
+        <translation>نقل إلى حزم قياسية…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Cancel</source>
-        <translation type="unfinished">إلغاء</translation>
+        <translation>إلغاء</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27349,22 +27349,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+132"/>
         <source>Invalid name</source>
-        <translation type="unfinished"></translation>
+        <translation>اسم غير صالح</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This name cannot be typed as a shortcode. Rename it to repair it.</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يمكن كتابة هذا الاسم كرمز مختصر. أعد تسميته لإصلاحه.</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Describe the image</source>
-        <translation type="unfinished"></translation>
+        <translation>صف الصورة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image description</source>
-        <translation type="unfinished"></translation>
+        <translation>وصف الصورة</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -27390,12 +27390,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Describe</source>
-        <translation type="unfinished"></translation>
+        <translation>وصف</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>What screen readers and other apps say for this image</source>
-        <translation type="unfinished"></translation>
+        <translation>ما تقوله قارئات الشاشة والتطبيقات الأخرى عن هذه الصورة</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -27415,12 +27415,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Remove every image from this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>إزالة كل الصور من هذه الحزمة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Empty pack</source>
-        <translation type="unfinished"></translation>
+        <translation>إفراغ الحزمة</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27445,7 +27445,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>This removes every image from the pack for everyone who uses it. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>يزيل هذا كل الصور من الحزمة لكل من يستخدمها. تحتفظ الرسائل المرسلة بصورها، ولا تُحذف الصور نفسها من الخادم.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27468,7 +27468,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-3"/>
         <source>Names can be at most 100 characters (this one has %1).</source>
-        <translation type="unfinished"></translation>
+        <translation>يمكن أن تتكون الأسماء من 100 حرف كحد أقصى (هذا الاسم يحتوي على %1).</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -27690,47 +27690,47 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-141"/>
         <source>you are not in its room</source>
-        <translation type="unfinished"></translation>
+        <translation>لست في غرفتها</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>this pack no longer exists</source>
-        <translation type="unfinished"></translation>
+        <translation>لم تعد هذه الحزمة موجودة</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you cannot see this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>لا يمكنك رؤية هذه الحزمة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>could not be loaded</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر التحميل</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open, its Spaces and the ones you turned on are listed here.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعمل حزم الغرفة داخل تلك الغرفة. فعّل «استخدام في كل مكان» لاستخدام حزمة في كل غرفة. تُدرج هنا حزم الغرفة المفتوحة ومساحاتها والحزم التي فعّلتها.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Pack images are stored as regular Matrix media and are visible to the hosting server, including when you use them in encrypted chats.</source>
-        <translation type="unfinished"></translation>
+        <translation>تُخزَّن صور الحزم كوسائط Matrix عادية ويراها الخادم المستضيف، حتى عند استخدامها في المحادثات المشفرة.</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Space pack</source>
-        <translation type="unfinished"></translation>
+        <translation>حزمة المساحة</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>older format</source>
-        <translation type="unfinished"></translation>
+        <translation>تنسيق أقدم</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>turned on in an older app</source>
-        <translation type="unfinished"></translation>
+        <translation>مفعّلة في تطبيق أقدم</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -27741,32 +27741,32 @@ Note: importing keys does not verify this session.</source>
         <location line="+40"/>
         <location line="+1"/>
         <source>New pack name</source>
-        <translation type="unfinished"></translation>
+        <translation>اسم الحزمة الجديدة</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>رموز تعبيرية وملصقات</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>رموز تعبيرية فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>ملصقات فقط</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>الغرض من الحزمة</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Create pack</source>
-        <translation type="unfinished"></translation>
+        <translation>إنشاء حزمة</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -27801,27 +27801,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Saved. Older apps on your other devices may not see this change yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>تم الحفظ. قد لا ترى التطبيقات الأقدم على أجهزتك الأخرى هذا التغيير بعد.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
-        <translation type="unfinished"></translation>
+        <translation>أُنشئت الحزمة. أضف صورًا من منتقي الملصقات أو من «إدارة».</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You do not have permission to add packs to this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>ليست لديك صلاحية إضافة حزم إلى هذه الغرفة.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A pack with that key already exists. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>توجد حزمة بهذا المفتاح بالفعل. حاول مجددًا.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The pack could not be created.</source>
-        <translation type="unfinished"></translation>
+        <translation>تعذّر إنشاء الحزمة.</translation>
     </message>
 </context>
 <context>
@@ -28035,13 +28035,13 @@ Note: importing keys does not verify this session.</source>
         <location line="-235"/>
         <source>Linked %n element(s)</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>رُبط %n عنصر</numerusform>
+            <numerusform>رُبط %n عنصر</numerusform>
+            <numerusform>رُبط %n عنصر</numerusform>
+            <numerusform>رُبط %n عنصر</numerusform>
+            <numerusform>رُبط %n عنصر</numerusform>
+            <numerusform>رُبط %n عنصر</numerusform>
         </translation>
     </message>
     <message>
@@ -28227,70 +28227,70 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+475"/>
         <source>Done selecting</source>
-        <translation type="unfinished"></translation>
+        <translation>تم التحديد</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Select elements to link</source>
-        <translation type="unfinished"></translation>
+        <translation>حدد عناصر لربطها</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Choose two or more elements and give them one shared colour</source>
-        <translation type="unfinished"></translation>
+        <translation>اختر عنصرين أو أكثر وامنحها لونًا مشتركًا واحدًا</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Click elements in the list or the preview to select them.</source>
-        <translation type="unfinished"></translation>
+        <translation>انقر العناصر في القائمة أو المعاينة لتحديدها.</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n element(s) selected</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>تم تحديد %n عنصر</numerusform>
+            <numerusform>تم تحديد %n عنصر</numerusform>
+            <numerusform>تم تحديد %n عنصر</numerusform>
+            <numerusform>تم تحديد %n عنصر</numerusform>
+            <numerusform>تم تحديد %n عنصر</numerusform>
+            <numerusform>تم تحديد %n عنصر</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Also changes %n element(s) that follow them: %1</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
+            <numerusform>يغيّر أيضًا %n عنصر يتبعها: %1</numerusform>
         </translation>
     </message>
     <message>
         <location line="+15"/>
         <source>%1 has a gradient. A group links solid colours: remove the gradient first or leave it out.</source>
-        <translation type="unfinished"></translation>
+        <translation>يحتوي %1 على تدرّج. المجموعة تربط الألوان المصمتة: أزل التدرّج أولًا أو اتركه خارجها.</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Starts with %1 (the colour of %2)</source>
-        <translation type="unfinished"></translation>
+        <translation>يبدأ بـ %1 (لون %2)</translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
         <source>Move %n element(s) out of their current group</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
+            <numerusform>نقل %n عنصر من مجموعته الحالية</numerusform>
         </translation>
     </message>
     <message>
@@ -28298,75 +28298,75 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <location line="+189"/>
         <source>Group name</source>
-        <translation type="unfinished"></translation>
+        <translation>اسم المجموعة</translation>
     </message>
     <message>
         <location line="-175"/>
         <source>Link colours</source>
-        <translation type="unfinished"></translation>
+        <translation>ربط الألوان</translation>
     </message>
     <message>
         <location line="+82"/>
         <source>Colour groups</source>
-        <translation type="unfinished"></translation>
+        <translation>مجموعات الألوان</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Colour group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>مجموعة الألوان %1</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>Rename</source>
-        <translation type="unfinished">إعادة تسمية</translation>
+        <translation>إعادة التسمية</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rename %1</source>
-        <translation type="unfinished"></translation>
+        <translation>إعادة تسمية %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Ungroup</source>
-        <translation type="unfinished"></translation>
+        <translation>فك التجميع</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ungroup %1, keeping its colours</source>
-        <translation type="unfinished"></translation>
+        <translation>فك تجميع %1 مع الإبقاء على ألوانها</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Ungrouped %1; the colours stay</source>
-        <translation type="unfinished"></translation>
+        <translation>فُك تجميع %1؛ تبقى الألوان</translation>
     </message>
     <message>
         <location line="+310"/>
         <source>linked: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>مرتبط: %1</translation>
     </message>
     <message numerus="yes">
         <location line="+578"/>
         <source>Linked in %1: this colour changes all %n element(s): %2</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
+            <numerusform>مرتبط في %1: يغيّر هذا اللون كل العناصر وعددها %n: %2</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Edit this element only</source>
-        <translation type="unfinished"></translation>
+        <translation>تعديل هذا العنصر فقط</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 now has its own colour</source>
-        <translation type="unfinished"></translation>
+        <translation>أصبح لـ %1 لونه الخاص</translation>
     </message>
     <message>
         <location line="+221"/>
@@ -31458,7 +31458,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UserPicker.qml" line="+31"/>
         <source>Recent conversations</source>
-        <translation type="unfinished"></translation>
+        <translation>المحادثات الأخيرة</translation>
     </message>
     <message>
         <location line="+50"/>

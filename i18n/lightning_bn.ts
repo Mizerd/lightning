@@ -6112,94 +6112,94 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+284"/>
         <location line="+142"/>
         <source>Colour group</source>
-        <translation type="unfinished"></translation>
+        <translation>রঙের গোষ্ঠী</translation>
     </message>
     <message>
         <location line="-23"/>
         <location line="+107"/>
         <source>%1 is not an editable colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 সম্পাদনাযোগ্য রং নয়।</translation>
     </message>
     <message>
         <location line="-102"/>
         <source>Choose at least two elements to group.</source>
-        <translation type="unfinished"></translation>
+        <translation>গোষ্ঠী করতে অন্তত দুটি উপাদান বেছে নিন।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That is not a colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>এটি কোনো রং নয়।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Create a theme first.</source>
-        <translation type="unfinished"></translation>
+        <translation>আগে একটি থিম তৈরি করুন।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This theme already has the maximum number of colour groups.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই থিমে ইতিমধ্যে সর্বোচ্চ সংখ্যক রঙের গোষ্ঠী আছে।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 has a gradient. Remove it first, or leave it out of the group: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এ গ্রেডিয়েন্ট আছে। আগে সেটি সরান, অথবা গোষ্ঠীর বাইরে রাখুন: গোষ্ঠী শুধু একরঙা রং যুক্ত করে।</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+96"/>
         <source>%1 is already in another group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ইতিমধ্যে অন্য গোষ্ঠীতে আছে।</translation>
     </message>
     <message>
         <location line="-75"/>
         <source>Group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>গোষ্ঠী %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Those elements could not be grouped.</source>
-        <translation type="unfinished"></translation>
+        <translation>ওই উপাদানগুলো গোষ্ঠীবদ্ধ করা গেল না।</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Rename group to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>গোষ্ঠীর নাম বদলে %1 করুন</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 has a gradient. Remove it first: a group links solid colours only.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এ গ্রেডিয়েন্ট আছে। আগে সেটি সরান: গোষ্ঠী শুধু একরঙা রং যুক্ত করে।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 is already in this group.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ইতিমধ্যে এই গোষ্ঠীতে আছে।</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>That group no longer exists.</source>
-        <translation type="unfinished"></translation>
+        <translation>ওই গোষ্ঠী আর নেই।</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Add %1 to %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-কে %2-এ যোগ করুন</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That element could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>ওই উপাদানটি যোগ করা গেল না।</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Edit %1 on its own</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 আলাদাভাবে সম্পাদনা করুন</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Ungroup %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 গোষ্ঠীমুক্ত করুন</translation>
     </message>
     <message>
         <location line="-2231"/>
@@ -11043,27 +11043,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished"></translation>
+        <translation>আগত রুমের আমন্ত্রণ অনুমতি দিন</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Your homeserver does not support blocking invitations, so this cannot be changed here. You can still mute invitation notifications or ignore a person.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার হোমসার্ভার আমন্ত্রণ ব্লক করা সমর্থন করে না, তাই এটি এখানে বদলানো যায় না। আপনি এখনও আমন্ত্রণের বিজ্ঞপ্তি মিউট করতে বা কাউকে উপেক্ষা করতে পারেন।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Could not ask your homeserver whether it can block invitations. Try again when you are connected.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার হোমসার্ভার আমন্ত্রণ ব্লক করতে পারে কি না জিজ্ঞেস করা গেল না। সংযুক্ত হলে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Checking whether your homeserver can block invitations…</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার হোমসার্ভার আমন্ত্রণ ব্লক করতে পারে কি না দেখা হচ্ছে…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saving…</source>
-        <translation type="unfinished">সংরক্ষণ হচ্ছে…</translation>
+        <translation>সংরক্ষণ করা হচ্ছে…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -11074,12 +11074,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-16"/>
         <source>Your homeserver rejects new invitations to this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার হোমসার্ভার এই অ্যাকাউন্টে নতুন আমন্ত্রণ প্রত্যাখ্যান করে।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Turn off to have your homeserver reject new invitations to this account. Saved in your account, so other apps follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>বন্ধ করলে আপনার হোমসার্ভার এই অ্যাকাউন্টে নতুন আমন্ত্রণ প্রত্যাখ্যান করবে। এটি আপনার অ্যাকাউন্টে সংরক্ষিত থাকে, তাই অন্য অ্যাপও তা মানে।</translation>
     </message>
 </context>
 <context>
@@ -22918,22 +22918,22 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="+551"/>
         <source>Collapse %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 সংকুচিত করুন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 প্রসারিত করুন</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sub-sections shown</source>
-        <translation type="unfinished"></translation>
+        <translation>উপবিভাগ দেখানো হচ্ছে</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sub-sections hidden</source>
-        <translation type="unfinished"></translation>
+        <translation>উপবিভাগ লুকানো</translation>
     </message>
     <message>
         <location line="+804"/>
@@ -26433,17 +26433,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceTextEditRow.qml" line="+33"/>
         <source>Save</source>
-        <translation type="unfinished">সংরক্ষণ করুন</translation>
+        <translation>সংরক্ষণ</translation>
     </message>
     <message>
         <location line="+80"/>
         <source>Saving</source>
-        <translation type="unfinished"></translation>
+        <translation>সংরক্ষণ হচ্ছে</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No changes to save</source>
-        <translation type="unfinished"></translation>
+        <translation>সংরক্ষণের মতো কোনো পরিবর্তন নেই</translation>
     </message>
 </context>
 <context>
@@ -26835,33 +26835,33 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+11"/>
         <source>Copied into %n standard pack(s) and turned on everywhere. Your older pack is still here.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি স্ট্যান্ডার্ড প্যাকে কপি হয়েছে ও সব জায়গায় চালু হয়েছে। আপনার পুরোনো প্যাক এখনও আছে।</numerusform>
+            <numerusform>%nটি স্ট্যান্ডার্ড প্যাকে কপি হয়েছে ও সব জায়গায় চালু হয়েছে। আপনার পুরোনো প্যাক এখনও আছে।</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Partly done: %n pack(s) were written but not all steps finished. Try again to complete it; nothing is copied twice.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>আংশিক সম্পন্ন: %nটি প্যাক লেখা হয়েছে কিন্তু সব ধাপ শেষ হয়নি। সম্পূর্ণ করতে আবার চেষ্টা করুন; কিছুই দুবার কপি হবে না।</numerusform>
+            <numerusform>আংশিক সম্পন্ন: %nটি প্যাক লেখা হয়েছে কিন্তু সব ধাপ শেষ হয়নি। সম্পূর্ণ করতে আবার চেষ্টা করুন; কিছুই দুবার কপি হবে না।</numerusform>
         </translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server did not allow creating the room. Your older pack still works.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার সার্ভার রুম তৈরি করতে দেয়নি। আপনার পুরোনো প্যাক এখনও কাজ করে।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is nothing to copy yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>এখনও কপি করার মতো কিছু নেই।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That did not work. Your older pack is unchanged; try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>এটি কাজ করেনি। আপনার পুরোনো প্যাক অপরিবর্তিত আছে; পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -26917,89 +26917,89 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+11"/>
         <source>Use as</source>
-        <translation type="unfinished"></translation>
+        <translation>যেভাবে ব্যবহার</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>ইমোজি ও স্টিকার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু ইমোজি</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু স্টিকার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাকটি কীসের জন্য</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This pack uses an older format. Changes are saved in that format so older apps keep working.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই প্যাকটি পুরোনো ফরম্যাট ব্যবহার করে। পরিবর্তনগুলো সেই ফরম্যাটেই সংরক্ষিত হয় যাতে পুরোনো অ্যাপ কাজ করতে থাকে।</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This is your older-format pack. You can copy it into standard packs that other apps and your other devices understand. The first time, this creates a private room named &quot;My emoji and stickers&quot; to hold them. This pack is kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>এটি আপনার পুরোনো ফরম্যাটের প্যাক। আপনি এটিকে স্ট্যান্ডার্ড প্যাকে কপি করতে পারেন, যা অন্য অ্যাপ ও আপনার অন্য ডিভাইস বোঝে। প্রথমবার এটি সেগুলো রাখতে &quot;My emoji and stickers&quot; নামে একটি ব্যক্তিগত রুম তৈরি করে। এই প্যাকটি থেকে যায়।</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n emoji-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>শুধু-ইমোজি %nটি ছবি</numerusform>
+            <numerusform>শুধু-ইমোজি %nটি ছবি</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>শুধু-স্টিকার %nটি ছবি</numerusform>
+            <numerusform>শুধু-স্টিকার %nটি ছবি</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) used as both</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>উভয় হিসেবে ব্যবহৃত %nটি ছবি</numerusform>
+            <numerusform>উভয় হিসেবে ব্যবহৃত %nটি ছবি</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New packs: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>নতুন প্যাক: %1।</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) with invalid names stay here until renamed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>অবৈধ নামের %nটি ছবি নাম বদলানো পর্যন্ত এখানে থাকবে।</numerusform>
+            <numerusform>অবৈধ নামের %nটি ছবি নাম বদলানো পর্যন্ত এখানে থাকবে।</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Copy into standard packs</source>
-        <translation type="unfinished"></translation>
+        <translation>স্ট্যান্ডার্ড প্যাকে কপি করুন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move to standard packs…</source>
-        <translation type="unfinished"></translation>
+        <translation>স্ট্যান্ডার্ড প্যাকে সরান…</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Cancel</source>
-        <translation type="unfinished">বাতিল</translation>
+        <translation>বাতিল</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27009,22 +27009,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+132"/>
         <source>Invalid name</source>
-        <translation type="unfinished"></translation>
+        <translation>অবৈধ নাম</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This name cannot be typed as a shortcode. Rename it to repair it.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই নামটি শর্টকোড হিসেবে টাইপ করা যায় না। ঠিক করতে এর নাম বদলান।</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Describe the image</source>
-        <translation type="unfinished"></translation>
+        <translation>ছবিটির বর্ণনা দিন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image description</source>
-        <translation type="unfinished"></translation>
+        <translation>ছবির বর্ণনা</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -27050,12 +27050,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Describe</source>
-        <translation type="unfinished"></translation>
+        <translation>বর্ণনা দিন</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>What screen readers and other apps say for this image</source>
-        <translation type="unfinished"></translation>
+        <translation>স্ক্রিন রিডার ও অন্য অ্যাপ এই ছবির জন্য কী বলে</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -27075,12 +27075,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Remove every image from this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>এই প্যাক থেকে সব ছবি সরান</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Empty pack</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাক খালি করুন</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27105,7 +27105,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>This removes every image from the pack for everyone who uses it. Messages already sent keep their images, and the images themselves are not deleted from the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>এটি প্যাক থেকে সব ছবি সরিয়ে দেয়, যারা এটি ব্যবহার করে সবার জন্য। ইতিমধ্যে পাঠানো বার্তাগুলোর ছবি থেকে যায়, আর ছবিগুলো সার্ভার থেকে মোছা হয় না।</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27128,7 +27128,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-3"/>
         <source>Names can be at most 100 characters (this one has %1).</source>
-        <translation type="unfinished"></translation>
+        <translation>নাম সর্বোচ্চ ১০০ অক্ষরের হতে পারে (এটিতে %1টি আছে)।</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -27314,47 +27314,47 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-141"/>
         <source>you are not in its room</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি এর রুমে নেই</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>this pack no longer exists</source>
-        <translation type="unfinished"></translation>
+        <translation>এই প্যাক আর নেই</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you cannot see this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি এই প্যাক দেখতে পারেন না</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>could not be loaded</source>
-        <translation type="unfinished"></translation>
+        <translation>লোড করা যায়নি</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open, its Spaces and the ones you turned on are listed here.</source>
-        <translation type="unfinished"></translation>
+        <translation>কোনো রুমের প্যাক সেই রুমের ভেতরে কাজ করে। প্রতিটি রুমে কোনো প্যাক ব্যবহার করতে &quot;সব জায়গায় ব্যবহার&quot; চালু করুন। খোলা রুমের, তার স্পেসগুলোর এবং আপনি যেগুলো চালু করেছেন সেই প্যাকগুলো এখানে দেখানো হয়।</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Pack images are stored as regular Matrix media and are visible to the hosting server, including when you use them in encrypted chats.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাকের ছবিগুলো সাধারণ Matrix মিডিয়া হিসেবে সংরক্ষিত হয় এবং হোস্টিং সার্ভার সেগুলো দেখতে পায়, এনক্রিপ্টেড চ্যাটে ব্যবহার করলেও।</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Space pack</source>
-        <translation type="unfinished"></translation>
+        <translation>স্পেস প্যাক</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>older format</source>
-        <translation type="unfinished"></translation>
+        <translation>পুরোনো ফরম্যাট</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>turned on in an older app</source>
-        <translation type="unfinished"></translation>
+        <translation>পুরোনো অ্যাপে চালু করা</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -27365,32 +27365,32 @@ Note: importing keys does not verify this session.</source>
         <location line="+40"/>
         <location line="+1"/>
         <source>New pack name</source>
-        <translation type="unfinished"></translation>
+        <translation>নতুন প্যাকের নাম</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Emoji and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>ইমোজি ও স্টিকার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji only</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু ইমোজি</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers only</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু স্টিকার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What the pack is for</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাকটি কীসের জন্য</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Create pack</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাক তৈরি করুন</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -27425,27 +27425,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Saved. Older apps on your other devices may not see this change yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>সংরক্ষিত। আপনার অন্য ডিভাইসের পুরোনো অ্যাপ হয়তো এখনও এই পরিবর্তন দেখবে না।</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Pack created. Add images from the sticker picker or Manage.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাক তৈরি হয়েছে। স্টিকার পিকার বা ম্যানেজ থেকে ছবি যোগ করুন।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You do not have permission to add packs to this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই রুমে প্যাক যোগ করার অনুমতি আপনার নেই।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A pack with that key already exists. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>ওই কী দিয়ে একটি প্যাক ইতিমধ্যে আছে। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The pack could not be created.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাক তৈরি করা যায়নি।</translation>
     </message>
 </context>
 <context>
@@ -27655,9 +27655,9 @@ Note: importing keys does not verify this session.</source>
         <location line="-235"/>
         <source>Linked %n element(s)</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি উপাদান যুক্ত হয়েছে</numerusform>
+            <numerusform>%nটি উপাদান যুক্ত হয়েছে</numerusform>
         </translation>
     </message>
     <message>
@@ -27831,58 +27831,58 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+475"/>
         <source>Done selecting</source>
-        <translation type="unfinished"></translation>
+        <translation>বাছাই শেষ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Select elements to link</source>
-        <translation type="unfinished"></translation>
+        <translation>যুক্ত করতে উপাদান বেছে নিন</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Choose two or more elements and give them one shared colour</source>
-        <translation type="unfinished"></translation>
+        <translation>দুই বা ততোধিক উপাদান বেছে নিয়ে তাদের একটি অভিন্ন রং দিন</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Click elements in the list or the preview to select them.</source>
-        <translation type="unfinished"></translation>
+        <translation>বাছাই করতে তালিকা বা প্রিভিউতে উপাদানে ক্লিক করুন।</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n element(s) selected</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি উপাদান বাছাই করা হয়েছে</numerusform>
+            <numerusform>%nটি উপাদান বাছাই করা হয়েছে</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Also changes %n element(s) that follow them: %1</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>এগুলোকে অনুসরণ করা %nটি উপাদানও বদলায়: %1</numerusform>
+            <numerusform>এগুলোকে অনুসরণ করা %nটি উপাদানও বদলায়: %1</numerusform>
         </translation>
     </message>
     <message>
         <location line="+15"/>
         <source>%1 has a gradient. A group links solid colours: remove the gradient first or leave it out.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এ গ্রেডিয়েন্ট আছে। গোষ্ঠী একরঙা রং যুক্ত করে: আগে গ্রেডিয়েন্ট সরান বা এটিকে বাদ রাখুন।</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Starts with %1 (the colour of %2)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 দিয়ে শুরু (%2-এর রং)</translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
         <source>Move %n element(s) out of their current group</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি উপাদান বর্তমান গোষ্ঠী থেকে সরান</numerusform>
+            <numerusform>%nটি উপাদান বর্তমান গোষ্ঠী থেকে সরান</numerusform>
         </translation>
     </message>
     <message>
@@ -27890,71 +27890,71 @@ Note: importing keys does not verify this session.</source>
         <location line="+6"/>
         <location line="+189"/>
         <source>Group name</source>
-        <translation type="unfinished"></translation>
+        <translation>গোষ্ঠীর নাম</translation>
     </message>
     <message>
         <location line="-175"/>
         <source>Link colours</source>
-        <translation type="unfinished"></translation>
+        <translation>রং যুক্ত করুন</translation>
     </message>
     <message>
         <location line="+82"/>
         <source>Colour groups</source>
-        <translation type="unfinished"></translation>
+        <translation>রঙের গোষ্ঠী</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Colour group %1</source>
-        <translation type="unfinished"></translation>
+        <translation>রঙের গোষ্ঠী %1</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>Rename</source>
-        <translation type="unfinished">নাম বদলান</translation>
+        <translation>নাম বদলান</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rename %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এর নাম বদলান</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Ungroup</source>
-        <translation type="unfinished"></translation>
+        <translation>গোষ্ঠীমুক্ত করুন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ungroup %1, keeping its colours</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 গোষ্ঠীমুক্ত করুন, রং রেখে</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Ungrouped %1; the colours stay</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 গোষ্ঠীমুক্ত হয়েছে; রং থেকে যায়</translation>
     </message>
     <message>
         <location line="+310"/>
         <source>linked: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>যুক্ত: %1</translation>
     </message>
     <message numerus="yes">
         <location line="+578"/>
         <source>Linked in %1: this colour changes all %n element(s): %2</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1-এ যুক্ত: এই রং সব %nটি উপাদান বদলায়: %2</numerusform>
+            <numerusform>%1-এ যুক্ত: এই রং সব %nটি উপাদান বদলায়: %2</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Edit this element only</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু এই উপাদান সম্পাদনা করুন</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 now has its own colour</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এর এখন নিজস্ব রং আছে</translation>
     </message>
     <message>
         <location line="+221"/>
@@ -30942,7 +30942,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/UserPicker.qml" line="+31"/>
         <source>Recent conversations</source>
-        <translation type="unfinished"></translation>
+        <translation>সাম্প্রতিক কথোপকথন</translation>
     </message>
     <message>
         <location line="+50"/>

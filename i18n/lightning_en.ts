@@ -26824,17 +26824,17 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+11"/>
         <source>Copied into %n standard pack(s) and turned on everywhere. Your older pack is still here.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Copied into %n standard pack and turned on everywhere. Your older pack is still here.</numerusform>
+            <numerusform>Copied into %n standard packs and turned on everywhere. Your older pack is still here.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Partly done: %n pack(s) were written but not all steps finished. Try again to complete it; nothing is copied twice.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Partly done: %n pack was written but not all steps finished. Try again to complete it; nothing is copied twice.</numerusform>
+            <numerusform>Partly done: %n packs were written but not all steps finished. Try again to complete it; nothing is copied twice.</numerusform>
         </translation>
     </message>
     <message>
@@ -26941,25 +26941,25 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n emoji-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n emoji-only image</numerusform>
+            <numerusform>%n emoji-only images</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker-only image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n sticker-only image</numerusform>
+            <numerusform>%n sticker-only images</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) used as both</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n image used as both</numerusform>
+            <numerusform>%n images used as both</numerusform>
         </translation>
     </message>
     <message>
@@ -26970,9 +26970,9 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n image(s) with invalid names stay here until renamed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n image with an invalid name stays here until renamed.</numerusform>
+            <numerusform>%n images with invalid names stay here until renamed.</numerusform>
         </translation>
     </message>
     <message>
@@ -27644,9 +27644,9 @@ Note: importing keys does not verify this session.</source>
         <location line="-235"/>
         <source>Linked %n element(s)</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Linked %n element</numerusform>
+            <numerusform>Linked %n elements</numerusform>
         </translation>
     </message>
     <message>
@@ -27841,18 +27841,18 @@ Note: importing keys does not verify this session.</source>
         <location line="+1"/>
         <source>%n element(s) selected</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n element selected</numerusform>
+            <numerusform>%n elements selected</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Also changes %n element(s) that follow them: %1</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Also changes %n element that follows them: %1</numerusform>
+            <numerusform>Also changes %n elements that follow them: %1</numerusform>
         </translation>
     </message>
     <message>
@@ -27869,9 +27869,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+15"/>
         <source>Move %n element(s) out of their current group</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Move %n element out of its current group</numerusform>
+            <numerusform>Move %n elements out of their current group</numerusform>
         </translation>
     </message>
     <message>
@@ -27930,9 +27930,9 @@ Note: importing keys does not verify this session.</source>
         <location line="+578"/>
         <source>Linked in %1: this colour changes all %n element(s): %2</source>
         <comment>custom theme colour group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Linked in %1: this colour changes %n element: %2</numerusform>
+            <numerusform>Linked in %1: this colour changes all %n elements: %2</numerusform>
         </translation>
     </message>
     <message>
