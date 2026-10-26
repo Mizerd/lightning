@@ -212,6 +212,27 @@ public:
     bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
+    // -- Local, per-account view choices (this device only) ------------------
+    // Stored in a small INI file (setLocalStatePath; AppController points it
+    // into the app's config dir; unset = memory only), keyed by a hash of the
+    // account id, never synced and never written into Matrix: Lightning
+    // conveniences, not protocol.
+    void setLocalStatePath(const QString &path);
+    // Hide a pack from the pickers and completion here. Does NOT change the
+    // room's state, leave anything or unsubscribe (PACK-UX-011).
+    Q_INVOKABLE void setPackHidden(const QString &packId, bool hidden);
+    Q_INVOKABLE bool isPackHidden(const QString &packId) const;
+    // Custom images used recently (a successful send or reaction, never a
+    // highlight) and favourites, as rows {url, key, shortcode, body, packName,
+    // stale}. `stale`: no loaded pack offers that image any more; it still
+    // sends by its own url. Kept apart from the Unicode m.recent_emoji list.
+    Q_INVOKABLE void recordCustomUse(const QVariantMap &row);
+    Q_INVOKABLE QVariantList customRecents() const;
+    Q_INVOKABLE void toggleFavourite(const QVariantMap &row);
+    Q_INVOKABLE bool isFavourite(const QString &url) const;
+    Q_INVOKABLE QVariantList favourites() const;
+    Q_INVOKABLE void forgetCustomEntry(const QString &url);
+
     // What the last snapshot knew about its own sources (see
     // MatrixClient::stickerPackSnapshotMeta).
     Q_INVOKABLE QVariantMap snapshotMeta() const { return m_snapshotMeta; }
@@ -463,6 +484,13 @@ private:
     // The canonical Spaces the last snapshot walked (their child-list changes
     // re-read it).
     QStringList m_snapshotAncestors;
+    // Local view state (see setLocalStatePath).
+    QString m_localStatePath;
+    QHash<QString, QVariantList> m_localMemory;
+    QString localGroup() const;
+    QVariantList readLocalList(const QString &name) const;
+    void writeLocalList(const QString &name, const QVariantList &list);
+    QVariantList markStale(QVariantList rows) const;
     bool m_lastMirrorFailed = false;
 
     // Every mxc in the account's own pack, for isSaved().

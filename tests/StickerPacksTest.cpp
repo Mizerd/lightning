@@ -79,8 +79,8 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    QString currentUserId() const override
-    { return QStringLiteral("@me:example.org"); }
+    QString userId = QStringLiteral("@me:example.org");
+    QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
     void stopSync() override {}
@@ -1555,6 +1555,92 @@ private Q_SLOTS:
         // The explicit "start a new pack room" choice reaches the backend.
         manager.migrateUserPack(true);
         QVERIFY(client.lastMigrateStartNew);
+    }
+
+    void aHiddenPackLeavesThePickersButNotTheRoomAndPersistsPerAccount()
+    {
+        // PACK-UX-011: hiding is a local view choice, per account, persisted.
+        QTemporaryDir dir;
+        const QString state = dir.filePath(QStringLiteral("local.ini"));
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setLocalStatePath(state);
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QCOMPARE(manager.findEmoticons(QString(), 50).size(), 2);
+        manager.setPackHidden(QStringLiteral("room:!r:example.org:"), true);
+        QCOMPARE(client.editCalls, 0);           // nothing written to Matrix
+        QCOMPARE(client.roomsSetCalls, 0);       // no unsubscribe
+        QCOMPARE(manager.findEmoticons(QString(), 50).size(), 1);
+        QCOMPARE(manager.packs()->count(), 2);   // still listed in settings
+        QVERIFY(manager.isPackHidden(QStringLiteral("room:!r:example.org:")));
+
+        // Survives a new manager (restart), and a refresh keeps it hidden.
+        StickerPackManager again;
+        again.setLocalStatePath(state);
+        again.setClient(&client);
+        again.applySnapshotForTest(kRoom, false, twoPacks());
+        QCOMPARE(again.findEmoticons(QString(), 50).size(), 1);
+        // Another account on the same device sees its own choice only.
+        FakeClient other;
+        other.userId = QStringLiteral("@other:example.org");
+        StickerPackManager otherManager;
+        otherManager.setLocalStatePath(state);
+        otherManager.setClient(&other);
+        otherManager.applySnapshotForTest(kRoom, false, twoPacks());
+        QCOMPARE(otherManager.findEmoticons(QString(), 50).size(), 2);
+    }
+
+    void customRecentsAndFavouritesAreLocalPerAccountAndSurviveAMissingPack()
+    {
+        // PACK-REC-010, PACK-UX-012, PACK-PRO-057: separate from the Unicode
+        // recents, newest first, bounded, per account; an image whose pack is
+        // gone stays usable and is marked stale.
+        QTemporaryDir dir;
+        const QString state = dir.filePath(QStringLiteral("local.ini"));
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setLocalStatePath(state);
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        const QVariantMap wave = image(QStringLiteral("wave"), kMxcB, false, true);
+        const QVariantMap cat = image(QStringLiteral("cat"), kMxcA, true, false);
+        manager.recordCustomUse(wave);
+        manager.sendToRoom(kRoom, cat);  // a sticker send is a use
+        QVariantList recents = manager.customRecents();
+        QCOMPARE(recents.size(), 2);
+        QCOMPARE(recents.at(0).toMap().value(QStringLiteral("url")).toString(), kMxcA);
+        manager.recordCustomUse(wave);
+        recents = manager.customRecents();
+        QCOMPARE(recents.size(), 2);
+        QCOMPARE(recents.at(0).toMap().value(QStringLiteral("url")).toString(), kMxcB);
+        for (int i = 0; i < 40; ++i)
+            manager.recordCustomUse(image(QStringLiteral("e%1").arg(i),
+                                          QStringLiteral("mxc://e/%1").arg(i), true, true));
+        QCOMPARE(manager.customRecents().size(), 24);
+
+        manager.toggleFavourite(wave);
+        QVERIFY(manager.isFavourite(kMxcB));
+        QCOMPARE(manager.reactionEmoticons().at(0).toMap()
+                     .value(QStringLiteral("url")).toString(), kMxcB);
+        // The pack goes away: the favourite stays, marked stale, still sendable.
+        manager.applySnapshotForTest(kRoom, false, {});
+        const QVariantMap fav = manager.favourites().at(0).toMap();
+        QCOMPARE(fav.value(QStringLiteral("url")).toString(), kMxcB);
+        QVERIFY(fav.value(QStringLiteral("stale")).toBool());
+        manager.forgetCustomEntry(kMxcB);
+        QVERIFY(!manager.isFavourite(kMxcB));
+
+        FakeClient other;
+        other.userId = QStringLiteral("@other:example.org");
+        StickerPackManager otherManager;
+        otherManager.setLocalStatePath(state);
+        otherManager.setClient(&other);
+        QVERIFY(otherManager.customRecents().isEmpty());
+        // Junk is refused.
+        manager.recordCustomUse({ { QStringLiteral("url"), QStringLiteral("https://x/y") } });
+        QVERIFY(manager.customRecents().at(0).toMap().value(QStringLiteral("url"))
+                    .toString().startsWith(QLatin1String("mxc://")));
     }
 
     void shortcodeErrorsSayWhy()

@@ -1,6 +1,8 @@
 #include "stickers/StickerPackManager.h"
 
+#include <QCryptographicHash>
 #include <QDir>
+#include <QSettings>
 #include <QFile>
 #include <QFileInfo>
 #include <QPointer>
@@ -205,7 +207,7 @@ int StickerPackManager::usablePackCount() const
     int usable = 0;
     for (const stickers::Pack &pack : m_packs->packs()) {
         const int n = wantSticker ? pack.stickerCount() : pack.emoticonCount();
-        if (n > 0)
+        if (n > 0 && !pack.hidden)
             ++usable;
     }
     return usable;
@@ -295,6 +297,7 @@ void StickerPackManager::sendToRoom(const QString &roomId,
     const stickers::PackImage row = stickers::PackImage::fromVariantMap(image);
     if (row.url.isEmpty())
         return;
+    recordCustomUse(image);
     m_client->sendSticker(roomId, QString(), row.url,
                           row.body.isEmpty() ? row.shortcode : row.body,
                           row.mimetype, static_cast<quint64>(qMax(0, row.width)),
@@ -311,6 +314,7 @@ void StickerPackManager::sendToThread(const QString &roomId,
     const stickers::PackImage row = stickers::PackImage::fromVariantMap(image);
     if (row.url.isEmpty())
         return;
+    recordCustomUse(image);
     // No room-send fallback: a thread sticker must fail rather than land in the
     // main timeline (§8).
     m_client->sendSticker(roomId, rootId, row.url,
@@ -760,7 +764,23 @@ bool StickerPackManager::canSave(const QString &url) const
 
 QVariantList StickerPackManager::reactionEmoticons() const
 {
-    return collectEmoticons(QString(), 0, false);
+    // Favourites, then recently used custom images, then every pack image;
+    // one row per image (by url).
+    QVariantList rows;
+    QSet<QString> seen;
+    const auto take = [&](const QVariantList &list) {
+        for (const QVariant &v : list) {
+            const QString url = v.toMap().value(QStringLiteral("url")).toString();
+            if (url.isEmpty() || seen.contains(url))
+                continue;
+            seen.insert(url);
+            rows.append(v);
+        }
+    };
+    take(favourites());
+    take(customRecents());
+    take(collectEmoticons(QString(), 0, false));
+    return rows;
 }
 
 QVariantList StickerPackManager::findEmoticons(const QString &prefix,
@@ -781,7 +801,7 @@ QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
         for (const stickers::PackImage &image : pack.images) {
             if (limit > 0 && rows.size() >= limit)
                 return rows;
-            if (!image.isEmoticon)
+            if (!image.isEmoticon || pack.hidden)
                 continue;
             // A key outside the grammar cannot round-trip as `:key:` text.
             if (uniqueShortcodes && !image.keyValid)
@@ -955,10 +975,17 @@ void StickerPackManager::applySnapshot(const QString &roomId,
     QList<stickers::Pack> rows;
     rows.reserve(packs.size());
     m_savedUrls.clear();
+    const QStringList hiddenIds = [this] {
+        QStringList ids;
+        for (const QVariant &v : readLocalList(QStringLiteral("hidden")))
+            ids << v.toString();
+        return ids;
+    }();
     for (const QVariant &value : packs) {
         stickers::Pack pack = packFromVariant(value.toMap());
         if (pack.id.isEmpty())
             continue;
+        pack.hidden = hiddenIds.contains(pack.id);
         if (pack.source == QLatin1String("user")) {
             for (const stickers::PackImage &image : pack.images)
                 m_savedUrls.insert(image.url);
@@ -980,7 +1007,7 @@ void StickerPackManager::applySnapshot(const QString &roomId,
         for (const stickers::Pack &pack : rows) {
             const int n =
                 wantSticker ? pack.stickerCount() : pack.emoticonCount();
-            if (n > 0) {
+            if (n > 0 && !pack.hidden) {
                 m_selectedPackId = pack.id;
                 break;
             }
@@ -1537,6 +1564,172 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
     if (items.isEmpty() && skipped == 0)
         return;
     startBatch(QStringLiteral("emoji"), QString(), items, skipped);
+}
+
+// -- Local view state ----------------------------------------------------------
+
+void StickerPackManager::setLocalStatePath(const QString &path)
+{
+    m_localStatePath = path;
+}
+
+QString StickerPackManager::localGroup() const
+{
+    const QString user = m_client ? m_client->currentUserId() : QString();
+    if (user.isEmpty())
+        return {};
+    // Hashed: the file name a user might share holds no Matrix id.
+    return QString::fromLatin1(
+        QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256)
+            .toHex().left(16));
+}
+
+QVariantList StickerPackManager::readLocalList(const QString &name) const
+{
+    const QString group = localGroup();
+    if (group.isEmpty())
+        return {};
+    // No file configured (tests, a backend without one): kept in memory.
+    if (m_localStatePath.isEmpty())
+        return m_localMemory.value(group + QLatin1Char('/') + name);
+    QSettings settings(m_localStatePath, QSettings::IniFormat);
+    return settings.value(group + QLatin1Char('/') + name).toList();
+}
+
+void StickerPackManager::writeLocalList(const QString &name, const QVariantList &list)
+{
+    const QString group = localGroup();
+    if (group.isEmpty())
+        return;
+    if (m_localStatePath.isEmpty()) {
+        m_localMemory.insert(group + QLatin1Char('/') + name, list);
+        return;
+    }
+    QSettings settings(m_localStatePath, QSettings::IniFormat);
+    settings.setValue(group + QLatin1Char('/') + name, list);
+}
+
+void StickerPackManager::setPackHidden(const QString &packId, bool hidden)
+{
+    if (packId.isEmpty())
+        return;
+    QVariantList ids = readLocalList(QStringLiteral("hidden"));
+    ids.removeAll(packId);
+    if (hidden)
+        ids.append(packId);
+    writeLocalList(QStringLiteral("hidden"), ids);
+    // Re-mark the loaded packs without a network read.
+    QList<stickers::Pack> rows = m_packs->packs();
+    for (stickers::Pack &pack : rows)
+        pack.hidden = ids.contains(pack.id);
+    m_packs->reset(rows);
+    rebuildImages();
+    emitStateChanged();
+}
+
+bool StickerPackManager::isPackHidden(const QString &packId) const
+{
+    return readLocalList(QStringLiteral("hidden")).contains(packId);
+}
+
+namespace {
+QVariantMap customEntry(const QVariantMap &row)
+{
+    // Only what is needed to show and send it again; no pack internals.
+    QVariantMap e;
+    for (const char *k : { "url", "key", "shortcode", "body", "packName",
+                           "mimetype", "width", "height", "size", "isSticker",
+                           "isEmoticon" }) {
+        const QString key = QString::fromLatin1(k);
+        if (row.contains(key))
+            e.insert(key, row.value(key));
+    }
+    return e;
+}
+} // namespace
+
+void StickerPackManager::recordCustomUse(const QVariantMap &row)
+{
+    const QString url = row.value(QStringLiteral("url")).toString();
+    if (!url.startsWith(QLatin1String("mxc://")))
+        return;
+    QVariantList list = readLocalList(QStringLiteral("recents"));
+    for (qsizetype i = 0; i < list.size(); ++i) {
+        if (list.at(i).toMap().value(QStringLiteral("url")).toString() == url) {
+            list.removeAt(i);
+            break;
+        }
+    }
+    list.prepend(customEntry(row));
+    while (list.size() > 24)
+        list.removeLast();
+    writeLocalList(QStringLiteral("recents"), list);
+    emitStateChanged();
+}
+
+QVariantList StickerPackManager::markStale(QVariantList rows) const
+{
+    QSet<QString> live;
+    for (const stickers::Pack &pack : m_packs->packs())
+        for (const stickers::PackImage &image : pack.images)
+            live.insert(image.url);
+    for (QVariant &v : rows) {
+        QVariantMap m = v.toMap();
+        m.insert(QStringLiteral("stale"),
+                 !live.contains(m.value(QStringLiteral("url")).toString()));
+        v = m;
+    }
+    return rows;
+}
+
+QVariantList StickerPackManager::customRecents() const
+{
+    return markStale(readLocalList(QStringLiteral("recents")));
+}
+
+void StickerPackManager::toggleFavourite(const QVariantMap &row)
+{
+    const QString url = row.value(QStringLiteral("url")).toString();
+    if (!url.startsWith(QLatin1String("mxc://")))
+        return;
+    QVariantList list = readLocalList(QStringLiteral("favourites"));
+    bool removed = false;
+    for (qsizetype i = 0; i < list.size(); ++i) {
+        if (list.at(i).toMap().value(QStringLiteral("url")).toString() == url) {
+            list.removeAt(i);
+            removed = true;
+            break;
+        }
+    }
+    if (!removed && list.size() < 64)
+        list.append(customEntry(row));
+    writeLocalList(QStringLiteral("favourites"), list);
+    emitStateChanged();
+}
+
+bool StickerPackManager::isFavourite(const QString &url) const
+{
+    for (const QVariant &v : readLocalList(QStringLiteral("favourites")))
+        if (v.toMap().value(QStringLiteral("url")).toString() == url)
+            return true;
+    return false;
+}
+
+QVariantList StickerPackManager::favourites() const
+{
+    return markStale(readLocalList(QStringLiteral("favourites")));
+}
+
+void StickerPackManager::forgetCustomEntry(const QString &url)
+{
+    for (const QString name : { QStringLiteral("recents"), QStringLiteral("favourites") }) {
+        QVariantList list = readLocalList(name);
+        for (qsizetype i = list.size() - 1; i >= 0; --i)
+            if (list.at(i).toMap().value(QStringLiteral("url")).toString() == url)
+                list.removeAt(i);
+        writeLocalList(name, list);
+    }
+    emitStateChanged();
 }
 
 void StickerPackManager::emitStateChanged()

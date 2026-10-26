@@ -38,6 +38,7 @@ public:
         LegacyTwinRole,
         LegacySubscribedRole,
         FromSpaceRole,
+        HiddenRole,
     };
 
     explicit StickerPackModel(QObject *parent = nullptr);

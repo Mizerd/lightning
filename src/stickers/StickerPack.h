@@ -70,6 +70,9 @@ struct Pack
     // The pack's own usage: where an image ADDED to it would be usable.
     bool packEmoticon = true;
     bool packSticker = true;
+    // Hidden by this account on this device (a local view choice: the room
+    // state and any subscription are untouched).
+    bool hidden = false;
     QString displayName;
     // "" unless the pack declared an mxc avatar (non-mxc ones were dropped).
     QString avatarUrl;

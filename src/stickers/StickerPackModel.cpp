@@ -34,6 +34,7 @@ QVariant StickerPackModel::data(const QModelIndex &index, int role) const
     case LegacyTwinRole:    return pack.legacyTwin;
     case LegacySubscribedRole: return pack.legacySubscribed;
     case FromSpaceRole:     return pack.fromSpace;
+    case HiddenRole:        return pack.hidden;
     default:                return {};
     }
 }
@@ -59,6 +60,7 @@ QHash<int, QByteArray> StickerPackModel::roleNames() const
         { LegacyTwinRole,    "legacyTwin" },
         { LegacySubscribedRole, "legacySubscribed" },
         { FromSpaceRole,     "fromSpace" },
+        { HiddenRole,        "hidden" },
     };
 }
 
@@ -104,6 +106,7 @@ QVariantMap StickerPackModel::get(int row) const
     map.insert(QStringLiteral("legacyTwin"), pack.legacyTwin);
     map.insert(QStringLiteral("legacySubscribed"), pack.legacySubscribed);
     map.insert(QStringLiteral("fromSpace"), pack.fromSpace);
+    map.insert(QStringLiteral("hidden"), pack.hidden);
     return map;
 }
 

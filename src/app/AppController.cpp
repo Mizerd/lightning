@@ -734,6 +734,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // through the authenticated media path at 64 px (20 px rendered, doubled
     // for HiDPI). The composer turns an installed `:shortcode:` into an inline
     // image on send.
+    // Hidden packs, custom-image recents and favourites: this device only.
+    m_stickers->setLocalStatePath(
+        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
+        + QStringLiteral("/image-packs-local.ini"));
+    // A chosen custom emoji that was actually sent counts as a use.
+    m_composer->setCustomEmojiUseRecorder([this](const QVariantMap &row) {
+        m_stickers->recordCustomUse(row);
+    });
     m_composer->setEmoticonSearch(
         [this](const QString &prefix, int limit) {
             return m_stickers->findEmoticons(prefix, limit);

@@ -448,6 +448,22 @@ private Q_SLOTS:
                  QStringLiteral("mxc://x/9"));
     }
 
+    void aSentChosenImageCountsAsOneUseAndADraftDoesNot()
+    {
+        // PACK-REC-010/011: the custom recents learn from a send, not from a
+        // pick that never went out.
+        QList<QVariantMap> uses;
+        m_composer->setCustomEmojiUseRecorder(
+            [&uses](const QVariantMap &row) { uses.append(row); });
+        m_composer->setText(QStringLiteral(":blob"));
+        m_composer->acceptEmoticonCompletionAt(
+            5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
+        QVERIFY(uses.isEmpty());
+        m_composer->send();
+        QCOMPARE(uses.size(), 1);
+        QCOMPARE(uses.at(0).value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/2"));
+    }
+
     void anAmbiguousTypedShortcodeStaysLiteral()
     {
         // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);

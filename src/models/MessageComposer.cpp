@@ -1,6 +1,7 @@
 #include "models/MessageComposer.h"
 
 #include <QRegularExpression>
+#include <QSet>
 
 #include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
@@ -943,6 +944,21 @@ void MessageComposer::sendComposed(const QString &body,
     QString outBody = body;
     QVariantMap bodySpec = bodySpecIn;
     applyOutgoingEmojiWith(outBody, bodySpec, selectedEmoticonMap());
+    if (m_customEmojiUseRecorder) {
+        QSet<QString> recorded;
+        for (const EmoticonRef &ref : std::as_const(m_emoticonRefs)) {
+            if (recorded.contains(ref.url) || !outBody.contains(ref.displayText))
+                continue;
+            recorded.insert(ref.url);
+            m_customEmojiUseRecorder(QVariantMap{
+                { QStringLiteral("url"), ref.url },
+                { QStringLiteral("key"), ref.key },
+                { QStringLiteral("shortcode"), ref.key },
+                { QStringLiteral("body"), ref.body },
+                { QStringLiteral("isEmoticon"), true },
+            });
+        }
+    }
     if (!m_threadRootId.isEmpty()) {
         // Thread replies. The HTTP backend falls back to sendReply.
         m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), outBody,

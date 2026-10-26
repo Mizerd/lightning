@@ -187,8 +187,13 @@ AnchoredPopup {
     }
     function chooseCustom(url, row) {
         if (!url || url.indexOf("mxc://") !== 0) return
-        if (reactionMode)
+        if (reactionMode) {
+            // A custom reaction is a use of that image (the composer records
+            // its own uses at send time).
+            if (row)
+                app.stickers.recordCustomUse(row)
             emojiChosen(url)
+        }
         else if (row)
             customChosen(row)
         if (closeAfterSelection) close()
@@ -691,6 +696,8 @@ AnchoredPopup {
                         // The shortcode is remote text: plain label and tooltip
                         // only.
                         Accessible.name: customCell.modelData.shortcode
+                        Accessible.description: qsTr("Right-click to add to or "
+                                                     + "remove from favourites")
                         ToolTip.text: ":" + customCell.modelData.shortcode + ":"
                         ToolTip.visible: hovered
                         ToolTip.delay: 400
@@ -750,6 +757,24 @@ AnchoredPopup {
                         }
                         onClicked: picker.chooseCustom(customCell.modelData.url,
                                                        customCell.modelData)
+                        // Right-click (or press-and-hold) toggles a favourite:
+                        // favourites lead this strip, then recent picks.
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            gesturePolicy: TapHandler.WithinBounds
+                            onTapped: app.stickers.toggleFavourite(customCell.modelData)
+                        }
+                        onPressAndHold: app.stickers.toggleFavourite(customCell.modelData)
+                        Rectangle {
+                            visible: app.stickers.revision >= 0
+                                     && app.stickers.isFavourite(customCell.modelData.url)
+                            width: 6
+                            height: 6
+                            radius: 3
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            color: AppTheme.accent
+                        }
                     }
                 }
 

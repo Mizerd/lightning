@@ -106,6 +106,7 @@ ColumnLayout {
             required property string unavailableReason
             required property bool legacySubscribed
             required property bool fromSpace
+            required property bool hidden
 
             objectName: "stickerPackRow"
             Layout.fillWidth: true
@@ -146,6 +147,8 @@ ColumnLayout {
                             + " · " + qsTr("%n emoji", "", packRow.emoticonCount)
                         if (packRow.legacySubscribed)
                             text += " · " + qsTr("turned on in an older app")
+                        if (packRow.hidden)
+                            text += " · " + qsTr("hidden here")
                         return text
                     }
                 }
@@ -178,6 +181,19 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textMeta
             }
 
+            // A local view choice: the pack stays in the room and any
+            // subscription stays as it is; it just is not offered here.
+            AppButton {
+                objectName: "stickerPackHideButton"
+                text: packRow.hidden ? qsTr("Show") : qsTr("Hide")
+                kind: "ghost"
+                size: "sm"
+                Accessible.description: qsTr("Hides this pack from your pickers "
+                                             + "on this device only. Nothing "
+                                             + "changes for anyone else.")
+                onClicked: section.stickers.setPackHidden(packRow.packId,
+                                                          !packRow.hidden)
+            }
             AppButton {
                 id: manageButton
                 objectName: "stickerPackManageButton"

@@ -263,9 +263,11 @@ AnchoredPopup {
                 required property string avatarUrl
                 required property string source
                 required property int stickerCount
+                required property bool hidden
 
-                // Emoticon-only packs are not sticker packs here.
-                visible: stickerCount > 0
+                // Emoticon-only packs are not sticker packs here, and a pack
+                // the user hid on this device is not offered.
+                visible: stickerCount > 0 && !hidden
                 width: visible ? 36 : 0
                 height: 36
                 hoverEnabled: true

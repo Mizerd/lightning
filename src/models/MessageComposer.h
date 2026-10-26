@@ -173,6 +173,12 @@ public:
 
     /// How a `:shortcode:` becomes an inline custom emoji: returns the pack
     /// image's `mxc://` URI, or "" to leave the shortcode as literal text.
+    // Called once per CHOSEN custom image actually sent (a successful use for
+    // the custom recents; never a highlight or a cancelled draft).
+    void setCustomEmojiUseRecorder(std::function<void(const QVariantMap &)> record)
+    {
+        m_customEmojiUseRecorder = std::move(record);
+    }
     void setEmoticonResolver(
         std::function<QString(const QString &shortcode)> resolve);
     // Rich composer: send a pre-composed (plainBody, html, mentions) triple
@@ -458,6 +464,7 @@ private:
 
     MatrixClient *m_client = nullptr;
     std::function<QString(const QString &)> m_emoticonResolver;
+    std::function<void(const QVariantMap &)> m_customEmojiUseRecorder;
     std::function<QVariantList(const QString &, int)> m_emoticonSearch;
     std::function<QVariantList(const QString &, int)> m_unicodeEmojiSearch;
     std::function<void(const QString &)> m_unicodeEmojiUseRecorder;
