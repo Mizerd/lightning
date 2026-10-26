@@ -74,12 +74,15 @@ Two normalisations are load-bearing:
 * `call_id: ""` is the room-wide call, and the newer vocabulary spells the
   same thing `"ROOM"`. Both map to slot id `m.call#ROOM`, or the same call
   read through the two formats looks like two calls.
-* The SFU participant identity is **derived, never invented**:
-  `"{user_id}:{device_id}"` for session memberships (what the SFU assigns for
-  that format), and unpadded-base64(sha256(canonical JSON
-  `[user_id, device_id, member_id]`)) for the sticky format. A different
-  encoding silently mismatches Lightning's idea of a participant against
-  Element's.
+* The SFU participant identity is **derived, never invented**. A legacy
+  `livekit_service_url` transport uses `"{sender}:{device_id}"`. A newer
+  `url` transport uses unpadded standard-base64(sha256(canonical JSON
+  `[sender, member_id]`)): `member_id` is a session membership's bounded
+  `membershipID` (or `"{sender}:{device_id}"` when absent), or a sticky
+  membership's `member.id`. A session membership can therefore be represented
+  by either SFU identity. Lightning publishes the legacy identity, but matches
+  both when resolving a peer. The content's `membershipID` is never matched
+  directly; the hash always includes the envelope sender.
 
 The sticky (MSC4354) form is **parsed and tested but not observable**:
 matrix-sdk 0.18 has no sticky-event support at all. That is a recorded SDK
@@ -122,9 +125,10 @@ address (split-horizon DNS), is no longer supported; the engine reports
 not apply this policy, so a room whose focus is LAN-only will work in Element
 and not here.
 
-The SFU identity (`rtc_identity`) is **derived** as `{user}:{device}` from
-the envelope's sender, never read from the content's `membershipID`. Reading
-the field let any member publish somebody else's identity as their own;
+The legacy SFU identity (`rtc_identity`) is **derived** as `{user}:{device}`
+from the envelope's sender, never read directly from the content's
+`membershipID`. Reading the field as a bare identity let any member publish
+somebody else's identity as their own;
 first-match lookups then bound that participant's SFU sid to the impostor's
 key ring (every frame they published failed its tag), addressed our media key
 to the impostor's device, and drew their tile with the impostor's name.

@@ -11904,6 +11904,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("device_id")).toString();
             participant.rtcIdentity =
                 row.value(QStringLiteral("rtc_identity")).toString();
+            participant.hashedRtcIdentity =
+                row.value(QStringLiteral("hashed_rtc_identity")).toString();
             participant.intent = row.value(QStringLiteral("intent")).toString();
             participant.displayName =
                 row.value(QStringLiteral("display_name")).toString();

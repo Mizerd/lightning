@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCryptographicHash>
 #include <QMetaProperty>
 #include <QSignalSpy>
 
@@ -1208,6 +1209,93 @@ private Q_SLOTS:
     }
 
     // --- The outbound key lane (matrix-js-sdk RTCEncryptionManager's policy)
+
+    void hashedSessionIdentityResolvesTheTileAndKeyTarget()
+    {
+        KeyLaneCall c({});
+        RtcParticipant alice;
+        alice.userId = QStringLiteral("@alice:example.com");
+        alice.deviceId = QStringLiteral("ALICEDEV");
+        alice.rtcIdentity = QStringLiteral("@alice:example.com:ALICEDEV");
+        // Published matrix-js-sdk vector: SHA-256 of JSON
+        // ["@alice:example.com","memberABC"], standard unpadded Base64.
+        alice.hashedRtcIdentity =
+            QStringLiteral("M3VnsLXrkbxIDINXO64u8PZzFyD9ZYFiQULR2dshWYs");
+        alice.displayName = QStringLiteral("Alice");
+        alice.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = c.room;
+        session.participants = { alice };
+        c.rtc.refresh(c.room);
+        c.client.answerSession(c.client.lastSessionOp, session);
+
+        c.deliver({ sfuParticipant(alice.hashedRtcIdentity,
+                                   QStringLiteral("PA_ALICE"), {}) });
+        QCOMPARE(c.rtc.participantForIdentity(c.room, alice.hashedRtcIdentity)
+                     .value(QStringLiteral("deviceId")).toString(),
+                 alice.deviceId);
+        const int row = participantRowFor(c.call.participantModel(),
+                                          alice.hashedRtcIdentity);
+        QVERIFY(row >= 0);
+        QCOMPARE(participantRole(c.call.participantModel(), row,
+                                 CallParticipantModel::DisplayNameRole).toString(),
+                 alice.displayName);
+        c.call.startKeyLaneForTest();
+        QCOMPARE(c.client.keySends.size(), 1);
+        QCOMPARE(c.lastSend().devices, QStringList{ alice.deviceId });
+    }
+
+    void copiedMemberIdCannotCaptureAnotherSendersHash()
+    {
+        const auto hash = [](const QByteArray &json) {
+            return QString::fromLatin1(QCryptographicHash::hash(
+                json, QCryptographicHash::Sha256).toBase64(
+                    QByteArray::Base64Encoding | QByteArray::OmitTrailingEquals));
+        };
+        RtcController rtc;
+        RecordingCallClient client;
+        rtc.setClient(&client);
+        RtcParticipant mallory;
+        mallory.userId = QStringLiteral("@mallory:x");
+        mallory.deviceId = QStringLiteral("MDEV");
+        mallory.rtcIdentity = QStringLiteral("@mallory:x:MDEV");
+        mallory.hashedRtcIdentity = hash(
+            "[\"@mallory:x\",\"@alice:x:ALICEDEV\"]");
+        mallory.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = QStringLiteral("!forgery:x");
+        session.participants = { mallory };
+        rtc.refresh(session.roomId);
+        client.answerSession(client.lastSessionOp, session);
+        QVERIFY(rtc.participantForIdentity(session.roomId,
+            hash("[\"@alice:x\",\"@alice:x:ALICEDEV\"]")).isEmpty());
+        QCOMPARE(rtc.participantForIdentity(session.roomId,
+            mallory.hashedRtcIdentity).value(QStringLiteral("deviceId")).toString(),
+            mallory.deviceId);
+    }
+
+    void duplicateHashedIdentityDoesNotChooseOneDevice()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        RtcParticipant laptop;
+        laptop.userId = QStringLiteral("@alice:x");
+        laptop.deviceId = QStringLiteral("LAPTOP");
+        laptop.rtcIdentity = QStringLiteral("@alice:x:LAPTOP");
+        laptop.hashedRtcIdentity = QStringLiteral("shared-hash");
+        laptop.wireFormat = QStringLiteral("session");
+        RtcParticipant phone = laptop;
+        phone.deviceId = QStringLiteral("PHONE");
+        phone.rtcIdentity = QStringLiteral("@alice:x:PHONE");
+        RtcSessionData session;
+        session.roomId = QStringLiteral("!duplicate:x");
+        session.participants = { laptop, phone };
+        rtc.refresh(session.roomId);
+        client.answerSession(client.lastSessionOp, session);
+        QVERIFY(rtc.participantForIdentity(session.roomId,
+            laptop.hashedRtcIdentity).isEmpty());
+    }
 
     // DEFECT 9: a join rotated our key and switched our frames to it at once,
     // so every other peer lost us until the new key reached them over

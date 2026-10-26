@@ -571,6 +571,8 @@ void RtcController::onSessionReceived(quint64 opId,
                            // a late-resolved name would otherwise stay stale.
                            return a.userId == b.userId
                                && a.deviceId == b.deviceId
+                               && a.rtcIdentity == b.rtcIdentity
+                               && a.hashedRtcIdentity == b.hashedRtcIdentity
                                && a.intent == b.intent
                                && a.displayName == b.displayName
                                && a.avatarMxc == b.avatarMxc;
@@ -834,26 +836,48 @@ QVariantMap RtcController::participantForIdentity(
         noteUnresolvedIdentity(identity, QStringLiteral("no live session"));
         return out;
     }
+    const RtcParticipant *matched = nullptr;
+    int plainTried = 0;
+    int sessionHashTried = 0;
+    int stickyHashTried = 0;
     for (const RtcParticipant &participant : it->participants) {
-        if (participant.rtcIdentity != identity)
+        if (participant.wireFormat == QLatin1String("rtc"))
+            ++stickyHashTried;
+        else
+            ++plainTried;
+        if (!participant.hashedRtcIdentity.isEmpty())
+            ++sessionHashTried;
+        if (participant.rtcIdentity != identity
+            && participant.hashedRtcIdentity != identity)
             continue;
-        out.insert(QStringLiteral("userId"), participant.userId);
+        // A duplicate member id under two devices can produce the same hash.
+        // Do not bind a key ring to whichever membership happened to sort first.
+        if (matched && (matched->userId != participant.userId
+                        || matched->deviceId != participant.deviceId)) {
+            noteUnresolvedIdentity(identity, QStringLiteral("ambiguous membership match"));
+            return {};
+        }
+        matched = &participant;
+    }
+    if (matched) {
+        out.insert(QStringLiteral("userId"), matched->userId);
         // The device, not just the person: keys are per device, and one
         // person's laptop and phone are separate senders. A public Matrix
         // device id, as in mediaKeyTargetsJson().
-        out.insert(QStringLiteral("deviceId"), participant.deviceId);
+        out.insert(QStringLiteral("deviceId"), matched->deviceId);
         // Room-resolved profile; empty degrades to initials.
-        out.insert(QStringLiteral("displayName"), participant.displayName);
-        out.insert(QStringLiteral("avatarMxc"), participant.avatarMxc);
-        out.insert(QStringLiteral("ownUser"), participant.ownUser);
-        out.insert(QStringLiteral("ownDevice"), participant.ownDevice);
+        out.insert(QStringLiteral("displayName"), matched->displayName);
+        out.insert(QStringLiteral("avatarMxc"), matched->avatarMxc);
+        out.insert(QStringLiteral("ownUser"), matched->ownUser);
+        out.insert(QStringLiteral("ownDevice"), matched->ownDevice);
         return out;
     }
     // An empty lookup means the participant gets no key and their ring is
     // never bound (they hear us, we cannot hear them). Logged once per
     // identity per session; the caller runs on a tick.
     noteUnresolvedIdentity(identity,
-                           QStringLiteral("no membership matched it"));
+                           QStringLiteral("no membership matched it; tried plain=%1 sessionHash=%2 stickyHash=%3")
+                               .arg(plainTried).arg(sessionHashTried).arg(stickyHashTried));
     return out;
 }
 

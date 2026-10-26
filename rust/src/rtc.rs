@@ -358,6 +358,10 @@ pub(crate) struct RtcMember {
     /// `"{user_id}:{device_id}"` for session memberships, or the hashed member
     /// id for the sticky format.
     pub rtc_identity: String,
+    /// The new LiveKit identity for a legacy session membership. The hash
+    /// includes the envelope sender, so a copied membershipID cannot claim
+    /// another sender's SFU identity.
+    pub hashed_rtc_identity: Option<String>,
     /// `m.call#ROOM` for the room-wide call.
     pub slot_id: String,
     /// Sender-declared intent, sanitized to a closed set.
@@ -390,6 +394,7 @@ impl RtcMember {
             "avatar_mxc": self.avatar_mxc,
             "device_id": self.device_id,
             "rtc_identity": self.rtc_identity,
+            "hashed_rtc_identity": self.hashed_rtc_identity,
             "slot_id": self.slot_id,
             "intent": self.intent,
             "created_ts": self.created_ts,
@@ -422,11 +427,11 @@ fn slot_id_for_call_id(application: &str, call_id: &str) -> String {
 }
 
 /// The SFU identity for the sticky format:
-/// unpadded-base64(sha256(canonical JSON `[user_id, device_id, member_id]`)).
+/// unpadded-base64(sha256(canonical JSON `[user_id, member_id]`)).
 /// Must match `computeRtcIdentityRaw` byte for byte.
 #[allow(dead_code)] // sticky lane only; see EV_MEMBER_STICKY.
-pub(crate) fn rtc_identity(user_id: &str, device_id: &str, member_id: &str) -> String {
-    let canonical = serde_json::to_string(&[user_id, device_id, member_id])
+pub(crate) fn rtc_identity_hash(user_id: &str, member_id: &str) -> String {
+    let canonical = serde_json::to_string(&[user_id, member_id])
         .unwrap_or_default();
     let digest = Sha256::digest(canonical.as_bytes());
     use base64::Engine as _;
@@ -480,17 +485,21 @@ pub(crate) fn parse_session_membership(
         .saturating_add(expires)
         .min(event_ts.saturating_add(MAX_EXPIRE_MS));
 
-    // Derived, never read: the JWT service assigns `{user}:{device}` from the
-    // OpenID-verified user and the requested device, and the reference treats
-    // an absent `membershipID` the same way. Reading the content field would
-    // let a member claim another's identity, stealing their key ring, media
-    // key and tile. The content field is ignored.
+    // Keep the legacy identity derived from the envelope. A newer transport
+    // hashes [sender, membershipID], falling back to [sender, sender:device].
+    // membershipID is attacker input: it is only ever used under this sender
+    // in the hash, never as a bare SFU identity.
     let rtc_identity = format!("{user_id}:{device_id}");
+    let member_id = object.get("membershipID")
+        .and_then(|value| sane_string(Some(value), MAX_WIRE_LEN))
+        .unwrap_or_else(|| rtc_identity.clone());
+    let hashed_rtc_identity = Some(rtc_identity_hash(&user_id, &member_id));
 
     Some(RtcMember {
         user_id,
         device_id,
         rtc_identity,
+        hashed_rtc_identity,
         slot_id: slot_id_for_call_id(&application, call_id),
         intent: intent_str(object.get("m.call.intent")),
         created_ts,
@@ -562,7 +571,8 @@ pub(crate) fn parse_rtc_membership(
     }
 
     Some(RtcMember {
-        rtc_identity: rtc_identity(&user_id, &device_id, &member_id),
+        rtc_identity: rtc_identity_hash(&user_id, &member_id),
+        hashed_rtc_identity: None,
         user_id,
         device_id,
         slot_id,
@@ -3860,6 +3870,8 @@ mod tests {
         assert_eq!(member.user_id, "@a:x");
         assert_eq!(member.device_id, "DEVICE");
         assert_eq!(member.rtc_identity, "@a:x:DEVICE");
+        assert_eq!(member.hashed_rtc_identity,
+                   Some(rtc_identity_hash("@a:x", "@a:x:DEVICE")));
         // `call_id: ""` normalises to the slot vocabulary.
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.expires_at_ms, 1_000 + 14_400_000);
@@ -3875,6 +3887,19 @@ mod tests {
         let member =
             parse_session_membership(&content, "@a:x", 1_000).expect("valid");
         assert_eq!(member.rtc_identity, "@a:x:DEVICE");
+        assert_eq!(member.hashed_rtc_identity,
+                   Some(rtc_identity_hash("@a:x", "@a:x:DEVICE")));
+    }
+
+    #[test]
+    fn session_membership_hashes_its_custom_member_id_with_the_sender() {
+        let mut content = session_content();
+        content["membershipID"] = json!("memberABC");
+        let member = parse_session_membership(&content, "@alice:example.com", 1_000)
+            .expect("valid");
+        assert_eq!(member.rtc_identity, "@alice:example.com:DEVICE");
+        assert_eq!(member.hashed_rtc_identity.as_deref(),
+                   Some("M3VnsLXrkbxIDINXO64u8PZzFyD9ZYFiQULR2dshWYs"));
     }
 
     #[test]
@@ -3977,6 +4002,10 @@ mod tests {
         let member = parse_session_membership(&content, "@mallory:x", 1_000)
             .expect("valid");
         assert_eq!(member.rtc_identity, "@mallory:x:DEVICE");
+        assert_eq!(member.hashed_rtc_identity,
+                   Some(rtc_identity_hash("@mallory:x", "@alice:x:ALICEDEV")));
+        assert_ne!(member.hashed_rtc_identity,
+                   Some(rtc_identity_hash("@alice:x", "@alice:x:ALICEDEV")));
     }
 
     #[test]
@@ -4111,6 +4140,7 @@ mod tests {
             user_id: user.to_owned(),
             device_id: device.to_owned(),
             rtc_identity: format!("{user}:{device}"),
+            hashed_rtc_identity: None,
             slot_id: "m.call#ROOM".to_owned(),
             intent: "audio",
             created_ts: created,
@@ -4657,6 +4687,9 @@ mod tests {
             parse_rtc_membership(&rtc_content(), "@a:x", 500).expect("valid");
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.kind, MembershipKind::Rtc);
+        assert_eq!(member.rtc_identity,
+                   rtc_identity_hash("@a:x", "member-1"));
+        assert_eq!(member.hashed_rtc_identity, None);
         assert_eq!(member.foci.len(), 1);
     }
 
@@ -4759,16 +4792,18 @@ mod tests {
 
     #[test]
     fn rtc_identity_is_the_hash_the_reference_implementation_computes() {
-        // Unpadded base64 of sha256 over the canonical JSON array; must match
-        // Element so both agree which SFU participant is which device.
-        let identity = rtc_identity("@a:x", "DEVICE", "member-1");
+        // Published matrix-js-sdk vector for [sender, member id].
+        assert_eq!(rtc_identity_hash("@alice:example.com", "memberABC"),
+                   "M3VnsLXrkbxIDINXO64u8PZzFyD9ZYFiQULR2dshWYs");
+        let identity = rtc_identity_hash("@a:x", "member-1");
+        let formula = Sha256::digest(br#"["@a:x","member-1"]"#);
+        use base64::Engine as _;
+        assert_eq!(identity,
+                   base64::engine::general_purpose::STANDARD_NO_PAD.encode(formula));
         assert!(!identity.contains('='), "must be unpadded");
         assert_eq!(identity.len(), 43, "sha256 in unpadded base64");
-        // Stable across calls and sensitive to every component.
-        assert_eq!(identity, rtc_identity("@a:x", "DEVICE", "member-1"));
-        assert_ne!(identity, rtc_identity("@a:x", "DEVICE", "member-2"));
-        assert_ne!(identity, rtc_identity("@a:x", "OTHER", "member-1"));
-        assert_ne!(identity, rtc_identity("@b:x", "DEVICE", "member-1"));
+        assert_ne!(identity, rtc_identity_hash("@a:x", "member-2"));
+        assert_ne!(identity, rtc_identity_hash("@b:x", "member-1"));
     }
 
     #[test]

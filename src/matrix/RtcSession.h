@@ -24,6 +24,9 @@ struct RtcParticipant {
     /// Identity this device uses on the SFU. Derived in Rust from the
     /// membership; used to match a media track to a Matrix device.
     QString rtcIdentity;
+    /// Alternate hashed identity for a legacy session membership. Rust
+    /// derives it from the vouched-for sender and bounded member id.
+    QString hashedRtcIdentity;
     /// "audio" or "video": the declared intent, collapsed to that closed set.
     /// Not a statement that a camera is on.
     QString intent;
