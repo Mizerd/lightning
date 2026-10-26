@@ -1246,7 +1246,9 @@ Popup {
         var shown = {}
         // Groups lists the colours others follow and Elements lists every
         // part; a search always looks at everything.
-        var depthCap = root.level === 2 || needle.length > 0 ? 6 : 0
+        // Selecting elements for a colour group lists them all too.
+        var depthCap = root.level === 2 || needle.length > 0
+                       || root.selectingRoles ? 6 : 0
         var changedHit = needle.length >= 3
                          && root.changedWord.indexOf(needle) === 0
         var hardHit = needle.length >= 3
