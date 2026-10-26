@@ -1954,6 +1954,83 @@ private Q_SLOTS:
         QVERIFY(file.childGroups().isEmpty());
     }
 
+    void theFileDialogsPathListReachesTheUpload()
+    {
+        // NativeFileDialog's `selectedFiles` arrives in QML as a list of URL
+        // strings (not QUrl): both must reach the upload, one file per item.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap target = pack(QStringLiteral("S"), QStringLiteral("room"),
+                                  QStringLiteral("P"), {});
+        target.insert(QStringLiteral("roomId"), kRoom);
+        target.insert(QStringLiteral("stateKey"), QStringLiteral("p"));
+        target.insert(QStringLiteral("namespace"), QStringLiteral("stable"));
+        target.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { target });
+        manager.uploadImagesToPack(QStringLiteral("S"),
+            { QStringLiteral("file:///tmp/one.png"),
+              QVariant::fromValue(QUrl::fromLocalFile(QStringLiteral("/tmp/two.png"))),
+              QStringLiteral("https://example.org/not-local.png") });
+        QCOMPARE(client.roomUploadCalls, 1);
+        QCOMPARE(client.roomUploadPath, QStringLiteral("/tmp/one.png"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
+                                             QStringLiteral("one"));
+        QCOMPARE(client.roomUploadCalls, 2);
+        QCOMPARE(client.roomUploadPath, QStringLiteral("/tmp/two.png"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
+                                             QStringLiteral("two"));
+        // The remote URL is never uploaded.
+        QCOMPARE(client.roomUploadCalls, 2);
+    }
+
+    // The QML wiring of the pack surfaces a GUI round could not drive (file
+    // dialog, encrypted-image dialog, thread popup, start-new action), pinned
+    // so a refactor cannot silently disconnect them.
+    void thePackSurfacesAreWiredToTheirBackendCalls()
+    {
+        const auto read = [](const QString &name) {
+            QFile f(QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
+                QStringLiteral("../qml/") + name));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        };
+        const QString editor = read(QStringLiteral("StickerPackEditor.qml"));
+        const QString dialog = read(QStringLiteral("PrivateImageRepublishDialog.qml"));
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString thread = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(!editor.isEmpty() && !dialog.isEmpty() && !delegate.isEmpty()
+                && !thread.isEmpty());
+
+        // Add images: a multi-file dialog whose selection goes to the upload.
+        QVERIFY(editor.contains(QStringLiteral("fileMode: \"openMany\"")));
+        QVERIFY(editor.contains(QStringLiteral(
+            "root.stickers.uploadImagesToPack(root.packId, selectedFiles)")));
+        // Copy link goes through the testable C++ copy.
+        QVERIFY(editor.contains(QStringLiteral("root.stickers.copyShareText(root.packId)")));
+        // Start a new pack room: only from the explicit button, with `true`.
+        QCOMPARE(editor.count(QStringLiteral("migrateUserPack(true)")), 1);
+        QVERIFY(editor.contains(QStringLiteral("category === \"home_unavailable\"")));
+
+        // The encrypted-image dialog: exactly one call, from the confirm
+        // button, with the media key only (never the private body).
+        QCOMPARE(dialog.count(QStringLiteral("republishPrivateImage(")), 1);
+        QVERIFY(dialog.contains(QStringLiteral("republishPrivateImage(root.mediaKey)")));
+        const int confirm = dialog.indexOf(QStringLiteral("privateImageRepublishConfirm"));
+        const int call = dialog.indexOf(QStringLiteral("republishPrivateImage("));
+        const int cancel = dialog.indexOf(QStringLiteral("privateImageRepublishCancel"));
+        QVERIFY(cancel >= 0 && cancel < confirm && confirm < call);
+        QVERIFY(delegate.contains(QStringLiteral("republishLoader.item.ask(model.mediaKey || \"\")")));
+        QVERIFY(!delegate.contains(QStringLiteral("ask(model.mediaKey || \"\", model.body")));
+
+        // Thread composer: the popup's whole entry (key, url, body) reaches
+        // emojiCompletionEdit, which records the choice for the thread send.
+        QVERIFY(thread.contains(QStringLiteral("onChosen: (entry) => panel.acceptThreadEmoji(entry)")));
+        QVERIFY(thread.contains(QStringLiteral("app.composer.emojiCompletionEdit(")));
+        const int accept = thread.indexOf(QStringLiteral("function acceptThreadEmoji(entry)"));
+        QVERIFY(accept >= 0);
+        QVERIFY(thread.mid(accept, 400).contains(QStringLiteral("editor.cursorPosition, entry)")));
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;
