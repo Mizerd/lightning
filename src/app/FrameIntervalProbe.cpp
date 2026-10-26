@@ -50,6 +50,12 @@ QString FrameIntervalStats::summary(double refreshHz, double windowSeconds) cons
         .arg(countOver(interval * 2.0));
 }
 
+bool FrameIntervalStats::continuousMotion(double refreshHz) const
+{
+    const double hz = refreshHz > 1.0 ? refreshHz : 60.0;
+    return count() > 0 && percentile(50) <= 3.0 * 1000.0 / hz;
+}
+
 FrameIntervalProbe::FrameIntervalProbe(QQuickWindow *window, QObject *parent)
     : QObject(parent)
     , m_window(window)
@@ -95,5 +101,7 @@ void FrameIntervalProbe::report()
     double hz = 60.0;
     if (m_window && m_window->screen())
         hz = m_window->screen()->refreshRate();
+    if (!window.continuousMotion(hz))
+        return;
     qInfo().noquote() << window.summary(hz, kReportMs / 1000.0);
 }

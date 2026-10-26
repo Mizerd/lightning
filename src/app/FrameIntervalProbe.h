@@ -29,6 +29,12 @@ public:
     // One log line: n, p50/p95/p99/max, and the counts over 1.25x and 2x of
     // the display interval for `refreshHz` (60 when unknown).
     QString summary(double refreshHz, double windowSeconds) const;
+    // True when the window's frames were mostly a continuous animation (its
+    // median within 3 display intervals). A slow periodic repaint (a blinking
+    // caret, a 5 Hz indicator) presents frames 100-250 ms apart all the time;
+    // summarising those as "every frame over 2x" measured the idle UI, not
+    // motion (live, wave-2 GUI round).
+    bool continuousMotion(double refreshHz) const;
 
 private:
     QVector<double> m_samples;

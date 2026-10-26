@@ -38,6 +38,25 @@ private Q_SLOTS:
         QVERIFY(s.summary(0.0, 10.0).contains(QStringLiteral("refresh_hz=60.0")));
     }
 
+    // Live, wave-2 GUI round: an idle window repainting at ~5 Hz reported
+    // "over2x=50" every 10 s. That is not motion and is not summarised; a
+    // scroll with a few long stalls still is.
+    void aSlowPeriodicRepaintIsNotMotionButAStallingScrollIs()
+    {
+        FrameIntervalStats idle;
+        for (int i = 0; i < 50; ++i)
+            idle.add(200.0);
+        QVERIFY(!idle.continuousMotion(60.0));
+
+        FrameIntervalStats scroll;
+        for (int i = 0; i < 90; ++i)
+            scroll.add(16.7);
+        for (int i = 0; i < 10; ++i)
+            scroll.add(140.0);
+        QVERIFY(scroll.continuousMotion(60.0));
+        QCOMPARE(scroll.countOver(1000.0 / 60 * 2.0), 10);
+    }
+
     void aHigherRefreshRateTightensTheBudget()
     {
         FrameIntervalStats s;
