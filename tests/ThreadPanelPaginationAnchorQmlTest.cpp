@@ -7,6 +7,8 @@
 // Same method as TimelinePaneQmlTest's
 // paginationAnchorRestorePreservesConcurrentScroll (a direct contentY write
 // stands in for a continuing gesture), adapted to ThreadPanel's replyList.
+#include <functional>
+#include <QMetaProperty>
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
@@ -20,6 +22,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "models/TimelineScrollController.h"
 #include "auth/AuthManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "models/RoomListModel.h"
@@ -58,6 +61,12 @@ private:
         }
         return {};
     }
+
+public slots:
+    void noteAnchorChanged() { if (m_onAnchorChanged) m_onAnchorChanged(); }
+
+private:
+    std::function<void()> m_onAnchorChanged;
 
 private Q_SLOTS:
     void initTestCase()
@@ -202,6 +211,146 @@ private Q_SLOTS:
                      "thread pagination restore discarded concurrent "
                      "scroll: actual=%1 expected=%2")
                      .arg(actual).arg(expected)));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // SC41 (the gap this file's CMake note recorded): an older page landing
+    // while the panel's own wheel engine is gliding. restoreCapturedAnchor()
+    // used to cancel the glide, so every page that landed mid-gesture stopped
+    // the reader's wheel motion dead. The glide is now translated by the
+    // prepend's shift, as the room timeline does. Driven through the same
+    // engine call threadWheelHandler makes for a wheel notch.
+    void anOlderPageLandingMidGlideKeepsTheGlideGoing()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        const QString rootId = firstThreadRootId(*mock, kGeneral);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        const QString timelineId =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+
+        mock->setPaginationDelayForTest(40);
+        // Replace the built-in fixture with 30 replies, more than the
+        // viewport. Resetting the composite thread timeline id reloads the
+        // model like a real room. The first row is the thread ROOT: an open
+        // thread whose root is not loaded fills its history on a reset
+        // (break-it B022), which would spend this fixture's one page before
+        // the request under test.
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            if (i == 0)
+                e.eventId = rootId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("reply %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(timelineId, events, /*paginationPages=*/1);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.thread()->model()->rowCount() >= 30, kSignalTimeoutMs);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("ThreadPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(400, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *replyList = root->findChild<QQuickItem *>(
+            QStringLiteral("threadReplyList"));
+        QVERIFY(replyList != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(replyList->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+
+        const int anchorRow = 15;
+        QVERIFY(replyList->setProperty("followLatest", false));
+        QVERIFY(QMetaObject::invokeMethod(replyList, "positionViewAtIndex",
+                                          Q_ARG(int, anchorRow),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        // A real near-top request. The mock flips paginating() synchronously,
+        // so ThreadPanel's onPaginationChanged handler captures the anchor
+        // before this returns.
+        const int countBefore = replyList->property("count").toInt();
+        controller.thread()->model()->requestOlder();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !replyList->property("anchorStableId").toString().isEmpty(), 2000);
+
+        const QString capturedAnchorId =
+            replyList->property("anchorStableId").toString();
+        const double anchorItemY =
+            replyList->property("anchorItemY").toDouble();
+        const double capturedContentY =
+            replyList->property("contentY").toDouble();
+
+        // The reader keeps wheeling up while the page is in flight: a real
+        // multi-notch glide on the panel's engine.
+        TimelineScrollController *engineCtl = controller.threadScroll();
+        bool sawRestore = false;
+        bool glidingAtRestore = false;
+        const QMetaProperty anchorProp = replyList->metaObject()->property(
+            replyList->metaObject()->indexOfProperty("anchorStableId"));
+        QVERIFY(anchorProp.hasNotifySignal());
+        connect(replyList, anchorProp.notifySignal(), this,
+                metaObject()->method(metaObject()->indexOfSlot("noteAnchorChanged()")));
+        m_onAnchorChanged = [&] {
+            if (replyList->property("anchorStableId").toString().isEmpty()
+                    && !sawRestore) {
+                sawRestore = true;
+                glidingAtRestore = engineCtl->motionActive();
+            }
+        };
+        QVariant lo, hi;
+        QVERIFY(QMetaObject::invokeMethod(replyList, "wheelMinY",
+                                          Q_RETURN_ARG(QVariant, lo)));
+        QVERIFY(QMetaObject::invokeMethod(replyList, "wheelMaxY",
+                                          Q_RETURN_ARG(QVariant, hi)));
+        // Three notches up, exactly as threadWheelHandler forwards them.
+        engineCtl->wheelNotch(360, replyList->property("contentY").toDouble(),
+                              lo.toDouble(), hi.toDouble(),
+                              replyList->property("height").toDouble());
+        QVERIFY(engineCtl->motionActive());
+
+        QTRY_VERIFY_WITH_TIMEOUT(
+            replyList->property("count").toInt() > countBefore,
+            kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(sawRestore, kSignalTimeoutMs);
+        m_onAnchorChanged = nullptr;
+        QVERIFY2(glidingAtRestore,
+                 "the anchor restore cancelled the reader's wheel glide");
+        QCOMPARE(capturedAnchorId.isEmpty(), false);
+        Q_UNUSED(anchorItemY);
+        Q_UNUSED(capturedContentY);
+        // The glide still settles on its own, inside the list.
+        QTRY_VERIFY_WITH_TIMEOUT(!engineCtl->motionActive(), 5000);
         QCOMPARE(warnings, QStringList{});
     }
 

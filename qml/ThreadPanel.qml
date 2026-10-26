@@ -1257,12 +1257,21 @@ Rectangle {
                     // and the reader may have kept scrolling. The restore is a
                     // relative shift from this value.
                     var beforeY = contentY
-                    // Cancel any lingering wheel animation.
-                    app.threadScroll.cancel()
+                    // A glide in progress keeps going (SC41): the prepend
+                    // moves every row by `shift`, so the engine's position
+                    // and target move by the same amount, as the room
+                    // timeline does with its own engine. Cancelling it here
+                    // stopped the reader's wheel motion dead whenever an
+                    // older page landed mid-glide.
+                    var gliding = app.threadScroll.motionActive
                     var newRow = app.thread.model.rowForStableId(anchorStableId)
                     if (newRow < 0) {
                         var delta = contentHeight - anchorContentHeight
-                        if (delta > 0) contentY += delta
+                        if (delta > 0) {
+                            contentY += delta
+                            if (gliding)
+                                app.threadScroll.translateActiveMotion(delta)
+                        }
                         anchorStableId = ""
                         return
                     }
@@ -1273,6 +1282,10 @@ Rectangle {
                     if (it) {
                         var shift = it.y - anchorItemY
                         contentY = beforeY + shift
+                        if (gliding)
+                            app.threadScroll.translateActiveMotion(shift)
+                    } else {
+                        contentY = beforeY
                     }
                     anchorStableId = ""
                 }

@@ -2475,10 +2475,10 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME gif-send-controller-dedup COMMAND gif-send-controller-dedup-test)
 
-    # NOT COVERED: history landing during an active wheel animation. The
-    # offscreen harness cannot keep the anchor delegate in range across a
-    # pagination round trip. restoreCapturedAnchor() applies a relative shift
-    # to the live contentY either way, but that is reasoning, not evidence.
+    # History landing during an active wheel glide is covered by
+    # anOlderPageLandingMidGlideKeepsTheGlideGoing (SC41): the glide is
+    # translated by the prepend's shift instead of cancelled. Real wheel
+    # hardware remains a GUI check.
 
     # Threads prepend on requestOlder like the main timeline and need the same
     # anchoring so older replies do not move the view.
