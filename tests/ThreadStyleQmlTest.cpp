@@ -443,6 +443,9 @@ ApplicationWindow {
     void nhekoCompactPresetRendersSmallAvatarRows()
     {
         openDevRoom();
+        QQuickItem *header = item("roomHeaderBand");
+        QVERIFY(header);
+        QTRY_COMPARE(header->height(), 60.0);
         const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
         QTRY_VERIFY(rowHeight(later) > 0);
         QQuickItem *row = rowFor(later);
@@ -456,6 +459,8 @@ ApplicationWindow {
 
         QVERIFY(m_controller->settings()->setProperty("layoutPreset", 1));
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 3);
+        // Chrome density follows the preset: the shared header band.
+        QTRY_COMPARE(header->height(), 48.0);
         // Every identity row: header avatar shown, gutter avatar hidden.
         int identityRows = 0;
         int continuationRows = 0;
@@ -492,6 +497,7 @@ ApplicationWindow {
         // Back to Lightning: Modern rows again.
         QVERIFY(m_controller->settings()->setProperty("layoutPreset", 0));
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 0);
+        QTRY_COMPARE(header->height(), 60.0);
         QTRY_VERIFY(itemsNamed(QStringLiteral("senderHeaderAvatar")).isEmpty());
     }
 

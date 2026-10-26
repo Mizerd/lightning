@@ -256,7 +256,7 @@ Rectangle {
         // Header: forum glyph · Thread · room name · close
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 58
+            implicitHeight: AppTheme.threadHeaderHeight
             color: panel.color
             RowLayout {
                 id: threadHeader

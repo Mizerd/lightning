@@ -15,7 +15,7 @@ Item {
     focus: false
     implicitHeight: (root.postBlocked ? blockedBar.implicitHeight
                                       : composerCol.implicitHeight)
-                    + AppTheme.spacing16 + AppTheme.spacing4
+                    + AppTheme.composerInsetBottom + AppTheme.spacing4
 
     // The user cannot post here: the room was replaced (tombstone) or the
     // server would refuse the event (no permission, not joined). Replaces the
@@ -1696,9 +1696,9 @@ Item {
         visible: root.postBlocked
         anchors {
             left: parent.left; right: parent.right; bottom: parent.bottom
-            leftMargin: AppTheme.spacing20
-            rightMargin: AppTheme.spacing20
-            bottomMargin: AppTheme.spacing16
+            leftMargin: AppTheme.composerInsetH
+            rightMargin: AppTheme.composerInsetH
+            bottomMargin: AppTheme.composerInsetBottom
         }
         implicitHeight: blockedRow.implicitHeight + AppTheme.spacing12 * 2
         height: implicitHeight
@@ -1749,9 +1749,9 @@ Item {
         visible: !root.postBlocked
         anchors {
             left: parent.left; right: parent.right; bottom: parent.bottom
-            leftMargin: AppTheme.spacing20
-            rightMargin: AppTheme.spacing20
-            bottomMargin: AppTheme.spacing16
+            leftMargin: AppTheme.composerInsetH
+            rightMargin: AppTheme.composerInsetH
+            bottomMargin: AppTheme.composerInsetBottom
         }
         spacing: AppTheme.spacing6
 

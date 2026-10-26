@@ -78,7 +78,26 @@ QtObject {
 
     // Shared height of the top header strip (room list, room header, side
     // panel) so the rule beneath them lines up across the whole window.
-    readonly property int headerBandHeight: 60
+    // Layout preset density (Settings > Appearance > Layout preset: Nheko
+    // compact), read straight from the settings so every window and test
+    // scene that has `app` follows it without a Binding of its own. Off
+    // reproduces the Lightning geometry exactly. It moves chrome geometry only
+    // -- header bands, room rows, the composer's outer inset -- and never a
+    // text size, so every consumer below keeps the user's fonts and text scale.
+    // (The timeline's own density is the preset's message layout and spacing.)
+    readonly property bool compactDensity:
+        typeof app !== "undefined" && !!app && !!app.settings
+        && app.settings.layoutPreset === 1
+    // 48 still fits the 34 px room avatar and the 34 px header buttons with
+    // 7 px above and below; Nheko's own header is a 40 px avatar plus padding.
+    readonly property int headerBandHeight: compactDensity ? 48 : 60
+    // The thread panel's header sits 2 px under the band it lines up with.
+    readonly property int threadHeaderHeight: headerBandHeight - 2
+    // Vertical padding of one room-list row (above and below its content).
+    readonly property int roomRowPaddingV: compactDensity ? spacing4 : spacing6
+    // The message composer's distance from the conversation's edges.
+    readonly property int composerInsetH: compactDensity ? spacing12 : spacing20
+    readonly property int composerInsetBottom: compactDensity ? spacing8 : spacing16
     // Platform dark-mode hint (QStyleHints::colorScheme), pushed in from
     // Main.qml.
     property bool systemDark: false

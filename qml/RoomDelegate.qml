@@ -7,7 +7,7 @@ Item {
     id: root
     // Compact list setting: no preview line (invites keep theirs).
     readonly property bool compactRows: app.settings.compactRoomList
-    implicitHeight: content.implicitHeight + AppTheme.spacing6 * 2
+    implicitHeight: content.implicitHeight + AppTheme.roomRowPaddingV * 2
     Accessible.role: Accessible.ListItem
     Accessible.name: {
         if (model.membership === "invited")
@@ -175,8 +175,8 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: AppTheme.spacing8
         anchors.rightMargin: AppTheme.spacing8
-        anchors.topMargin: AppTheme.spacing6
-        anchors.bottomMargin: AppTheme.spacing6
+        anchors.topMargin: AppTheme.roomRowPaddingV
+        anchors.bottomMargin: AppTheme.roomRowPaddingV
         spacing: AppTheme.spacing10
 
         Avatar {
