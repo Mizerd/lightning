@@ -158,11 +158,13 @@ TestCase {
         return overlay && overlay.contentItem
                ? findChild(overlay.contentItem, name) : null
     }
-    // The bar's speed menu (a Popup, so not a visual child).
+    // The bar's speed menu (a Popup, so not a visual child). By name: the bar
+    // also owns the audio/subtitle menu, and "the first popup" found that one.
     function menuOf(bar) {
         for (var i = 0; i < bar.data.length; ++i) {
             var o = bar.data[i]
-            if (o && typeof o.popup === "function")
+            if (o && typeof o.popup === "function"
+                    && o.objectName === "videoSpeedMenu")
                 return o
         }
         return null
