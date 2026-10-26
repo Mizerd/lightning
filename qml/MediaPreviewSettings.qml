@@ -76,10 +76,29 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textMeta
                 text: qsTr("Pictures, GIFs, stickers, video, audio and files "
                            + "start as one line you can open, and are not "
-                           + "downloaded until you do. Private rooms are "
-                           + "encrypted rooms and direct messages. The choice "
-                           + "is saved in your account, so other apps that "
-                           + "support it follow it.")
+                           + "downloaded until you do. Private rooms are rooms "
+                           + "that not everyone can join: invite-only, knock "
+                           + "or restricted to a Space. The choice is saved in "
+                           + "your account, so other apps that support it "
+                           + "follow it.")
+            }
+            // An account that chose "Private rooms only" when it meant
+            // "encrypted rooms and direct messages" keeps that narrower set
+            // until the choice is made again (AccountPrefs::collapsesMedia).
+            Label {
+                objectName: "mediaPreviewPrivateMigration"
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing4
+                visible: !!section.prefs && section.prefs.mediaPreviewKnown
+                         && section.prefs.mediaPreviews === "private"
+                         && !section.prefs.privateMeansNonPublic
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textMeta
+                text: qsTr("Until you choose Private rooms only again, media "
+                           + "also needs the room to be encrypted or a direct "
+                           + "message, as this setting used to mean.")
             }
             SettingsCheckBox {
                 id: inviteCheck

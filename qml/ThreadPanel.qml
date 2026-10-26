@@ -927,6 +927,8 @@ Rectangle {
                 // From the panel's re-read record (see panelRoom).
                 property bool roomEncrypted:
                     panel.panelRoom && panel.panelRoom.encrypted === true
+                property string roomJoinRule:
+                    panel.panelRoom ? (panel.panelRoom.joinRule || "") : ""
                 function stateGroupExpanded(groupId) { return true }
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage

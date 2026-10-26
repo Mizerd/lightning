@@ -25,7 +25,18 @@ struct MediaPreview {
     // must never read as permission to load.
     QString mediaPreviews = QStringLiteral("on");
     bool inviteAvatars = true;
+    // "Private rooms" now means NON-PUBLIC join rule (MSC4278's own meaning,
+    // as Element reads it); Lightning used to read it as "encrypted or a
+    // direct message". True once the account recorded that the user chose
+    // "Private rooms only" under the new meaning (kPrivateRoomsMarker). Until
+    // then a compatibility guard keeps the old, narrower set loading, so an
+    // existing choice is never silently broadened.
+    bool privateMeansNonPublic = false;
 };
+
+// Lightning's own field inside m.media_preview_config recording the adoption
+// above. Other clients ignore it (writes keep fields they do not own).
+inline constexpr auto kPrivateRoomsMarker = "org.lightning_matrix.private_rooms";
 
 MediaPreview parseMediaPreview(const QVariantMap &content);
 
@@ -33,11 +44,24 @@ MediaPreview parseMediaPreview(const QVariantMap &content);
 // own are carried over unchanged.
 QVariantMap composeMediaPreview(const QVariantMap &existing,
                                 const QString &mediaPreviews,
-                                bool inviteAvatars);
+                                bool inviteAvatars,
+                                bool privateMeansNonPublic = false);
 
-// Whether media in a room should start collapsed. "private" loads in a
-// private room (here: encrypted or a direct message) only.
-bool collapsesMedia(const QString &mediaPreviews, bool roomIsPrivate);
+// Whether a join rule is a known non-public one. "" (unknown) is NOT.
+bool joinRuleIsNonPublic(const QString &joinRule);
+
+// Whether media in a room should start collapsed (collapsed media is one line
+// with an explicit reveal, and fetches nothing):
+//   "on"      -> never;
+//   "private" -> unless the room's join rule is known and non-public; an
+//                unknown join rule collapses (conservative). Before the
+//                account adopted the non-public meaning, the room must ALSO be
+//                encrypted or a direct message (the old meaning), so the set
+//                that loads can only shrink, never grow, until the user
+//                chooses "Private rooms only" again;
+//   "off" and anything unknown -> always.
+bool collapsesMedia(const QString &mediaPreviews, const QString &joinRule,
+                    bool encrypted, bool direct, bool privateMeansNonPublic);
 
 // ---- incoming-invite policy (spec v1.18 / MSC4380) --------------------------
 //

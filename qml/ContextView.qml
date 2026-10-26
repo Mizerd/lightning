@@ -187,6 +187,8 @@ Rectangle {
                                              && view.currentRoom.encrypted === true
                 property bool isDirectRoom: view.currentRoom
                                             && view.currentRoom.isDirect === true
+                property string roomJoinRule: view.currentRoom
+                                              ? (view.currentRoom.joinRule || "") : ""
                 function stateGroupExpanded(groupId) { return true }
                 function toggleStateGroup(groupId) {}
                 property var openImage: view.openImage

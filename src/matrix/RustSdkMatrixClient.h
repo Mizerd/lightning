@@ -636,6 +636,7 @@ public:
     quint64 requestBackupProgress() override;
     void acknowledgeInterruptedSetup() override;
     void readAccountPref(const QString &prefType) override;
+    bool supportsAccountPrefs() const override { return true; }
     void writeAccountPref(const QString &prefType,
                           const QVariantMap &content) override;
     void requestInvitePolicySupport() override;

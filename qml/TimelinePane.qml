@@ -4150,6 +4150,9 @@ Rectangle {
                 property bool roomEncrypted: root.currentRoom.encrypted === true
                 // Bubbles layout applies to direct messages only.
                 property bool isDirectRoom: root.currentRoom.isDirect === true
+                // The media-preview policy's "private rooms" (non-public join
+                // rule); "" while unknown.
+                property string roomJoinRule: root.currentRoom.joinRule || ""
                 property var expandedStateGroups: ({})
                 function saveRoomPosition() {
                     if (app.currentRoomId === "") return

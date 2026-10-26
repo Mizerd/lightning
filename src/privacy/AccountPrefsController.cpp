@@ -73,6 +73,14 @@ void AccountPrefsController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::loggedOut, this,
             &AccountPrefsController::reset);
+    // No account data on this backend (mock, HTTP fallback): there is no
+    // stored choice to wait for, so the fail-closed gates open on the
+    // defaults now rather than hiding every picture until a read that the
+    // backend answers only after sign-in.
+    if (!m_client->supportsAccountPrefs()) {
+        m_mediaKnown = true;
+        Q_EMIT changed();
+    }
 }
 
 void AccountPrefsController::setEmojiCatalog(EmojiCatalog *emoji)
@@ -212,9 +220,13 @@ void AccountPrefsController::applyInviteRead(const QString &type,
     setInviteContent(type, content);
 }
 
-bool AccountPrefsController::collapsesMedia(bool roomIsPrivate) const
+bool AccountPrefsController::collapsesMedia(const QString &joinRule, bool encrypted,
+                                            bool direct) const
 {
-    return AccountPrefs::collapsesMedia(m_media.mediaPreviews, roomIsPrivate);
+    if (!m_mediaKnown)
+        return true;
+    return AccountPrefs::collapsesMedia(m_media.mediaPreviews, joinRule, encrypted,
+                                        direct, m_media.privateMeansNonPublic);
 }
 
 void AccountPrefsController::setMediaPreviews(const QString &mode)
@@ -224,6 +236,10 @@ void AccountPrefsController::setMediaPreviews(const QString &mode)
         return;
     MediaPreview next = m_media;
     next.mediaPreviews = mode;
+    // Choosing "Private rooms only" in this build is choosing it under the
+    // non-public meaning the setting now describes; the guard ends here.
+    if (mode == QLatin1String("private"))
+        next.privateMeansNonPublic = true;
     writeMedia(next);
 }
 
@@ -246,7 +262,7 @@ void AccountPrefsController::writeMedia(const MediaPreview &next)
     m_client->writeAccountPref(
         QString::fromLatin1(kMediaPreviewType),
         composeMediaPreview(m_mediaContent, next.mediaPreviews,
-                            next.inviteAvatars));
+                            next.inviteAvatars, next.privateMeansNonPublic));
 }
 
 void AccountPrefsController::onRead(const QString &type, bool present,

@@ -29,6 +29,7 @@ class FakePrefsClient : public MockMatrixClient
 public:
     using MockMatrixClient::MockMatrixClient;
     void readAccountPref(const QString &type) override { reads << type; }
+    bool supportsAccountPrefs() const override { return true; }
     void requestInvitePolicySupport() override { ++supportProbes; }
     int supportProbes = 0;
     void writeAccountPref(const QString &type, const QVariantMap &content) override
@@ -89,14 +90,71 @@ private Q_SLOTS:
         QVERIFY(!partial.inviteAvatars);
     }
 
-    void privateModeLoadsOnlyInPrivateRooms()
+    // Master prompt Part 6, 6 (UI-043/044): "Private rooms" is a non-public
+    // join rule, not encryption or a DM; an unknown join rule collapses; and
+    // until the account adopts the new meaning the old, narrower set is the
+    // most that loads (never silently broadened).
+    void privateModeFollowsTheJoinRuleWithACompatibilityGuard()
     {
-        QVERIFY(!collapsesMedia(QStringLiteral("on"), false));
-        QVERIFY(!collapsesMedia(QStringLiteral("on"), true));
-        QVERIFY(collapsesMedia(QStringLiteral("private"), false));
-        QVERIFY(!collapsesMedia(QStringLiteral("private"), true));
-        QVERIFY(collapsesMedia(QStringLiteral("off"), true));
-        QVERIFY(collapsesMedia(QStringLiteral("anything else"), true));
+        const QString on = QStringLiteral("on"), priv = QStringLiteral("private"),
+                      off = QStringLiteral("off");
+        const QString pub = QStringLiteral("public"), inv = QStringLiteral("invite");
+        QVERIFY(!collapsesMedia(on, pub, false, false, false));
+        QVERIFY(collapsesMedia(off, inv, true, true, true));
+        QVERIFY(collapsesMedia(QStringLiteral("anything else"), inv, true, true, true));
+        // Adopted: the join rule alone decides.
+        QVERIFY2(collapsesMedia(priv, pub, true, false, true),
+                 "a public encrypted room is not private");
+        QVERIFY2(!collapsesMedia(priv, inv, false, false, true),
+                 "a non-public unencrypted room is private");
+        QVERIFY(!collapsesMedia(priv, QStringLiteral("restricted"), false, false, true));
+        QVERIFY(!collapsesMedia(priv, QStringLiteral("knock"), false, false, true));
+        QVERIFY2(collapsesMedia(priv, QString(), true, true, true),
+                 "an unknown join rule must collapse");
+        QVERIFY(collapsesMedia(priv, QStringLiteral("future_rule"), true, true, true));
+        // Not adopted: non-public AND (encrypted or DM), so nothing that the
+        // old meaning collapsed starts loading.
+        QVERIFY(collapsesMedia(priv, inv, false, false, false));
+        QVERIFY(!collapsesMedia(priv, inv, true, false, false));
+        QVERIFY(!collapsesMedia(priv, inv, false, true, false));
+        QVERIFY(collapsesMedia(priv, pub, true, true, false));
+    }
+
+    // A backend with no account data answers "absent" (the base
+    // MatrixClient), so the fail-closed gate opens on the MSC defaults rather
+    // than hiding every picture for ever on the mock and HTTP backends.
+    void aBackendWithoutAccountDataAnswersAbsent()
+    {
+        MockMatrixClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        // Known at once: there is no stored choice to wait for.
+        QVERIFY(c.mediaPreviewKnown());
+        // And a read (after a sign-in reset) is answered "absent".
+        c.refresh();
+        QTRY_VERIFY(c.mediaPreviewKnown());
+        QCOMPARE(c.mediaPreviews(), QStringLiteral("on"));
+        QVERIFY(!c.collapsesMedia(QStringLiteral("public"), false, false));
+        QVERIFY(c.inviteAvatarsAllowed());
+    }
+
+    void theNonPublicMarkerIsReadKeptAndWrittenOnlyWhenChosen()
+    {
+        QVERIFY(!parseMediaPreview({ { "media_previews", "private" } }).privateMeansNonPublic);
+        QVERIFY(parseMediaPreview({ { "media_previews", "private" },
+                                    { "org.lightning_matrix.private_rooms", "non_public" } })
+                    .privateMeansNonPublic);
+        QVERIFY(!composeMediaPreview({}, QStringLiteral("private"), true, false)
+                     .contains("org.lightning_matrix.private_rooms"));
+        QCOMPARE(composeMediaPreview({}, QStringLiteral("private"), true, true)
+                     .value("org.lightning_matrix.private_rooms").toString(),
+                 QStringLiteral("non_public"));
+        // Another client's later write keeps it (fields we do not own are
+        // carried by them, and ours carries it here).
+        QCOMPARE(composeMediaPreview({ { "org.lightning_matrix.private_rooms", "non_public" } },
+                                     QStringLiteral("on"), true, false)
+                     .value("org.lightning_matrix.private_rooms").toString(),
+                 QStringLiteral("non_public"));
     }
 
     void composeKeepsFieldsItDoesNotOwn()
@@ -216,7 +274,9 @@ private Q_SLOTS:
         QCOMPARE(c.mediaPreviews(), QStringLiteral("on"));
         QVERIFY(c.inviteAvatars());
         QVERIFY(!c.mediaPreviewKnown());
-        QVERIFY(!c.collapsesMedia(false));
+        // Fail-closed while the account's choice is loading (UI-042).
+        QVERIFY2(c.collapsesMedia(QStringLiteral("invite"), true, true),
+                 "media loads before the account's choice is known");
 
         Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true,
                                       { { "media_previews", "private" },
@@ -224,8 +284,18 @@ private Q_SLOTS:
         QCOMPARE(c.mediaPreviews(), QStringLiteral("private"));
         QVERIFY(!c.inviteAvatars());
         QVERIFY(c.mediaPreviewKnown());
-        QVERIFY(c.collapsesMedia(false));
-        QVERIFY(!c.collapsesMedia(true));
+        // Stored "private" without the marker: the compatibility guard.
+        QVERIFY(c.collapsesMedia(QStringLiteral("invite"), false, false));
+        QVERIFY(!c.collapsesMedia(QStringLiteral("invite"), true, false));
+        QVERIFY(!c.privateMeansNonPublic());
+        // Choosing it again adopts the non-public meaning, in the write too.
+        client.writes.clear();
+        c.setMediaPreviews(QStringLiteral("private"));
+        QVERIFY(c.privateMeansNonPublic());
+        QVERIFY(!c.collapsesMedia(QStringLiteral("invite"), false, false));
+        QCOMPARE(client.writes.size(), 1);
+        QCOMPARE(client.writes.at(0).second.value("org.lightning_matrix.private_rooms").toString(),
+                 QStringLiteral("non_public"));
 
         // A change from another device re-reads; the reply is adopted.
         client.reads.clear();
@@ -234,7 +304,7 @@ private Q_SLOTS:
         Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), true,
                                       { { "media_previews", "newer-mode" } });
         QCOMPARE(c.mediaPreviews(), QStringLiteral("off"));
-        QVERIFY(c.collapsesMedia(true));
+        QVERIFY(c.collapsesMedia(QStringLiteral("invite"), true, true));
 
         // The data being deleted elsewhere returns the defaults.
         Q_EMIT client.accountPrefRead(QStringLiteral("m.media_preview_config"), false, {});

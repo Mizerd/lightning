@@ -1099,7 +1099,20 @@ public:
     // state store on accountPrefRead; writeAccountPref (a JSON object, bounded)
     // answers on accountPrefWritten. A change made elsewhere arrives as
     // accountPrefChanged, after which the caller re-reads.
-    virtual void readAccountPref(const QString &prefType) { Q_UNUSED(prefType); }
+    // Whether this backend keeps account-data preferences at all. One that
+    // does not has, by definition, no stored choice: the preference gates
+    // treat it as answered with the MSC defaults from the start.
+    virtual bool supportsAccountPrefs() const { return false; }
+    // A backend without account data holds no preference: it answers
+    // "absent" (on the next event-loop turn, like a real read), so the
+    // fail-closed media and invite-avatar gates open on the MSC defaults
+    // instead of waiting for an answer that never comes.
+    virtual void readAccountPref(const QString &prefType)
+    {
+        QMetaObject::invokeMethod(this, [this, prefType] {
+            Q_EMIT accountPrefRead(prefType, false, QVariantMap());
+        }, Qt::QueuedConnection);
+    }
     virtual void writeAccountPref(const QString &prefType,
                                   const QVariantMap &content)
     { Q_UNUSED(prefType); Q_UNUSED(content); }

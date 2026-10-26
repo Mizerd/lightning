@@ -37,6 +37,8 @@ class AccountPrefsController : public QObject
     Q_PROPERTY(bool inviteAvatars READ inviteAvatars NOTIFY changed)
     // True once the account's own copy was read (or written) this session.
     Q_PROPERTY(bool mediaPreviewKnown READ mediaPreviewKnown NOTIFY changed)
+    // "Private rooms only" has been chosen under its non-public meaning.
+    Q_PROPERTY(bool privateMeansNonPublic READ privateMeansNonPublic NOTIFY changed)
     // Whether a stranger-supplied invitation avatar may be fetched NOW. Unlike
     // `inviteAvatars` (the MSC default, on, until the account answers) this
     // is fail-closed: false until the account's own copy is known, because a
@@ -66,13 +68,16 @@ public:
     QString mediaPreviews() const { return m_media.mediaPreviews; }
     bool inviteAvatars() const { return m_media.inviteAvatars; }
     bool mediaPreviewKnown() const { return m_mediaKnown; }
+    bool privateMeansNonPublic() const { return m_media.privateMeansNonPublic; }
     bool inviteAvatarsAllowed() const
     { return m_mediaKnown && m_media.inviteAvatars; }
     bool writeFailed() const { return m_writeFailed; }
 
-    // Should media in this room start collapsed? `roomIsPrivate`: encrypted
-    // or a direct message (the room list carries no join rule).
-    Q_INVOKABLE bool collapsesMedia(bool roomIsPrivate) const;
+    // Should media in this room start collapsed? Fail-closed: true while the
+    // account's own choice is not known yet (a fetch made in that window
+    // cannot be taken back). See AccountPrefs::collapsesMedia for the rest.
+    Q_INVOKABLE bool collapsesMedia(const QString &joinRule, bool encrypted,
+                                    bool direct) const;
     // The last recents write failed (and is being retried, at most 3 times).
     bool recentsWriteFailed() const { return m_emojiWriteFailed; }
     // Test seams for the bounded retry: whether a retry is scheduled, how

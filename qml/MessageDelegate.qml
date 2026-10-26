@@ -349,16 +349,22 @@ Item {
         && (app.settings.collapseEmbeds === true
             || root.accountCollapsesMedia)
     // The account's own media-preview choice (MSC4278, app.accountPrefs):
-    // Always / Private rooms / Never. "Private" is an encrypted room or a
-    // direct message. Read as properties so a change re-evaluates the rows.
+    // Always / Private rooms (a non-public join rule) / Never, decided in C++
+    // (AccountPrefsController::collapsesMedia). Fail-closed: every row stays
+    // collapsed while the account's choice is still loading. The properties
+    // are read here only so a change re-evaluates the rows (the call alone
+    // creates no dependency).
+    readonly property string roomJoinRule:
+        root.timelineView && root.timelineView.roomJoinRule !== undefined
+        ? String(root.timelineView.roomJoinRule) : ""
     readonly property bool accountCollapsesMedia: {
         if (typeof app === "undefined" || !app || !app.accountPrefs)
             return false
-        const mode = app.accountPrefs.mediaPreviews
-        if (mode === "on") return false
-        if (mode === "private")
-            return !(root.roomEncrypted || root.isDirectRoom)
-        return true
+        const prefs = app.accountPrefs
+        const _deps = [prefs.mediaPreviews, prefs.mediaPreviewKnown,
+                       prefs.privateMeansNonPublic]
+        return prefs.collapsesMedia(root.roomJoinRule, root.roomEncrypted,
+                                    root.isDirectRoom)
     }
     // Transient, not persisted: an expansion is "show me this one", not a
     // preference. Reset when the row identity changes (onActionKeyChanged).

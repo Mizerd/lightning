@@ -24,11 +24,15 @@ MediaPreview parseMediaPreview(const QVariantMap &content)
         out.inviteAvatars = v.metaType().id() == QMetaType::QString
                             && v.toString() == QLatin1String("on");
     }
+    out.privateMeansNonPublic =
+        content.value(QLatin1String(kPrivateRoomsMarker)).toString()
+        == QLatin1String("non_public");
     return out;
 }
 
 QVariantMap composeMediaPreview(const QVariantMap &existing,
-                                const QString &mediaPreviews, bool inviteAvatars)
+                                const QString &mediaPreviews, bool inviteAvatars,
+                                bool privateMeansNonPublic)
 {
     QVariantMap out = existing;
     const bool known = mediaPreviews == QLatin1String("on")
@@ -37,15 +41,32 @@ QVariantMap composeMediaPreview(const QVariantMap &existing,
                known ? mediaPreviews : QStringLiteral("off"));
     out.insert(QStringLiteral("invite_avatars"),
                inviteAvatars ? QStringLiteral("on") : QStringLiteral("off"));
+    // Only ever added; an existing marker is kept (it records a past choice).
+    if (privateMeansNonPublic)
+        out.insert(QLatin1String(kPrivateRoomsMarker), QStringLiteral("non_public"));
     return out;
 }
 
-bool collapsesMedia(const QString &mediaPreviews, bool roomIsPrivate)
+bool joinRuleIsNonPublic(const QString &joinRule)
+{
+    return joinRule == QLatin1String("invite") || joinRule == QLatin1String("knock")
+           || joinRule == QLatin1String("private")
+           || joinRule == QLatin1String("restricted")
+           || joinRule == QLatin1String("knock_restricted");
+}
+
+bool collapsesMedia(const QString &mediaPreviews, const QString &joinRule,
+                    bool encrypted, bool direct, bool privateMeansNonPublic)
 {
     if (mediaPreviews == QLatin1String("on"))
         return false;
-    if (mediaPreviews == QLatin1String("private"))
-        return !roomIsPrivate;
+    if (mediaPreviews == QLatin1String("private")) {
+        if (!joinRuleIsNonPublic(joinRule))
+            return true;   // public, or not known yet
+        if (privateMeansNonPublic)
+            return false;
+        return !(encrypted || direct);   // compatibility guard
+    }
     return true; // "off", and anything unknown
 }
 
