@@ -658,7 +658,9 @@ private Q_SLOTS:
         QVERIFY(!pane.contains(QStringLiteral("header: Item {")));
         QVERIFY(pane.contains(QStringLiteral("objectName: \"paginationHeader\"")));
         QVERIFY(pane.contains(QStringLiteral("anchors.top: parent.top")));
-        QVERIFY(pane.contains(QStringLiteral("restoreScrollAnchor(app.currentRoomId)")));
+        // The reset restores through the "When returning to a conversation"
+        // entry point (mode 0 is restoreScrollAnchor itself).
+        QVERIFY(pane.contains(QStringLiteral("app.pagination.restoreConversation(")));
         QVERIFY(pane.contains(QStringLiteral("saveScrollAnchor(")));
         QVERIFY(pane.contains(QStringLiteral("eventIdAtViewRow(row)")));
 
@@ -1259,10 +1261,15 @@ private Q_SLOTS:
         QVERIFY(maintainGuard.lastIndexOf(QStringLiteral("insertedBelowAnchorHeight("), hold) > 0);
         const int holdEnd = maintainGuard.indexOf(QStringLiteral("return"), hold);
         QVERIFY(holdEnd > hold);
-        QCOMPARE(maintainGuard.mid(hold, holdEnd - hold).count(QStringLiteral("contentY =")), 1);
+        // Position writes go through setPositionY() (the recorder's writer
+        // tag) or a bare assignment; either counts as a write.
+        const QString holdText = maintainGuard.mid(hold, holdEnd - hold);
+        QCOMPARE(holdText.count(QStringLiteral("contentY ="))
+                     + holdText.count(QStringLiteral("setPositionY(")), 1);
         maintainGuard.remove(hold, holdEnd - hold);
         QVERIFY(!maintainGuard.contains(QStringLiteral("contentY +=")));
         QVERIFY(!maintainGuard.contains(QStringLiteral("contentY =")));
+        QVERIFY(!maintainGuard.contains(QStringLiteral("setPositionY(")));
 
         // userScrollActive covers the touchpad path via the settle timer
         // (moving and wheelAnimating are both false there).

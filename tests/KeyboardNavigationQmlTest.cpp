@@ -400,6 +400,9 @@ Window {
         function wheelMaxY() { return Math.max(0, contentHeight - height) }
         function cancelWheelMotion() { cancels++ }
         function updateStickAndPaginate() { updates++ }
+        // TimelinePane routes every position write through setPositionY()
+        // for the opt-in scroll recorder; behaviour is `contentY = y`.
+        function setPositionY(y, writer) { contentY = y }
         Timer { id: scrollSettleTimer; objectName: "settle"; interval: 100000 }
         %1
         Column { id: col
