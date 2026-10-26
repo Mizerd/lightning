@@ -22644,28 +22644,28 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Izinkan undangan ruang masuk</translation>
+        <translation>Izinkan undangan ruang masuk</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>undang undangan blokir tolak spam privasi invite invitation block reject</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Privasi &amp; keamanan · Pratinjau media</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Tampilkan avatar di undangan ruang</translation>
+        <translation>Tampilkan avatar di undangan ruang</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>undang undangan avatar gambar privasi invite invitation</translation>
     </message>
     <message>
         <location line="+13"/>

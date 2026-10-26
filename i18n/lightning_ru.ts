@@ -22790,28 +22790,28 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Разрешать входящие приглашения в комнаты</translation>
+        <translation>Разрешать входящие приглашения в комнаты</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>пригласить приглашение блокировать отклонить спам конфиденциальность invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Конфиденциальность и безопасность · Предпросмотр медиа</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Показывать аватары в приглашениях в комнаты</translation>
+        <translation>Показывать аватары в приглашениях в комнаты</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>пригласить приглашение аватар картинка конфиденциальность invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

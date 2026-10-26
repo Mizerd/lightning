@@ -20789,28 +20789,28 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-17"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Eingehende Raumeinladungen erlauben</translation>
+        <translation>Eingehende Raumeinladungen erlauben</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>Einladung einladen blockieren ablehnen Spam Datenschutz invite invitation block reject</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Datenschutz &amp; Sicherheit · Medienvorschau</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Avatare in Raumeinladungen anzeigen</translation>
+        <translation>Avatare in Raumeinladungen anzeigen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>Einladung einladen Avatar Bild Datenschutz invite invitation</translation>
     </message>
     <message>
         <location line="+4"/>

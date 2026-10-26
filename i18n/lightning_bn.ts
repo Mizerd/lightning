@@ -22708,28 +22708,28 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">আগত রুমের আমন্ত্রণ অনুমতি দিন</translation>
+        <translation>আগত রুমের আমন্ত্রণ অনুমতি দিন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>আমন্ত্রণ ব্লক প্রত্যাখ্যান স্প্যাম গোপনীয়তা invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>গোপনীয়তা ও নিরাপত্তা · মিডিয়া প্রিভিউ</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">রুমের আমন্ত্রণে অবতার দেখান</translation>
+        <translation>রুমের আমন্ত্রণে অবতার দেখান</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>আমন্ত্রণ অবতার ছবি গোপনীয়তা invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

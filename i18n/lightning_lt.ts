@@ -23343,28 +23343,28 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+74"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Leisti gaunamus kvietimus į kambarius</translation>
+        <translation>Leisti gaunamus kvietimus į kambarius</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>kviesti kvietimas blokuoti atmesti šlamštas privatumas invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Privatumas ir saugumas · Medijos peržiūros</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Rodyti avatarus kambarių kvietimuose</translation>
+        <translation>Rodyti avatarus kambarių kvietimuose</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>kviesti kvietimas avataras paveikslėlis privatumas invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

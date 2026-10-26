@@ -22644,28 +22644,28 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">允许接收房间邀请</translation>
+        <translation>允许接收房间邀请</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>邀请 拦截 拒绝 垃圾 隐私 invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 媒体预览</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">在房间邀请中显示头像</translation>
+        <translation>在房间邀请中显示头像</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>邀请 头像 图片 隐私 invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

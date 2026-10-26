@@ -22717,28 +22717,28 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Autoriser les invitations entrantes aux salons</translation>
+        <translation>Autoriser les invitations entrantes aux salons</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>inviter invitation bloquer refuser spam confidentialité invite block reject</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Confidentialité et sécurité · Aperçus des médias</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Afficher les avatars dans les invitations aux salons</translation>
+        <translation>Afficher les avatars dans les invitations aux salons</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>inviter invitation avatar image confidentialité invite</translation>
     </message>
     <message>
         <location line="+13"/>

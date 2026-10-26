@@ -22717,28 +22717,28 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">आने वाले रूम निमंत्रणों की अनुमति दें</translation>
+        <translation>आने वाले रूम निमंत्रणों की अनुमति दें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>आमंत्रण निमंत्रण ब्लॉक अस्वीकार स्पैम निजता invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>निजता और सुरक्षा · मीडिया पूर्वावलोकन</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">रूम आमंत्रणों में अवतार दिखाएँ</translation>
+        <translation>रूम आमंत्रणों में अवतार दिखाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>आमंत्रण निमंत्रण अवतार चित्र निजता invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

@@ -22717,28 +22717,28 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Permitir invitaciones a salas entrantes</translation>
+        <translation>Permitir invitaciones a salas entrantes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>invitar invitación bloquear rechazar spam privacidad invite invitation block reject</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidad y seguridad · Vistas previas de multimedia</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Mostrar avatares en las invitaciones a salas</translation>
+        <translation>Mostrar avatares en las invitaciones a salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>invitar invitación avatar imagen privacidad invite invitation</translation>
     </message>
     <message>
         <location line="+13"/>

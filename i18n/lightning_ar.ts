@@ -23000,28 +23000,28 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">السماح بدعوات الغرف الواردة</translation>
+        <translation>السماح بدعوات الغرف الواردة</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>دعوة دعوات حظر رفض بريد مزعج خصوصية invite invitation block spam</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>الخصوصية والأمان · معاينات الوسائط</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">إظهار الصور الرمزية في دعوات الغرف</translation>
+        <translation>إظهار الصور الرمزية في دعوات الغرف</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>دعوة دعوات صورة رمزية صورة خصوصية invite invitation avatar</translation>
     </message>
     <message>
         <location line="+13"/>

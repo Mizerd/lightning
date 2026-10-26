@@ -22717,28 +22717,28 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+156"/>
         <source>Allow incoming room invitations</source>
-        <translation type="unfinished">Permitir convites recebidos para salas</translation>
+        <translation>Permitir convites recebidos para salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation block reject spam privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>convidar convite bloquear rejeitar spam privacidade invite invitation block reject</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Privacy &amp; security · Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Pré-visualizações de multimédia</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished">Mostrar avatares em convites para salas</translation>
+        <translation>Mostrar avatares em convites para salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>invite invitation avatar picture privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>convidar convite avatar imagem privacidade invite invitation</translation>
     </message>
     <message>
         <location line="+13"/>
