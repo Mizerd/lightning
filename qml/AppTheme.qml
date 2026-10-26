@@ -133,6 +133,12 @@ QtObject {
 
     // WCAG relative luminance. Only used to classify a custom palette as light
     // or dark.
+    // WCAG contrast of two colours (alpha ignored).
+    function contrastRatio(a, b) {
+        var la = relativeLuminance(_asColor(a))
+        var lb = relativeLuminance(_asColor(b))
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+    }
     function relativeLuminance(c) {
         function lin(v) {
             return v <= 0.03928 ? v / 12.92
@@ -1543,6 +1549,12 @@ QtObject {
     readonly property color settingsNavSelected:
         _p.settingsNavSelected !== undefined ? _p.settingsNavSelected
                                              : selectedHover
+    // The caret and icon of the SELECTED Settings nav row. The accent (bolt)
+    // where it keeps 3:1 against the selection fill, the row's text ink where
+    // it does not: on Nordic the accent #5E81AC sat on #587197 (1.1:1) and
+    // both marks vanished (live, 2026-10-26).
+    readonly property color settingsNavSelectedMark:
+        contrastRatio(bolt, settingsNavSelected) >= 3.0 ? bolt : stormText
     readonly property color memberRowHover:     _p.memberRowHover !== undefined
                                                 ? _p.memberRowHover : hover
     readonly property color roomUnreadBadge:    _p.roomUnreadBadge !== undefined

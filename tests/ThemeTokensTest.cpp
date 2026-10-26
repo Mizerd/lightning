@@ -951,6 +951,53 @@ private Q_SLOTS:
                                 .arg(checked)));
     }
 
+    // The selected Settings nav row's caret and icon vanished on Nordic: the
+    // accent #5E81AC on the selection fill #587197 (live, 2026-10-26). They
+    // take settingsNavSelectedMark: the accent where it keeps 3:1 on the
+    // fill, the text ink otherwise. Mirrors that rule over every palette's
+    // literals, asserts 3:1 everywhere, and counts the palettes measured.
+    void theSelectedSettingsNavMarksKeepContrastOnEveryTheme()
+    {
+        QVERIFY(m_theme.contains(QStringLiteral(
+            "contrastRatio(bolt, settingsNavSelected) >= 3.0 ? bolt : stormText")));
+        const QString screen = readAll(QStringLiteral(SETTINGS_QML_PATH));
+        QVERIFY(!screen.isEmpty());
+        QVERIFY2(screen.count(QStringLiteral("AppTheme.settingsNavSelectedMark")) >= 2,
+                 "the selected row's icon and caret do not both take the mark token");
+        int checked = 0;
+        bool nordFellBack = false;
+        for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
+            if (!it.key().endsWith(QStringLiteral("SelectedHover"))
+                || !it.key().startsWith(QLatin1Char('_')))
+                continue;
+            const QString prefix = it.key().chopped(13);
+            const QString fill = it.value();
+            QString accent = m_colors.value(prefix + QStringLiteral("Accent"));
+            QString ink = m_colors.value(prefix + QStringLiteral("TextPrimary"));
+            if (prefix == QStringLiteral("_sto")) {
+                accent = m_colors.value(QStringLiteral("_stoBolt"));
+                ink = m_colors.value(QStringLiteral("_stoText"));
+            }
+            if (accent.isEmpty() || ink.isEmpty())
+                continue;
+            ++checked;
+            const bool useAccent = contrast(accent, fill) >= 3.0;
+            if (prefix == QStringLiteral("_nor"))
+                nordFellBack = !useAccent;
+            const QString mark = useAccent ? accent : ink;
+            QVERIFY2(contrast(mark, fill) >= 3.0,
+                     qPrintable(QStringLiteral("%1: the selected nav mark %2 is %3:1 on %4")
+                                    .arg(prefix, mark)
+                                    .arg(contrast(mark, fill), 0, 'f', 2)
+                                    .arg(fill)));
+        }
+        QVERIFY2(checked >= 6, qPrintable(QStringLiteral("only %1 palettes measured")
+                                              .arg(checked)));
+        // The case that was reported: the accent alone fails on Nordic.
+        QVERIFY2(nordFellBack, "Nordic's accent passes on its own; the fixture no longer "
+                               "reproduces the report");
+    }
+
     // Message bodies are TextEdits with selectByMouse; without a bound
     // selectionColor Qt paints its fixed #000080 on every theme (1.04-1.28:1
     // on the dark ones). Every selectByMouse item in MessageDelegate must

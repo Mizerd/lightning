@@ -1441,7 +1441,7 @@ Item {
                 // navRowText, not navLabel: that name is the row's string
                 // property.
                 Layout.preferredHeight: navRowText.implicitHeight
-                color: navRow.highlighted ? AppTheme.bolt
+                color: navRow.highlighted ? AppTheme.settingsNavSelectedMark
                                           : AppTheme.stormTextMuted
             }
             Label {
@@ -1537,7 +1537,7 @@ Item {
                 visible: navRow.highlighted
                 name: "bolt"
                 size: 11
-                color: AppTheme.bolt
+                color: AppTheme.settingsNavSelectedMark
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 // Inside the pill, clear of its rounded corner (see
