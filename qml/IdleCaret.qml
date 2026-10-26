@@ -12,6 +12,13 @@ import MatrixClient
 // SOLID caret is drawn instead, so nothing animates. Any of those events
 // brings the normal caret back.
 //
+// The blink itself is ours: a field with a `cursorDelegate` never blinks it
+// (Qt's own blink only drives the cursor it paints), so a delegate bound to
+// `cursorVisible` alone is a caret that never blinks at all -- measured on a
+// private Xvfb, 2026-10-26: the composer's caret was identical in every frame
+// while the search field beside it blinked. The delegate toggles at the
+// platform's cursor flash rate while the field is active and not idle.
+//
 // Use: `cursorDelegate: idleCaret.delegate` and `IdleCaret { id: idleCaret;
 // field: theTextArea }` inside the field.
 Item {
@@ -21,21 +28,48 @@ Item {
     property int idleMs: 4000
     readonly property bool solid: _solid
     property bool _solid: false
+    signal woke()
+    objectName: "idleCaret"
     visible: false
     width: 0
     height: 0
 
     readonly property Component delegate: Component {
         Rectangle {
+            id: caret
+            objectName: "idleCaretCursor"
             width: Math.max(1, Math.round(AppTheme.scaled(1.5)))
             color: root.field.color
+            property bool blinkOn: true
             // Drawn only in a focused field; blinking (or solid after idle).
             visible: root.field.activeFocus
-                     && (root._solid || root.field.cursorVisible)
+                     && (root._solid || (root.field.cursorVisible && blinkOn))
+            Timer {
+                id: blink
+                // cursorFlashTime is a whole on+off cycle; 0 means never blink.
+                interval: Math.max(50, Qt.styleHints.cursorFlashTime / 2)
+                repeat: true
+                running: Qt.styleHints.cursorFlashTime > 0
+                         && root.field.activeFocus
+                         && root.field.cursorVisible && !root._solid
+                onRunningChanged: caret.blinkOn = true
+                onTriggered: caret.blinkOn = !caret.blinkOn
+            }
+            Connections {
+                target: root
+                // Activity shows the caret at once and restarts the cycle, as
+                // a field's own caret does on a keystroke.
+                function onWoke() {
+                    caret.blinkOn = true
+                    if (blink.running)
+                        blink.restart()
+                }
+            }
         }
     }
 
     function wake() {
+        root.woke()
         if (root._solid) {
             root._solid = false
             root.field.cursorVisible = true

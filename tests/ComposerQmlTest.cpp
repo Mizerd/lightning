@@ -4,6 +4,9 @@
 // and card pixels that track each theme's raised-surface token. Loads the
 // production MessageComposerBar against the mock backend with no QML warnings.
 
+#include <QElapsedTimer>
+#include <QStyleHints>
+#include <QSet>
 #include <QtTest/QtTest>
 
 #include <QBuffer>
@@ -304,6 +307,56 @@ private slots:
     {
         delete m_root;
         delete m_controller;
+    }
+
+    // The composer caret blinks while the reader is active and turns solid
+    // when idle. A field with a cursorDelegate never blinks the delegate
+    // itself, so a delegate bound to cursorVisible alone never blinked at all
+    // (live FAIL on a private Xvfb, 2026-10-26).
+    void theComposerCaretBlinksThenGoesSolidWhenIdle()
+    {
+        if (QGuiApplication::styleHints()->cursorFlashTime() <= 0)
+            QSKIP("this platform does not blink carets");
+        QQuickItem *input = item("composerInput");
+        QVERIFY(input);
+        QQuickItem *idle = findItem(input, QStringLiteral("idleCaret"));
+        QVERIFY(idle);
+        QVERIFY(idle->setProperty("idleMs", 900));
+        QMetaObject::invokeMethod(input, "forceActiveFocus");
+        QTRY_VERIFY(input->hasActiveFocus());
+        QTest::keyClick(m_window, Qt::Key_A);
+        QQuickItem *cursor = nullptr;
+        QTRY_VERIFY((cursor = findItem(input, QStringLiteral("idleCaretCursor"))));
+
+        // Sample one blink cycle and a half: both states must appear.
+        const int period = QGuiApplication::styleHints()->cursorFlashTime();
+        auto sample = [&](int ms) {
+            QSet<bool> seen;
+            QElapsedTimer t;
+            t.start();
+            while (t.elapsed() < ms) {
+                seen.insert(cursor->isVisible());
+                QTest::qWait(20);
+            }
+            return seen;
+        };
+        QTest::keyClick(m_window, Qt::Key_B);
+        const QSet<bool> active = sample(qMin(800, period * 3 / 2));
+        QVERIFY2(active.contains(true) && active.contains(false),
+                 "the caret does not blink while the reader is typing");
+
+        // Idle: solid and steady.
+        QTRY_VERIFY_WITH_TIMEOUT(idle->property("solid").toBool(), 3000);
+        const QSet<bool> quiet = sample(period * 3 / 2);
+        QCOMPARE(quiet, QSet<bool>{ true });
+
+        // A keystroke brings the blinking caret back.
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QVERIFY(!idle->property("solid").toBool());
+        QVERIFY(cursor->isVisible());
+        const QSet<bool> again = sample(qMin(800, period * 3 / 2));
+        QVERIFY2(again.contains(false), "activity did not restore blinking");
+        input->setProperty("text", QString());
     }
 
     void loadsWithoutQmlWarnings()
