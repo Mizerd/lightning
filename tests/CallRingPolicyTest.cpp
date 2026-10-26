@@ -129,6 +129,27 @@ private Q_SLOTS:
         QVERIFY(!refused.at(0).at(0).toString().isEmpty());
     }
 
+    // A routed account (docs/network-profiles.md): the call button is
+    // refused with its own reason instead of nothing (live, 2026-10-26: the
+    // legacy lane refused silently and the click did nothing visible).
+    void aRoutedAccountIsToldWhyItCannotCall()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        QVERIFY(mock->setProperty("simulatedNetworkRoute", true));
+        QSignalSpy refused(&controller, &AppController::callStartRefused);
+        QSignalSpy shown(&controller, &AppController::errorReported);
+        QVERIFY(!controller.startCall(QStringLiteral("!general:mock.local")));
+        QCOMPARE(refused.count(), 1);
+        QVERIFY2(refused.at(0).at(0).toString().contains(QLatin1String("proxy")),
+                 qPrintable(refused.at(0).at(0).toString()));
+        // And it reaches the status strip (Main.qml onErrorReported).
+        QCOMPARE(shown.count(), 1);
+        QCOMPARE(shown.at(0).at(0).toString(), refused.at(0).at(0).toString());
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

@@ -18,6 +18,8 @@ class MockMatrixClient : public MatrixClient
     // What AppController last asked for (MatrixClient::setUnthreadedReadReceipts).
     // A property so a test can read it by name.
     Q_PROPERTY(bool unthreadedReadReceipts MEMBER m_unthreadedReadReceipts)
+    // A test sets it to stand in for an account with a network route.
+    Q_PROPERTY(bool simulatedNetworkRoute MEMBER m_simulatedNetworkRoute)
     // Send counters, as properties for the same reason.
     Q_PROPERTY(int roomTextSends MEMBER m_roomTextSends)
     Q_PROPERTY(int roomAttachmentCalls MEMBER m_roomAttachmentCalls)
@@ -31,6 +33,7 @@ public:
     void logout() override;
     bool restoreSession() override;
     bool detachSession() override;
+    bool networkRouteActive() const override { return m_simulatedNetworkRoute; }
 
     // Lets the mock restore/switch sessions from the persisted account registry
     // so account-switch tests run offline.
@@ -385,6 +388,7 @@ private:
     bool m_screenshotDemoMode = false;
     bool m_threadRepliesInLive = false;
     bool m_unthreadedReadReceipts = false;
+    bool m_simulatedNetworkRoute = false;
     int m_roomTextSends = 0;
     int m_roomAttachmentCalls = 0;
     int m_threadVoiceCalls = 0;

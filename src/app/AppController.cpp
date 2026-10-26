@@ -1497,6 +1497,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // join the call button started in a 1:1 DM is re-placed on the legacy
     // lane rather than left failed: the user asked for a call. A join from
     // the call banner is not, since that asks for THIS call.
+    // Nothing in QML listened to callStartRefused, so every refused call
+    // start (no lane, a network route, video on the legacy lane) did nothing
+    // visible. The status strip shows it, as it shows other errors.
+    connect(this, &AppController::callStartRefused, this,
+            [this](const QString &message) { Q_EMIT errorReported(message); });
     connect(m_rtc.get(), &RtcController::membershipRefused, this,
             [this](const QString &roomId) {
                 const auto armed = m_legacyFallback.take(roomId);
@@ -4635,6 +4640,14 @@ bool AppController::canStartCall(const QString &roomId) const
 
 bool AppController::startCall(const QString &roomId, bool withVideo)
 {
+    // A routed account (docs/network-profiles.md) cannot call on either
+    // lane; both refuse silently below, so say why here.
+    if (m_client && m_client->networkRouteActive()) {
+        qCInfo(lcApp) << "call start refused: the account uses a network route";
+        Q_EMIT callStartRefused(
+            tr("Calls aren't available while this account uses a proxy."));
+        return false;
+    }
     // Re-read the room's encryption now rather than trusting the value
     // recorded on navigation, which may predate `m.room.encryption` arriving
     // and would let the call join in cleartext. Unknown still fails closed.
