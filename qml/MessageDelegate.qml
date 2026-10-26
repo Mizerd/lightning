@@ -1790,8 +1790,8 @@ Item {
                     // While selecting the gutter belongs to the selection
                     // circle.
                     active: !root.showsIdentity && rowHover.hovered
-                            && !root.compactMode && !root.smallAvatarMode
                             && !root.selectionMode
+                            && !root.compactMode && !root.smallAvatarMode
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
                         // The app-wide clock format (Settings -> Appearance),

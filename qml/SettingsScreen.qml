@@ -3435,6 +3435,9 @@ Item {
                             Label {
                                 id: layoutPresetHint
                                 objectName: "layoutPresetHint"
+                                // Our own words only, but the scan cannot tell
+                                // a ternary of qsTr() from a remote string.
+                                textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 Layout.leftMargin: AppTheme.spacing4
                                 wrapMode: Text.WordWrap

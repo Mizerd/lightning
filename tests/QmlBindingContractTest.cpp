@@ -467,9 +467,13 @@ private Q_SLOTS:
             "app.composer.addAttachment(drop.urls[i])")));
         QVERIFY(pane.contains(QStringLiteral("keys: [\"text/uri-list\"]")));
         // The chat-wide area never covers the thread surface, which owns its
-        // own drops (thread send path).
+        // own drops (thread send path): it stops at the thread panel when the
+        // panel is beside the room and has no width when the thread takes the
+        // pane (Main view or a narrow window); the search panel likewise.
         QVERIFY(pane.contains(QStringLiteral(
-            "width: (root.threadSurfaceOpen || root.searchOpen)")));
+            "width: root.threadSurfaceOpen\n"
+            "               ? (sideSurface.threadBeside ? root.width - sideSurface.width - 1\n"
+            "                                           : 0)")));
         QVERIFY(pane.contains(QStringLiteral(
             "? (sideSurface.beside ? root.width - sideSurface.width - 1 : 0)")));
         QVERIFY(!pane.contains(QStringLiteral(
@@ -1311,8 +1315,11 @@ private Q_SLOTS:
         QVERIFY(!delegate.isEmpty());
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"messagePresentationRow\"")));
+        // Compact and Small avatars (no gutter avatar) share the 8 px inset;
+        // Modern keeps 40 and Bubbles 44.
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property real avatarGutterWidth: compactMode ? 8")));
+            "readonly property real avatarGutterWidth: (compactMode || smallAvatarMode)\n"
+            "                                              ? 8 : (bubbleMode ? 44 : 40)")));
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool showsIdentity: model.showSenderIdentity === true")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -1379,8 +1386,10 @@ private Q_SLOTS:
 
         // Continuations drop the fixed 36 px avatar height and the permanent
         // timestamp line.
+        // Small avatars has no gutter avatar to hold the 34 px open.
         QVERIFY(delegate.contains(QStringLiteral(
-            "implicitHeight: root.showsIdentity ? 34 : bodyLabel.implicitHeight")));
+            "implicitHeight: root.showsIdentity && !root.smallAvatarMode\n"
+            "                                ? 34 : bodyLabel.implicitHeight")));
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"continuationTimestamp\"")));
         // Shown only on a hovered continuation row, gated by the Loader's

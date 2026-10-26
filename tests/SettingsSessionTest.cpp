@@ -1365,12 +1365,16 @@ void SettingsSessionTest::layoutPresetIsAReversibleProfile()
         QCOMPARE(settings.lightningPresentationValue(
                      QStringLiteral("messageLayout")).toInt(), 1);
         QSignalSpy layoutSpy(&settings, &SettingsManager::messageLayoutChanged);
+        // The block above left a threadPlacement override, so the preset is
+        // customized already; the synced write must not add a messageLayout
+        // override of its own.
+        QVERIFY(settings.presetSuppliesValue(QStringLiteral("messageLayout")));
         QVERIFY(settings.setLightningPresentationValue(
             QStringLiteral("messageLayout"), 2));
         QCOMPARE(settings.messageLayout(),
                  SettingsManager::kMessageLayoutSmallAvatars);
         QCOMPARE(layoutSpy.count(), 0);
-        QVERIFY(!settings.layoutPresetCustomized());
+        QVERIFY(settings.presetSuppliesValue(QStringLiteral("messageLayout")));
         QVERIFY(!settings.setLightningPresentationValue(
             QStringLiteral("theme"), 1));
         settings.setLayoutPreset(0);
