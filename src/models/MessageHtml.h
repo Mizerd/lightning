@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QSize>
 #include <QString>
 
 #include <functional>
@@ -129,6 +130,12 @@ QString resolveInlineImages(
     const std::function<double(const QString &source)> &aspectOf = {});
 /// The inline width for an aspect ratio (pure; see resolveInlineImages).
 int inlineEmojiWidth(double aspect);
+/// An aspect lookup for resolveInlineImages over `sizeOf` (a header read of
+/// the cached file), remembering per source ONLY sizes it could read: an
+/// emoji rendered before its bytes arrived must be asked again later, not
+/// kept square for the session (live run 2026-10-26). Bounded at 4096.
+std::function<double(const QString &source)> rememberingAspect(
+    std::function<QSize(const QString &source)> sizeOf);
 
 // Enlarges inline emoji inside already-safe rich text (sanitize() output or
 // the linkified plain body) so they read as pictures.

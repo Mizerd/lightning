@@ -13,6 +13,7 @@
 #include "models/MessageHtml.h"
 
 #include <QElapsedTimer>
+#include <QSize>
 #include <QtTest/QtTest>
 
 namespace {
@@ -666,6 +667,27 @@ private Q_SLOTS:
         QVERIFY2(unknown.contains(QStringLiteral("width=\"20\"")), qPrintable(unknown));
         // Never baked into the sanitized (edit/send) form.
         QVERIFY(safe.contains(QStringLiteral("width=\"20\"")));
+    }
+
+    // Live run 2026-10-26: an emoji rendered before its file arrived had its
+    // unknown aspect (0) remembered for good, so a 2:1 image stayed square
+    // for the session. Only a size that could be read is remembered.
+    void anUnknownInlineAspectIsAskedAgainOnceTheFileArrives()
+    {
+        bool cached = false;
+        int asked = 0;
+        const auto aspectOf = MessageHtml::rememberingAspect([&](const QString &) {
+            ++asked;
+            return cached ? QSize(256, 128) : QSize();
+        });
+        const QString source = QStringLiteral("image://lightning-media/mxc%3A%2F%2Fe.org%2Fw");
+        QCOMPARE(aspectOf(source), 0.0);
+        cached = true;
+        QCOMPARE(aspectOf(source), 2.0);
+        // Known now: remembered, the header is not read again.
+        cached = false;
+        QCOMPARE(aspectOf(source), 2.0);
+        QCOMPARE(asked, 2);
     }
 
     // resolveInlineImages() is a separate render-only step: sanitize() keeps

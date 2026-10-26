@@ -1,5 +1,6 @@
 #include "models/MessageHtml.h"
 
+#include <QHash>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringView>
@@ -7,6 +8,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <memory>
 
 namespace {
 
@@ -1334,6 +1336,25 @@ QString MessageHtml::sanitize(
     // mention::refsFromSanitizedHtml) matches only mention anchors and strips
     // inner tags, so the span never reaches an outgoing formatted_body.
     return markEmoji(out);
+}
+
+std::function<double(const QString &source)> MessageHtml::rememberingAspect(
+    std::function<QSize(const QString &source)> sizeOf)
+{
+    auto cache = std::make_shared<QHash<QString, double>>();
+    return [cache, sizeOf = std::move(sizeOf)](const QString &source) {
+        const auto hit = cache->constFind(source);
+        if (hit != cache->constEnd())
+            return hit.value();
+        const QSize size = sizeOf ? sizeOf(source) : QSize();
+        if (size.width() <= 0 || size.height() <= 0)
+            return 0.0;
+        if (cache->size() > 4096)
+            cache->clear();
+        const double aspect = double(size.width()) / size.height();
+        cache->insert(source, aspect);
+        return aspect;
+    };
 }
 
 int MessageHtml::inlineEmojiWidth(double aspect)

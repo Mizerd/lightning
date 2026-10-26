@@ -39,6 +39,7 @@
 #include "media/MprisServer.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
+#include "models/MessageHtml.h"
 #include "models/RoomListModel.h"
 #include "models/SpaceChannelModel.h"
 #include "models/ReverseListProxyModel.h"
@@ -778,31 +779,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_composer->applyOutgoingEmoji(body, spec);
     });
     // An inline emoji's proportions, from the cached file's header (never a
-    // pixel decode), remembered per source.
-    m_timeline->setInlineImageAspect([this, cache = std::make_shared<QHash<QString, double>>()](
-                                         const QString &source) {
-        const auto hit = cache->constFind(source);
-        if (hit != cache->constEnd())
-            return hit.value();
-        double aspect = 0;
-        const QSize size = m_mediaBridge->cachedImageSize(source);
-        if (size.width() > 0 && size.height() > 0)
-            aspect = double(size.width()) / size.height();
-        if (cache->size() > 4096)
-            cache->clear();
-        cache->insert(source, aspect);
-        return aspect;
-    });
-    m_timeline->setInlineImageResolver(
-        [this](const QString &mxc) {
-            return m_mediaBridge->mxcImageSource(mxc, 64);
-        });
+    // pixel decode), remembered per source. Only a KNOWN aspect is
+    // remembered: an emoji rendered before its bytes arrived used to cache 0
+    // for good, so a 2:1 image stayed a square for the rest of the session
+    // (live run 2026-10-26).
+    const auto inlineAspect = MessageHtml::rememberingAspect(
+        [this](const QString &source) { return m_mediaBridge->cachedImageSize(source); });
+    const auto inlineResolver = [this](const QString &mxc) {
+        return m_mediaBridge->mxcImageSource(mxc, 64);
+    };
+    // The thread panel's model renders the same bodies: without these it
+    // showed "in thread" with the chosen emoji missing (live run).
+    for (TimelineModel *model : { m_timeline.get(), m_thread->model() }) {
+        model->setInlineImageAspect(inlineAspect);
+        model->setInlineImageResolver(inlineResolver);
+    }
     connect(m_mediaBridge.get(), &MediaBridge::mediaCached,
             m_timeline.get(),
             [this](const QString &) {
                 // An emoji resolves to "" until its bytes arrive; re-read on
                 // arrival.
                 m_timeline->notifyInlineImagesChanged();
+                m_thread->model()->notifyInlineImagesChanged();
             });
     connect(m_mediaBridge.get(), &MediaBridge::mediaFetchFailed,
             m_notifications.get(),
