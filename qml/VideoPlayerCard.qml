@@ -87,6 +87,21 @@ FocusScope {
         || player.mediaStatus === MediaPlayer.StalledMedia
         || (fetchState === "fetching")
     property string fetchState: "idle" // idle / fetching / failed
+    // Which wait the spinner stands for (M-F07). The payload is fetched whole
+    // before the player sees a local file, so the network download and the
+    // decoder's buffering are different stages and say so; there is no byte
+    // count to show, so both stay indeterminate. BufferingMedia (playing on
+    // with data in hand) is deliberately not a wait.
+    //   "downloading"  MediaBridge is still fetching the file
+    //   "preparing"    the local file is being opened by the player
+    //   "stalled"      the player ran out of data mid-playback
+    //   ""             nothing to wait for
+    readonly property string loadPhase:
+        fetchState === "failed" ? ""
+        : fetchState === "fetching" ? "downloading"
+        : player.mediaStatus === MediaPlayer.LoadingMedia ? "preparing"
+        : player.mediaStatus === MediaPlayer.StalledMedia ? "stalled"
+        : ""
 
     // MediaBridge marks and signals failures by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
@@ -531,6 +546,20 @@ FocusScope {
                     loops: Animation.Infinite
                 }
             }
+        }
+        // Says which wait the spinner is, under it, on the letterbox.
+        Label {
+            objectName: "videoLoadPhaseLabel"
+            anchors.top: cardSpinner.bottom
+            anchors.topMargin: AppTheme.spacing6
+            anchors.horizontalCenter: cardSpinner.horizontalCenter
+            visible: cardSpinner.visible && text.length > 0
+            text: root.loadPhase === "downloading" ? qsTr("Downloading…")
+                  : root.loadPhase === "preparing" ? qsTr("Preparing…")
+                  : root.loadPhase === "stalled" ? qsTr("Buffering…")
+                  : ""
+            color: AppTheme.scrimInkMuted
+            font.pixelSize: AppTheme.textMeta
         }
         ColumnLayout {
             objectName: "videoFailedPanel"

@@ -672,6 +672,25 @@ TestCase {
         verify(playback.owns("owner-video"))
     }
 
+    // ---- M-F07: the spinner says which wait it is ----
+    // A file still downloading and a player still opening its local copy
+    // were one anonymous spinner; the download is not the decoder's buffer.
+    function test_theSpinnerSaysDownloadingUntilTheFileIsHere() {
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300 })
+        compare(card.loadPhase, "downloading")
+        var label = findChild(card, "videoLoadPhaseLabel")
+        verify(label && label.visible, "the download wait is unnamed")
+        compare(label.text, "Downloading…")
+        bridge.holdFetch = false
+        bridge.playableMediaReady("full:$video")
+        verify(card.loadPhase !== "downloading",
+               "the card still says it is downloading a file it has")
+        tryVerify(function() { return card.loadPhase === "" }, 10000)
+        verify(!label.visible)
+    }
+
     // ---- M-F06: a failure says which kind it is ----
     // Every failure used to read "This video cannot be played" with a Retry,
     // including a permanent server refusal and a file this device cannot
