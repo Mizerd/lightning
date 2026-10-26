@@ -1,17 +1,11 @@
 # Account-specific network profiles: inventory, design and feasibility
 
-Status: **DESIGN AND FEASIBILITY ONLY. Nothing in this file is implemented.**
-Written 2026-10-25 for the master prompt's Part 7 (per-account proxies and
-Linux tunnel workers), against `main` at 55107ed4. There is no connection
-setting in the app, and none may be added that claims more than the table in
-section 2 can back.
-
-Why it stops at design: this feature changes how every account reaches its
-homeserver, carries proxy credentials, and has to keep the SSRF protections in
-section 2 intact. CLAUDE.md section 18 requires one non-author review before
-any change like that is committed, and no independent reviewer was available
-in the round that wrote this. The pieces that are ready to build are marked
-**READY** below. The pieces that are blocked say what blocks them.
+Status: **v1 IMPLEMENTED 2026-10-26 (per-account HTTP / SOCKS5 proxy), see
+section 7. Sections 1-6 are the 2026-10-25 design it was built from; where
+section 7 differs, section 7 is what the code does.** Rokas approved the
+dependency change ("sure its fine get the crate"). The change is §18
+review-gated: credentials, networking and the client builder. The Linux
+namespace / tunnel worker (section 5) stays out of scope.
 
 ## 1. Pinned API findings (verified against this tree)
 
@@ -20,7 +14,7 @@ in the round that wrote this. The pieces that are ready to build are marked
 | matrix-sdk 0.18.0 `ClientBuilder::proxy(url)` sets `reqwest::Proxy::all` on the SDK's own client | `matrix-sdk-0.18.0/src/http_client/native.rs:224-226` | Per-SDK-client proxying needs no global state. |
 | That call logs the whole proxy URL at INFO | same file, `info!(proxy_url = p, ...)` | Never put a credential in that URL. Authenticated proxies go through `ClientBuilder::http_client(reqwest::Client)` with `Proxy::basic_auth`. |
 | `http_client(..)` replaces the SDK's HTTP settings: user agent, timeouts, TLS minimum (1.2), root certificates | `builder/mod.rs:416-427`, `native.rs:187-230` | A custom client has to set all of them again: `user_agent(USER_AGENT)`, `min_tls_version(TLS_1_2)`, the SDK's timeout and read timeout, and the default roots. It must NEVER set `danger_accept_invalid_certs`. |
-| reqwest 0.13.4 is built with `rustls, stream, gzip, deflate`, and `tokio-socks` is not in `Cargo.lock` | `rust/Cargo.toml:49`, `rust/Cargo.lock` | **SOCKS is not compiled in.** Offering it needs reqwest's `socks` feature, which brings in a new crate: a dependency change, so its own release-reviewed round. HTTP(S) proxies (`http://`, `https://` to the proxy) need nothing new. |
+| reqwest 0.13.4 was built with `rustls, stream, gzip, deflate` | `rust/Cargo.toml:49` | SOCKS was not compiled in. **Corrected 2026-10-26:** in reqwest 0.13.4 the `socks` feature is EMPTY (`socks = []` in its Cargo.toml) and only turns on reqwest's own code, which uses `hyper_util::client::legacy::connect::proxy::{SocksV4, SocksV5}`. `hyper-util` 0.1.20 is already in the lock with `client-proxy` enabled by reqwest itself. So enabling it adds **no crate** and changes no `Cargo.lock` entry (features are not recorded there). The earlier "brings in tokio-socks" was reqwest 0.12's shape. |
 | Spec v1.18 `m.invite_permission_config` exists in ruma-events 0.34 | `ruma-events-0.34.0/src/invite_permission_config.rs` | Unrelated to routing. Recorded here because the same round implemented it (Part 6). |
 
 ## 2. Traffic inventory
@@ -150,3 +144,120 @@ inside one instance.
    NET-010 (an invalid certificate still fails), NET-017 (the existing SSRF
    suites still pass), NET-021/022 (one route killed: that account pauses,
    the other keeps syncing).
+
+## 7. What v1 implements (2026-10-26)
+
+One route per account: **Direct** (the system's network settings, exactly as
+before), an **HTTP proxy** (HTTPS tunnelled with CONNECT), or a **SOCKS5
+proxy** with remote DNS (`socks5h`: the proxy resolves the homeserver's name,
+the local resolver never sees it). Optional user name and password. No named
+profiles, no strict-mode toggle and no Test button: the smallest thing that
+can be honest, per Rokas's "no niche settings".
+
+**Where each half lives.** Kind, host, port and user name: the account's
+record in the settings file (`accounts/<slug>/networkRoute/*`,
+`SettingsManager::networkRouteRecord`), device-local, never synced, never in
+an export. The password: the account's `SecretStore` under
+`networkRoutePassword`, beside its tokens, so `clearAccountSecrets()` on
+sign-out takes it, and removing the account record takes the rest. QML
+(`app.networkRoute`, `NetworkRouteController`) sees `hasPassword` only; the
+field is write-only. The password leaves C++ only inside the JSON handed to
+`mx_rust_set_network_route`, which the caller scrubs. In Rust it lives in the
+route registry and in the reqwest `Proxy` (as URL userinfo, which reqwest uses
+for SOCKS5 auth and turns into `Proxy-Authorization` for HTTP); `RouteConfig`'s
+`Debug` redacts it, `proxy_url()` never contains it, and nothing logs it. We
+never call `ClientBuilder::proxy()`, which logs the URL at INFO.
+
+**How a route reaches the SDK.** `RustSdkMatrixClient` creates the handle,
+then `applyMediaStoreKey` and `applyNetworkRoute` hand the handle its key and
+route, keyed by store path (`rust/src/route.rs`, the same registry shape as
+`mediastore.rs`, owned per handle so a retiring handle cannot remove its
+successor's). `build_client_with` asks `route::client_for(store_path)` and,
+when there is a route, passes `ClientBuilder::http_client()` a reqwest client
+built like the SDK's own (`USER_AGENT`, TLS 1.2 minimum, 30 s default timeout,
+default roots, no certificate leniency) plus `Proxy::all`. It is set after
+every builder call that touches HTTP settings, because `user_agent()` after
+`http_client()` silently replaces the custom client. An explicit proxy also
+switches off reqwest's environment-proxy handling (`HTTP_PROXY`, `NO_PROXY`),
+so no host is exempted behind the user's back. Every request this client
+makes follows the route: discovery, login, sync, E2EE, media, thumbnails,
+avatars, server-side link previews, RTC `/state`, everything in section 2
+marked SDK. A restore that falls back to the recorded homeserver URL builds
+through the same function.
+
+**Fail closed.** `NetworkRoute::rustJson` answers `none` only when the
+account has no route record. A record it cannot use (password unreadable
+because the keyring is locked or unavailable, password missing, a kind this
+build does not know, a host that does not validate) is `unavailable`, and
+anything Rust cannot parse is recorded as `unavailable` too. For an
+unavailable route `build_client_with` refuses before any store opens ("network
+route unavailable ... not connecting directly"), and if Rust refuses the route
+outright the C++ handle is destroyed and the account is not opened. An
+unreachable proxy makes requests fail; reqwest never retries them directly.
+
+**What is refused for a routed account, and why.** Each of these would
+otherwise leave directly from the address the route hides:
+* client-side link previews (`rooms.rs::fetch_url_preview`): the server-side
+  preview still runs, through the route; the client fallback reports
+  `blocked_by_route`. `safe_open` keeps its `no_proxy()` and DNS pinning
+  unchanged, which is what keeps the SSRF checks sound;
+* link media (`linkmedia.rs::link_media_fetch`): `blocked_by_route`;
+* calls: `sfu::connect` refuses, `RtcController::joinBlock` reports
+  `NetworkRoute` ("network_route") ahead of every other reason, and
+  `CallController::placeCall` / `placeCallWithOffer` / `answer` refuse with
+  `network_route`. WebRTC media is UDP and no HTTP/SOCKS route here carries it;
+* background sessions (Labs live accounts): a routed account is not eligible
+  (`SessionPool::eligibility` -> Skip), a start in flight when a route is set
+  is dropped, and a running host is retired when its account gains a route.
+  It runs in the foreground only, until the keyring worker carries the route
+  password too.
+
+**What stays on the system route, stated in the Settings copy.** GIF search
+and GIF download (provider traffic carrying no Matrix identity, started by an
+explicit picker action), the updater, and anything handed to the browser (OAuth
+and SSO pages, links). GIFs differ from section 2's "blocked" line on purpose:
+they are not account traffic, and the Settings text says they use the system's
+network settings.
+
+**Known limits of v1 (documented, not hidden).**
+* **First sign-in is direct, and so is any browser (OAuth) sign-in.** A route
+  belongs to a saved account, and a new account has no record until its first
+  sign-in succeeds. In-memory clients built for a handle (`build_memory_client`:
+  OAuth discovery and begin, SSO providers and begin, the whoami adoption
+  probe, a refused sign-in's revocation) follow that handle's route, but the
+  OAuth Phase A bootstrap handle (`mx_rust_oauth_bootstrap_create`) has no
+  store path and so never has a route: an OAuth sign-in, including signing a
+  routed account in again, reaches the homeserver's discovery and token
+  endpoints directly, and the browser page is a hand-off anyway. A password
+  sign-in of a saved account that still has its record IS routed (it builds
+  on the account's own handle). Sign-out removes the record and the password,
+  so signing the same account in again afterwards is a first sign-in. A route
+  can be set right after, and applies from the next connect.
+* **Applies on the next connect.** Saving does not rebuild the session that is
+  open; restart or switch away and back. The Settings copy says so.
+* **No connection test**, and no "using proxy" indicator outside Settings.
+* Proxy-to-homeserver TLS is end to end (CONNECT and SOCKS both tunnel), so
+  the proxy sees the homeserver's name and traffic volume, not content. The
+  link to the proxy itself is plain (`http://` / SOCKS5), as with every
+  desktop proxy setting; an `https://` proxy URL is not offered.
+
+**Platforms.** Proxies need no namespaces or privileges: the same code serves
+Linux (native, AppImage, Flatpak, Snap), Windows and macOS. A Flatpak or Snap
+reaches a proxy on `127.0.0.1` as long as the sandbox shares the host network,
+which both manifests do. The namespace / tunnel worker (section 5) remains out
+of scope everywhere.
+
+**Tests.** Rust (`route.rs`): parsing and refusal of invalid input, no
+credential in the URL or `Debug`, a client builds for both kinds with and
+without auth, the per-store per-owner registry, `client_for` refusing an
+unusable route, `build_client_with` refusing before any store is created, and
+a request through a dead SOCKS proxy failing rather than reaching a live
+direct target. C++ `network-route` (`tests/NetworkRouteTest.cpp`): where each
+half is stored, nothing in the settings file holds the password, QML never
+gets it, a refused keyring write stores nothing, every unusable state is
+`unavailable` and never `none`, sign-out takes it and leaves another account's,
+and a source contract on the Settings card. `CallControllerTest` and
+`RtcSessionTest`: calls refused for a routed account. Live: NOT TESTED.
+
+**Dependency.** `rust/Cargo.toml`: reqwest gains the `socks` feature. No new
+crate, no lock change (see section 1).
