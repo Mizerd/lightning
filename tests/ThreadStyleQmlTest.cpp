@@ -710,6 +710,37 @@ ApplicationWindow {
         QVERIFY(list->property("followLatest").toBool());
     }
 
+    // T07: a reply arriving while the reader is up in the thread's history
+    // keeps their place, sends no receipt, and is counted on a pill that
+    // returns to the newest reply.
+    void aReplyArrivingWhileInHistoryIsCountedNotJumpedTo()
+    {
+        QString root;
+        openThreadPanel(&root);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+        // The reader scrolls up.
+        list->setProperty("followLatest", false);
+        list->setProperty("contentY", list->property("originY"));
+        const int readsBefore = mock()->markThreadReadCallsForTest();
+        QQuickItem *pill = item("threadJumpToLatestButton");
+        QVERIFY(pill);
+        QTRY_VERIFY(pill->isVisible());
+
+        m_controller->thread()->sendText(QStringLiteral("arrived below"));
+        QTRY_COMPARE(list->property("unseenReplies").toInt(), 1);
+        QVERIFY(!list->property("followLatest").toBool());
+        QVERIFY2(!list->property("atYEnd").toBool(),
+                 "the reader must keep their place in the history");
+        QCOMPARE(mock()->markThreadReadCallsForTest(), readsBefore);
+
+        click(pill);
+        QTRY_VERIFY(list->property("followLatest").toBool());
+        QTRY_COMPARE(list->property("unseenReplies").toInt(), 0);
+        QTRY_VERIFY(!pill->isVisible());
+    }
+
     void threadPanelOffersShortcodeCompletion()
     {
         QString root;

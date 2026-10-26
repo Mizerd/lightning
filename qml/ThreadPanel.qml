@@ -136,7 +136,11 @@ Rectangle {
             threadMentionPopup.close()
             // Any lifecycle transition cancels in-flight wheel motion.
             app.threadScroll.cancel()
+            // A new thread starts with nothing unseen.
+            replyList.newestSeenId = ""
+            replyList.unseenReplies = 0
             if (app.thread.state === ThreadController.Ready) {
+                replyList.noteNewestReply()
                 panel.restoreThreadScrollPosition()
                 Qt.callLater(function() {
                     // The editor of the current mode: in rich mode the
@@ -151,6 +155,7 @@ Rectangle {
         target: app.thread.model
         function onCountChanged() {
             panel.refreshRoot()
+            replyList.noteNewestReply()
             replyList.scrollToEndDeferredIfFollowing()
         }
     }
@@ -1362,6 +1367,26 @@ Rectangle {
                 // GUI pass). Re-pinned once per batch of height changes, never
                 // while the reader is dragging or flicking; any upward wheel or
                 // touchpad intent has already cleared followLatest.
+                // T07 bookkeeping: rows that arrived after the newest one the
+                // reader had reached, counted only while not following (older
+                // pages prepend and never change the newest row).
+                property int unseenReplies: 0
+                property string newestSeenId: ""
+                function noteNewestReply() {
+                    var n = app.thread.model.count
+                    var id = n > 0 ? app.thread.model.stableIdAt(n - 1) : ""
+                    if (followLatest || newestSeenId === "") {
+                        newestSeenId = id
+                        unseenReplies = 0
+                        return
+                    }
+                    if (id === "" || id === newestSeenId)
+                        return
+                    var seenRow = app.thread.model.rowForStableId(newestSeenId)
+                    unseenReplies += seenRow >= 0 ? Math.max(1, n - 1 - seenRow) : 1
+                    newestSeenId = id
+                }
+                onFollowLatestChanged: noteNewestReply()
                 property bool endPinQueued: false
                 onContentHeightChanged: {
                     if (!followLatest || count <= 0 || dragging || flicking
@@ -1407,6 +1432,79 @@ Rectangle {
                 }
 
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+            }
+
+            // T07: replies that arrive while the reader is up in the thread's
+            // history. The list keeps its place (no automatic jump, and no
+            // receipt: markRead needs the reader at the newest reply); this
+            // pill counts what arrived below and returns there on request.
+            AbstractButton {
+                id: threadJumpToLatest
+                objectName: "threadJumpToLatestButton"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: AppTheme.spacing12
+                anchors.bottomMargin: AppTheme.spacing8
+                visible: replyList.visible && !replyList.followLatest
+                         && replyList.count > 0
+                z: 20
+                focusPolicy: Qt.StrongFocus
+                hoverEnabled: true
+                implicitHeight: 32
+                implicitWidth: threadJumpRow.implicitWidth + 20
+                Accessible.role: Accessible.Button
+                Accessible.name: replyList.unseenReplies > 0
+                    ? qsTr("Jump to the newest reply, %n new", "",
+                           replyList.unseenReplies)
+                    : qsTr("Jump to the newest reply")
+                ToolTip.text: Accessible.name
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: {
+                    app.threadScroll.cancel()
+                    replyList.followLatest = true
+                    replyList.positionViewAtEnd()
+                    app.thread.markRead()
+                    panel.saveThreadScrollPosition()
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    radius: height / 2
+                    color: threadJumpToLatest.down ? AppTheme.accentPressed
+                         : threadJumpToLatest.hovered ? AppTheme.accentHover
+                         : AppTheme.accent
+                }
+                Row {
+                    id: threadJumpRow
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacingXS
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "expand_more"
+                        size: 20
+                        color: AppTheme.accentText
+                    }
+                    Label {
+                        objectName: "threadUnseenReplies"
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: replyList.unseenReplies > 0
+                        text: replyList.unseenReplies > 99
+                              ? "99+" : replyList.unseenReplies
+                        color: AppTheme.accentText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightBold
+                    }
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: (parent.height + 6) / 2
+                    color: "transparent"
+                    border.color: AppTheme.focusRing
+                    border.width: 2
+                    visible: threadJumpToLatest.visualFocus
+                }
             }
 
             // Middle-click autoscroll, as in the room timeline: a sibling of
