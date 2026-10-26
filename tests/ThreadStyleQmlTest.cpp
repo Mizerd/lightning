@@ -499,6 +499,9 @@ ApplicationWindow {
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 0);
         QTRY_COMPARE(header->height(), 60.0);
         QTRY_VERIFY(itemsNamed(QStringLiteral("senderHeaderAvatar")).isEmpty());
+        QObject *theme = m_engine->singletonInstance<QObject *>(
+            QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
+        QVERIFY(theme);
         QCOMPARE(theme->property("menuItemHeight").toInt(), 32);
         QCOMPARE(theme->property("dialogInset").toInt(), 20);
         QCOMPARE(theme->property("channelRowMinHeight").toInt(), 32);
