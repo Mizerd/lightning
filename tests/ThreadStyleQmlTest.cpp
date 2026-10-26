@@ -731,8 +731,12 @@ ApplicationWindow {
         QQuickItem *row = nullptr;
         QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
                                           Q_RETURN_ARG(QQuickItem *, row),
-                                          Q_ARG(int, count - 1)));
+                                          Q_ARG(int, count - 2)));
         QVERIFY(row);
+        // A row above the newest one, as in
+        // aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow (growing the
+        // newest row itself did not leave the list at its end in the
+        // offscreen run, which is that case's subject, not this one's).
         row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
         row->setProperty("heightSeedActive", true);
         QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
@@ -763,7 +767,11 @@ ApplicationWindow {
         // The reader scrolls up.
         list->setProperty("followLatest", false);
         list->setProperty("contentY", list->property("originY"));
-        const qreal parkedAt = list->property("contentY").toReal();
+        // Measured from originY: a ListView may move its origin when rows
+        // are added or re-measured, which moves contentY without moving
+        // anything on screen.
+        const qreal parkedAt = list->property("contentY").toReal()
+                               - list->property("originY").toReal();
         const int readsBefore = mock()->markThreadReadCallsForTest();
         QQuickItem *pill = item("threadJumpToLatestButton");
         QVERIFY(pill);
@@ -776,7 +784,8 @@ ApplicationWindow {
         // short enough to fit, so its top IS its end; a sent reply only
         // appends, so nothing above it shifts.
         QTest::qWait(300);
-        QVERIFY2(qAbs(list->property("contentY").toReal() - parkedAt) < 1.0,
+        QVERIFY2(qAbs(list->property("contentY").toReal()
+                      - list->property("originY").toReal() - parkedAt) < 1.0,
                  "the reader must keep their place in the history");
         QCOMPARE(mock()->markThreadReadCallsForTest(), readsBefore);
 
