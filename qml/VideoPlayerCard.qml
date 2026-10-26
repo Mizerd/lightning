@@ -130,13 +130,18 @@ FocusScope {
         case "network": case "timeout": case "server_unreachable":
         case "server_error": case "rate_limited": case "request_failure":
             return "network"
-        // The two MediaBridge treats as permanent for the session. Its own
+        // The server has said the file does not exist. MediaBridge's own
         // "unavailable" is a transient local dispatch refusal (no client
         // during a restore or switch) and keeps the generic Retry.
-        case "not_found": case "rejected":
+        case "not_found":
             return "unavailable"
         case "too_large":
             return "too_large"
+        // "rejected" on a playable fetch is MediaBridge refusing the BYTES
+        // (an unknown container, a payload that sniffs as markup), not the
+        // server refusing the file: live, a non-media "video" read "no longer
+        // available" while its download had succeeded.
+        case "rejected":
         case "unsupported_mime": case "invalid": case "unrecognized":
             return "format"
         }

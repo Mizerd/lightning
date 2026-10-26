@@ -723,6 +723,19 @@ TestCase {
         verify(!findChild(card, "videoRetryButton").visible,
                "a permanent failure offers a Retry that cannot help")
     }
+    // Live 2026-10-26: a non-media "video" (bytes MediaBridge refuses to
+    // materialize, category "rejected") read "no longer available". It is
+    // the bytes, not the server: the format message, no Retry, Download.
+    function test_bytesTheBridgeRefusesReadAsAFormatProblem() {
+        bridge.holdFetch = true
+        var card = createTemporaryObject(cardComponent, test,
+                                         { width: 480, height: 270, y: 300,
+                                           canSave: true })
+        bridge.mediaFetchFailed("full:$video", "rejected")
+        verify(failureText(card).indexOf("format") >= 0, failureText(card))
+        verify(!findChild(card, "videoRetryButton").visible)
+        verify(findChild(card, "videoFailedDownloadButton").visible)
+    }
     function test_aNetworkFailureKeepsItsRetry() {
         bridge.holdFetch = true
         var card = createTemporaryObject(cardComponent, test,
