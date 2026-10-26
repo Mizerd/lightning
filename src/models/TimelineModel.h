@@ -585,6 +585,16 @@ private Q_SLOTS:
 
 private:
     const TimelineEvent *eventForId(const QString &eventId) const;
+    // The loaded row a reply points at, when the reply carries NO embedded
+    // details of its own (the SDK leaves them unresolved for a target it has
+    // not fetched, or fetched and failed): the quote is then read from the row
+    // itself instead of claiming the message is not loaded. Null when the
+    // reply has its own details, the target is not loaded, virtual or redacted.
+    const TimelineEvent *loadedReplyTarget(const TimelineEvent &reply) const;
+    // Re-reads the quote of every reply that points at one of `inserted` and
+    // has nothing embedded: its target has just arrived (pagination, a
+    // jump, a live event) and a delegate does not re-read a role on its own.
+    void refreshQuotesOfRepliesTo(const QSet<QString> &inserted);
     // Recompute search matches over the loaded timeline, preserving the
     // currently selected match's event id when it still matches.
     void recomputeSearch();

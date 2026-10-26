@@ -1591,6 +1591,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     // The SDK embeds the replied-to sender as a raw MXID; resolve it like every
     // other visible identity: member lookup, then the localpart.
     case ReplyToSenderRole: {
+        if (const auto *target = loadedReplyTarget(e))
+            return data(index(rowForEventId(target->eventId)),
+                        SenderDisplayNameRole);
         // The Rust backend already resolved the name from the embedded event's
         // profile and sends the MXID separately. Prefer that: the member lookup
         // only knows people this client has seen in the room.
@@ -1628,6 +1631,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     }
     // The raw MXID behind the quote, used only for the identity colour hash.
     case ReplyToSenderIdRole:
+        if (const auto *target = loadedReplyTarget(e))
+            return target->sender;
         return e.replyToSenderId.isEmpty()
                    ? (e.replyToSender.contains(QLatin1Char(':'))
                           ? e.replyToSender
@@ -1637,6 +1642,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         const auto *target = eventForId(e.replyToEventId);
         if (target && !target->redacted && target->type == TimelineEvent::Audio
             && target->mediaIsVoice)
+            return replyPreviewForEvent(e.replyToEventId);
+        if (e.replyToPreview.isEmpty() && loadedReplyTarget(e))
             return replyPreviewForEvent(e.replyToEventId);
         return e.replyToPreview;
     }
@@ -1831,7 +1838,21 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             out.append(galleryItemVariant(g));
         return out;
     }
-    case ReplyToKindRole:        return e.redacted ? QString{} : e.replyToKind;
+    case ReplyToKindRole: {
+        if (e.redacted)
+            return QString{};
+        if (const auto *target = loadedReplyTarget(e)) {
+            switch (target->type) {
+            case TimelineEvent::Image:   return QStringLiteral("image");
+            case TimelineEvent::Video:   return QStringLiteral("video");
+            case TimelineEvent::Audio:   return QStringLiteral("audio");
+            case TimelineEvent::File:    return QStringLiteral("file");
+            case TimelineEvent::Sticker: return QStringLiteral("sticker");
+            default: break;
+            }
+        }
+        return e.replyToKind;
+    }
     case ReplyToCountRole:       return e.redacted ? 0 : e.replyToCount;
     case SentReceiptRole:
         // The answer is cached by refreshSentReceipt(); reading it must not
@@ -2407,6 +2428,8 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
                         /*announceRow=*/false);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1, index + 1);
+    if (!event.eventId.isEmpty())
+        refreshQuotesOfRepliesTo({event.eventId});
 }
 
 void TimelineModel::onEventsInsertedAt(
@@ -2436,6 +2459,12 @@ void TimelineModel::onEventsInsertedAt(
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1,
                                     index + events.size());
+    QSet<QString> arrived;
+    for (const TimelineEvent &inserted : events) {
+        if (!inserted.eventId.isEmpty())
+            arrived.insert(inserted.eventId);
+    }
+    refreshQuotesOfRepliesTo(arrived);
 }
 
 void TimelineModel::onEventChangedAt(const QString &roomId, int index,
@@ -2839,6 +2868,37 @@ QVariantMap TimelineModel::layoutMetadataAt(int row) const
                     && stateGroupLeaderRow(row) == row);
     metadata.insert(QStringLiteral("pollAnswerCount"), e.pollAnswers.size());
     return metadata;
+}
+
+const TimelineEvent *TimelineModel::loadedReplyTarget(
+    const TimelineEvent &reply) const
+{
+    if (reply.replyToEventId.isEmpty() || !reply.replyToPreview.isEmpty()
+        || !reply.replyToSender.isEmpty() || !reply.replyToSenderId.isEmpty()
+        || !reply.replyToKind.isEmpty())
+        return nullptr;
+    const auto *target = eventForId(reply.replyToEventId);
+    if (!target || target->isVirtual() || target->redacted
+        || target->type == TimelineEvent::StateChange)
+        return nullptr;
+    return target;
+}
+
+void TimelineModel::refreshQuotesOfRepliesTo(const QSet<QString> &inserted)
+{
+    if (inserted.isEmpty())
+        return;
+    const QList<int> roles = { ReplyToSenderRole, ReplyToSenderIdRole,
+                               ReplyToPreviewRole, ReplyToKindRole,
+                               ReplyToCountRole };
+    for (int row = 0; row < m_events.size(); ++row) {
+        const TimelineEvent &e = m_events.at(row);
+        if (e.replyToEventId.isEmpty() || !inserted.contains(e.replyToEventId))
+            continue;
+        if (!loadedReplyTarget(e))
+            continue;
+        Q_EMIT dataChanged(index(row), index(row), roles);
+    }
 }
 
 const TimelineEvent *TimelineModel::eventForId(const QString &eventId) const

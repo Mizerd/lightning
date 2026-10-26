@@ -161,6 +161,7 @@ private Q_SLOTS:
     void cleanup();
 
     void voiceReplyPreviewsKeepCopyTextAsTheFileName();
+    void aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget();
     void realCountExcludesVirtualRows();
     // MSC4274 galleries and the reply target's kind.
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
@@ -2056,6 +2057,57 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
              QStringLiteral("AU"));
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
              QStringLiteral("mxc://example.org/new-avatar"));
+}
+
+// A reply whose target the SDK never resolved (no embedded sender, preview or
+// kind) used to read "(original message not loaded)" even with the target a
+// few rows away; and a target that arrived LATER (pagination) never refreshed
+// the quote, because a delegate does not re-read a role on its own.
+void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget()
+{
+    auto target = makeEvent(QStringLiteral("$target"), QStringLiteral("the original"));
+    target.sender = QStringLiteral("@bob:example.org");
+    auto reply = makeEvent(QStringLiteral("$reply"), QStringLiteral("answer"));
+    reply.replyToEventId = target.eventId;   // nothing else embedded
+    m_client->mirror = { reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto role = [&](const QString &id, int r) {
+        for (int i = 0; i < m_model->rowCount(); ++i) {
+            if (m_model->eventIdAt(i) == id)
+                return m_model->data(m_model->index(i), r);
+        }
+        return QVariant();
+    };
+    // Target not loaded: the honest empty preview.
+    QVERIFY(role(reply.eventId, TimelineModel::ReplyToPreviewRole).toString().isEmpty());
+
+    // The target arrives above it: the reply row is re-read and now quotes it.
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    m_client->mirror = { target, reply };
+    Q_EMIT m_client->eventInsertedAt(kRoom, 0, target);
+    bool quoteRefreshed = false;
+    for (const auto &args : changed) {
+        const QModelIndex first = args.at(0).value<QModelIndex>();
+        if (m_model->eventIdAt(first.row()) == reply.eventId
+            && args.at(2).value<QList<int>>().contains(
+                TimelineModel::ReplyToPreviewRole))
+            quoteRefreshed = true;
+    }
+    QVERIFY2(quoteRefreshed, "the quote was not re-read when its target arrived");
+    QCOMPARE(role(reply.eventId, TimelineModel::ReplyToPreviewRole).toString(),
+             QStringLiteral("the original"));
+    QCOMPARE(role(reply.eventId, TimelineModel::ReplyToSenderIdRole).toString(),
+             QStringLiteral("@bob:example.org"));
+
+    // A reply that carries its own details keeps them.
+    auto own = makeEvent(QStringLiteral("$own"), QStringLiteral("x"));
+    own.replyToEventId = target.eventId;
+    own.replyToPreview = QStringLiteral("embedded wins");
+    own.replyToSender = QStringLiteral("carol");
+    m_client->mirror = { target, reply, own };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(role(own.eventId, TimelineModel::ReplyToPreviewRole).toString(),
+             QStringLiteral("embedded wins"));
 }
 
 void TimelineModelDiffTest::voiceReplyPreviewsKeepCopyTextAsTheFileName()
