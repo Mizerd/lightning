@@ -355,7 +355,15 @@ ApplicationWindow {
         QTRY_VERIFY(panel->isVisible());
         QTRY_VERIFY2(!roomColumn->isVisible(),
                      "Main view: the thread takes the conversation column");
-        QVERIFY(panel->width() > 1000);
+        // The panel fills the conversation pane (its RowLayout) once the
+        // layout has run: measured against the pane, not a literal, since
+        // the room list's width is not this test's concern, and polled,
+        // since the RowLayout re-lays out on the next polish.
+        QQuickItem *pane = panel->parentItem();
+        QVERIFY(pane);
+        QTRY_VERIFY2(panel->width() >= pane->width() - 2,
+                     qPrintable(QStringLiteral("panel %1 in a %2 px pane")
+                                    .arg(panel->width()).arg(pane->width())));
         // The room underneath is not on screen, so it cannot be read.
         QTRY_VERIFY(!receipts->property("timelineVisible").toBool());
         // The room composer stays the room's.
@@ -368,7 +376,10 @@ ApplicationWindow {
         QTRY_COMPARE(m_controller->settings()->property("threadPlacement").toInt(), 0);
         QTRY_VERIFY(roomColumn->isVisible());
         QVERIFY(panel->isVisible());
-        QVERIFY(panel->width() < 800);
+        // Beside the room: the room keeps at least its 320 px column.
+        QTRY_VERIFY2(panel->width() <= pane->width() - 320,
+                     qPrintable(QStringLiteral("panel %1 in a %2 px pane")
+                                    .arg(panel->width()).arg(pane->width())));
         QTRY_VERIFY(receipts->property("timelineVisible").toBool());
         click(item("threadPlacementButton"));
         QTRY_COMPARE(m_controller->settings()->property("threadPlacement").toInt(), 1);
