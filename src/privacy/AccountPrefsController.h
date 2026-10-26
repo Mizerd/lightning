@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -74,6 +75,12 @@ public:
     Q_INVOKABLE bool collapsesMedia(bool roomIsPrivate) const;
     // The last recents write failed (and is being retried, at most 3 times).
     bool recentsWriteFailed() const { return m_emojiWriteFailed; }
+    // Test seams for the bounded retry: whether a retry is scheduled, how
+    // many writes this burst has made, and a shorter base delay (the delay is
+    // base x attempt number, 5000 ms in production).
+    bool recentsRetryScheduled() const { return m_emojiRetry.isActive(); }
+    int recentsWriteAttempts() const { return m_emojiAttempts; }
+    void setRecentsRetryBaseMsForTest(int ms) { m_emojiRetryBaseMs = ms; }
     // Optimistic: the new value shows at once and a failed write reverts it.
     Q_INVOKABLE void setMediaPreviews(const QString &mode);
     Q_INVOKABLE void setInviteAvatars(bool on);
@@ -117,6 +124,7 @@ private:
     // the rest of this account's state on a client change).
     QTimer m_emojiRetry;
     int m_emojiAttempts = 0;
+    int m_emojiRetryBaseMs = 5000;
     bool m_emojiWriteFailed = false;
 
     // Incoming-invite policy.
@@ -130,4 +138,18 @@ private:
     QVariantMap m_inviteUnstableContent;
     int m_invitePending = 0;
     bool m_inviteWriteFailed = false;
+    // A server read of a policy type failed: its value is unknown, so the
+    // switch is not offered ("offline") until a read answers.
+    bool m_inviteReadFailed = false;
+    // type -> content of a write in flight, and of a confirmed write still
+    // waiting for a server read that agrees with it. A read requested before
+    // the write landed can arrive after it; while held, a disagreeing read is
+    // not adopted (the confirmed write is what the account holds) and is
+    // asked again, at most kMaxHeldMisses times before the server wins.
+    QHash<QString, QVariantMap> m_inviteInFlight;
+    QHash<QString, QVariantMap> m_inviteHeld;
+    QHash<QString, int> m_inviteHeldMisses;
+    static constexpr int kMaxHeldMisses = 3;
+    void applyInviteRead(const QString &type, const QVariantMap &content);
+    void setInviteContent(const QString &type, const QVariantMap &content);
 };

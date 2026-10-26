@@ -13602,6 +13602,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("content")).toObject().toVariantMap());
         return true;
     }
+    if (type == QLatin1String("account_pref_failed")) {
+        Q_EMIT accountPrefReadFailed(
+            event.value(QStringLiteral("pref_type")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("account_pref_changed")) {
         Q_EMIT accountPrefChanged(
             event.value(QStringLiteral("pref_type")).toString());

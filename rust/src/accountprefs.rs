@@ -100,7 +100,24 @@ pub(crate) fn change_payload(event_type: &str) -> Value {
     json!({ "type": "account_pref_changed", "pref_type": event_type })
 }
 
-/// Read one type from the state store.
+/// Whether a type is read from the SERVER rather than the state store. The
+/// incoming-invite policy decides a server-side rejection: an empty store
+/// before the first sync would read "absent", and a switch built on that would
+/// show "allowed" while the account blocks, and compose a write that drops
+/// what the account holds. So these two are fetched, and a failed fetch is
+/// reported as failed, never as absent.
+pub(crate) fn reads_from_server(event_type: &str) -> bool {
+    event_type == INVITE_PERMISSION_TYPE || event_type == INVITE_PERMISSION_UNSTABLE_TYPE
+}
+
+/// `account_pref_failed { pref_type, category }`: a server read that did not
+/// answer. C++ treats the type as unknown.
+pub(crate) fn failed_payload(event_type: &str, category: &str) -> Value {
+    json!({ "type": "account_pref_failed", "pref_type": event_type, "category": category })
+}
+
+/// Read one type: from the state store, or from the server for the types in
+/// `reads_from_server`.
 pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String> {
     let event_type = allowed_type(&event_type).ok_or_else(|| "unsupported_type".to_owned())?;
     let client = require_client(bridge)?;
@@ -108,19 +125,37 @@ pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String
     let lifecycle = bridge.timelines.lifecycle();
     let timelines = Arc::clone(&bridge.timelines);
     bridge.spawn_room_action(async move {
-        let content = client
-            .account()
-            .account_data_raw(GlobalAccountDataEventType::from(event_type))
+        let account = client.account();
+        let fetched = if reads_from_server(event_type) {
+            match tokio::time::timeout(
+                REQUEST_TIMEOUT,
+                account.fetch_account_data(GlobalAccountDataEventType::from(event_type)),
+            )
             .await
-            .ok()
-            .flatten()
-            .and_then(|raw| serde_json::from_str::<Value>(raw.json().get()).ok())
-            // `account_data_raw` already answers with the event's CONTENT.
-            .filter(Value::is_object);
+            {
+                Ok(Ok(raw)) => Ok(raw),
+                Ok(Err(err)) => Err(classify_write_error(&err.to_string()).0),
+                Err(_) => Err("timeout"),
+            }
+        } else {
+            Ok(account
+                .account_data_raw(GlobalAccountDataEventType::from(event_type))
+                .await
+                .ok()
+                .flatten())
+        };
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        let mut payload = read_payload(event_type, content);
+        let mut payload = match fetched {
+            Ok(raw) => read_payload(
+                event_type,
+                raw.and_then(|raw| serde_json::from_str::<Value>(raw.json().get()).ok())
+                    // Both calls answer with the event's CONTENT.
+                    .filter(Value::is_object),
+            ),
+            Err(category) => failed_payload(event_type, category),
+        };
         payload["lifecycle"] = json!(lifecycle);
         enqueue(&events, payload);
     });
@@ -286,6 +321,17 @@ pub(crate) fn install_change_handlers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_invite_policy_is_read_from_the_server() {
+        assert!(reads_from_server(INVITE_PERMISSION_TYPE));
+        assert!(reads_from_server(INVITE_PERMISSION_UNSTABLE_TYPE));
+        assert!(!reads_from_server(MEDIA_PREVIEW_TYPE));
+        assert!(!reads_from_server(RECENT_EMOJI_TYPE));
+        let failed = failed_payload(INVITE_PERMISSION_TYPE, "timeout");
+        assert_eq!(failed["type"], json!("account_pref_failed"));
+        assert_eq!(failed["pref_type"], json!(INVITE_PERMISSION_TYPE));
+    }
 
     #[test]
     fn the_invite_policy_types_cross_and_support_reads_versions() {

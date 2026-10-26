@@ -1001,6 +1001,9 @@ char *mx_rust_account_pref_write(void *client, const char *pref_type,
  * m.invite_permission_config / org.matrix.msc4380.invite_permission_config.
  */
 char *mx_rust_invite_policy_support(void *client);
+/* m.invite_permission_config and its MSC4380 form are read from the SERVER,
+ * not the store; a read that does not answer arrives as
+ *   {"type":"account_pref_failed","pref_type","category"}. */
 /*
  * Personal chat backgrounds kept on the homeserver (rust/src/bgsync.rs):
  * global account data org.lightning_matrix.backgrounds (scope "", the

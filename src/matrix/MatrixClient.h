@@ -2270,6 +2270,9 @@ Q_SIGNALS:
     void accountPrefRead(const QString &prefType, bool present,
                          const QVariantMap &content);
     void accountPrefChanged(const QString &prefType);
+    // A read that must come from the server (the incoming-invite policy)
+    // did not answer: the type's value is UNKNOWN, not absent.
+    void accountPrefReadFailed(const QString &prefType, const QString &category);
     void accountPrefWritten(const QString &prefType, bool ok,
                             const QString &category);
     // `ok` false: /versions could not be read (offline), not "unsupported".
