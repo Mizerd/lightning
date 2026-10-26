@@ -75,7 +75,11 @@ Item {
         property int targetRow: -1
         property bool mention: false
         property bool below: false
-        visible: targetRow >= 0
+        // Never over an empty list: the row it was computed for is gone the
+        // moment the list empties (seen live during an account switch, an
+        // "Unread below" pill over "Sign in to see rooms"), and the refresh
+        // is debounced.
+        visible: targetRow >= 0 && root.list !== null && root.list.count > 0
         z: 30
         anchors.horizontalCenter: parent.horizontalCenter
         focusPolicy: Qt.StrongFocus
