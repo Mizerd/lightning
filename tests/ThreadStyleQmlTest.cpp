@@ -793,9 +793,16 @@ ApplicationWindow {
         row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
         row->setProperty("heightSeedActive", true);
         QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
+        // Let the newest-reply pin settle on the grown thread before parking,
+        // or a late pin can land after the park under load.
+        QTRY_VERIFY(atBottomEdge(list));
+        QTest::qWait(100);
         // The reader scrolls up.
         list->setProperty("followLatest", false);
-        list->setProperty("contentY", list->property("originY"));
+        // positionViewAtBeginning(), not contentY = originY: with rows of
+        // different heights a raw jump to originY lands outside the laid-out
+        // rows and the ListView re-estimates a contentHeight that fits.
+        QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
         QTRY_VERIFY(!list->property("atYEnd").toBool());
         // Measured from originY: a ListView may move its origin when rows
         // are added or re-measured, which moves contentY without moving
