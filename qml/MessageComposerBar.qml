@@ -2534,6 +2534,9 @@ Item {
                         TextArea.flickable: TextArea {
                             id: richInput
                             objectName: "composerRichInput"
+                            // No endless blinking: see IdleCaret.qml.
+                            cursorDelegate: richIdleCaret.delegate
+                            IdleCaret { id: richIdleCaret; field: richInput }
                             onWidthChanged: richSpellTimer.restart()
                             // Spell underlines for the rich editor: same
                             // debounce, own geometry.
@@ -2786,6 +2789,9 @@ Item {
                         TextArea.flickable: TextArea {
                         id: input
                         objectName: "composerInput"
+                        // No endless blinking: see IdleCaret.qml.
+                        cursorDelegate: idleCaret.delegate
+                        IdleCaret { id: idleCaret; field: input }
                         placeholderText: {
                             if (app.currentRoomId === "")
                                 return qsTr("Select a room to start typing")

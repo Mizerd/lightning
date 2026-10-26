@@ -2173,6 +2173,32 @@ private Q_SLOTS:
         QVERIFY(panel.mid(fn, 600).contains(QStringLiteral(
             "app.composer.text.length > 0")));
     }
+
+    // An idle window must render nothing. A focused text field blinks its
+    // caret for ever, one frame per blink (the composer takes focus when a
+    // room opens: ~4 frames a second, measured), so both composer inputs use
+    // IdleCaret, which stops the blink after a quiet spell and draws a solid
+    // caret instead.
+    void theComposerCaretStopsBlinkingWhenIdle()
+    {
+        const QString caret = read(QStringLiteral("IdleCaret.qml"));
+        QVERIFY(!caret.isEmpty());
+        QVERIFY2(caret.contains(QStringLiteral("cursorVisible = false")),
+                 "the idle caret no longer switches the field's own blink off");
+        QVERIFY2(caret.contains(QStringLiteral("cursorVisible = true")),
+                 "activity no longer brings the blinking caret back");
+        QVERIFY(caret.contains(QStringLiteral("onTextChanged")));
+        QVERIFY(caret.contains(QStringLiteral("onCursorPositionChanged")));
+        QVERIFY(caret.contains(QStringLiteral("onActiveFocusChanged")));
+        const QString composer = read(QStringLiteral("MessageComposerBar.qml"));
+        QCOMPARE(composer.count(QStringLiteral("cursorDelegate:")), 2);
+        QCOMPARE(composer.count(QStringLiteral("IdleCaret {")), 2);
+        for (const QString &id : { QStringLiteral("input"),
+                                   QStringLiteral("richInput") }) {
+            QVERIFY2(composer.contains(QStringLiteral("field: %1 }").arg(id)),
+                     qPrintable(QStringLiteral("%1 has no IdleCaret").arg(id)));
+        }
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

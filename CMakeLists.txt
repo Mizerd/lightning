@@ -1098,6 +1098,7 @@ set(APP_QML_FILES
     qml/ImageCropDialog.qml
     qml/AppProgressBar.qml
     qml/AppBusyIndicator.qml
+    qml/IdleCaret.qml
     qml/AppScrollBar.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
