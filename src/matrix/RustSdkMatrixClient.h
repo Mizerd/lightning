@@ -389,6 +389,10 @@ public:
     void fetchStickerPacks(const QString &roomId, quint64 opId,
                            bool deep) override;
     void migrateUserStickerPack(quint64 opId, bool startNew) override;
+    void uploadStickerToRoomPack(const QString &roomId, const QString &stateKey,
+                                 const QString &ns, const QString &shortcode,
+                                 const QString &body, const QString &localPath,
+                                 const QString &reuseUrl, quint64 opId) override;
     void createStickerRoomPack(const QString &roomId, const QString &stateKey,
                                const QString &name, const QString &usage,
                                quint64 opId) override;

@@ -2218,6 +2218,99 @@ async fn add_to_room_pack_inner(
     Ok(code)
 }
 
+/// Upload a local image and add it to a ROOM pack (its own dialect), the bulk
+/// "Add images" path of the pack editor. The same checks as the personal
+/// upload (size before reading, MIME sniffed from the bytes, SVG refused) and
+/// the same writer as `add_to_room_pack` (fresh read, power level for the
+/// exact type). Answers on `sticker_pack_add_result`; `uploaded_url` carries
+/// the new mxc even when the pack write failed, so a retry can reuse it
+/// instead of uploading again (PACK-PRO-050).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn upload_to_room_pack(
+    bridge: &RustClient,
+    op_id: u64,
+    room_id: String,
+    state_key: String,
+    namespace: Namespace,
+    shortcode: String,
+    body: String,
+    local_path: String,
+    reuse_url: String,
+) -> Result<(), String> {
+    if RoomId::parse(&room_id).is_err() {
+        return Err("room id is not valid".to_owned());
+    }
+    let reuse = is_valid_mxc(&reuse_url).then_some(reuse_url);
+    if reuse.is_none() {
+        let metadata = std::fs::metadata(&local_path)
+            .map_err(|_| "sticker file is not readable".to_owned())?;
+        if !metadata.is_file() {
+            return Err("sticker path is not a regular file".to_owned());
+        }
+        if metadata.len() == 0 || metadata.len() > MAX_STICKER_UPLOAD_BYTES {
+            return Err("sticker file size is out of range".to_owned());
+        }
+    }
+    let requested = propose_shortcode(&shortcode);
+    let body = one_line(&body, MAX_BODY_CHARS);
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let mut uploaded = String::new();
+        let outcome = async {
+            let (url, mime, size) = match reuse {
+                Some(url) => (url, String::new(), 0u64),
+                None => {
+                    let data = tokio::fs::read(&local_path)
+                        .await
+                        .map_err(|_| "read_failed".to_owned())?;
+                    let mime_str = crate::rooms::sniff_image_mime(&data)
+                        .ok_or_else(|| "unsupported_image".to_owned())?;
+                    let mime: mime::Mime =
+                        mime_str.parse().map_err(|_| "unsupported_image".to_owned())?;
+                    let size = data.len() as u64;
+                    let upload = client
+                        .media()
+                        .upload(&mime, data, None)
+                        .await
+                        .map_err(|_| "upload_failed".to_owned())?;
+                    (upload.content_uri.to_string(), mime_str.to_owned(), size)
+                }
+            };
+            uploaded = url.clone();
+            add_to_room_pack_inner(
+                &client, &room_id, &state_key, requested, url, body, mime, 0, 0, size,
+                namespace,
+            )
+            .await
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category, shortcode) = match outcome {
+            Ok(code) => (true, String::new(), code),
+            Err(category) => (false, category, String::new()),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "sticker_pack_add_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "category": category,
+                "shortcode": shortcode,
+                "uploaded_url": uploaded,
+            }),
+        );
+    });
+    Ok(())
+}
+
 /// The `usage` array written for an added image. `emoticon` -> custom emoji,
 /// `both` -> either, anything else -> sticker.
 pub(crate) fn usage_value(usage: &str) -> Value {

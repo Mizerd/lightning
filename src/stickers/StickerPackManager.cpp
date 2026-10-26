@@ -104,6 +104,11 @@ void StickerPackManager::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::stickerPacksChanged, this,
                 &StickerPackManager::onPacksChanged);
+        connect(m_client, &MatrixClient::stickerPackUploaded, this,
+                [this](quint64 opId, const QString &url) {
+                    if (m_transfer.active && opId == m_transfer.op)
+                        m_transfer.lastUploaded = url;
+                });
         connect(m_client, &MatrixClient::stickerPackMigrated, this,
                 [this](quint64 opId, bool ok, const QString &category,
                        const QVariantMap &detail) {
@@ -1133,6 +1138,8 @@ void StickerPackManager::beginTransfer(const QString &kind, const QString &name,
 void StickerPackManager::finishTransfer(bool ok, const QString &category)
 {
     const Transfer done = m_transfer;
+    if (done.kind == QLatin1String("upload"))
+        m_failedUploads = done.retry;
     m_transfer = Transfer();
     m_importDir.reset();
     if (m_transferWatchdog)
@@ -1176,7 +1183,7 @@ void StickerPackManager::advanceBatch()
             return;
         }
         const BatchItem item = m_transfer.items.at(m_transfer.index++);
-        if (!item.path.isEmpty()
+        if ((!item.path.isEmpty() || !item.reuseUrl.isEmpty())
             && m_transfer.taken.contains(item.shortcode)) {
             ++m_transfer.skipped;
             ++m_transfer.done;
@@ -1192,8 +1199,14 @@ void StickerPackManager::advanceBatch()
         m_saveScope = QStringLiteral("account");
         m_transfer.op = opId;
         m_transfer.taken.insert(item.shortcode);
+        m_transfer.lastUploaded.clear();
         m_transferWatchdog->start();
-        if (!item.path.isEmpty()) {
+        if (!item.roomId.isEmpty()) {
+            m_saveScope = QStringLiteral("room");
+            m_client->uploadStickerToRoomPack(item.roomId, item.stateKey, item.ns,
+                                              item.shortcode, item.body, item.path,
+                                              item.reuseUrl, opId);
+        } else if (!item.path.isEmpty()) {
             m_client->uploadStickerToUserPack(item.shortcode, item.body,
                                               item.path, item.usage, opId);
         } else {
@@ -1219,6 +1232,17 @@ void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
             m_transfer.firstCode = shortcode;
     } else if (category == QLatin1String("duplicate")) {
         ++m_transfer.skipped;
+    } else if (m_transfer.kind == QLatin1String("upload")) {
+        // Keep it for Retry, with its media if that part landed.
+        ++m_transfer.failed;
+        if (m_transfer.category.isEmpty())
+            m_transfer.category = category;
+        if (m_transfer.index > 0 && m_transfer.index <= m_transfer.items.size()) {
+            BatchItem again = m_transfer.items.at(m_transfer.index - 1);
+            if (!m_transfer.lastUploaded.isEmpty())
+                again.reuseUrl = m_transfer.lastUploaded;
+            m_transfer.retry.append(again);
+        }
     } else if (category == QLatin1String("pack_full")) {
         // Every remaining image would be refused the same way.
         const int left = int(m_transfer.items.size()) - m_transfer.index;
@@ -1235,6 +1259,69 @@ void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
 }
 
 // -- Import ------------------------------------------------------------------
+
+void StickerPackManager::uploadImagesToPack(const QString &packId,
+                                            const QVariantList &fileUrls)
+{
+    if (!m_client || !available() || m_transfer.active || m_saveOp != 0
+        || m_editOp != 0 || !canManagePack(packId))
+        return;
+    const stickers::Pack pack = m_packs->packs().at(m_packs->indexOfPack(packId));
+    if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
+        return;
+    QList<BatchItem> items;
+    QSet<QString> names;
+    for (const QVariant &value : fileUrls) {
+        const QUrl url = value.toUrl().isValid() ? value.toUrl()
+                                                 : QUrl(value.toString());
+        if (!url.isLocalFile())
+            continue;
+        BatchItem item;
+        item.path = url.toLocalFile();
+        // A proposed name from the file name, unique within this batch; the
+        // backend suffixes a name the pack already has.
+        QString code = stickers::archive::proposeShortcode(
+            QFileInfo(item.path).completeBaseName());
+        if (code.isEmpty())
+            code = QStringLiteral("image");
+        QString unique = code;
+        for (int n = 2; names.contains(unique); ++n)
+            unique = code.left(96) + QStringLiteral("-%1").arg(n);
+        names.insert(unique);
+        item.shortcode = unique;
+        item.body = QString();
+        item.roomId = pack.roomId;
+        item.stateKey = pack.stateKey.isNull() ? QStringLiteral("") : pack.stateKey;
+        item.ns = pack.ns;
+        items.append(item);
+    }
+    if (items.isEmpty())
+        return;
+    m_failedUploads.clear();
+    beginTransfer(QStringLiteral("upload"), pack.displayName, int(items.size()));
+    m_transfer.items = items;
+    for (const stickers::PackImage &image : pack.images)
+        m_transfer.taken.insert(image.key);
+    // Keys already in the pack are not overwritten: skipped as duplicates.
+    for (BatchItem &item : m_transfer.items) {
+        QString unique = item.shortcode;
+        for (int n = 2; m_transfer.taken.contains(unique) && n < 1000; ++n)
+            unique = item.shortcode.left(96) + QStringLiteral("-%1").arg(n);
+        item.shortcode = unique;
+    }
+    advanceBatch();
+}
+
+void StickerPackManager::retryFailedUploads()
+{
+    if (!m_client || !available() || m_transfer.active || m_failedUploads.isEmpty())
+        return;
+    const QList<BatchItem> items = m_failedUploads;
+    m_failedUploads.clear();
+    beginTransfer(QStringLiteral("upload"), QString(), int(items.size()));
+    m_transfer.items = items;
+    advanceBatch();
+}
 
 void StickerPackManager::importPack(const QUrl &zipFile)
 {
@@ -1313,6 +1400,12 @@ QString StickerPackManager::transferMessage(const QString &kind, bool ok,
     Q_UNUSED(name);
     const bool isExport = kind == QLatin1String("export");
     const bool isEmoji = kind == QLatin1String("emoji");
+    if (!ok && kind == QLatin1String("upload")) {
+        if (category == QLatin1String("forbidden"))
+            return tr("You do not have permission to change this pack.");
+        return tr("None of the images could be added. Retry adds them without "
+                  "uploading again.");
+    }
     if (!ok) {
         if (category == QLatin1String("no_images"))
             return isExport ? tr("This pack has no images to export.")
@@ -1341,6 +1434,15 @@ QString StickerPackManager::transferMessage(const QString &kind, bool ok,
                          : tr("The pack could not be imported.");
     }
     QString text;
+    if (kind == QLatin1String("upload")) {
+        text = tr("Added %n image(s) to the pack.", nullptr, added);
+        if (failed > 0)
+            text += QLatin1Char(' ') + tr("%n failed; Retry adds them without "
+                                          "uploading again.", nullptr, failed);
+        if (skipped > 0)
+            text += QLatin1Char(' ') + tr("%n skipped.", nullptr, skipped);
+        return text;
+    }
     if (isExport) {
         text = tr("Exported %n image(s).", nullptr, added);
     } else if (isEmoji) {

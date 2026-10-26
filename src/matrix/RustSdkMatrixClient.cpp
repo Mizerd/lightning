@@ -4652,6 +4652,27 @@ void RustSdkMatrixClient::sendSticker(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::uploadStickerToRoomPack(
+    const QString &roomId, const QString &stateKey, const QString &ns,
+    const QString &shortcode, const QString &body, const QString &localPath,
+    const QString &reuseUrl, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()) {
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"), QString());
+        return;
+    }
+    const QByteArray room = roomId.toUtf8(), key = stateKey.toUtf8(),
+                     dialect = ns.toUtf8(), code = shortcode.toUtf8(),
+                     alt = body.toUtf8(), path = localPath.toUtf8(),
+                     reuse = reuseUrl.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_upload_to_room_pack(
+        m_rustHandle, room.constData(), key.constData(), dialect.constData(),
+        code.constData(), alt.constData(), path.constData(), reuse.constData(),
+        opId));
+    if (!result.isEmpty())
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"), QString());
+}
+
 void RustSdkMatrixClient::migrateUserStickerPack(quint64 opId, bool startNew)
 {
     if (!m_loggedIn || !m_rustHandle) {
@@ -12745,6 +12766,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("shortcode")).toString());
         return true;
+    }
+    if (type == QLatin1String("sticker_pack_add_result")
+        && !event.value(QStringLiteral("uploaded_url")).toString().isEmpty()) {
+        Q_EMIT stickerPackUploaded(
+            static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("uploaded_url")).toString());
+        // and fall through to the ordinary add result below
     }
     if (type == QLatin1String("sticker_pack_add_result")) {
         Q_EMIT stickerPackAddFinished(

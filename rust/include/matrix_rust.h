@@ -1135,6 +1135,18 @@ char *mx_rust_stickers_fetch_packs(void *client,
  * old one is no longer joined ("home_unavailable"). */
 char *mx_rust_stickers_migrate_user_pack(void *client, bool start_new,
                                          unsigned long long op_id);
+/* Upload a local image into a room pack in its own dialect (or add the
+ * already-uploaded `reuse_url` mxc instead of uploading again). Answers on
+ * "sticker_pack_add_result" with "uploaded_url". */
+char *mx_rust_stickers_upload_to_room_pack(void *client,
+                                           const char *room_id,
+                                           const char *state_key,
+                                           const char *ns,
+                                           const char *shortcode,
+                                           const char *body,
+                                           const char *local_path,
+                                           const char *reuse_url,
+                                           unsigned long long op_id);
 char *mx_rust_stickers_create_room_pack(void *client,
                                         const char *room_id,
                                         const char *state_key,

@@ -649,6 +649,20 @@ public:
     {
         Q_UNUSED(roomId); Q_UNUSED(opId); Q_UNUSED(deep);
     }
+    // Upload a local image into a room pack (its dialect `ns`), or add the
+    // already-uploaded `reuseUrl` instead. Reports on stickerPackAddFinished
+    // and stickerPackUploaded (the mxc, for a retry that reuses it).
+    virtual void uploadStickerToRoomPack(const QString &roomId,
+                                         const QString &stateKey,
+                                         const QString &ns,
+                                         const QString &shortcode,
+                                         const QString &body,
+                                         const QString &localPath,
+                                         const QString &reuseUrl, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(shortcode);
+        Q_UNUSED(body); Q_UNUSED(localPath); Q_UNUSED(reuseUrl); Q_UNUSED(opId);
+    }
     // Copy the legacy personal pack into standard packs in the account's
     // private pack-home room and subscribe to them. Reports on
     // stickerPackMigrated.
@@ -2233,6 +2247,8 @@ Q_SIGNALS:
     /// rename, which is sanitized and may differ from what was typed.
     void stickerPackEditFinished(quint64 opId, bool ok, const QString &category,
                                  const QString &shortcode);
+    // A room-pack upload's media landed (whatever happened to the pack write).
+    void stickerPackUploaded(quint64 opId, const QString &mxcUrl);
     // Result of adding a sticker to a pack. `category` is "duplicate",
     // "pack_full", or a coarse room-error class.
     void stickerPackAddFinished(quint64 opId, bool ok, const QString &category,

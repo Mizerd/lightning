@@ -120,6 +120,22 @@ public:
         lastFetchOp = opId;
         lastFetchDeep = deep;
     }
+    int roomUploadCalls = 0;
+    QString roomUploadKey, roomUploadNs, roomUploadCode, roomUploadPath, roomUploadReuse;
+    quint64 lastRoomUploadOp = 0;
+    void uploadStickerToRoomPack(const QString &, const QString &stateKey,
+                                 const QString &ns, const QString &shortcode,
+                                 const QString &, const QString &localPath,
+                                 const QString &reuseUrl, quint64 opId) override
+    {
+        ++roomUploadCalls;
+        roomUploadKey = stateKey;
+        roomUploadNs = ns;
+        roomUploadCode = shortcode;
+        roomUploadPath = localPath;
+        roomUploadReuse = reuseUrl;
+        lastRoomUploadOp = opId;
+    }
     int migrateCalls = 0;
     quint64 lastMigrateOp = 0;
     bool lastMigrateStartNew = false;
@@ -1641,6 +1657,67 @@ private Q_SLOTS:
         manager.recordCustomUse({ { QStringLiteral("url"), QStringLiteral("https://x/y") } });
         QVERIFY(manager.customRecents().at(0).toMap().value(QStringLiteral("url"))
                     .toString().startsWith(QLatin1String("mxc://")));
+    }
+
+    void addingImagesToARoomPackUploadsEachAndRetriesWithoutReuploading()
+    {
+        // PACK-UX-002/013/014, PACK-PRO-050: several files into the chosen
+        // (non-empty-key) pack, names from the files, one at a time, per-item
+        // outcome, and a failed pack write retried with the media it already
+        // uploaded.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap target = pack(QStringLiteral("S"), QStringLiteral("room"),
+                                  QStringLiteral("Animals"),
+                                  { image(QStringLiteral("cat"), kMxcA, true, false) });
+        target.insert(QStringLiteral("roomId"), kRoom);
+        target.insert(QStringLiteral("stateKey"), QStringLiteral("animals"));
+        target.insert(QStringLiteral("namespace"), QStringLiteral("stable"));
+        target.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { target });
+        QSignalSpy done(&manager, &StickerPackManager::transferFinished);
+        manager.uploadImagesToPack(QStringLiteral("S"),
+            { QUrl::fromLocalFile(QStringLiteral("/tmp/cat.png")),
+              QUrl::fromLocalFile(QStringLiteral("/tmp/dog.png")),
+              QUrl::fromLocalFile(QStringLiteral("/tmp/dog.webp")) });
+        QCOMPARE(client.roomUploadCalls, 1);
+        QCOMPARE(client.roomUploadKey, QStringLiteral("animals"));
+        QCOMPARE(client.roomUploadNs, QStringLiteral("stable"));
+        // `cat` is taken in the pack: proposed under a free name instead.
+        QCOMPARE(client.roomUploadCode, QStringLiteral("cat-2"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
+                                             QStringLiteral("cat-2"));
+        QCOMPARE(client.roomUploadCalls, 2);
+        QCOMPARE(client.roomUploadCode, QStringLiteral("dog"));
+        // Media landed, the pack write failed: kept for Retry with its mxc.
+        Q_EMIT client.stickerPackUploaded(client.lastRoomUploadOp,
+                                          QStringLiteral("mxc://example.org/dogmedia"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, false,
+                                             QStringLiteral("network"), QString());
+        QCOMPARE(client.roomUploadCalls, 3);
+        QCOMPARE(client.roomUploadCode, QStringLiteral("dog-2"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
+                                             QStringLiteral("dog-2"));
+        QCOMPARE(done.count(), 1);
+        QCOMPARE(done.at(0).at(3).toInt(), 2);   // added
+        QCOMPARE(done.at(0).at(5).toInt(), 1);   // failed
+        QCOMPARE(manager.failedUploadCount(), 1);
+
+        manager.retryFailedUploads();
+        QCOMPARE(client.roomUploadCalls, 4);
+        QCOMPARE(client.roomUploadCode, QStringLiteral("dog"));
+        QCOMPARE(client.roomUploadReuse, QStringLiteral("mxc://example.org/dogmedia"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
+                                             QStringLiteral("dog"));
+        QCOMPARE(manager.failedUploadCount(), 0);
+
+        // Without the permission nothing is sent.
+        target.insert(QStringLiteral("canManage"), false);
+        manager.applySnapshotForTest(kRoom, true, { target });
+        manager.uploadImagesToPack(QStringLiteral("S"),
+            { QUrl::fromLocalFile(QStringLiteral("/tmp/x.png")) });
+        QCOMPARE(client.roomUploadCalls, 4);
     }
 
     void shortcodeErrorsSayWhy()

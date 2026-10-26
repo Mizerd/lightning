@@ -122,6 +122,17 @@ Dialog {
         nameFilters: [qsTr("Sticker pack (*.zip)")]
         onAccepted: root.stickers.exportPack(root.packId, selectedFile)
     }
+    // "Add images" for a room pack: several files at once, each uploaded and
+    // added in the pack's own format.
+    NativeFileDialog {
+        id: addImagesDialog
+        purpose: "stickerpack"
+        fileMode: "openMany"
+        title: qsTr("Add images to this pack")
+        currentFolder: app.defaultFileDialogFolder()
+        nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
+        onAccepted: root.stickers.uploadImagesToPack(root.packId, selectedFiles)
+    }
     NativeFileDialog {
         id: importDialog
         purpose: "stickerpack"
@@ -680,6 +691,26 @@ Dialog {
                     else
                         root.confirmingDelete = true
                 }
+            }
+            AppButton {
+                objectName: "stickerPackAddImagesButton"
+                visible: root.canManage && root.packId !== "user"
+                text: qsTr("Add images…")
+                kind: "ghost"
+                size: "sm"
+                enabled: !root.busy && !root.transferring
+                onClicked: addImagesDialog.open()
+            }
+            AppButton {
+                objectName: "stickerPackRetryUploadsButton"
+                visible: root.canManage && root.stickers
+                         && root.stickers.revision >= 0
+                         && root.stickers.failedUploadCount() > 0
+                text: qsTr("Retry")
+                kind: "ghost"
+                size: "sm"
+                enabled: !root.busy && !root.transferring
+                onClicked: root.stickers.retryFailedUploads()
             }
             AppButton {
                 objectName: "stickerPackExportButton"

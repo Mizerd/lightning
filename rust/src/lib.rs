@@ -8031,6 +8031,38 @@ pub unsafe extern "C" fn mx_rust_stickers_migrate_user_pack(
     })
 }
 
+/// Upload a local image into a room pack (or, with a valid `reuse_url`, add
+/// that already-uploaded mxc). Answers on `sticker_pack_add_result` with
+/// `uploaded_url`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_stickers_upload_to_room_pack(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    state_key: *const c_char,
+    namespace: *const c_char,
+    shortcode: *const c_char,
+    body: *const c_char,
+    local_path: *const c_char,
+    reuse_url: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
+        let namespace = pack_namespace(&unsafe { cstr_arg(namespace) }?)?;
+        let shortcode = unsafe { cstr_arg(shortcode) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let path = unsafe { cstr_arg(local_path) }?;
+        let reuse = unsafe { cstr_arg(reuse_url) }?;
+        stickers::upload_to_room_pack(
+            bridge, op_id, room_id, state_key, namespace, shortcode, body, path, reuse,
+        )
+        .map(|_| String::new())
+    })
+}
+
 /// Parse an FFI namespace argument; anything but `stable`/`legacy` refuses.
 fn pack_namespace(text: &str) -> Result<stickers::Namespace, String> {
     stickers::Namespace::parse(text).ok_or_else(|| "unknown pack namespace".to_owned())

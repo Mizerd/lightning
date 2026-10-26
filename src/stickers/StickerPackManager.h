@@ -263,6 +263,16 @@ public:
     // `zipFile`. Every image is fetched through the controlled media bridge
     // (a pack image is public media). Reports on transferFinished.
     Q_INVOKABLE void exportPack(const QString &packId, const QUrl &zipFile);
+    // "Add images" for a ROOM pack (stable or legacy, in its own dialect): each
+    // local file is uploaded and added in turn, names proposed from the file
+    // names, existing names skipped, per-item outcomes reported on
+    // transferFinished (kind "upload"). Needs the pack's write permission.
+    Q_INVOKABLE void uploadImagesToPack(const QString &packId,
+                                        const QVariantList &fileUrls);
+    // Retries the items the last "upload" left failed, reusing any media that
+    // was already uploaded (nothing is uploaded twice).
+    Q_INVOKABLE void retryFailedUploads();
+    Q_INVOKABLE int failedUploadCount() const { return int(m_failedUploads.size()); }
     // Reads a ZIP written by exportPack and adds its images to the account's
     // own pack. A name the pack already has is skipped, not overwritten. SVG
     // and anything not PNG / JPEG / WebP / GIF is refused. Reports on
@@ -364,6 +374,12 @@ private:
         QString path;      // import: a file to upload
         QString mimetype;
         QString usage;
+        // Room-pack uploads ("Add images" in the editor): the exact target.
+        QString roomId;
+        QString stateKey;
+        QString ns;
+        // Media already uploaded by an earlier attempt: reused, not resent.
+        QString reuseUrl;
     };
     struct Transfer {
         bool active = false;
@@ -380,6 +396,8 @@ private:
         int index = 0;        // next item for a batch
         quint64 op = 0;       // the batch item in flight
         QSet<QString> taken;  // exact keys already in the pack (case-sensitive)
+        QString lastUploaded; // mxc of the item in flight, once its media landed
+        QList<BatchItem> retry; // failed items, with their uploaded mxc if any
         // Export. `frozen` is the pack AS IT WAS when the export started (name,
         // attribution, every image's exact key, url, body and usage): fetches
         // and the archive are built from it, never from the live model, so a
@@ -472,6 +490,7 @@ private:
     QString m_saveScope;
     quint64 m_roomsOp = 0;
     quint64 m_migrateOp = 0;
+    QList<BatchItem> m_failedUploads;
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;
