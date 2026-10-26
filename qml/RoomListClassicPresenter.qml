@@ -115,45 +115,64 @@ Item {
         // delegate is opaque sidebar so it covers the rows it floats over.
         section.labelPositioning: ViewSection.InlineLabels
                                   | ViewSection.CurrentLabelAtStart
-        section.delegate: Rectangle {
-            required property string section
-            objectName: "roomListSectionHeader"
-            width: roomList.width
-            height: 28
-            color: AppTheme.roomList
-            // A header only heads rows. When a filter or an empty Space leaves
-            // the list with none, ListView keeps the last section's label
-            // instance (the pinned CurrentLabelAtStart one included), and it
-            // was drawn over the empty state ("InvRooms added to this Space",
-            // live 2026-10-26).
-            visible: roomList.count > 0
+        // Re-attached whenever the list empties: ListView keeps the section
+        // label items it made for rows that are gone, and when rows come back
+        // (an account switch: the old account's list empties, the next one
+        // fills it) a stale label is drawn again where its old section began.
+        // Live 2026-10-26, Classic + People filter, signing out one of two
+        // accounts: a second "People" header floated mid-list over nothing.
+        // Setting the delegate releases every section item, so the next rows
+        // get fresh labels for the sections they actually have.
+        property bool sectionLabelsAttached: true
+        function reattachSectionLabels() {
+            sectionLabelsAttached = false
+            sectionLabelsAttached = true
+        }
+        onCountChanged: if (count === 0) reattachSectionLabels()
+        section.delegate: sectionLabelsAttached ? sectionHeaderComponent : null
 
-            Label {
-                anchors {
-                    left: parent.left
-                    verticalCenter: parent.verticalCenter
-                    leftMargin: AppTheme.spacing12
+        Component {
+            id: sectionHeaderComponent
+            Rectangle {
+                required property string section
+                objectName: "roomListSectionHeader"
+                width: roomList.width
+                height: 28
+                color: AppTheme.roomList
+                // A header only heads rows. When a filter or an empty Space leaves
+                // the list with none, ListView keeps the last section's label
+                // instance (the pinned CurrentLabelAtStart one included), and it
+                // was drawn over the empty state ("InvRooms added to this Space",
+                // live 2026-10-26).
+                visible: roomList.count > 0
+
+                Label {
+                    anchors {
+                        left: parent.left
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: AppTheme.spacing12
+                    }
+                    // Sentence case with the shared section-label tokens.
+                    // categoryOf() yields "invite", "favourite", "conversation"
+                    // and "lowpriority": joined rows are one activity feed with
+                    // DMs and rooms interleaved, so splitting by kind would repeat
+                    // headers constantly. The conversation section is named after
+                    // the active filter chip ("Conversations" under All).
+                    text: section === "call"
+                          ? qsTr("In a call")
+                          : section === "invite"
+                          ? qsTr("Invites")
+                          : (section === "favourite"
+                             ? qsTr("Favourites")
+                             : (section === "lowpriority"
+                                ? qsTr("Low priority")
+                                : root.conversationSectionLabel))
+                    color: AppTheme.roomListSection
+                    font.family: AppTheme.menuSectionFont
+                    font.pixelSize: AppTheme.menuSectionSize
+                    font.weight: AppTheme.menuSectionWeight
+                    font.letterSpacing: AppTheme.menuSectionTracking
                 }
-                // Sentence case with the shared section-label tokens.
-                // categoryOf() yields "invite", "favourite", "conversation"
-                // and "lowpriority": joined rows are one activity feed with
-                // DMs and rooms interleaved, so splitting by kind would repeat
-                // headers constantly. The conversation section is named after
-                // the active filter chip ("Conversations" under All).
-                text: section === "call"
-                      ? qsTr("In a call")
-                      : section === "invite"
-                      ? qsTr("Invites")
-                      : (section === "favourite"
-                         ? qsTr("Favourites")
-                         : (section === "lowpriority"
-                            ? qsTr("Low priority")
-                            : root.conversationSectionLabel))
-                color: AppTheme.roomListSection
-                font.family: AppTheme.menuSectionFont
-                font.pixelSize: AppTheme.menuSectionSize
-                font.weight: AppTheme.menuSectionWeight
-                font.letterSpacing: AppTheme.menuSectionTracking
             }
         }
 

@@ -20,6 +20,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -262,6 +263,98 @@ private Q_SLOTS:
             QVERIFY(!h->isVisible() || !r.intersects(emptyRect));
         }
         f.controller->roomList()->setSearchQuery(QString());
+    }
+
+    // Live 2026-10-26 (Classic, People filter, signing out one of two
+    // accounts): the list emptied, the remaining account's rows arrived, and
+    // a stale section label from the old rows was drawn again mid-list, a
+    // second "People" header over nothing. After the list empties and fills
+    // again, the visible headers are exactly the sections its rows have, each
+    // directly above that section's first row.
+    void aListThatEmptiesAndRefillsDrawsOnlyItsOwnSectionHeaders()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
+)QML", 320, 900));
+        RoomListModel *model = f.controller->roomList();
+        auto categories = [&] {
+            QStringList out;
+            for (int r = 0; r < model->rowCount(); ++r) {
+                const QString c = model->data(model->index(r, 0),
+                                              RoomListModel::CategoryRole).toString();
+                if (!out.contains(c))
+                    out.append(c);
+            }
+            return out;
+        };
+        auto visibleHeaders = [&] {
+            QList<QQuickItem *> all, out;
+            visualTree(f.item.get(), all);
+            for (QQuickItem *it : all) {
+                if (it->objectName() == QStringLiteral("roomListSectionHeader")
+                    && it->isVisible())
+                    out.append(it);
+            }
+            return out;
+        };
+        QVERIFY2(categories().size() >= 2,
+                 "fixture: the mock list needs two sections, so a later one "
+                 "has a label below the first");
+        QTRY_VERIFY_WITH_TIMEOUT(visibleHeaders().size() >= 2, kTimeoutMs);
+
+        // A room from the LAST section, alone after the refill: its header
+        // must be the only one, at the top, not the old labels as well.
+        QString name;
+        const QString lastCategory = categories().last();
+        for (int r = 0; r < model->rowCount() && name.isEmpty(); ++r) {
+            const QModelIndex i = model->index(r, 0);
+            if (model->data(i, RoomListModel::CategoryRole).toString() == lastCategory)
+                name = model->data(i, RoomListModel::NameRole).toString();
+        }
+        QVERIFY(!name.isEmpty());
+
+        model->setSearchQuery(QStringLiteral("zz-no-room-matches-this"));
+        QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 0, kTimeoutMs);
+        QCoreApplication::processEvents();
+        model->setSearchQuery(name);
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 1, kTimeoutMs);
+        QTest::qWait(100); // layout and section placement settle
+        const QStringList now = categories();
+        // Distinct places, not items: the pinned CurrentLabelAtStart label
+        // may sit exactly on the first section's inline one.
+        auto headerPlaces = [&] {
+            QSet<int> ys;
+            for (QQuickItem *h : visibleHeaders())
+                ys.insert(qRound(h->mapToScene(QPointF(0, 0)).y()));
+            return ys.size();
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(headerPlaces(), int(now.size()), kTimeoutMs);
+        auto *list = byName(f.item.get(), QStringLiteral("roomListView"));
+        QVERIFY(list);
+        QList<QQuickItem *> rows;
+        {
+            QList<QQuickItem *> all;
+            visualTree(list, all);
+            for (QQuickItem *it : all) {
+                if (it->isVisible() && it->property("roomId").isValid()
+                    && !it->property("roomId").toString().isEmpty())
+                    rows.append(it);
+            }
+        }
+        for (QQuickItem *h : visibleHeaders()) {
+            const qreal bottom = h->mapToScene(QPointF(0, h->height())).y();
+            bool heads = false;
+            for (QQuickItem *row : rows) {
+                if (qAbs(row->mapToScene(QPointF(0, 0)).y() - bottom) <= 1.0)
+                    heads = true;
+            }
+            QVERIFY2(heads, qPrintable(QStringLiteral(
+                "a section header at y=%1 heads no row").arg(bottom - h->height())));
+        }
+        model->setSearchQuery(QString());
     }
 
     void theSortMenuChecksTheEffectiveDefault()
