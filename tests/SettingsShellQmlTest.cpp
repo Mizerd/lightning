@@ -217,6 +217,12 @@ private:
     void clickItem(QQuickItem *target)
     {
         ensureVisible(target);
+        // Let one frame polish the layouts first: a row built during this
+        // turn still has its children at 0,0 until its layout runs, and a
+        // click at that pre-layout position lands beside the target.
+        QSignalSpy frame(m_window, &QQuickWindow::frameSwapped);
+        m_window->update();
+        frame.wait(1000);
         const QPointF center = target->mapToScene(
             QPointF(target->width() / 2, target->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
