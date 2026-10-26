@@ -1408,16 +1408,24 @@ Item {
                  || root.matchedSearchResults.length === 0
                  || root.matchedSearchSections[sectionKey] === true
         highlighted: root.section === sectionKey
-        // Reachable by Tab; Enter/Space opens the section. TabFocus, like the
+        // Reachable by Tab; Enter/Space activates the row. TabFocus, like the
         // outline entries, so a click does not park focus on the nav.
         focusPolicy: Qt.TabFocus
         onActiveFocusChanged: if (activeFocus) navFlick.ensureVisibleItem(navRow)
         Accessible.name: navLabel
         Accessible.selected: navRow.highlighted
-        // The row selects its page (and opens its branch, see
-        // onSectionChanged); folding is the chevron's job alone, so a repeated
-        // click on the label never doubles as the chevron.
-        onClicked: root.section = sectionKey
+        // Selecting another page keeps an already open branch open. A repeat
+        // activation of the selected row folds it; selecting a folded branch
+        // opens it. Capture both states before onSectionChanged opens it.
+        onClicked: {
+            if (!navRow.hasOutline) {
+                root.section = navRow.sectionKey
+            } else {
+                var fold = navRow.outlineOpen && root.section === navRow.sectionKey
+                root.section = navRow.sectionKey
+                root.setOutlineExpanded(navRow.sectionKey, !fold)
+            }
+        }
         // Right opens a folded branch, Left folds an open one (swapped under
         // RTL). Up/Down and Tab keep their existing meaning.
         Keys.onPressed: (event) => {

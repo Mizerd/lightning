@@ -214,7 +214,7 @@ private:
                        : target->mapToScene(QPointF(0, 0)).y();
     }
 
-    void clickItem(QQuickItem *target)
+    void clickItem(QQuickItem *target, const QPointF &fraction = QPointF(0.5, 0.5))
     {
         ensureVisible(target);
         // Let frames polish the layouts first: a row built during this turn
@@ -223,8 +223,9 @@ private:
         // frame can take longer than a fixed wait (the nav chevron click of
         // severalBranchesStayOpenAndAChevronDoesNotChangeThePage missed that
         // way), so wait until the target's position holds across a frame.
-        const auto centerOf = [target] {
-            return target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+        const auto centerOf = [target, fraction] {
+            return target->mapToScene(QPointF(target->width() * fraction.x(),
+                                              target->height() * fraction.y()));
         };
         QPointF center = centerOf();
         for (int i = 0; i < 5; ++i) {
@@ -241,6 +242,22 @@ private:
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           center.toPoint());
         QCoreApplication::processEvents();
+    }
+
+    // Exercise the row's body, with a checked point outside its nested
+    // disclosure button. A chevron click would otherwise give a false pass
+    // for an expansion assertion without proving the row received the click.
+    bool clickNavRowBody(QQuickItem *row, QQuickItem *chevron)
+    {
+        if (!row || row->width() <= 0 || row->height() <= 0)
+            return false;
+        const QPointF body(row->width() * 0.35, row->height() * 0.5);
+        if (!row->contains(body)
+            || (chevron && chevron->isVisible()
+                && chevron->contains(chevron->mapFromItem(row, body))))
+            return false;
+        clickItem(row, QPointF(0.35, 0.5));
+        return true;
     }
 
     QQuickItem *timelinePane() const { return item("timelinePane"); }
@@ -1866,20 +1883,23 @@ private slots:
     }
 
     // Chat 2026-10-22: the navigation listed sub-sections with no sign that
-    // they fold. A section with sub-sections carries a chevron, down while its
-    // list is open and right while it is folded. Since the master prompt's
-    // Part 6 (3.2, UI-021) the chevron is its own control: IT folds the list,
-    // and a repeated click on the row label only selects the page.
+    // they fold. A row body click selects and toggles its own branch; the
+    // chevron remains a separate toggle that does not select the page.
     void aSectionWithSubSectionsShowsAChevronAndFolds()
     {
         openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
         auto *row = item("settingsNavRow_account");
-        QVERIFY(row);
-        clickItem(row);
-        QCoreApplication::processEvents();
         auto *chevron = item("settingsNavChevron_account");
         auto *chevronButton = item("settingsNavChevronButton_account");
+        QVERIFY(screen && row);
         QVERIFY2(chevron && chevronButton, "the Account row has no disclosure chevron");
+        callScreen("setOutlineExpanded", QStringLiteral("account"), false);
+        QCoreApplication::processEvents();
+        QVERIFY(!outlineEntry(QStringLiteral("account"), 0)->isVisible());
+        QVERIFY2(clickNavRowBody(row, chevronButton),
+                 "the body click point misses the Account row or overlaps its chevron");
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("account"));
         QVERIFY(chevronButton->isVisible());
         QVERIFY2(chevronButton->width() >= 24 && chevronButton->height() >= 24,
                  "the chevron's pointer target is smaller than 24px");
@@ -1893,10 +1913,15 @@ private slots:
         QVERIFY(rowLabelProbe);
         QVERIFY(outline->mapToItem(rowLabelProbe, QPointF(0, 0)).x() > 0);
 
-        // A second click on the label keeps the list open (UI-021).
-        clickItem(row);
+        // A second body click folds the selected branch but keeps its page.
+        QVERIFY(clickNavRowBody(row, chevronButton));
         QCOMPARE(chevron->property("name").toString(),
-                 QStringLiteral("expand_more"));
+                 QStringLiteral("chevron_right"));
+        QVERIFY(!outlineEntry(QStringLiteral("account"), 0)->isVisible());
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("account"));
+
+        QVERIFY(clickNavRowBody(row, chevronButton));
+        QCOMPARE(chevron->property("name").toString(), QStringLiteral("expand_more"));
         QVERIFY(outlineEntry(QStringLiteral("account"), 0)->isVisible());
 
         clickItem(chevronButton);
@@ -1904,8 +1929,7 @@ private slots:
                  QStringLiteral("chevron_right"));
         QVERIFY(!outlineEntry(QStringLiteral("account"), 0)->isVisible());
         // Folding did not change the page.
-        QCOMPARE(item("settingsScreenRoot")->property("section").toString(),
-                 QStringLiteral("account"));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("account"));
 
         clickItem(chevronButton);
         QCOMPARE(chevron->property("name").toString(),
@@ -1925,11 +1949,26 @@ private slots:
         callScreen("setOutlineExpanded", QStringLiteral("privacy"), false);
         QCoreApplication::processEvents();
 
-        clickItem(item("settingsNavRow_privacy"));
+        auto *privacyRow = item("settingsNavRow_privacy");
+        auto *privacyChevron = item("settingsNavChevronButton_privacy");
+        QVERIFY2(clickNavRowBody(privacyRow, privacyChevron),
+                 "the Privacy body click point overlaps the chevron or misses the row");
         QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
         QVERIFY2(outlineEntry(QStringLiteral("appearance"), 0)->isVisible(),
                  "selecting Privacy closed Appearance's sub-sections");
         QTRY_VERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+
+        // Appearance is open but inactive. Its first body click selects it
+        // without folding; the still-open Privacy branch remains visible.
+        auto *appearanceRow = item("settingsNavRow_appearance");
+        auto *appearanceChevron = item("settingsNavChevronButton_appearance");
+        QVERIFY(clickNavRowBody(appearanceRow, appearanceChevron));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
+        QVERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+        QVERIFY(clickNavRowBody(privacyRow, privacyChevron));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
 
         // A chevron on another branch changes only that branch.
         callScreen("setOutlineExpanded", QStringLiteral("notifications"), false);
@@ -1954,6 +1993,19 @@ private slots:
         QTRY_VERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
         QVERIFY(outlineEntry(QStringLiteral("notifications"), 0)->isVisible());
         QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+    }
+
+    void aRowWithoutSubSectionsOnlySelectsItsPage()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        auto *row = item("settingsNavRow_about");
+        QVERIFY(screen && row);
+        QVERIFY(!row->property("hasOutline").toBool());
+        QVERIFY(clickNavRowBody(row, nullptr));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("about"));
+        QVERIFY(clickNavRowBody(row, nullptr));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("about"));
     }
 
     // UI-019/020: a sub-section under another open branch selects that page

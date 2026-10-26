@@ -147,6 +147,32 @@ private slots:
         QVERIFY2(checked >= 4, "too few nav rows were found");
     }
 
+    void enterAndSpaceOnABranchRowSelectAndToggleIt()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        auto *row = item("settingsNavRow_privacy");
+        auto *outline = item("settingsNavOutline_privacy");
+        QVERIFY(screen && row && outline);
+        screen->setProperty("expandedOutlines",
+                            QVariantMap{{QStringLiteral("appearance"), true}});
+        QCoreApplication::processEvents();
+        QVERIFY(!outline->isVisible());
+        row->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(row->hasActiveFocus());
+
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QTRY_VERIFY(outline->isVisible());
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QTRY_VERIFY(!outline->isVisible());
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QTRY_VERIFY(outline->isVisible());
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QTRY_VERIFY(!outline->isVisible());
+    }
+
     // C63-F03: a confirm dialog starts on Cancel, so a lone Space cancels.
     void confirmDialogStartsOnCancel()
     {
