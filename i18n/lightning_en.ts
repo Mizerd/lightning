@@ -17585,6 +17585,26 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
@@ -29029,6 +29049,21 @@ Note: importing keys does not verify this session.</source>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Jump to the newest reply, %n new</numerusform>
+            <numerusform>Jump to the newest reply, %n new</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

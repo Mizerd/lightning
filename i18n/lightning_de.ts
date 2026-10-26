@@ -17596,6 +17596,26 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>Ungelesen oben</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>Ungelesen unten</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>Erwähnung oben</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>Erwähnung unten</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Scrollt die Unterhaltungsliste; öffnet nichts</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+36"/>
         <source>People</source>
         <translation>Personen</translation>
@@ -29049,6 +29069,21 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>Diesen Thread als gelesen markieren</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>Zur neuesten Antwort springen</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Zur neuesten Antwort springen, %n neu</numerusform>
+            <numerusform>Zur neuesten Antwort springen, %n neu</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

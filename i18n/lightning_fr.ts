@@ -17596,6 +17596,26 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>Non lu au-dessus</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>Non lu en dessous</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>Mention au-dessus</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>Mention en dessous</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Fait défiler la liste des conversations ; n’ouvre rien</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>Invitations</translation>
@@ -29049,6 +29069,21 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>Marquer ce fil comme lu</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>Aller à la réponse la plus récente</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Aller à la réponse la plus récente, %n nouvelle</numerusform>
+            <numerusform>Aller à la réponse la plus récente, %n nouvelles</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

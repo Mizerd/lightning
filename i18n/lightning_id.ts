@@ -17539,6 +17539,26 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>Belum dibaca di atas</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>Belum dibaca di bawah</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>Sebutan di atas</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>Sebutan di bawah</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Menggulir daftar percakapan; tidak membuka apa pun</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>Undangan</translation>
@@ -28933,6 +28953,20 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>Tandai utas ini sudah dibaca</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>Lompat ke balasan terbaru</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Lompat ke balasan terbaru, %n baru</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

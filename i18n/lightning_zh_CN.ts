@@ -17539,6 +17539,26 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>上方有未读</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>下方有未读</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>上方有提及</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>下方有提及</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>滚动会话列表；不会打开任何内容</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>邀请</translation>
@@ -28933,6 +28953,20 @@ Note: importing keys does not verify this session.</source>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>将此话题标为已读</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>跳到最新回复</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>跳到最新回复，%n 条新回复</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

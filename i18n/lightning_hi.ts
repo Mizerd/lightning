@@ -17596,6 +17596,26 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>ऊपर अपठित</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>नीचे अपठित</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>ऊपर उल्लेख</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>नीचे उल्लेख</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>बातचीत की सूची स्क्रॉल करता है; कुछ नहीं खोलता</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>आमंत्रण</translation>
@@ -29049,6 +29069,21 @@ Note: importing keys does not verify this session.</source>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>इस थ्रेड को पढ़ा हुआ चिह्नित करें</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>सबसे नए जवाब पर जाएँ</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>सबसे नए जवाब पर जाएँ, %n नया</numerusform>
+            <numerusform>सबसे नए जवाब पर जाएँ, %n नए</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

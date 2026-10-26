@@ -17653,6 +17653,26 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>Neperskaityta aukščiau</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>Neperskaityta žemiau</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>Paminėjimas aukščiau</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>Paminėjimas žemiau</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Slenka pokalbių sąrašą; nieko neatveria</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>Kvietimai</translation>
@@ -29165,6 +29185,22 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>Pažymėti šią giją kaip perskaitytą</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>Pereiti prie naujausio atsakymo</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Pereiti prie naujausio atsakymo, %n naujas</numerusform>
+            <numerusform>Pereiti prie naujausio atsakymo, %n nauji</numerusform>
+            <numerusform>Pereiti prie naujausio atsakymo, %n naujų</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

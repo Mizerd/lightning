@@ -17815,6 +17815,26 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>غير مقروء في الأعلى</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>غير مقروء في الأسفل</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>إشارة في الأعلى</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>إشارة في الأسفل</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>يمرّر قائمة المحادثات؛ لا يفتح شيئًا</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>الدعوات</translation>
@@ -29504,6 +29524,25 @@ Note: importing keys does not verify this session.</source>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>تعليم هذا الخيط كمقروء</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>الانتقال إلى أحدث رد</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+            <numerusform>الانتقال إلى أحدث رد، %n جديد</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>

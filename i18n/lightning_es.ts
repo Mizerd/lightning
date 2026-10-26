@@ -17596,6 +17596,26 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
+        <source>Unread above</source>
+        <translation>No leído arriba</translation>
+    </message>
+    <message>
+        <source>Unread below</source>
+        <translation>No leído abajo</translation>
+    </message>
+    <message>
+        <source>Mention above</source>
+        <translation>Mención arriba</translation>
+    </message>
+    <message>
+        <source>Mention below</source>
+        <translation>Mención abajo</translation>
+    </message>
+    <message>
+        <source>Scrolls the conversation list; opens nothing</source>
+        <translation>Desplaza la lista de conversaciones; no abre nada</translation>
+    </message>
+    <message>
         <location filename="../qml/RoomListClassicPresenter.qml" line="+139"/>
         <source>Invites</source>
         <translation>Invitaciones</translation>
@@ -29049,6 +29069,21 @@ Nota: importar claves no verifica esta sesión.</translation>
 </context>
 <context>
     <name>ThreadPanel</name>
+    <message>
+        <source>Mark this thread read</source>
+        <translation>Marcar este hilo como leído</translation>
+    </message>
+    <message>
+        <source>Jump to the newest reply</source>
+        <translation>Ir a la respuesta más reciente</translation>
+    </message>
+    <message numerus="yes">
+        <source>Jump to the newest reply, %n new</source>
+        <translation>
+            <numerusform>Ir a la respuesta más reciente, %n nueva</numerusform>
+            <numerusform>Ir a la respuesta más reciente, %n nuevas</numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/ThreadPanel.qml" line="+83"/>
         <source>Yesterday</source>
