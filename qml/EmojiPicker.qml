@@ -761,6 +761,10 @@ AnchoredPopup {
                         // favourites lead this strip, then recent picks.
                         TapHandler {
                             acceptedButtons: Qt.RightButton
+                            // Mouse and touchpad only: a finger tap would also
+                            // fire a non-left-button handler; touch favourites
+                            // with press-and-hold below.
+                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                             gesturePolicy: TapHandler.WithinBounds
                             onTapped: app.stickers.toggleFavourite(customCell.modelData)
                         }
