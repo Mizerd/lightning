@@ -3002,3 +3002,16 @@ live, and the server answers presence. Research and design: vault note
   transient `unavailable` dispatch refusal. No Qt error string is shown.
 - The seek track shows the time under the pointer (no frame decode), and every
   media clock reads h:mm:ss from an hour on (`AppTheme.clockText`).
+- The card names its wait (`VideoPlayerCard.loadPhase`): Downloading (the
+  bridge is still fetching the whole file), Preparing (the player is opening
+  the local copy), Buffering (StalledMedia mid-playback). No byte count
+  exists, so all are indeterminate; BufferingMedia is not a wait.
+- Audio-track and subtitle menus appear only when the container offers more
+  than one audio track or any subtitle track (Qt's `audioTracks` /
+  `subtitleTracks`); subtitles have Off; labels use the container's language
+  and title. Nothing is fetched for them and the Matrix caption is separate.
+- NOT changed, deliberately: the compact preset does not shrink audio album
+  art (M-F05). The preset contract keeps media choices out of the preset, so
+  "Large album art" stays the user's own switch in both presets. Late poster
+  dimensions (M-F04) are compensated by the timeline's existing anchor
+  machinery; no media delegate writes contentY.

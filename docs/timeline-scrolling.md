@@ -611,3 +611,18 @@ bottom, following. Windows: NOT TESTED.
   that is neither input nor explicit navigation dumps the last 64 records once
   (rate-limited, `scroll incident code=oldest-bound`). Ask a reporter for that
   dump; it names the writer.
+
+## Frame cadence probe and the thread glide (2026-10-26)
+
+- `LIGHTNING_FRAME_TRACE=1` logs, every 10 s with at least 30 presented
+  frames, `frame-intervals n= p50= p95= p99= max= over1.25x= over2x=` for the
+  main window (frameSwapped stamped on the render thread, gaps over 250 ms
+  dropped as the end of a burst). It is Qt-side cadence, not compositor
+  presentation, and no measurement run has been recorded with it yet.
+- The thread panel's anchor restore no longer cancels a wheel glide in
+  flight; it translates it by the prepend's shift
+  (`anOlderPageLandingMidGlideKeepsTheGlideGoing`, SC41).
+- `LIGHTNING_SWITCH_TRACE` now takes T0 at the accepted switch request:
+  `intent_lead_ms` (release, queueing and keyring before the traced cold path)
+  and `first_frame_from_intent_ms`, so an account switch's total never
+  restarts at a later barrier (master prompt Part 4 §5).
