@@ -28,6 +28,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <algorithm>
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QSettings>
@@ -2029,6 +2030,86 @@ private Q_SLOTS:
         const int accept = thread.indexOf(QStringLiteral("function acceptThreadEmoji(entry)"));
         QVERIFY(accept >= 0);
         QVERIFY(thread.mid(accept, 400).contains(QStringLiteral("editor.cursorPosition, entry)")));
+    }
+
+    // PACK-PER opt-in probe. Skipped unless LIGHTNING_PACK_PERF=1 (it takes
+    // seconds and its numbers belong to the machine running it). Prints one
+    // "PACK-PER" line per measure with sample count and p50/p95/p99, and
+    // asserts the campaign targets with the stated headroom:
+    //   * snapshot apply, 64 packs x 512 images (the backend's caps):
+    //       p95 <= 100 ms (the warm-picker-open budget; the model reset is
+    //       the dominant non-network part of an open)
+    //   * search (completion / palette), 200 prefixes:  p95 <= 50 ms
+    //   * full reaction list (32768 rows):              p95 <= 250 ms
+    //   * soak: 300 switches across 4 accounts, each applying a snapshot and
+    //       recording uses: the last 50 cycles' p95 within 2x the first 50's
+    //       (no growth), recents bounded at 24 per account.
+    void packPerformanceProbe()
+    {
+        if (qEnvironmentVariableIntValue("LIGHTNING_PACK_PERF") != 1)
+            QSKIP("opt-in: set LIGHTNING_PACK_PERF=1");
+        const auto pct = [](QList<qint64> v, double q) {
+            std::sort(v.begin(), v.end());
+            return v.isEmpty() ? 0 : v.at(qMin(v.size() - 1, qsizetype(q * v.size())));
+        };
+        const auto report = [&](const char *what, const QList<qint64> &us) {
+            qInfo("PACK-PER %s n=%lld p50=%.2fms p95=%.2fms p99=%.2fms", what,
+                  qlonglong(us.size()), pct(us, 0.50) / 1000.0, pct(us, 0.95) / 1000.0,
+                  pct(us, 0.99) / 1000.0);
+            return pct(us, 0.95) / 1000.0;
+        };
+        QVariantList packs;
+        for (int p = 0; p < 64; ++p) {
+            QVariantList images;
+            for (int i = 0; i < 512; ++i)
+                images.append(image(QStringLiteral("p%1_img%2").arg(p).arg(i),
+                                    QStringLiteral("mxc://e/%1_%2").arg(p).arg(i),
+                                    i % 2 == 0, true));
+            packs.append(pack(QStringLiteral("room:%1").arg(p), QStringLiteral("room"),
+                              QStringLiteral("Pack %1").arg(p), images));
+        }
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QElapsedTimer t;
+        QList<qint64> apply, search, reactions;
+        for (int i = 0; i < 20; ++i) {
+            t.start();
+            manager.applySnapshotForTest(kRoom, false, packs);
+            apply.append(t.nsecsElapsed() / 1000);
+        }
+        for (int i = 0; i < 200; ++i) {
+            const QString prefix = QStringLiteral("p%1_img%2").arg(i % 64).arg(i % 50);
+            t.start();
+            manager.findEmoticons(prefix, 12);
+            search.append(t.nsecsElapsed() / 1000);
+        }
+        for (int i = 0; i < 10; ++i) {
+            t.start();
+            QCOMPARE(manager.reactionEmoticons().size(), 64 * 512);
+            reactions.append(t.nsecsElapsed() / 1000);
+        }
+        QVERIFY(report("snapshot-apply-64x512", apply) <= 100.0);
+        QVERIFY(report("search-64x512", search) <= 50.0);
+        QVERIFY(report("reaction-list-32768", reactions) <= 250.0);
+
+        // Soak: in-place switches across accounts, as the app does them.
+        QList<qint64> cycles;
+        for (int c = 0; c < 300; ++c) {
+            client.userId = QStringLiteral("@acct%1:example.org").arg(c % 4);
+            Q_EMIT client.loggedOut();
+            t.start();
+            manager.applySnapshotForTest(kRoom, false, packs);
+            manager.recordCustomUse(image(QStringLiteral("x"),
+                                          QStringLiteral("mxc://e/soak%1").arg(c), true, true));
+            manager.findEmoticons(QStringLiteral("p1_"), 12);
+            cycles.append(t.nsecsElapsed() / 1000);
+            QVERIFY(manager.customRecents().size() <= 24);
+        }
+        const double first = report("soak-first-50", cycles.mid(0, 50));
+        const double last = report("soak-last-50", cycles.mid(250, 50));
+        QVERIFY2(last <= qMax(2.0 * first, first + 5.0),
+                 qPrintable(QStringLiteral("soak drift: %1 -> %2 ms").arg(first).arg(last)));
     }
 
     void shortcodeErrorsSayWhy()
