@@ -1906,9 +1906,12 @@ private Q_SLOTS:
         QCOMPARE(manager.failedUploadCount(), 0);
     }
 
-    void signingOutDropsThatAccountsLocalPackChoicesButASwitchDoesNot()
+    void anAccountSwitchKeepsLocalPackChoicesAndForgetAccountDropsThem()
     {
-        // Review S2: local hidden/recents/favourites go with the account.
+        // Review S2 + recheck: the app switches accounts IN PLACE and the
+        // client emits loggedOut on every switch, so loggedOut must never
+        // delete local choices; only forgetAccount(userId), called from the
+        // real sign-out and removal paths, does.
         QTemporaryDir dir;
         const QString state = dir.filePath(QStringLiteral("local.ini"));
         FakeClient client;
@@ -1918,14 +1921,23 @@ private Q_SLOTS:
         manager.applySnapshotForTest(kRoom, false, twoPacks());
         manager.setPackHidden(QStringLiteral("user"), true);
         manager.recordCustomUse(image(QStringLiteral("wave"), kMxcB, false, true));
-        // A client switch (setClient) keeps them.
-        FakeClient other;
-        manager.setClient(&other);
-        manager.setClient(&client);
+
+        // A in-place switch A -> B -> A: loggedOut fires each time.
+        Q_EMIT client.loggedOut();
+        client.userId = QStringLiteral("@b:example.org");
+        QVERIFY(!manager.isPackHidden(QStringLiteral("user")));  // B has none
+        Q_EMIT client.loggedOut();
+        client.userId = QStringLiteral("@me:example.org");
         QVERIFY(manager.isPackHidden(QStringLiteral("user")));
         QCOMPARE(manager.customRecents().size(), 1);
-        // A real sign-out removes them, from memory and from the file.
-        Q_EMIT client.loggedOut();
+
+        // B's choices are independent, and removing B (a background account)
+        // leaves A's alone.
+        manager.forgetAccount(QStringLiteral("@b:example.org"));
+        QVERIFY(manager.isPackHidden(QStringLiteral("user")));
+
+        // Signing A out removes A's, from memory and from the file.
+        manager.forgetAccount(QStringLiteral("@me:example.org"));
         QVERIFY(!manager.isPackHidden(QStringLiteral("user")));
         QVERIFY(manager.customRecents().isEmpty());
         QSettings file(state, QSettings::IniFormat);

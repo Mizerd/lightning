@@ -263,6 +263,10 @@ public:
     // account id, never synced and never written into Matrix: Lightning
     // conveniences, not protocol.
     void setLocalStatePath(const QString &path);
+    // A real sign-out or removal of `userId` (not a switch, which also emits
+    // loggedOut): drop that account's local pack choices from this device.
+    // Called by AppController beside PaginationController::forgetAccount.
+    void forgetAccount(const QString &userId);
     // Hide a pack from the pickers and completion here. Does NOT change the
     // room's state, leave anything or unsubscribe (PACK-UX-011).
     Q_INVOKABLE void setPackHidden(const QString &packId, bool hidden);
@@ -544,9 +548,7 @@ private:
     quint64 m_republishOp = 0;
     void dropRepublishScratch();
     QString m_failedUploadsAccount;
-    // The local-state group of the account last used, dropped at sign-out.
-    mutable QString m_lastLocalGroup;
-    void forgetLocalStateOfSignedOutAccount();
+    static QString localGroupFor(const QString &userId);
     // A refresh became due during one in flight; that read predates our own
     // save and is stale.
     bool m_refreshOwed = false;

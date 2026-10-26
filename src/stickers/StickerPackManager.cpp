@@ -132,12 +132,11 @@ void StickerPackManager::setClient(MatrixClient *client)
                     onMediaFetchFailed(opId);
                 });
         // Packs are account data.
-        // A real sign-out (not a client switch) also drops that account's
-        // local pack choices from this device.
-        connect(m_client, &MatrixClient::loggedOut, this, [this] {
-            forgetLocalStateOfSignedOutAccount();
-            onLoggedOut();
-        });
+        // loggedOut also fires on every in-place account SWITCH (the client
+        // detaches its session), so it never deletes local choices: only
+        // forgetAccount(), called from the real sign-out and removal paths.
+        connect(m_client, &MatrixClient::loggedOut, this,
+                &StickerPackManager::onLoggedOut);
     }
     onLoggedOut();
     Q_EMIT availableChanged();
@@ -1855,24 +1854,26 @@ void StickerPackManager::setLocalStatePath(const QString &path)
     m_localStatePath = path;
 }
 
-QString StickerPackManager::localGroup() const
+QString StickerPackManager::localGroupFor(const QString &userId)
 {
-    const QString user = m_client ? m_client->currentUserId() : QString();
-    if (user.isEmpty())
-        return m_lastLocalGroup;
+    if (userId.isEmpty())
+        return {};
     // Hashed: the file name a user might share holds no Matrix id.
-    m_lastLocalGroup = QString::fromLatin1(
-        QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256)
+    return QString::fromLatin1(
+        QCryptographicHash::hash(userId.toUtf8(), QCryptographicHash::Sha256)
             .toHex().left(16));
-    return m_lastLocalGroup;
 }
 
-void StickerPackManager::forgetLocalStateOfSignedOutAccount()
+QString StickerPackManager::localGroup() const
 {
-    // Signing out (or removing) an account drops its hidden packs, custom
-    // recents and favourites from this device.
-    const QString group = m_lastLocalGroup;
-    m_lastLocalGroup.clear();
+    return localGroupFor(m_client ? m_client->currentUserId() : QString());
+}
+
+void StickerPackManager::forgetAccount(const QString &userId)
+{
+    // A real sign-out or removal of `userId` (active or background) drops its
+    // hidden packs, custom recents and favourites from this device.
+    const QString group = localGroupFor(userId);
     if (group.isEmpty())
         return;
     for (auto it = m_localMemory.begin(); it != m_localMemory.end();) {
@@ -1885,6 +1886,7 @@ void StickerPackManager::forgetLocalStateOfSignedOutAccount()
         QSettings settings(m_localStatePath, QSettings::IniFormat);
         settings.remove(group);
     }
+    emitStateChanged();
 }
 
 QVariantList StickerPackManager::readLocalList(const QString &name) const

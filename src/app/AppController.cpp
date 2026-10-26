@@ -7681,6 +7681,9 @@ void AppController::onLoggedOut()
     // it (they are kept per account across switches).
     if (m_pagination && !m_lastSessionUserId.isEmpty())
         m_pagination->forgetAccount(m_lastSessionUserId);
+    // Its hidden packs, custom-emoji recents and favourites too.
+    if (m_stickers && !m_lastSessionUserId.isEmpty())
+        m_stickers->forgetAccount(m_lastSessionUserId);
     // A genuine sign-out (including removal of the active account). The
     // starred-GIF store of the account that was active must not survive, like
     // the Rust crypto store. m_lastSessionUserId is read before it is cleared
@@ -8655,6 +8658,8 @@ void AppController::removeAccount(const QString &userId)
     // removal that has to be retried loses nothing that matters.
     if (m_pagination)
         m_pagination->forgetAccount(target);
+    if (m_stickers)
+        m_stickers->forgetAccount(target);
     // Live accounts (Labs): an account running in the background is signed
     // out on the server and its store released before anything is deleted
     // (DECISION 7). Never the active account, whose removal is today's.
