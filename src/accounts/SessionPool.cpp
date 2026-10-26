@@ -1418,6 +1418,10 @@ const char *SessionPool::adoptionRefusal(const QString &uid) const
         refusal = "retiring";
     else if (m_storeBusy.contains(uid))
         refusal = "store-busy";
+    // A routed account (network profile): its background handle never had the
+    // foreground's route, so it is never adopted (review note, wave 3).
+    else if (m_deps.settings && m_deps.settings->networkRouteConfigured(uid))
+        refusal = "routed";
     else if (signInWriteBusy(uid) || !m_books.value(uid).pendingLiveDigests.isEmpty()
              || m_books.value(uid).writePaused)
         refusal = "custody-unsettled";

@@ -1910,6 +1910,17 @@ impl TimelineRegistry {
         }
     }
 
+    /// Warm account adoption (`mx_rust_bg_promote`): a new session generation
+    /// on the same handle, so a task the background session spawned and that
+    /// finishes after the promotion is stale and cannot enqueue into the
+    /// foreground's queue. Nothing is aborted here; the sync loop and its
+    /// observers were stopped first.
+    pub fn advance_lifecycle(&self) {
+        self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
+        self.room_gen.fetch_add(1, Ordering::SeqCst);
+        self.thread_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Stop all timeline work: advance the lifecycle generation, abort the
     /// subscription task and await it (bounded). Called before sign-out store
     /// cleanup and handle destruction.

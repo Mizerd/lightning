@@ -11724,6 +11724,10 @@ pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
             .ok_or_else(|| "the background handle has no signed-in user".to_owned())?;
         let device_id = client.device_id().map(|device| device.to_string()).unwrap_or_default();
         bridge.stop_sync_and_wait();
+        // Before the queues are cleared: anything the background session
+        // spawned that completes from here on carries a stale lifecycle and
+        // is dropped instead of reaching the foreground (review note, wave 3).
+        bridge.timelines.advance_lifecycle();
         bg.promote_to_foreground();
         bgsession::unregister(&bridge.events, &bridge.command_events);
         bridge.token_ledger.detach_custody();
