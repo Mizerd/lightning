@@ -300,9 +300,15 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
             }
             return out;
         };
-        QVERIFY2(categories().size() >= 2,
+        // The mock fills the list asynchronously after load; its rooms are
+        // all one section, so favourite the first to give a second one.
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 3, kTimeoutMs);
+        model->setRoomFavourite(model->data(model->index(0, 0),
+                                            RoomListModel::RoomIdRole).toString(),
+                                true);
+        QTRY_VERIFY2_WITH_TIMEOUT(categories().size() >= 2,
                  "fixture: the mock list needs two sections, so a later one "
-                 "has a label below the first");
+                 "has a label below the first", kTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(visibleHeaders().size() >= 2, kTimeoutMs);
 
         // A room from the LAST section, alone after the refill: its header
