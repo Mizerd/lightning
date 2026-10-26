@@ -212,8 +212,10 @@ private Q_SLOTS:
         const QString block =
             spaceSettingsBlock(readQml(QStringLiteral("TimelinePane.qml")));
         QVERIFY2(!block.isEmpty(), "the Space settings card is missing");
-        QVERIFY(block.contains(QStringLiteral("objectName: \"spaceNameEditField\"")));
-        QVERIFY(block.contains(QStringLiteral("objectName: \"spaceTopicEditField\"")));
+        // The fields are SpaceTextEditRows (shared with Space settings); the
+        // row hands its field these objectNames.
+        QVERIFY(block.contains(QStringLiteral("fieldObjectName: \"spaceNameEditField\"")));
+        QVERIFY(block.contains(QStringLiteral("fieldObjectName: \"spaceTopicEditField\"")));
         QVERIFY2(block.contains(QStringLiteral("objectName: \"spaceChangeAvatarButton\"")),
                  "a Space could be renamed but never given an avatar");
         QVERIFY(block.contains(QStringLiteral("objectName: \"spaceRemoveAvatarButton\"")));

@@ -101,10 +101,23 @@ private Q_SLOTS:
     void enterCommitsFields()
     {
         const QString s = dialogSource();
-        QVERIFY(between(s, QStringLiteral("id: nameField"), QStringLiteral("AppButton {"))
-                    .contains(QStringLiteral("onAccepted")));
-        QVERIFY(between(s, QStringLiteral("id: topicField"), QStringLiteral("AppButton {"))
-                    .contains(QStringLiteral("onAccepted")));
+        // Name and topic are SpaceTextEditRows since 2026-10-25: Return in
+        // the field takes the row's own guarded submit (proved behaviourally
+        // by space-text-edit-row-qml), shared with the inline Space Home card.
+        for (const char *id : { "id: nameField", "id: topicField" }) {
+            const int at = s.indexOf(QLatin1String(id));
+            QVERIFY2(at > 0, id);
+            QVERIFY2(s.lastIndexOf(QStringLiteral("SpaceTextEditRow {"), at)
+                         > s.lastIndexOf(QStringLiteral("AppTextField {"), at),
+                     id);
+        }
+        QString dir = qEnvironmentVariable("LIGHTNING_QML_DIR");
+        if (dir.isEmpty())
+            dir = QStringLiteral(QML_DIR);
+        QFile row(dir + QStringLiteral("/SpaceTextEditRow.qml"));
+        QVERIFY(row.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(row.readAll())
+                    .contains(QStringLiteral("onAccepted: root.submit()")));
         QVERIFY(between(s, QStringLiteral("id: aliasField"), QStringLiteral("AppButton {"))
                     .contains(QStringLiteral("onAccepted")));
         QVERIFY(between(s, QStringLiteral("id: customLevel"), QStringLiteral("IconButton {"))

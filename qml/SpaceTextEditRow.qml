@@ -36,8 +36,8 @@ RowLayout {
     property string accessibleName: ""
     property string placeholderText: ""
 
-    readonly property alias field: field
-    readonly property alias button: button
+    property alias field: field
+    property alias button: button
 
     // What a commit would send.
     readonly property string draftValue: field.text.trim()
