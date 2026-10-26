@@ -14,7 +14,7 @@ chmod 700 "$imports/runtime"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme VideoPlayerCard VideoControlBar VideoViewerOverlay \
             MediaVolumeControl SoftwareVideoNotice IconButton Icon AppButton \
-            AppMenu AppMenuItem MenuKeycap StormNode; do
+            AppMenu AppMenuItem MenuKeycap StormNode AppBusyIndicator; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"
     if [[ $name = AppTheme ]]; then
         printf 'singleton '

@@ -10,7 +10,7 @@ mkdir -p "$imports/MatrixClient"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme MediaBrowser MediaBrowserTile MediaBrowserRow Icon AppMenu \
             AppMenuItem AppMenuSeparator MenuKeycap StormNode AppButton AppTextField AppComboBox \
-            AppScrollBar SmoothWheelArea MiddleClickScroller IconButton; do
+            AppScrollBar SmoothWheelArea MiddleClickScroller IconButton AppBusyIndicator; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"
     if [[ $name = AppTheme ]]; then
         printf 'singleton '
