@@ -4360,14 +4360,18 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
         const guint last = meta->n_planes - 1;
         need = qMax(need, meta->offset[last] + gsize(qMax(meta->stride[last], 0)));
     }
-    if (gst_memory_get_sizes(mem, nullptr, nullptr) >= need)
+    // pipewiresrc positions the memory at chunk.offset (+ the map offset), so
+    // the frame starts there in the descriptor and the video meta's offsets
+    // are relative to it.
+    gsize memOffset = 0;
+    if (gst_memory_get_sizes(mem, &memOffset, nullptr) >= need)
         return nullptr;
     const int fd = gst_dmabuf_memory_get_fd(mem);
     if (fd < 0)
         return nullptr;
     const off_t total = lseek(fd, 0, SEEK_END);
     lseek(fd, 0, SEEK_SET);
-    if (total <= 0 || gsize(total) < need)
+    if (total <= 0 || memOffset + need > gsize(total))
         return nullptr;
     const int dupFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (dupFd < 0)
@@ -4378,6 +4382,10 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
         close(dupFd);
         return nullptr;
     }
+    // From the same offset to the end of the descriptor.
+    if (memOffset > 0)
+        gst_memory_resize(full, gssize(memOffset),
+                          gsize(total) - memOffset);
     GstBuffer *out = gst_buffer_new();
     gst_buffer_copy_into(out, buffer,
                          GstBufferCopyFlags(GST_BUFFER_COPY_FLAGS

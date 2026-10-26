@@ -35,7 +35,9 @@
 #if defined(LIGHTNING_HAVE_GST_ALLOCATORS)
 #include <gst/allocators/gstdmabuf.h>
 #endif
+#if defined(Q_OS_LINUX)
 #include <sys/mman.h>
+#endif
 
 #include <atomic>
 #include <cstring>
@@ -5489,6 +5491,47 @@ private slots:
         gst_buffer_unref(shortBuf);
         QVERIFY(gst_buffer_get_parent_buffer_meta(fixed));
         gst_buffer_unref(fixed);
+
+        // pipewiresrc's chunk.offset: the frame starts 4096 bytes into the
+        // descriptor, the memory is positioned there and is 1 byte long, and
+        // the rewrap must start at the same place and run to the end.
+        {
+            const gsize skew = 4096;
+            QVERIFY(ftruncate(fd, off_t(frame + skew)) == 0);
+            GstBuffer *b = gst_buffer_new();
+            GstMemory *m = gst_dmabuf_allocator_alloc(alloc, dup(fd),
+                                                      frame + skew);
+            gst_memory_resize(m, gssize(skew), 1);
+            gst_buffer_append_memory(b, m);
+            gsize offsets[1] = {0};
+            gint strides[1] = {stride};
+            gst_buffer_add_video_meta_full(
+                b, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_FORMAT_BGRx, width,
+                height, 1, offsets, strides);
+            GstBuffer *moved = SfuMediaEngine::rewrapShortDmaBuf(b);
+            QVERIFY2(moved, "a short DMA-BUF at a non-zero offset was not "
+                            "rewrapped");
+            gsize off = 0, maxsize = 0;
+            const gsize size = gst_memory_get_sizes(
+                gst_buffer_peek_memory(moved, 0), &off, &maxsize);
+            QCOMPARE(off, skew);
+            QCOMPARE(size, frame);
+            // Too small to hold the frame after that offset: refused.
+            QVERIFY(ftruncate(fd, off_t(frame + skew - 1)) == 0);
+            GstBuffer *tooSmall = gst_buffer_new();
+            GstMemory *tm = gst_dmabuf_allocator_alloc(alloc, dup(fd),
+                                                       frame + skew - 1);
+            gst_memory_resize(tm, gssize(skew), 1);
+            gst_buffer_append_memory(tooSmall, tm);
+            gst_buffer_add_video_meta_full(
+                tooSmall, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_FORMAT_BGRx,
+                width, height, 1, offsets, strides);
+            QVERIFY(!SfuMediaEngine::rewrapShortDmaBuf(tooSmall));
+            gst_buffer_unref(tooSmall);
+            gst_buffer_unref(moved);
+            gst_buffer_unref(b);
+            QVERIFY(ftruncate(fd, off_t(frame)) == 0);
+        }
 
         // Already full size: nothing to do.
         GstBuffer *whole = makeBuffer(frame);
