@@ -13127,6 +13127,24 @@ fn install_event_handlers(
     // Labs: whether this client belongs to a Background handle. Always false
     // with the flag off (`for_queue` returns at one relaxed load).
     let background = bgsession::for_queue(&events).is_some();
+    // Warm account adoption (live 2026-10-26): `EventCache::subscribe()`
+    // spawns the one task that stores sync responses in the event cache, ONCE
+    // per Client, on whatever runtime calls it first. For a Background handle
+    // that was the sync thread's own runtime (RoomListService::new), so when a
+    // promotion stopped that loop the listener died with it and could never
+    // be spawned again: the adopted session's room list moved while an open
+    // timeline never saw a new event. Subscribing here, on the handle's
+    // shared multi-thread runtime (every caller runs inside run_async_on with
+    // it), keeps the listener alive for the Client's life. Foreground handles
+    // keep today's order.
+    if background {
+        if let Err(err) = client.event_cache().subscribe() {
+            enqueue(&events, json!({
+                "type": "error",
+                "message": format!("event cache subscribe failed: {err}"),
+            }));
+        }
+    }
     // A to-device handler on `m.room.encrypted` fires exactly for events the SDK
     // could not decrypt: matrix-sdk hands those to handlers as the original
     // envelope, while decrypted ones dispatch under their inner type. This
