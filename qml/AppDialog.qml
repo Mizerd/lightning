@@ -33,8 +33,8 @@ Dialog {
 
     modal: true
     anchors.centerIn: parent
-    padding: AppTheme.spacing20
-    topPadding: _hasHeader ? AppTheme.spacing4 : AppTheme.spacing20
+    padding: AppTheme.dialogInset
+    topPadding: _hasHeader ? AppTheme.spacing4 : AppTheme.dialogInset
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     // The theme-aware modal dim, matching every other modal.
@@ -45,7 +45,7 @@ Dialog {
     header: Item {
         visible: root._hasHeader
         implicitHeight: root._hasHeader ? headerLabel.implicitHeight
-                                          + AppTheme.spacing20
+                                          + AppTheme.dialogInset
                                           + AppTheme.spacing12
                                         : 0
         Label {
@@ -57,8 +57,8 @@ Dialog {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.leftMargin: AppTheme.spacing20
-            anchors.rightMargin: AppTheme.spacing20
+            anchors.leftMargin: AppTheme.dialogInset
+            anchors.rightMargin: AppTheme.dialogInset
             anchors.bottomMargin: AppTheme.spacing12
             elide: Label.ElideRight
             font.family: AppTheme.menuFont
@@ -72,8 +72,8 @@ Dialog {
         visible: root.standardButtons !== 0
         alignment: Qt.AlignRight
         spacing: AppTheme.spacing8
-        padding: AppTheme.spacing20
-        topPadding: AppTheme.spacing16
+        padding: AppTheme.dialogInset
+        topPadding: AppTheme.dialogFooterGap
         background: Item {}
 
         // Every footer button is an AppButton, for the app's geometry, states

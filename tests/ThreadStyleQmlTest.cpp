@@ -499,6 +499,9 @@ ApplicationWindow {
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 0);
         QTRY_COMPARE(header->height(), 60.0);
         QTRY_VERIFY(itemsNamed(QStringLiteral("senderHeaderAvatar")).isEmpty());
+        QCOMPARE(theme->property("menuItemHeight").toInt(), 32);
+        QCOMPARE(theme->property("dialogInset").toInt(), 20);
+        QCOMPARE(theme->property("channelRowMinHeight").toInt(), 32);
     }
 
     void headerSwitchHidesThreadRepliesAndPersists()

@@ -95,6 +95,9 @@ QtObject {
     readonly property int threadHeaderHeight: headerBandHeight - 2
     // Vertical padding of one room-list row (above and below its content).
     readonly property int roomRowPaddingV: compactDensity ? spacing4 : spacing6
+    // Floor of a Channels row (rooms, folders, navigation rows); each row
+    // also keeps two lines of its own text size, so text never clips.
+    readonly property int channelRowMinHeight: compactDensity ? 28 : 32
     // The message composer's distance from the conversation's edges.
     readonly property int composerInsetH: compactDensity ? spacing12 : spacing20
     readonly property int composerInsetBottom: compactDensity ? spacing8 : spacing16
@@ -2123,9 +2126,15 @@ QtObject {
     readonly property int radiusCard:   14   // identity cards, quick-switcher modal
 
     // ---- Menu / popover language ----
-    readonly property int menuPadding:        spacing6   // popover internal padding
+    // Nheko compact (compactDensity) tightens menus and dialogs by geometry
+    // only; menu text keeps its size, and 28 still holds a 14 px label with
+    // room above and below.
+    readonly property int menuPadding:        compactDensity ? spacing4 : spacing6   // popover internal padding
     readonly property int menuRadius:         radiusLg   // popover container corner
-    readonly property int menuItemHeight:     32
+    readonly property int menuItemHeight:     compactDensity ? 28 : 32
+    // A dialog's outer inset and the gap above its button row.
+    readonly property int dialogInset:        compactDensity ? spacing16 : spacing20
+    readonly property int dialogFooterGap:    compactDensity ? spacing12 : spacing16
     readonly property int menuItemRadius:     radiusMd
     readonly property int menuItemPadding:    spacing8   // row side padding
     readonly property int menuIconSize:       17
