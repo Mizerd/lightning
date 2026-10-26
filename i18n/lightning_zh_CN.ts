@@ -6962,7 +6962,7 @@ Size: %3</source>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>右键点击可添加到收藏或从收藏中移除</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11007,12 +11007,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>图片、GIF、贴纸、视频、音频和文件起初显示为一行，可点开查看，在您打开前不会下载。私人房间是并非所有人都能加入的房间：仅限邀请、需申请或仅限某个空间。此选择保存在您的帐户中，支持该设置的其他应用也会遵循。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>在您重新选择“仅私人房间”之前，媒体还要求房间已加密或为私聊，这是此设置以前的含义。</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12291,7 +12291,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>添加到我的贴纸…</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14661,22 +14661,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>将这张私密图片添加到您的贴纸？</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>此图片来自一段加密对话。贴纸包存放的是普通的未加密媒体，因此 Lightning 会将一份新的未加密副本上传到您的服务器并加入您自己的包。您的服务器可以看到它，与您共享此包的任何人也可以。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>上传未加密副本</translation>
     </message>
 </context>
 <context>
@@ -26849,12 +26849,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>向此包添加图片</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26883,7 +26883,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>您已离开存放标准包的房间。重新加入即可继续使用，或新建一个包房间。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27027,7 +27027,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>新建包房间</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27037,33 +27037,33 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已添加 %n 个</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已移除 %n 个</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
-            <numerusform>已更改 %n 项</numerusform>
+        <translation>
+            <numerusform>已更改 %n 个</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>您打开此包期间，它在别处被修改了（%1）。列表显示的是最新版本；您的下一次更改将应用于该版本。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>知道了</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27149,27 +27149,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>添加图片…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished">重试</translation>
+        <translation>重试</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">已复制</translation>
+        <translation>已复制</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished">复制链接</translation>
+        <translation>复制链接</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>复制此包的房间链接和名称以便分享</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27227,12 +27227,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>您无权更改此包。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有任何图片添加成功。重试会添加它们而无需重新上传。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27297,22 +27297,22 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已向包添加 %n 张图片。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个失败；重试会添加它们而无需重新上传。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已跳过 %n 个。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27377,17 +27377,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>一个包</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1：一个表情和贴纸包。打开该房间，然后在 设置 &gt; 表情和贴纸包 中开启此包。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>包键：%1</translation>
     </message>
 </context>
 <context>
@@ -27485,22 +27485,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>在此隐藏</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">显示</translation>
+        <translation>显示</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">隐藏</translation>
+        <translation>隐藏</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>仅在此设备上从您的选择器中隐藏此包。对其他人没有任何影响。</translation>
     </message>
     <message>
         <location line="+9"/>

@@ -7002,7 +7002,7 @@ Dydis: %3</translation>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Dešiniuoju pelės mygtuku pridėkite prie mėgstamų arba pašalinkite</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11077,12 +11077,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paveikslėliai, GIF, lipdukai, vaizdo įrašai, garsas ir failai rodomi kaip viena eilutė, kurią galite atverti, ir neatsisiunčiami, kol to nepadarysite. Privatūs kambariai – tai kambariai, prie kurių ne visi gali prisijungti: tik su kvietimu, su prašymu arba tik erdvės nariams. Pasirinkimas įrašomas jūsų paskyroje, todėl jį palaikančios programos jo laikosi.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>Kol vėl nepasirinksite „Tik privatūs kambariai“, medijai taip pat reikia, kad kambarys būtų šifruotas arba tiesioginis pokalbis, kaip šis nustatymas reiškė anksčiau.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12634,7 +12634,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+356"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>Pridėti prie mano lipdukų…</translation>
     </message>
     <message>
         <location line="+343"/>
@@ -14755,22 +14755,22 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>Pridėti šį privatų paveikslėlį prie savo lipdukų?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šis paveikslėlis yra iš šifruoto pokalbio. Lipdukų rinkiniuose laikoma įprasta, nešifruota medija, todėl Lightning įkels naują, nešifruotą kopiją į jūsų serverį ir pridės ją prie jūsų rinkinio. Jūsų serveris ją mato, kaip ir visi, su kuriais dalijatės rinkiniu.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">Atšaukti</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Įkelti nešifruotą kopiją</translation>
     </message>
 </context>
 <context>
@@ -27007,12 +27007,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Pridėti paveikslėlių į šį rinkinį</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>Paveikslėliai (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -27045,7 +27045,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Išėjote iš kambario, kuriame buvo jūsų standartiniai rinkiniai. Prisijunkite vėl, kad toliau jį naudotumėte, arba sukurkite naują rinkinių kambarį.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27197,7 +27197,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>Sukurti naują rinkinių kambarį</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27207,39 +27207,39 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n pridėtas</numerusform>
+            <numerusform>%n pridėti</numerusform>
+            <numerusform>%n pridėta</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n pašalintas</numerusform>
+            <numerusform>%n pašalinti</numerusform>
+            <numerusform>%n pašalinta</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
-            <numerusform>Pakeista: %n</numerusform>
-            <numerusform>Pakeista: %n</numerusform>
-            <numerusform>Pakeista: %n</numerusform>
+        <translation>
+            <numerusform>%n pakeistas</numerusform>
+            <numerusform>%n pakeisti</numerusform>
+            <numerusform>%n pakeista</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šis rinkinys buvo pakeistas kitur, kol jį buvote atvėrę (%1). Sąraše rodoma naujausia versija; kitas jūsų pakeitimas taikomas jai.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>Supratau</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27325,27 +27325,27 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>Pridėti paveikslėlių…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished"></translation>
+        <translation>Bandyti dar kartą</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">Nukopijuota</translation>
+        <translation>Nukopijuota</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished"></translation>
+        <translation>Kopijuoti nuorodą</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>Nukopijuoja rinkinio kambario nuorodą ir pavadinimą, kad galėtumėte pasidalyti</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27403,12 +27403,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Neturite leidimo keisti šio rinkinio.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nepavyko pridėti nė vieno paveikslėlio. „Bandyti dar kartą“ juos prideda neįkeliant iš naujo.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27473,28 +27473,28 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Į rinkinį pridėtas %n paveikslėlis.</numerusform>
+            <numerusform>Į rinkinį pridėti %n paveikslėliai.</numerusform>
+            <numerusform>Į rinkinį pridėta %n paveikslėlių.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n nepavyko; „Bandyti dar kartą“ jį prideda neįkeliant iš naujo.</numerusform>
+            <numerusform>%n nepavyko; „Bandyti dar kartą“ juos prideda neįkeliant iš naujo.</numerusform>
+            <numerusform>%n nepavyko; „Bandyti dar kartą“ juos prideda neįkeliant iš naujo.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n praleistas.</numerusform>
+            <numerusform>%n praleisti.</numerusform>
+            <numerusform>%n praleista.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27573,17 +27573,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Rinkinys</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: jaustukų ir lipdukų rinkinys. Atverkite kambarį, tada įjunkite rinkinį skiltyje Nustatymai &gt; Jaustukų ir lipdukų rinkiniai.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Rinkinio raktas: %1</translation>
     </message>
 </context>
 <context>
@@ -27685,22 +27685,22 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>čia paslėpta</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">Rodyti</translation>
+        <translation>Rodyti</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">Slėpti</translation>
+        <translation>Slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paslepia šį rinkinį jūsų parinkikliuose tik šiame įrenginyje. Kitiems niekas nesikeičia.</translation>
     </message>
     <message>
         <location line="+9"/>

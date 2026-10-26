@@ -6962,7 +6962,7 @@ Ukuran: %3</translation>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Klik kanan untuk menambah ke atau menghapus dari favorit</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11007,12 +11007,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gambar, GIF, stiker, video, audio, dan berkas dimulai sebagai satu baris yang dapat Anda buka, dan tidak diunduh sampai Anda membukanya. Ruang privat adalah ruang yang tidak bisa diikuti semua orang: hanya undangan, ketuk, atau terbatas pada Space. Pilihan disimpan di akun Anda, jadi aplikasi lain yang mendukungnya mengikutinya.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sampai Anda memilih Hanya ruang privat lagi, media juga memerlukan ruang yang terenkripsi atau pesan langsung, seperti arti pengaturan ini sebelumnya.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12291,7 +12291,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+17"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>Tambahkan ke stiker saya…</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14661,22 +14661,22 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>Tambahkan gambar privat ini ke stiker Anda?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gambar ini dari percakapan terenkripsi. Paket stiker berisi media biasa tanpa enkripsi, jadi Lightning akan mengunggah salinan baru tanpa enkripsi ke server Anda dan menambahkannya ke paket Anda sendiri. Server Anda dapat melihatnya, begitu juga siapa pun yang Anda bagikan paketnya.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">Batal</translation>
+        <translation>Batal</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Unggah salinan tanpa enkripsi</translation>
     </message>
 </context>
 <context>
@@ -26849,12 +26849,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Tambahkan gambar ke paket ini</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>Gambar (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26883,7 +26883,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Anda keluar dari ruang yang menyimpan paket standar Anda. Bergabung lagi untuk terus memakainya, atau buat ruang paket baru.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27027,7 +27027,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>Buat ruang paket baru</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27037,33 +27037,33 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n ditambahkan</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n dihapus</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n diubah</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Paket ini diubah di tempat lain saat Anda membukanya (%1). Daftar menampilkan versi terbaru; perubahan Anda berikutnya berlaku padanya.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>Mengerti</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27149,27 +27149,27 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>Tambahkan gambar…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished">Coba lagi</translation>
+        <translation>Coba lagi</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished"></translation>
+        <translation>Disalin</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished">Salin tautan</translation>
+        <translation>Salin tautan</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>Menyalin tautan ruang dan nama paket untuk dibagikan</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27227,12 +27227,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Anda tidak memiliki izin mengubah paket ini.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tidak ada gambar yang dapat ditambahkan. Coba lagi menambahkannya tanpa mengunggah ulang.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27297,22 +27297,22 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n gambar ditambahkan ke paket.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n gagal; Coba lagi menambahkannya tanpa mengunggah ulang.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n dilewati.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27377,17 +27377,17 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Sebuah paket</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: paket emoji dan stiker. Buka ruangnya, lalu aktifkan paket di Pengaturan &gt; Paket emoji dan stiker.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Kunci paket: %1</translation>
     </message>
 </context>
 <context>
@@ -27485,22 +27485,22 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>disembunyikan di sini</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">Tampilkan</translation>
+        <translation>Tampilkan</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">Sembunyikan</translation>
+        <translation>Sembunyikan</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>Menyembunyikan paket ini dari pemilih Anda hanya di perangkat ini. Tidak ada yang berubah bagi orang lain.</translation>
     </message>
     <message>
         <location line="+9"/>

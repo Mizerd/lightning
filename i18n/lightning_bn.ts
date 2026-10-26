@@ -6980,7 +6980,7 @@ Size: %3</source>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রিয়তে যোগ বা সরাতে ডান-ক্লিক করুন</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11033,12 +11033,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>ছবি, GIF, স্টিকার, ভিডিও, অডিও ও ফাইল একটি লাইন হিসেবে শুরু হয় যা আপনি খুলতে পারেন, এবং আপনি না খোলা পর্যন্ত ডাউনলোড হয় না। ব্যক্তিগত রুম হলো এমন রুম যেখানে সবাই যোগ দিতে পারে না: শুধু আমন্ত্রণে, নক করে বা কোনো স্পেসে সীমিত। পছন্দটি আপনার অ্যাকাউন্টে সংরক্ষিত হয়, তাই সমর্থনকারী অন্য অ্যাপও তা মানে।</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি আবার «শুধু ব্যক্তিগত রুম» বেছে না নেওয়া পর্যন্ত, মিডিয়ার জন্য রুমটিকে এনক্রিপ্টেড বা সরাসরি বার্তাও হতে হবে, যেমন এই সেটিং আগে বোঝাত।</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12318,7 +12318,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+17"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>আমার স্টিকারে যোগ করুন…</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14699,22 +14699,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>এই ব্যক্তিগত ছবিটি আপনার স্টিকারে যোগ করবেন?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই ছবিটি একটি এনক্রিপ্টেড কথোপকথনের। স্টিকার প্যাকে সাধারণ, এনক্রিপ্ট না করা মিডিয়া থাকে, তাই Lightning আপনার সার্ভারে একটি নতুন, এনক্রিপ্ট না করা কপি আপলোড করে আপনার নিজের প্যাকে যোগ করবে। আপনার সার্ভার এটি দেখতে পারে, এবং যাদের সঙ্গে আপনি প্যাক শেয়ার করেন তারাও।</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">বাতিল</translation>
+        <translation>বাতিল</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>এনক্রিপ্ট না করা কপি আপলোড করুন</translation>
     </message>
 </context>
 <context>
@@ -26919,12 +26919,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>এই প্যাকে ছবি যোগ করুন</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>ছবি (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26955,7 +26955,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি সেই রুম ছেড়েছেন যেখানে আপনার স্ট্যান্ডার্ড প্যাক ছিল। ব্যবহার চালিয়ে যেতে আবার যোগ দিন, অথবা নতুন প্যাক রুম শুরু করুন।</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27103,7 +27103,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>নতুন প্যাক রুম শুরু করুন</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27113,36 +27113,36 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি যোগ হয়েছে</numerusform>
+            <numerusform>%nটি যোগ হয়েছে</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি সরানো হয়েছে</numerusform>
+            <numerusform>%nটি সরানো হয়েছে</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
-            <numerusform>%nটি বদলানো</numerusform>
-            <numerusform>%nটি বদলানো</numerusform>
+        <translation>
+            <numerusform>%nটি বদলেছে</numerusform>
+            <numerusform>%nটি বদলেছে</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি খোলা রাখার সময় এই প্যাকটি অন্য কোথাও বদলানো হয়েছে (%1)। তালিকায় সর্বশেষ সংস্করণ দেখানো হচ্ছে; আপনার পরবর্তী পরিবর্তন এতে প্রযোজ্য হবে।</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>বুঝেছি</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27228,27 +27228,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>ছবি যোগ করুন…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished">আবার চেষ্টা করুন</translation>
+        <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished"></translation>
+        <translation>কপি হয়েছে</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished"></translation>
+        <translation>লিঙ্ক কপি করুন</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>কারও সঙ্গে শেয়ার করতে প্যাকের রুমের লিঙ্ক ও নাম কপি করে</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27306,12 +27306,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই প্যাক বদলানোর অনুমতি আপনার নেই।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>কোনো ছবিই যোগ করা যায়নি। আবার চেষ্টা করলে আবার আপলোড না করেই যোগ হবে।</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27376,25 +27376,25 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>প্যাকে %nটি ছবি যোগ হয়েছে।</numerusform>
+            <numerusform>প্যাকে %nটি ছবি যোগ হয়েছে।</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি ব্যর্থ; আবার চেষ্টা করলে আবার আপলোড না করেই যোগ হবে।</numerusform>
+            <numerusform>%nটি ব্যর্থ; আবার চেষ্টা করলে আবার আপলোড না করেই যোগ হবে।</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি বাদ দেওয়া হয়েছে।</numerusform>
+            <numerusform>%nটি বাদ দেওয়া হয়েছে।</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27466,17 +27466,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>একটি প্যাক</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: একটি ইমোজি ও স্টিকার প্যাক। রুমটি খুলুন, তারপর সেটিংস &gt; ইমোজি ও স্টিকার প্যাক-এ প্যাকটি চালু করুন।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>প্যাক কী: %1</translation>
     </message>
 </context>
 <context>
@@ -27576,22 +27576,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>এখানে লুকানো</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">দেখান</translation>
+        <translation>দেখান</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">লুকান</translation>
+        <translation>লুকান</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>শুধু এই ডিভাইসে আপনার পিকার থেকে এই প্যাকটি লুকায়। অন্য কারও জন্য কিছু বদলায় না।</translation>
     </message>
     <message>
         <location line="+9"/>

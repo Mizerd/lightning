@@ -6982,7 +6982,7 @@ Größe: %3</translation>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Rechtsklick zum Hinzufügen zu oder Entfernen aus den Favoriten</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11042,12 +11042,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Bilder, GIFs, Sticker, Videos, Audio und Dateien erscheinen als eine Zeile, die Sie öffnen können, und werden erst dann heruntergeladen. Private Räume sind Räume, denen nicht jeder beitreten kann: nur auf Einladung, auf Anfrage oder auf einen Space beschränkt. Die Wahl wird in Ihrem Konto gespeichert, sodass andere Apps, die das unterstützen, ihr folgen.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>Bis Sie wieder „Nur private Räume“ wählen, muss der Raum für Medien außerdem verschlüsselt oder eine Direktnachricht sein, wie es diese Einstellung früher bedeutete.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12468,7 +12468,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+17"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>Zu meinen Stickern hinzufügen…</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14708,22 +14708,22 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses private Bild zu Ihren Stickern hinzufügen?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bild stammt aus einer verschlüsselten Unterhaltung. Sticker-Pakete enthalten normale, unverschlüsselte Medien, daher lädt Lightning eine neue, unverschlüsselte Kopie auf Ihren Server hoch und fügt sie Ihrem eigenen Paket hinzu. Ihr Server kann sie sehen, ebenso alle, mit denen Sie das Paket teilen.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">Abbrechen</translation>
+        <translation>Abbrechen</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Unverschlüsselte Kopie hochladen</translation>
     </message>
 </context>
 <context>
@@ -26928,12 +26928,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Bilder zu diesem Paket hinzufügen</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>Bilder (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26964,7 +26964,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie haben den Raum verlassen, der Ihre Standardpakete enthielt. Treten Sie ihm erneut bei, um ihn weiter zu nutzen, oder starten Sie einen neuen Paketraum.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27112,7 +27112,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>Neuen Paketraum starten</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27122,23 +27122,23 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n hinzugefügt</numerusform>
+            <numerusform>%n hinzugefügt</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entfernt</numerusform>
+            <numerusform>%n entfernt</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n geändert</numerusform>
             <numerusform>%n geändert</numerusform>
         </translation>
@@ -27146,12 +27146,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Paket wurde anderswo geändert, während Sie es geöffnet hatten (%1). Die Liste zeigt die neueste Version; Ihre nächste Änderung gilt für sie.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>Verstanden</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27237,27 +27237,27 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>Bilder hinzufügen…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished">Wiederholen</translation>
+        <translation>Wiederholen</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">Kopiert</translation>
+        <translation>Kopiert</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished">Link kopieren</translation>
+        <translation>Link kopieren</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>Kopiert den Raumlink und den Namen des Pakets, um sie mit jemandem zu teilen</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27315,12 +27315,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie dürfen dieses Paket nicht ändern.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Keines der Bilder konnte hinzugefügt werden. „Wiederholen“ fügt sie hinzu, ohne sie erneut hochzuladen.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27385,25 +27385,25 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Bild zum Paket hinzugefügt.</numerusform>
+            <numerusform>%n Bilder zum Paket hinzugefügt.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n fehlgeschlagen; „Wiederholen“ fügt es hinzu, ohne es erneut hochzuladen.</numerusform>
+            <numerusform>%n fehlgeschlagen; „Wiederholen“ fügt sie hinzu, ohne sie erneut hochzuladen.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n übersprungen.</numerusform>
+            <numerusform>%n übersprungen.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27475,17 +27475,17 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Ein Paket</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: ein Emoji- und Sticker-Paket. Öffnen Sie den Raum und schalten Sie das Paket dann unter Einstellungen &gt; Emoji- und Sticker-Pakete ein.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Paketschlüssel: %1</translation>
     </message>
 </context>
 <context>
@@ -27585,22 +27585,22 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>hier ausgeblendet</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">Anzeigen</translation>
+        <translation>Anzeigen</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">Ausblenden</translation>
+        <translation>Ausblenden</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>Blendet dieses Paket nur auf diesem Gerät in Ihren Auswahlen aus. Für niemand anderen ändert sich etwas.</translation>
     </message>
     <message>
         <location line="+9"/>

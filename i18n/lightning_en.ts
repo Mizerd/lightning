@@ -27102,23 +27102,23 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n added</numerusform>
+            <numerusform>%n added</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n removed</numerusform>
+            <numerusform>%n removed</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n changed</numerusform>
             <numerusform>%n changed</numerusform>
         </translation>
@@ -27365,25 +27365,25 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Added %n image to the pack.</numerusform>
+            <numerusform>Added %n images to the pack.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n failed; Retry adds it without uploading again.</numerusform>
+            <numerusform>%n failed; Retry adds them without uploading again.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n skipped.</numerusform>
+            <numerusform>%n skipped.</numerusform>
         </translation>
     </message>
     <message numerus="yes">

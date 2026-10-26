@@ -6982,7 +6982,7 @@ Taille : %3</translation>
     <message>
         <location line="+29"/>
         <source>Right-click to add to or remove from favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Clic droit pour ajouter aux favoris ou les retirer</translation>
     </message>
     <message>
         <location line="+315"/>
@@ -11042,12 +11042,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are rooms that not everyone can join: invite-only, knock or restricted to a Space. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Les images, GIF, autocollants, vidéos, sons et fichiers apparaissent sous forme d’une ligne que vous pouvez ouvrir, et ne sont pas téléchargés tant que vous ne le faites pas. Les salons privés sont ceux que tout le monde ne peut pas rejoindre : sur invitation, sur demande ou réservés à un espace. Le choix est enregistré dans votre compte, donc les autres applications qui le prennent en charge le suivent.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Until you choose Private rooms only again, media also needs the room to be encrypted or a direct message, as this setting used to mean.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tant que vous ne choisissez pas de nouveau Salons privés uniquement, les médias exigent aussi que le salon soit chiffré ou soit un message direct, comme ce réglage le signifiait auparavant.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12327,7 +12327,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+17"/>
         <source>Add to my stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>Ajouter à mes autocollants…</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14708,22 +14708,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location filename="../qml/PrivateImageRepublishDialog.qml" line="+44"/>
         <source>Add this private image to your stickers?</source>
-        <translation type="unfinished"></translation>
+        <translation>Ajouter cette image privée à vos autocollants ?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This image is from an encrypted conversation. Sticker packs hold regular, unencrypted media, so Lightning will upload a new, unencrypted copy to your server and add it to your own pack. Your server can see it, and so can anyone you share the pack with.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cette image provient d’une conversation chiffrée. Les packs d’autocollants contiennent des médias ordinaires non chiffrés, donc Lightning enverra une nouvelle copie non chiffrée sur votre serveur et l’ajoutera à votre propre pack. Votre serveur peut la voir, ainsi que toute personne avec qui vous partagez le pack.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Cancel</source>
-        <translation type="unfinished">Annuler</translation>
+        <translation>Annuler</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload unencrypted copy</source>
-        <translation type="unfinished"></translation>
+        <translation>Envoyer une copie non chiffrée</translation>
     </message>
 </context>
 <context>
@@ -26928,12 +26928,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-11"/>
         <source>Add images to this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Ajouter des images à ce pack</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
-        <translation type="unfinished"></translation>
+        <translation>Images (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -26964,7 +26964,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+3"/>
         <source>You left the room that held your standard packs. Rejoin it to keep using it, or start a new pack room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vous avez quitté le salon qui contenait vos packs standard. Rejoignez-le pour continuer à l’utiliser, ou créez un nouveau salon de packs.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -27112,7 +27112,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+17"/>
         <source>Start a new pack room</source>
-        <translation type="unfinished"></translation>
+        <translation>Créer un nouveau salon de packs</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -27122,23 +27122,23 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message numerus="yes">
         <location line="+33"/>
         <source>%n added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n ajoutée</numerusform>
+            <numerusform>%n ajoutées</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n removed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n retirée</numerusform>
+            <numerusform>%n retirées</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n changed</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n modifiée</numerusform>
             <numerusform>%n modifiées</numerusform>
         </translation>
@@ -27146,12 +27146,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+1"/>
         <source>This pack was changed elsewhere while you had it open (%1). The list shows the latest version; your next change applies to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ce pack a été modifié ailleurs pendant que vous l’aviez ouvert (%1). La liste affiche la dernière version ; votre prochaine modification s’y applique.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Got it</source>
-        <translation type="unfinished"></translation>
+        <translation>Compris</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -27237,27 +27237,27 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+14"/>
         <source>Add images…</source>
-        <translation type="unfinished"></translation>
+        <translation>Ajouter des images…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Retry</source>
-        <translation type="unfinished">Réessayer</translation>
+        <translation>Réessayer</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Copied</source>
-        <translation type="unfinished">Copié</translation>
+        <translation>Copié</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy link</source>
-        <translation type="unfinished">Copier le lien</translation>
+        <translation>Copier le lien</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Copies the pack&apos;s room link and name to share with someone</source>
-        <translation type="unfinished"></translation>
+        <translation>Copie le lien du salon du pack et son nom pour les partager</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -27315,12 +27315,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+323"/>
         <source>You do not have permission to change this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vous n’avez pas l’autorisation de modifier ce pack.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>None of the images could be added. Retry adds them without uploading again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aucune image n’a pu être ajoutée. Réessayer les ajoute sans les renvoyer.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -27385,25 +27385,25 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message numerus="yes">
         <location line="+4"/>
         <source>Added %n image(s) to the pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n image ajoutée au pack.</numerusform>
+            <numerusform>%n images ajoutées au pack.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n failed; Retry adds them without uploading again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n a échoué ; Réessayer l’ajoute sans la renvoyer.</numerusform>
+            <numerusform>%n ont échoué ; Réessayer les ajoute sans les renvoyer.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n ignorée.</numerusform>
+            <numerusform>%n ignorées.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -27475,17 +27475,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+302"/>
         <source>A pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Un pack</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1: an emoji and sticker pack. Open the room, then turn the pack on in Settings &gt; Emoji and sticker packs.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 : un pack d’emoji et d’autocollants. Ouvrez le salon, puis activez le pack dans Paramètres &gt; Packs d’emoji et d’autocollants.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Pack key: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Clé du pack : %1</translation>
     </message>
 </context>
 <context>
@@ -27585,22 +27585,22 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+2"/>
         <source>hidden here</source>
-        <translation type="unfinished"></translation>
+        <translation>masqué ici</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Show</source>
-        <translation type="unfinished">Afficher</translation>
+        <translation>Afficher</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Hide</source>
-        <translation type="unfinished">Masquer</translation>
+        <translation>Masquer</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Hides this pack from your pickers on this device only. Nothing changes for anyone else.</source>
-        <translation type="unfinished"></translation>
+        <translation>Masque ce pack de vos sélecteurs sur cet appareil uniquement. Rien ne change pour les autres.</translation>
     </message>
     <message>
         <location line="+9"/>
