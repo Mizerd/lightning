@@ -464,6 +464,33 @@ private Q_SLOTS:
         QCOMPARE(uses.at(0).value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/2"));
     }
 
+    void aThreadPopupChoiceIsSentByTheThreadAndSpent()
+    {
+        // The thread composer completes through emojiCompletionEdit over its
+        // own text; its choice must reach the thread send (the typed rule
+        // would give mxc://x/1), and only once.
+        const QVariantMap edit = m_composer->emojiCompletionEdit(
+            QStringLiteral("t :blob"), 7,
+            row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QStringLiteral("d")));
+        QCOMPARE(edit.value(QStringLiteral("replacement")).toString(),
+                 QStringLiteral(":blob_wave: "));
+        QString body = QStringLiteral("t :blob_wave:");
+        QVariantMap spec;
+        m_composer->applyOutgoingEmoji(body, spec);
+        QCOMPARE(spec.value(QStringLiteral("emoticons")).toMap()
+                     .value(QStringLiteral(":blob_wave:")).toMap()
+                     .value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://x/2"));
+        QString again = QStringLiteral("t :blob_wave:");
+        QVariantMap spec2;
+        m_composer->applyOutgoingEmoji(again, spec2);
+        QCOMPARE(spec2.value(QStringLiteral("emoticons")).toMap()
+                     .value(QStringLiteral(":blob_wave:")).toString(),
+                 QStringLiteral("mxc://x/1"));
+        // The main composer's own send never sees the thread's choice.
+        QVERIFY(m_composer->selectedEmoticons().isEmpty());
+    }
+
     void anAmbiguousTypedShortcodeStaysLiteral()
     {
         // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);

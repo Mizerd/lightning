@@ -196,6 +196,7 @@ void MessageComposer::setClient(MatrixClient *client)
             m_mentionRefs.clear();
             m_emoticonRefs.clear();
             m_emoticonRefsByRoom.clear();
+            m_threadEmoticonChoices.clear();
             Q_EMIT mentionRangesChanged();
             Q_EMIT roomIdChanged();
             updateCanSend();
@@ -1302,6 +1303,17 @@ QVariantMap MessageComposer::emojiCompletionEdit(const QString &text,
         : QLatin1Char(':') + value + QStringLiteral(": ");
     if (unicode && m_unicodeEmojiUseRecorder)
         m_unicodeEmojiUseRecorder(value);
+    // The thread composer's text is not m_text, so its choices cannot be
+    // range-tracked here; they are remembered by shortcode text and applied by
+    // the thread send (applyOutgoingEmoji), which then forgets them.
+    const QString url = entry.value(QStringLiteral("url")).toString();
+    if (!unicode && url.startsWith(QLatin1String("mxc://"))) {
+        m_threadEmoticonChoices.insert(
+            QLatin1Char(':') + value + QLatin1Char(':'),
+            QVariantMap{ { QStringLiteral("url"), url },
+                         { QStringLiteral("body"),
+                           entry.value(QStringLiteral("body")).toString() } });
+    }
     return QVariantMap{
         { QStringLiteral("start"), token.first },
         { QStringLiteral("length"), token.second },
@@ -1347,9 +1359,11 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
 void MessageComposer::applyOutgoingEmoji(QString &body,
                                          QVariantMap &bodySpec) const
 {
-    // No selections: this entry point also serves the THREAD composer, whose
-    // text is not m_text, so this composer's selections must never apply.
-    applyOutgoingEmojiWith(body, bodySpec, QVariantMap());
+    // This entry point serves the THREAD composer, whose text is not m_text:
+    // this composer's range selections never apply, the thread popup's
+    // choices do (emojiCompletionEdit), and are spent by the send.
+    applyOutgoingEmojiWith(body, bodySpec, m_threadEmoticonChoices);
+    m_threadEmoticonChoices.clear();
 }
 
 void MessageComposer::applyOutgoingEmojiWith(QString &body,

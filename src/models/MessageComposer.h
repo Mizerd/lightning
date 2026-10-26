@@ -518,6 +518,9 @@ private:
     };
     QList<EmoticonRef> m_emoticonRefs;
     QHash<QString, QList<EmoticonRef>> m_emoticonRefsByRoom;
+    // Thread composer choices from its completion popup, ":code:" ->
+    // {url, body}; mutable because the send pass spends them.
+    mutable QVariantMap m_threadEmoticonChoices;
     static QList<EmoticonRef> shiftEmoticonRefs(const QList<EmoticonRef> &refs,
                                                 const QString &oldText,
                                                 const QString &newText);
