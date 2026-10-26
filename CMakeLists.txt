@@ -586,6 +586,8 @@ set(APP_SOURCES
     src/app/SessionDiagnostics.cpp
     src/app/GuiStallTracer.h
     src/app/GuiStallTracer.cpp
+    src/app/FrameIntervalProbe.h
+    src/app/FrameIntervalProbe.cpp
     src/app/AsyncLogSink.h
     src/app/AsyncLogSink.cpp
     src/app/RepeatLogLimiter.h
@@ -5716,6 +5718,17 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-scroll-controller-test PRIVATE
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME timeline-scroll-controller COMMAND timeline-scroll-controller-test)
+
+    # Frame-interval percentiles for the opt-in frame probe.
+    qt_add_executable(frame-interval-stats-test
+        tests/FrameIntervalStatsTest.cpp
+        src/app/FrameIntervalProbe.h
+        src/app/FrameIntervalProbe.cpp
+    )
+    target_include_directories(frame-interval-stats-test PRIVATE src)
+    target_link_libraries(frame-interval-stats-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+    add_test(NAME frame-interval-stats COMMAND frame-interval-stats-test)
 
     # Automatic read receipts: visibility, debounce, eligibility, duplicate
     # suppression, ordering.

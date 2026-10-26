@@ -37,6 +37,7 @@
 #include "app/AsyncLogSink.h"
 #include "app/LogExport.h"
 #include "app/GuiStallTracer.h"
+#include "app/FrameIntervalProbe.h"
 #include "app/WindowFrameTheme.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
@@ -2840,6 +2841,10 @@ int main(int argc, char *argv[])
             auto *win = qobject_cast<QQuickWindow *>(obj);
             if (!win)
                 return;
+            // Opt-in frame cadence summaries (LIGHTNING_FRAME_TRACE); owned
+            // by the window.
+            if (FrameIntervalProbe::enabledByEnvironment())
+                new FrameIntervalProbe(win, win);
             // Emitted on the render thread; `win` as context queues it to
             // the GUI thread.
             // Direct connection: the GL context is only current on the render
