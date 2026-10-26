@@ -764,9 +764,22 @@ ApplicationWindow {
         auto *list = item("threadReplyList");
         QVERIFY(list);
         QTRY_VERIFY(list->property("atYEnd").toBool());
+        // Make the thread taller than the view so the top is genuinely in
+        // history (the mock thread fits, so its top would also be its end).
+        const int count = list->property("count").toInt();
+        QVERIFY(count >= 2);
+        QQuickItem *row = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, count - 2)));
+        QVERIFY(row);
+        row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
+        row->setProperty("heightSeedActive", true);
+        QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
         // The reader scrolls up.
         list->setProperty("followLatest", false);
         list->setProperty("contentY", list->property("originY"));
+        QTRY_VERIFY(!list->property("atYEnd").toBool());
         // Measured from originY: a ListView may move its origin when rows
         // are added or re-measured, which moves contentY without moving
         // anything on screen.
@@ -780,13 +793,15 @@ ApplicationWindow {
         m_controller->thread()->sendText(QStringLiteral("arrived below"));
         QTRY_COMPARE(list->property("unseenReplies").toInt(), 1);
         QVERIFY(!list->property("followLatest").toBool());
-        // The view stays where it was parked. Not atYEnd: the mock thread is
-        // short enough to fit, so its top IS its end; a sent reply only
-        // appends, so nothing above it shifts.
+        // The view stays where it was parked; a sent reply only appends, so
+        // nothing above it shifts.
         QTest::qWait(300);
-        QVERIFY2(qAbs(list->property("contentY").toReal()
-                      - list->property("originY").toReal() - parkedAt) < 1.0,
-                 "the reader must keep their place in the history");
+        const qreal nowAt = list->property("contentY").toReal()
+                            - list->property("originY").toReal();
+        QVERIFY2(qAbs(nowAt - parkedAt) < 1.0,
+                 qPrintable(QStringLiteral("the reader must keep their place "
+                                           "in the history: parked %1, now %2")
+                                .arg(parkedAt).arg(nowAt)));
         QCOMPARE(mock()->markThreadReadCallsForTest(), readsBefore);
 
         click(pill);
