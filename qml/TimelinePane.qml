@@ -4725,10 +4725,16 @@ Rectangle {
                         return
                     const anchorOffset = anchorItem.y - contentY
 
+                    // The mutation itself can move contentY (the Flickable
+                    // clamps against the shorter content) before the exact
+                    // write below: attribute that to the trim as well.
+                    const writerBeforeTrim = positionWriter
+                    positionWriter = "window-trim"
                     app.timelineView.setWindow(wantSkip, wantRows)
                     // A row created this turn reads zero height until the
                     // positioner has run.
                     rowColumn.forceLayout()
+                    positionWriter = writerBeforeTrim
 
                     const movedRow = viewRowForStableId(anchorEventId)
                     const movedItem = movedRow >= 0 ? itemAtViewRow(movedRow)
@@ -6089,12 +6095,12 @@ Rectangle {
                 onPressedChanged: {
                     if (pressed) {
                         timeline.diagNoteInput("scrollbar")
+                        timeline.beginExplicitTopApproach()
                         // A press is already the reader taking the view
                         // (SC09): a pending jump or restore must not land
                         // under a handle held still, then fight the drag.
                         timeline.cancelWheelMotion()
                         timeline.noteReaderTookControl()
-                        timeline.beginExplicitTopApproach()
                     } else {
                         // A drag ends like any gesture: the settle saves the
                         // position, captures the anchor where the reader now
