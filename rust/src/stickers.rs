@@ -3292,6 +3292,19 @@ pub(crate) struct StableImagePackEventContent {}
 #[ruma_event(type = "im.ponies.room_emotes", kind = State, state_key_type = String)]
 pub(crate) struct LegacyRoomEmotesEventContent {}
 
+// A Space link is removed by writing `{}`, which ruma's typed
+// `SpaceParentEventContent`/`SpaceChildEventContent` refuse (`via` is
+// required), so handlers on those types never saw a removal and a Space's
+// packs stayed offered until a manual reload (live run 2026-10-26). These
+// accept any content.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "m.space.parent", kind = State, state_key_type = String)]
+pub(crate) struct SpaceParentChangeEventContent {}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
+#[ruma_event(type = "m.space.child", kind = State, state_key_type = String)]
+pub(crate) struct SpaceChildChangeEventContent {}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, EventContent)]
 #[ruma_event(type = "m.image_pack.rooms", kind = GlobalAccountData)]
 pub(crate) struct StableImagePackRoomsEventContent {}
@@ -3343,16 +3356,14 @@ pub(crate) fn install_change_handlers(
     // apply may have changed too (PACK-PRO-023, PACK-LTN-015).
     let q = Arc::clone(&events);
     handles.push(client.add_event_handler(
-        move |_ev: matrix_sdk::ruma::events::space::parent::SyncSpaceParentEvent,
-              room: matrix_sdk::Room| {
+        move |_ev: SyncSpaceParentChangeEvent, room: matrix_sdk::Room| {
             let q = Arc::clone(&q);
             async move { enqueue(&q, change_payload(room.room_id().as_str())) }
         },
     ));
     let q = Arc::clone(&events);
     handles.push(client.add_event_handler(
-        move |_ev: matrix_sdk::ruma::events::space::child::SyncSpaceChildEvent,
-              room: matrix_sdk::Room| {
+        move |_ev: SyncSpaceChildChangeEvent, room: matrix_sdk::Room| {
             let q = Arc::clone(&q);
             async move { enqueue(&q, change_payload(room.room_id().as_str())) }
         },
@@ -4771,6 +4782,30 @@ mod tests {
         assert_eq!(pokes_for(space.as_str()), 1, "{queued:?}");
         assert_eq!(pokes_for(room.as_str()), 2, "{queued:?}");
         assert_eq!(queued.len(), 3, "the topic change must not poke: {queued:?}");
+
+        // Removing a Space link writes `{}`, which ruma's typed contents refuse
+        // (`via` is required); the removal must poke all the same.
+        events.lock().unwrap().clear();
+        let mut space_removal = v5::response::Room::default();
+        space_removal.timeline = vec![state("m.space.child", room.as_str(), "$c2", json!({}))];
+        let mut room_removal = v5::response::Room::default();
+        room_removal.timeline = vec![state("m.space.parent", space.as_str(), "$sp2", json!({}))];
+        let mut response = v5::Response::new("pos-2".to_owned());
+        response.rooms.insert(space.to_owned(), space_removal);
+        response.rooms.insert(room.to_owned(), room_removal);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+        let removals: Vec<Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        assert_eq!(removals.len(), 2, "{removals:?}");
+        assert!(removals.contains(&change_payload(space.as_str())), "{removals:?}");
+        assert!(removals.contains(&change_payload(room.as_str())), "{removals:?}");
     }
 
     #[test]
