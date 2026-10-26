@@ -1002,7 +1002,9 @@ private Q_SLOTS:
         // confirmation at all; now the dialog is the only writer.
         QCOMPARE(dialog.count(QStringLiteral("setMemberPowerLevel(")), 1);
         QVERIFY(confirm.contains(QStringLiteral("setMemberPowerLevel(")));
-        QCOMPARE(dialog.count(QStringLiteral("roleConfirm.openFor(")), 4);
+        // Three role buttons, the custom per-member level field and the
+        // member menu: every role change goes through the confirmation.
+        QCOMPARE(dialog.count(QStringLiteral("roleConfirm.openFor(")), 5);
     }
 
     // Matrix has no delete for a Space's own admins. The settings offer a
