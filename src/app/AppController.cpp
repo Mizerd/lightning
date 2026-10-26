@@ -8404,7 +8404,7 @@ void AppController::switchToAccount(const QString &userId)
     // ("not-live", live 2026-10-26) and the cold restore then met the
     // retiring store. The same turn that checked eligibility.
     std::optional<lightning::accounts::LiveSessionTicket> adoption;
-    if (adopting)
+    if (m_sessionPool && adopting)
         adoption = m_sessionPool->takeForAdoption(target);
 
     // S5 (accountsChanged -> accounts() keyring reads) runs inside this
@@ -8421,14 +8421,14 @@ void AppController::switchToAccount(const QString &userId)
     if (m_mediaVisibility)
         m_mediaVisibility->reloadForAccount();
     bool adopted = false;
-    if (adoption) {
+    if (m_sessionPool && adoption) {
         noteLiveAccountsStep(QStringLiteral("switch:adopt"), target);
         adopted = m_client->adoptLiveSession(*adoption);
         // Refused by the handle: the client retired it (tokens handed back)
         // and the cold restore below waits for that close.
         if (!adopted)
             noteLiveAccountsStep(QStringLiteral("switch:adopt-fallback"), target);
-    } else if (adopting) {
+    } else if (m_sessionPool && adopting) {
         noteLiveAccountsStep(QStringLiteral("switch:adopt-refused"), target);
     }
     if (!adopted && !m_client->restoreSession()) {
