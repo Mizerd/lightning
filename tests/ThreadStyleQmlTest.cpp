@@ -676,6 +676,34 @@ ApplicationWindow {
 
     // ── Thread panel (Element-like) parity ──────────────────────────────
 
+    // A thread that is following its newest reply stays there while a row
+    // above grows after the first positioning (an image, voice note or code
+    // block learning its real height). It used to open part-way through its
+    // history.
+    void aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow()
+    {
+        QString root;
+        openThreadPanel(&root);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QTRY_VERIFY(list->property("followLatest").toBool());
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+        const int count = list->property("count").toInt();
+        QVERIFY(count >= 2);
+        // A row just above the newest one (instantiated: it is on screen).
+        QQuickItem *row = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, count - 2)));
+        QVERIFY(row);
+        const qreal natural = row->implicitHeight();
+        row->setProperty("heightSeed", natural + 600);
+        row->setProperty("heightSeedActive", true);
+        QTRY_VERIFY2(list->property("atYEnd").toBool(),
+                     "a followed thread must stay on its newest reply");
+        QVERIFY(list->property("followLatest").toBool());
+    }
+
     void threadPanelOffersShortcodeCompletion()
     {
         QString root;

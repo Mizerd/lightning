@@ -1338,6 +1338,27 @@ Rectangle {
                     panel.saveThreadScrollPosition()
                 }
                 Component.onCompleted: scrollToEndDeferredIfFollowing()
+                // A followed thread stays on its newest reply while rows above
+                // it are still growing. positionViewAtEnd() runs once the rows
+                // exist, but images, voice notes, code blocks and late
+                // decryptions learn their real height afterwards, so a thread
+                // used to open part-way through its history (reported in the
+                // GUI pass). Re-pinned once per batch of height changes, never
+                // while the reader is dragging or flicking; any upward wheel or
+                // touchpad intent has already cleared followLatest.
+                property bool endPinQueued: false
+                onContentHeightChanged: {
+                    if (!followLatest || count <= 0 || dragging || flicking
+                            || endPinQueued)
+                        return
+                    endPinQueued = true
+                    Qt.callLater(function() {
+                        replyList.endPinQueued = false
+                        if (replyList.followLatest && !replyList.dragging
+                                && !replyList.flicking)
+                            replyList.positionViewAtEnd()
+                    })
+                }
 
                 delegate: MessageDelegate {
                     width: {
