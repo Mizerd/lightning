@@ -710,8 +710,10 @@ private Q_SLOTS:
         }
         QCOMPARE(exported.value(QStringLiteral("layoutPreset")).toInt(), 1);
         QCOMPARE(exported.value(QStringLiteral("messageLayout")).toInt(), 1);
-        QCOMPARE(exported.value(QStringLiteral("messageSpacing")).toInt(),
-                 int(SettingsManager::kSpacingRoomy));
+        // Message spacing is not a portable setting (it is absent from the
+        // schema table), so neither the preset's value nor the Lightning one
+        // travels in the file.
+        QVERIFY(!exported.contains(QStringLiteral("messageSpacing")));
         QCOMPARE(exported.value(QStringLiteral("threadPlacement")).toInt(),
                  int(SettingsManager::kThreadPlacementSide));
         // The plain property read is what used to be exported.
@@ -733,7 +735,7 @@ private Q_SLOTS:
                  SettingsManager::kMessageLayoutSmallAvatars);
         fresh.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
         QCOMPARE(fresh.messageLayout(), 1);
-        QCOMPARE(fresh.messageSpacing(), SettingsManager::kSpacingRoomy);
+        QCOMPARE(fresh.messageSpacing(), SettingsManager::kSpacingCozy);
         QCOMPARE(fresh.threadPlacement(), SettingsManager::kThreadPlacementSide);
 
         // And outside a preset the helpers are the ordinary properties.

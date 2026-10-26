@@ -608,6 +608,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("account_data_listing", UiOnly),
         ("account_pref", UiOnly),
         ("account_pref_changed", UiOnly),
+        ("account_pref_failed", UiOnly),
         ("account_pref_written", UiOnly),
         ("activity_seed", UiOnly),
         ("admin_room_delete_progress", UiOnly),
