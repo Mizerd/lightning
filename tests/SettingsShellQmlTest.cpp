@@ -217,14 +217,27 @@ private:
     void clickItem(QQuickItem *target)
     {
         ensureVisible(target);
-        // Let one frame polish the layouts first: a row built during this
-        // turn still has its children at 0,0 until its layout runs, and a
-        // click at that pre-layout position lands beside the target.
-        QSignalSpy frame(m_window, &QQuickWindow::frameSwapped);
-        m_window->update();
-        frame.wait(1000);
-        const QPointF center = target->mapToScene(
-            QPointF(target->width() / 2, target->height() / 2));
+        // Let frames polish the layouts first: a row built during this turn
+        // still has its children at 0,0 until its layout runs, and a click at
+        // that pre-layout position lands beside the target. Under load one
+        // frame can take longer than a fixed wait (the nav chevron click of
+        // severalBranchesStayOpenAndAChevronDoesNotChangeThePage missed that
+        // way), so wait until the target's position holds across a frame.
+        const auto centerOf = [target] {
+            return target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+        };
+        QPointF center = centerOf();
+        for (int i = 0; i < 5; ++i) {
+            QSignalSpy frame(m_window, &QQuickWindow::frameSwapped);
+            m_window->update();
+            const bool swapped = frame.count() > 0 || frame.wait(5000);
+            const QPointF now = centerOf();
+            const bool settled = i > 0 && now == center;
+            center = now;
+            // Settled, or no frames on this platform: nothing more to wait for.
+            if (settled || !swapped)
+                break;
+        }
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           center.toPoint());
         QCoreApplication::processEvents();
@@ -1916,14 +1929,14 @@ private slots:
         QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
         QVERIFY2(outlineEntry(QStringLiteral("appearance"), 0)->isVisible(),
                  "selecting Privacy closed Appearance's sub-sections");
-        QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
+        QTRY_VERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
 
         // A chevron on another branch changes only that branch.
         callScreen("setOutlineExpanded", QStringLiteral("notifications"), false);
         QCoreApplication::processEvents();
         clickItem(item("settingsNavChevronButton_notifications"));
         QCOMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
-        QVERIFY(outlineEntry(QStringLiteral("notifications"), 0)->isVisible());
+        QTRY_VERIFY(outlineEntry(QStringLiteral("notifications"), 0)->isVisible());
         QVERIFY(outlineEntry(QStringLiteral("privacy"), 0)->isVisible());
         QVERIFY(outlineEntry(QStringLiteral("appearance"), 0)->isVisible());
         // Only the selected page's list marks a heading as current.
