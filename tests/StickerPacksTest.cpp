@@ -28,6 +28,8 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <QSettings>
 #include <QDir>
 #include <QJSEngine>
@@ -1771,6 +1773,14 @@ private Q_SLOTS:
         QVERIFY(text.contains(manager.shareLink(QStringLiteral("S"))));
         QVERIFY(!text.contains(QStringLiteral("mxc://")));
         QVERIFY(manager.shareText(QStringLiteral("user")).isEmpty());
+
+        // Copy link puts exactly that text on the clipboard (the GUI round
+        // could not read the private display's clipboard back).
+        QGuiApplication::clipboard()->setText(QStringLiteral("before"));
+        QVERIFY(manager.copyShareText(QStringLiteral("S")));
+        QCOMPARE(QGuiApplication::clipboard()->text(), text);
+        QVERIFY(!manager.copyShareText(QStringLiteral("user")));
+        QCOMPARE(QGuiApplication::clipboard()->text(), text);
     }
 
     void aPrivateImageIsUploadedOnlyAfterConfirmationAndNeverToAnotherAccount()

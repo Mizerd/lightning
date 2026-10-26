@@ -2,6 +2,8 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <QSettings>
 #include <QFile>
 #include <QFileInfo>
@@ -1795,6 +1797,16 @@ QString StickerPackManager::shareLink(const QString &packId) const
         link += QStringLiteral("?via=")
             + QString::fromUtf8(QUrl::toPercentEncoding(server));
     return link;
+}
+
+bool StickerPackManager::copyShareText(const QString &packId) const
+{
+    const QString text = shareText(packId);
+    auto *clipboard = QGuiApplication::clipboard();
+    if (text.isEmpty() || !clipboard)
+        return false;
+    clipboard->setText(text);
+    return true;
 }
 
 QString StickerPackManager::shareText(const QString &packId) const

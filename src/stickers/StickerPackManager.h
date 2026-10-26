@@ -246,6 +246,10 @@ public:
     Q_INVOKABLE QString shareText(const QString &packId) const;
     // The matrix.to link alone (room id, percent-encoded), or "".
     Q_INVOKABLE QString shareLink(const QString &packId) const;
+    // Puts shareText() on the system clipboard (plain text). False when there
+    // is nothing to share. In C++ rather than a hidden QML TextEdit so the
+    // copy is testable and does not depend on an item's focus.
+    Q_INVOKABLE bool copyShareText(const QString &packId) const;
 
     // -- Two editors on one pack ---------------------------------------------
     // The pack's images as {key: "url\u001fbody"}, the editor's base when it

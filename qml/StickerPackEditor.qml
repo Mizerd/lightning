@@ -783,11 +783,7 @@ Dialog {
                 Accessible.description: qsTr("Copies the pack's room link and "
                                              + "name to share with someone")
                 onClicked: {
-                    shareRelay.text = root.stickers.shareText(root.packId)
-                    shareRelay.selectAll()
-                    shareRelay.copy()
-                    shareRelay.text = ""
-                    root.shareCopied = true
+                    root.shareCopied = root.stickers.copyShareText(root.packId)
                     shareCopiedTimer.restart()
                 }
             }
@@ -866,13 +862,6 @@ Dialog {
         id: shareCopiedTimer
         interval: 1500
         onTriggered: root.shareCopied = false
-    }
-    // Hidden TextEdit clipboard route, as CodeBlock and MessageDelegate do.
-    TextEdit {
-        id: shareRelay
-        visible: false
-        width: 0
-        height: 0
     }
 
     readonly property bool busy: root.stickers ? root.stickers.editing : false
