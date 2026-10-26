@@ -368,11 +368,20 @@ FocusScope {
                 return Math.max(0, Math.min(1, f)) * seekSlider.to
             }
             ToolTip {
+                id: seekTimeTip
                 objectName: "videoSeekTimeTip"
                 parent: seekSlider
                 visible: seekSlider.enabled && seekSlider.hoverMs >= 0
                          && !!bar.player && bar.player.duration > 0
                 text: bar.formatPosition(seekSlider.hoverMs)
+                // A clock we compute, drawn plain like every explicit
+                // ToolTip whose text is not a literal (ToolTipPlainTextQmlTest).
+                contentItem: Text {
+                    text: seekTimeTip.text
+                    textFormat: Text.PlainText
+                    font: seekTimeTip.font
+                    color: seekTimeTip.palette.toolTipText
+                }
                 y: -height - 4
                 x: Math.max(0, Math.min(seekSlider.width - width,
                        seekSlider.leftPadding
