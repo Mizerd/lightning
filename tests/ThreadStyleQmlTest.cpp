@@ -750,6 +750,7 @@ ApplicationWindow {
         // The reader scrolls up.
         list->setProperty("followLatest", false);
         list->setProperty("contentY", list->property("originY"));
+        const qreal parkedAt = list->property("contentY").toReal();
         const int readsBefore = mock()->markThreadReadCallsForTest();
         QQuickItem *pill = item("threadJumpToLatestButton");
         QVERIFY(pill);
@@ -758,7 +759,11 @@ ApplicationWindow {
         m_controller->thread()->sendText(QStringLiteral("arrived below"));
         QTRY_COMPARE(list->property("unseenReplies").toInt(), 1);
         QVERIFY(!list->property("followLatest").toBool());
-        QVERIFY2(!list->property("atYEnd").toBool(),
+        // The view stays where it was parked. Not atYEnd: the mock thread is
+        // short enough to fit, so its top IS its end; a sent reply only
+        // appends, so nothing above it shifts.
+        QTest::qWait(300);
+        QVERIFY2(qAbs(list->property("contentY").toReal() - parkedAt) < 1.0,
                  "the reader must keep their place in the history");
         QCOMPARE(mock()->markThreadReadCallsForTest(), readsBefore);
 

@@ -1492,9 +1492,12 @@ Rectangle {
                 Rectangle {
                     anchors.fill: parent
                     radius: height / 2
-                    color: threadJumpToLatest.down ? AppTheme.accentPressed
-                         : threadJumpToLatest.hovered ? AppTheme.accentHover
-                         : AppTheme.accent
+                    // The primary-button pair, not accent/accentText: this
+                    // file's only badge colours are the unread dot's
+                    // (AccountBadgesQmlTest), and the pill is a button.
+                    color: threadJumpToLatest.down ? AppTheme.buttonPrimaryPressed
+                         : threadJumpToLatest.hovered ? AppTheme.buttonPrimaryHover
+                         : AppTheme.buttonPrimaryFill
                 }
                 Row {
                     id: threadJumpRow
@@ -1504,7 +1507,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         name: "expand_more"
                         size: 20
-                        color: AppTheme.accentText
+                        color: AppTheme.buttonPrimaryInk
                     }
                     Label {
                         objectName: "threadUnseenReplies"
@@ -1512,7 +1515,7 @@ Rectangle {
                         visible: replyList.unseenReplies > 0
                         text: replyList.unseenReplies > 99
                               ? "99+" : replyList.unseenReplies
-                        color: AppTheme.accentText
+                        color: AppTheme.buttonPrimaryInk
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         font.weight: AppTheme.weightBold
