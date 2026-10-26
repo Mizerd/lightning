@@ -1044,20 +1044,27 @@ Rectangle {
                         if (event.pixelDelta.y !== 0
                                 || (continuousSource && event.angleDelta.y !== 0)) {
                             app.threadScroll.cancel()
+                            // Upward touchpad intent leaves follow-latest
+                            // before the position moves (see the notch path).
+                            if (event.pixelDelta.y > 0
+                                    || (continuousSource && event.angleDelta.y > 0))
+                                replyList.followLatest = false
                             replyList.contentY = app.threadScroll.pixelTargetY(
                                 event.pixelDelta.y, replyList.contentY,
                                 minY, maxY)
                             replyList.afterWheelSettled()
-                            // Upward touchpad intent leaves follow-latest.
                             if (event.pixelDelta.y > 0
                                     || (continuousSource && event.angleDelta.y > 0))
                                 replyList.followLatest = false
                         } else if (event.angleDelta.y !== 0) {
+                            // Upward intent leaves follow-latest BEFORE the
+                            // engine moves anything, so nothing that reacts
+                            // to the first frame still sees a followed list.
+                            if (event.angleDelta.y > 0)
+                                replyList.followLatest = false
                             app.threadScroll.wheelNotch(
                                 event.angleDelta.y, replyList.contentY,
                                 minY, maxY, replyList.height)
-                            if (event.angleDelta.y > 0)
-                                replyList.followLatest = false
                         }
                         event.accepted = true
                     }
@@ -1387,16 +1394,31 @@ Rectangle {
                     newestSeenId = id
                 }
                 onFollowLatestChanged: noteNewestReply()
+                //
+                // Only a list that WAS at its end before the height changed is
+                // re-pinned. followLatest alone is not enough: it is updated
+                // when a gesture ends, and while the reader drags, flicks or
+                // wheels up the ListView creates the rows above, which changes
+                // contentHeight with followLatest still true -- the first
+                // version re-pinned there and snapped every upward scroll back
+                // to the end (found in the wave 2 GUI pass: wheel and drag
+                // could not leave the newest reply).
                 property bool endPinQueued: false
+                property real lastContentHeight: 0
                 onContentHeightChanged: {
-                    if (!followLatest || count <= 0 || dragging || flicking
-                            || endPinQueued)
+                    var previous = lastContentHeight
+                    lastContentHeight = contentHeight
+                    var wasAtEnd = contentY + height
+                                   >= originY + previous - bottomFollowSlack
+                    if (!followLatest || !wasAtEnd || count <= 0 || moving
+                            || dragging || flicking
+                            || app.threadScroll.motionActive || endPinQueued)
                         return
                     endPinQueued = true
                     Qt.callLater(function() {
                         replyList.endPinQueued = false
-                        if (replyList.followLatest && !replyList.dragging
-                                && !replyList.flicking)
+                        if (replyList.followLatest && !replyList.moving
+                                && !app.threadScroll.motionActive)
                             replyList.positionViewAtEnd()
                     })
                 }

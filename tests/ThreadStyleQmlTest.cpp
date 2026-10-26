@@ -713,6 +713,33 @@ ApplicationWindow {
     // T07: a reply arriving while the reader is up in the thread's history
     // keeps their place, sends no receipt, and is counted on a pill that
     // returns to the newest reply.
+    // The newest-reply pin must not fight the reader: dragging a followed
+    // thread up creates the rows above (contentHeight changes while
+    // followLatest is still true until the gesture ends), and the first pin
+    // snapped every such scroll back to the end (wave 2 GUI pass).
+    void scrollingAFollowedThreadUpIsNotSnappedBack()
+    {
+        QString root;
+        openThreadPanel(&root);
+        auto *list = item("threadReplyList");
+        QVERIFY(list);
+        QTRY_VERIFY(list->property("atYEnd").toBool());
+        const QPointF top = list->mapToScene(QPointF(list->width() / 2, 40));
+        const QPointF bottom =
+            list->mapToScene(QPointF(list->width() / 2, list->height() - 40));
+        QTest::mousePress(m_window, Qt::LeftButton, {}, top.toPoint());
+        for (int i = 1; i <= 10; ++i) {
+            const QPointF p = top + (bottom - top) * (i / 10.0);
+            QTest::mouseMove(m_window, p.toPoint(), 16);
+        }
+        QTest::mouseRelease(m_window, Qt::LeftButton, {}, bottom.toPoint(), 16);
+        QTRY_VERIFY(!list->property("moving").toBool());
+        QTest::qWait(400);
+        QVERIFY2(!list->property("atYEnd").toBool(),
+                 "a thread scrolled up must stay where the reader left it");
+        QVERIFY(!list->property("followLatest").toBool());
+    }
+
     void aReplyArrivingWhileInHistoryIsCountedNotJumpedTo()
     {
         QString root;
