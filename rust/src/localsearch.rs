@@ -1185,7 +1185,34 @@ pub(crate) async fn collect_from(
 
 /// Write one collected room. Synchronous, so the index mutex is held for a
 /// bounded burst of inserts, never across a network wait.
+///
+/// In ONE transaction. FTS5 flushes a new segment, and SQLite writes every
+/// b-tree page the change touched, at each commit, so a row per transaction
+/// rewrote the same index pages once per message: measured 2026-10-26, the
+/// sweep after a session that loaded ~420 messages wrote 6 MiB to this file's
+/// WAL for a 143 KiB database, and a model of this schema writes 17-21x fewer
+/// WAL bytes with one commit per room. A room's rows also land together: a
+/// crash part way keeps the room's previous rows, never half a batch, and the
+/// next sweep writes the rest as it would have anyway.
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
+    // Unbatched (as before) only when a transaction cannot be opened, e.g. one
+    // is already open on this connection.
+    let tx = index.conn.unchecked_transaction().ok();
+    let written = write_batch_rows(index, room_id, batch);
+    match tx {
+        // A failed COMMIT rolls back when `tx` drops: nothing was written.
+        Some(tx) => {
+            if tx.commit().is_ok() {
+                written
+            } else {
+                0
+            }
+        }
+        None => written,
+    }
+}
+
+fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
     let known = index.known(&ids).unwrap_or_default();
     // Attachments indexed before file names were: their cached events are met
@@ -1459,6 +1486,54 @@ mod tests {
         ix.upsert("", "!r:x", "@a:x", "Ann", "text", "m.text", 1).unwrap();
         ix.upsert("$2", "", "@a:x", "Ann", "text", "m.text", 1).unwrap();
         assert_eq!(ix.stats().unwrap().messages, 0);
+    }
+
+    // A room batch is ONE commit, not one per message. On the old code each
+    // upsert committed on its own: 40 rows, 40 commits, and the FTS pages
+    // written once per commit (write_batch's comment has the measurement).
+    #[test]
+    fn aRoomBatchIsWrittenInOneCommit() {
+        use std::os::raw::{c_int, c_void};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        unsafe extern "C" fn count_commit(arg: *mut c_void) -> c_int {
+            (*(arg as *const AtomicUsize)).fetch_add(1, Ordering::SeqCst);
+            0 // 0 = let the commit proceed
+        }
+        let ix = index();
+        let commits = Box::new(AtomicUsize::new(0));
+        let commits_ptr = &*commits as *const AtomicUsize as *mut c_void;
+        unsafe {
+            rusqlite::ffi::sqlite3_commit_hook(ix.conn.handle(), Some(count_commit), commits_ptr);
+        }
+        let ordinary: Vec<Indexable> = (0..40)
+            .map(|i| Indexable {
+                event_id: format!("$m{i}"),
+                sender: "@a:x".into(),
+                body: format!("message number {i} about the quick brown fox"),
+                msgtype: "m.text".into(),
+                ts: 1000 + i,
+                filename: None,
+                edit_id: None,
+            })
+            .collect();
+        let batch = RoomBatch {
+            ordinary,
+            edits: vec![],
+            names: std::collections::HashMap::from([("@a:x".into(), "Ann".into())]),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 40);
+        assert_eq!(commits.load(Ordering::SeqCst), 1, "one commit per room batch");
+        // Committed, not left open or rolled back.
+        assert!(ix.conn.is_autocommit());
+        assert_eq!(ix.stats().unwrap().messages, 40);
+        assert_eq!(ix.search("quick", "", 100, 0).unwrap().len(), 40);
+        // A repeat writes nothing new, so it costs no commit that changes rows.
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
+        unsafe {
+            rusqlite::ffi::sqlite3_commit_hook(ix.conn.handle(), None, std::ptr::null_mut());
+        }
+        drop(commits);
     }
 
     #[test]
