@@ -10177,6 +10177,99 @@ private Q_SLOTS:
     // it and never reaches the row under it; idle, rows keep their clicks and
     // hover. (The left-click swallow on the pane's own controls is in the next
     // case.)
+    // Rows slide under a resting pointer while the viewport moves, and every
+    // change of hovered row flips visibility on a row's highlight and action
+    // bar. Qt answers each such flip by walking the whole window's item tree
+    // on the next frame (QQuickWindowPrivate::updateChildWindowStackingOrder),
+    // so a scroll frame cost grew with the history loaded (live: 70-75% of
+    // the GUI thread while scrolling with the pointer over the timeline). Row
+    // hover is suspended while the viewport moves, and handed back to the row
+    // under the still pointer when it stops, with no mouse move.
+    void rowHoverIsSuspendedWhileTheViewportMovesAndReturnsWhenItStops()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 60, QStringLiteral("hov"),
+                        QStringLiteral("hover suspension probe")),
+            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+
+        QString actionKey;
+        QQuickItem *messageRow = onScreenMessageRow(timeline, &actionKey);
+        QVERIFY2(messageRow != nullptr, "no message row on screen");
+        auto *content = messageRow->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(content != nullptr);
+        const QPoint at = content
+                              ->mapToScene(QPointF(content->width() / 2.0,
+                                                   content->height() / 2.0))
+                              .toPoint();
+        auto *rowHover = messageRow->findChild<QObject *>(
+            QStringLiteral("messageRowHover"));
+        QVERIFY2(rowHover != nullptr, "the row has no messageRowHover handler");
+
+        // Premise: idle, the row under the pointer is hovered and owns the bar.
+        QTest::mouseMove(&window, at);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString(), actionKey,
+            2000);
+        QVERIFY(rowHover->property("hovered").toBool());
+
+        // A glide toward older history (increasing contentY on the rotated
+        // view) with the pointer resting where it is.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        const qreal startY = timeline->property("contentY").toReal();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "beginWheelTo",
+                                          Q_ARG(QVariant, startY + 400.0)));
+        QVERIFY2(scroll->motionActive(), "premise: no glide started");
+
+        // Frame after frame of the glide: no row hovered, no bar claimed.
+        int checks = 0;
+        while (scroll->motionActive() && checks < 400) {
+            QVERIFY2(timeline->property("hoveredActionsKey").toString()
+                         .isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "a row claimed the hover bar mid-glide (check %1)")
+                                    .arg(checks)));
+            QVERIFY2(!rowHover->property("hovered").toBool(),
+                     "the row stayed hovered while the viewport moved");
+            QTest::qWait(8);
+            ++checks;
+        }
+        QVERIFY2(checks > 0, "premise: the glide ended before any check");
+        QTRY_VERIFY_WITH_TIMEOUT(!scroll->motionActive(), 5000);
+        QVERIFY2(timeline->property("contentY").toReal() > startY + 20,
+                 "premise: the glide did not move the view");
+
+        // Stopped: the row now under the resting pointer gets hover back
+        // without any mouse move.
+        QQuickItem *underPointer = nullptr;
+        const int rows = timeline->property("count").toInt();
+        for (int r = 0; r < rows && !underPointer; ++r) {
+            QQuickItem *item = itemAtViewRow(timeline, r);
+            if (item && item->height() > 0
+                && item->contains(item->mapFromScene(QPointF(at))))
+                underPointer = item;
+        }
+        QVERIFY2(underPointer != nullptr, "premise: no row under the pointer");
+        const QString keyUnder =
+            underPointer->property("actionKey").toString();
+        QVERIFY2(!keyUnder.isEmpty(),
+                 "premise: the row under the pointer has no action bar");
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString(), keyUnder,
+            2000);
+    }
+
     void quickMiddleClickLatchesAndTheExitClickNeverReachesARow()
     {
         AppController controller(AppController::MockBackend);

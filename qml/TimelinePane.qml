@@ -2655,6 +2655,17 @@ Rectangle {
                             : 1
             }
 
+            // Moved by timeline.resumeRowHover() to give Qt one dirty item, so
+            // it re-delivers hover to a resting pointer after a scroll. Never
+            // drawn and never hit: invisible, zero-size.
+            Item {
+                id: hoverResyncProbe
+                objectName: "timelineHoverResyncProbe"
+                visible: false
+                width: 0
+                height: 0
+            }
+
             // Solid timeline: every loaded row is a real item in one Column, so
             // contentHeight and row positions are measured. No height
             // estimates, no delegate recycling.
@@ -4117,6 +4128,36 @@ Rectangle {
                 // The row under the pointer. Only one action bar may show: a
                 // pinned row keeps its bar only while nothing else is hovered.
                 property string hoveredActionsKey: ""
+                // Row hover is suspended while the viewport moves under a
+                // resting pointer (wheel or keyboard glide, flick, held scroll
+                // bar, latched autoscroll). Otherwise the hovered row changes
+                // every few frames, and each change flips `visible` on the
+                // row's highlight and action bar. Since Qt 6.7 any visibility
+                // or z change marks the window's child-window stacking order
+                // dirty, and the next polish walks EVERY item in the window
+                // (QQuickWindowPrivate::updateChildWindowStackingOrder), so a
+                // scroll frame cost grew with the rows loaded: measured live
+                // at 70-75% of the GUI thread while scrolling with the pointer
+                // over the timeline, and absent with it elsewhere. Offscreen
+                // has no pointer, which is why no earlier capture saw it.
+                // MessageDelegate disables its row HoverHandler on this, which
+                // clears `hovered`; resumeRowHover() hands hover back.
+                readonly property bool rowHoverSuspended:
+                    viewportMotionActive || middleClickScroller.active
+                onRowHoverSuspendedChanged: {
+                    if (!rowHoverSuspended)
+                        resumeRowHover()
+                }
+                // Qt re-delivers hover to a resting pointer only on a frame
+                // that has a dirty item (frame-synchronous hover in
+                // QQuickDeliveryAgentPrivate). Re-enabling a handler dirties
+                // nothing, and the motion's last frame is already drawn, so
+                // without this the row under the pointer stays unhovered until
+                // the mouse moves. Moving an invisible zero-size item dirties
+                // one item and costs one frame; it changes no visibility or z.
+                function resumeRowHover() {
+                    hoverResyncProbe.x = hoverResyncProbe.x === 0 ? 1 : 0
+                }
                 property bool emojiPickerOpen: false
                 // Single owner of transient row interaction: "" or one of
                 // "picker" | "tone" | "menu" | "profile" | "readers" |

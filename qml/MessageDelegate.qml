@@ -756,6 +756,8 @@ Item {
     // the pointer (room change) gets no leave event, and no bar would show
     // until the pointer entered another row. Only destruction can do this: in
     // onActionKeyChanged the old key is already gone.
+    readonly property bool rowHoverSuspended: !!root.timelineView
+        && root.timelineView.rowHoverSuspended === true
     function releaseHoveredActions() {
         if (root.timelineView
                 && root.timelineView.hoveredActionsKey === root.actionKey)
@@ -1708,6 +1710,15 @@ Item {
 
             HoverHandler {
                 id: rowHover
+                objectName: "messageRowHover"
+                // Off while the room timeline's viewport moves (see
+                // TimelinePane rowHoverSuspended): each hover change flips
+                // visibility on the highlight and the action bar, and every
+                // such flip makes Qt walk the whole window's item tree on the
+                // next frame. Disabling clears `hovered`, which releases the
+                // bar through the handler below. Hosts without the property
+                // (the thread panel) keep hover.
+                enabled: !root.rowHoverSuspended
                 onHoveredChanged: {
                     if (!root.timelineView || root.actionKey === "")
                         return
