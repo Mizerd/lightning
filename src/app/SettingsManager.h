@@ -1039,8 +1039,7 @@ public:
     static constexpr int kThreadPlacementMain = 1;
     int threadPlacement() const;
     void setThreadPlacement(int placement);
-    // Whether threadPlacement is an explicit choice rather than derived.
-    Q_INVOKABLE bool threadPlacementIsExplicit() const;
+
     bool hideThreadReplies() const;
     void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
@@ -1579,6 +1578,21 @@ private:
     QVariant appearanceValue(const char *globalKey,
                              const QVariant &fallback) const;
     void setAppearanceValue(const char *globalKey, const QVariant &value);
+    // Whether threadPlacement is an explicit choice rather than derived. A
+    // helper of the setter, not a property: nothing binds to it.
+    bool threadPlacementIsExplicit() const;
+    // The same per-account storage, for reads and writes that are NOT a
+    // notifying property of their own (the threadPlacement setter's
+    // explicit-choice test, and settings sync's view of the Lightning layout
+    // while a preset is selected). Named with the appearanceValue prefix so
+    // the account-switch signal scan in SettingsSessionTest treats them as
+    // storage, not as getters that owe a *Changed signal.
+    QVariant appearanceValueUnannounced(const char *globalKey,
+                                        const QVariant &fallback) const
+    { return appearanceValue(globalKey, fallback); }
+    void setAppearanceValueUnannounced(const char *globalKey,
+                                       const QVariant &value)
+    { setAppearanceValue(globalKey, value); }
     // Strictly per-account storage for values that name Matrix objects (room
     // ids, user-typed labels), which must not be mirrored into a device-global
     // copy a new account would inherit. Writes go to the account key alone

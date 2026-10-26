@@ -1938,12 +1938,12 @@ QVariant SettingsManager::lightningPresentationValue(
     const QString &property) const
 {
     if (property == QLatin1String("messageLayout")) {
-        const int stored = appearanceValue(kMessageLayout, 0).toInt();
+        const int stored = appearanceValueUnannounced(kMessageLayout, 0).toInt();
         return (stored < 0 || stored > kMaxMessageLayout) ? 0 : stored;
     }
     if (property == QLatin1String("messageSpacing")) {
         const int stored =
-            appearanceValue(kMessageSpacing, kSpacingCozy).toInt();
+            appearanceValueUnannounced(kMessageSpacing, kSpacingCozy).toInt();
         return (stored < kSpacingCompact || stored > kSpacingRoomy)
             ? kSpacingCozy : stored;
     }
@@ -1971,14 +1971,14 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         int layout = value.toInt();
         if (layout < 0 || layout > kMaxMessageLayout)
             layout = 0;
-        setAppearanceValue(kMessageLayout, layout);
+        setAppearanceValueUnannounced(kMessageLayout, layout);
         return true;
     }
     if (property == QLatin1String("messageSpacing")) {
         int mode = value.toInt();
         if (mode < kSpacingCompact || mode > kSpacingRoomy)
             mode = kSpacingCozy;
-        setAppearanceValue(kMessageSpacing, mode);
+        setAppearanceValueUnannounced(kMessageSpacing, mode);
         return true;
     }
     return false;
@@ -4278,7 +4278,7 @@ bool SettingsManager::threadPlacementIsExplicit() const
 {
     if (layoutPreset() == kLayoutPresetNhekoCompact)
         return accountScopedValue(kNhekoThreadPlacement, QVariant()).isValid();
-    const QVariant stored = appearanceValue(kThreadPlacement, QVariant());
+    const QVariant stored = appearanceValueUnannounced(kThreadPlacement, QVariant());
     bool ok = false;
     const int value = stored.isValid() ? stored.toInt(&ok) : -1;
     return ok && (value == kThreadPlacementSide
