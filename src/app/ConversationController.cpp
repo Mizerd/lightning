@@ -720,14 +720,14 @@ QVariantList ConversationController::recentPeople(int limit) const
         recentDirectPeople(m_client->rooms(), m_client->currentUserId(), limit);
     for (const RecentPerson &person : people) {
         // The member's own name and picture in that room when the client has
-        // them cached; the DM's computed name and avatar otherwise (an
-        // m.direct room is usually named after the person).
+        // them cached, else nothing: the picker asks the session's profile
+        // cache (app.userProfiles, at most these few users). Never the DM's
+        // room name or avatar: a DM can carry an explicit name that is not
+        // the person (live, 2026-10-26: rows read "sw230-dm-long").
         QString name = m_client->displayNameFor(person.roomId, person.userId);
-        if (name.isEmpty() || name == person.userId)
-            name = person.roomName;
-        QString avatar = m_client->avatarMxcFor(person.roomId, person.userId);
-        if (avatar.isEmpty())
-            avatar = person.roomAvatar;
+        if (name == person.userId)
+            name.clear();
+        const QString avatar = m_client->avatarMxcFor(person.roomId, person.userId);
         QVariantMap entry;
         entry.insert(QStringLiteral("userId"), person.userId);
         entry.insert(QStringLiteral("displayName"), name);

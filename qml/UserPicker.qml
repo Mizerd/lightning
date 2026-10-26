@@ -207,8 +207,12 @@ ColumnLayout {
 
         function selectRow(row) {
             var s = root.suggestions[row]
-            if (s && s.userId && s.userId.length > 0)
-                root.userSelected(s.userId, s.displayName || "", s.avatarUrl || "")
+            if (!s || !s.userId || s.userId.length === 0)
+                return
+            var item = suggestionList.itemAtIndex(row)
+            root.userSelected(s.userId,
+                              item ? item.shownName : (s.displayName || ""),
+                              item ? item.shownAvatar : (s.avatarUrl || ""))
         }
 
         delegate: ItemDelegate {
@@ -218,18 +222,41 @@ ColumnLayout {
             objectName: "userPickerSuggestion_" + index
             width: ListView.view.width
             highlighted: ListView.isCurrentItem
+            // The person's global profile from the session cache when the
+            // room snapshot had no name for them (asked once per user).
+            readonly property var profiles: typeof app !== "undefined" && app
+                                            ? app.userProfiles : null
+            property var resolvedProfile: profiles
+                ? profiles.lookup(modelData.userId) : ({})
+            Connections {
+                target: suggestionRow.profiles
+                function onResolved(userId, displayName, avatarUrl) {
+                    if (userId === suggestionRow.modelData.userId)
+                        suggestionRow.resolvedProfile = { displayName: displayName,
+                                                          avatarUrl: avatarUrl,
+                                                          known: true }
+                }
+            }
+            readonly property string shownName:
+                (modelData.displayName || "").length > 0 ? modelData.displayName
+                : (resolvedProfile && (resolvedProfile.displayName || "").length > 0
+                   ? resolvedProfile.displayName : "")
+            readonly property string shownAvatar:
+                (modelData.avatarUrl || "").length > 0 ? modelData.avatarUrl
+                : (resolvedProfile && resolvedProfile.avatarUrl
+                   ? resolvedProfile.avatarUrl : "")
             onClicked: suggestionList.selectRow(index)
-            Accessible.name: modelData.displayName && modelData.displayName.length > 0
-                             ? qsTr("%1 (%2)").arg(modelData.displayName).arg(modelData.userId)
+            Accessible.name: suggestionRow.shownName.length > 0
+                             ? qsTr("%1 (%2)").arg(suggestionRow.shownName).arg(modelData.userId)
                              : modelData.userId
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
                 Avatar {
                     size: 32
-                    name: (suggestionRow.modelData.displayName || "").length > 0
-                          ? suggestionRow.modelData.displayName
+                    name: suggestionRow.shownName.length > 0
+                          ? suggestionRow.shownName
                           : suggestionRow.modelData.userId.slice(1)
-                    mxc: suggestionRow.modelData.avatarUrl || ""
+                    mxc: suggestionRow.shownAvatar
                     colorKey: suggestionRow.modelData.userId
                 }
                 ColumnLayout {
@@ -238,8 +265,8 @@ ColumnLayout {
                     Label {
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
-                        text: (suggestionRow.modelData.displayName || "").length > 0
-                              ? suggestionRow.modelData.displayName
+                        text: suggestionRow.shownName.length > 0
+                              ? suggestionRow.shownName
                               : suggestionRow.modelData.userId
                         color: suggestionRow.highlighted ? AppTheme.stormText
                                                          : AppTheme.stormTextSecondary
