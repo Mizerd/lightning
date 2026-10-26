@@ -1336,9 +1336,18 @@ QString MessageHtml::sanitize(
     return markEmoji(out);
 }
 
+int MessageHtml::inlineEmojiWidth(double aspect)
+{
+    if (!(aspect > 0))
+        return kInlineEmojiHeight;
+    return qBound(kInlineEmojiMinWidth, qRound(kInlineEmojiHeight * aspect),
+                  kInlineEmojiMaxWidth);
+}
+
 QString MessageHtml::resolveInlineImages(
     const QString &safeHtml,
-    const std::function<QString(const QString &)> &resolve)
+    const std::function<QString(const QString &)> &resolve,
+    const std::function<double(const QString &)> &aspectOf)
 {
     // Nothing to do for most messages, and this runs on every read.
     if (!resolve || !safeHtml.contains(QLatin1String("data-mx-emoticon")))
@@ -1382,8 +1391,17 @@ QString MessageHtml::resolveInlineImages(
             }
             continue;
         }
+        QString attrs = m.captured(2);
+        // Keep the picture's own proportions at the line height (the
+        // sanitizer emitted the square; only this render step knows the
+        // decoded size). Bounded, so a 1000:1 image stays one short run.
+        if (aspectOf) {
+            const int width = inlineEmojiWidth(aspectOf(source));
+            attrs.replace(QStringLiteral(" width=\"20\""),
+                          QStringLiteral(" width=\"%1\"").arg(width));
+        }
         out += QStringLiteral("<img src=\"") + source.toHtmlEscaped()
-            + QStringLiteral("\"") + m.captured(2) + QStringLiteral(">");
+            + QStringLiteral("\"") + attrs + QStringLiteral(">");
     }
     out += safeHtml.mid(last);
     return out;

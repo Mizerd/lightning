@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QQueue>
 #include <QSet>
+#include <QSize>
 #include <QString>
 #include <QTimer>
 #include <QUrl>
@@ -102,6 +103,9 @@ public:
     Q_INVOKABLE QString mxcImageSource(const QString &mxcUri, int edge);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
+    // The pixel size of the image a cachedSource() URL serves, read from the
+    // cached bytes' header (no decode), or an invalid size.
+    QSize cachedImageSize(const QString &source) const;
     // Animatable media: SDK-fetched bytes written to the session scratch dir.
     // `animatedExtensionFor` decides from the magic; the declared mimetype is
     // never trusted.

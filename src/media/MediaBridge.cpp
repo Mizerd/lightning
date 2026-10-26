@@ -264,6 +264,29 @@ QString MediaBridge::cachedSource(const QString &cacheKey) const
         + QString::number(m_revision.value(cacheKey, 1));
 }
 
+QSize MediaBridge::cachedImageSize(const QString &source) const
+{
+    static const QString prefix = QStringLiteral("image://lightning-media/");
+    if (!source.startsWith(prefix))
+        return {};
+    QString encoded = source.mid(prefix.size());
+    const qsizetype query = encoded.indexOf(QLatin1Char('?'));
+    if (query >= 0)
+        encoded.truncate(query);
+    const QString cacheKey = QUrl::fromPercentEncoding(encoded.toUtf8());
+    QByteArray bytes;
+    {
+        QMutexLocker lock(&m_cacheMutex);
+        const auto it = m_cache.constFind(cacheKey);
+        if (it == m_cache.constEnd())
+            return {};
+        bytes = it.value();
+    }
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::ReadOnly);
+    return QImageReader(&buffer).size();
+}
+
 QImage MediaBridge::cachedArtwork(const QString &cacheKey) const
 {
     QMutexLocker lock(&m_cacheMutex);

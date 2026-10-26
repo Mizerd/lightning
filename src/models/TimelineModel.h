@@ -388,6 +388,9 @@ public:
     /// How an inline custom emoji's `mxc:` source becomes renderable. Never
     /// applied to the memoized sanitizer output; see
     /// MessageHtml::resolveInlineImages.
+    /// Width/height of a resolved inline image (0 = unknown), so an inline
+    /// custom emoji keeps its proportions (MessageHtml::resolveInlineImages).
+    void setInlineImageAspect(std::function<double(const QString &source)> aspect);
     void setInlineImageResolver(
         std::function<QString(const QString &mxcUri)> resolve);
     /// Media arrived: re-read formatted bodies carrying emoji. A no-op when
@@ -723,6 +726,8 @@ private:
     // must not.
     QString mentionNameFor(const QString &userId, bool ask) const;
     std::function<QString(const QString &)> m_inlineImageResolver;
+    double inlineImageAspect(const QString &source) const;
+    std::function<double(const QString &)> m_inlineImageAspect;
     /// True once any loaded formatted body carries an emoticon, so media
     /// arrival costs nothing otherwise.
     mutable bool m_hasInlineEmoji = false;

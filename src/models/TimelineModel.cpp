@@ -1501,8 +1501,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             // Resolved on every read, never stored resolved: the edit path
             // reads the memo back, and a local image:// source baked in would
             // be sent to the room.
-            return MessageHtml::resolveInlineImages(memo.value(),
-                                                    m_inlineImageResolver);
+            return MessageHtml::resolveInlineImages(
+                memo.value(), m_inlineImageResolver,
+                [this](const QString &source) { return inlineImageAspect(source); });
         }
         QList<QPair<QString, QString>> deps;
         QString sanitized = MessageHtml::sanitize(
@@ -1526,8 +1527,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         }
         if (sanitized.contains(QLatin1String("data-mx-emoticon")))
             m_hasInlineEmoji = true;
-        return MessageHtml::resolveInlineImages(sanitized,
-                                                m_inlineImageResolver);
+        return MessageHtml::resolveInlineImages(
+            sanitized, m_inlineImageResolver,
+            [this](const QString &source) { return inlineImageAspect(source); });
     }
     case MessageSegmentsRole: {
         if (e.redacted || e.formattedBody.isEmpty())
@@ -2931,6 +2933,19 @@ QString TimelineModel::mediaKeyForEvent(const QString &eventId) const
     if (!event || event->type != TimelineEvent::Image)
         return {};
     return event->mediaKey;
+}
+
+double TimelineModel::inlineImageAspect(const QString &source) const
+{
+    // Supplied by the app (it reads the cached file's header with QtGui);
+    // this model links QtCore only in several test targets.
+    return m_inlineImageAspect ? m_inlineImageAspect(source) : 0.0;
+}
+
+void TimelineModel::setInlineImageAspect(std::function<double(const QString &)> aspect)
+{
+    m_inlineImageAspect = std::move(aspect);
+    notifyInlineImagesChanged();
 }
 
 void TimelineModel::setInlineImageResolver(

@@ -93,6 +93,7 @@
 #include <QSaveFile>
 #include <QScopedValueRollback>
 #include <QScreen>
+#include <QImageReader>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QPointer>
@@ -776,6 +777,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The thread composer sends through the same emoji pass (one rule set).
     m_thread->setOutgoingEmoji([this](QString &body, QVariantMap &spec) {
         m_composer->applyOutgoingEmoji(body, spec);
+    });
+    // An inline emoji's proportions, from the cached file's header (never a
+    // pixel decode), remembered per source.
+    m_timeline->setInlineImageAspect([this, cache = std::make_shared<QHash<QString, double>>()](
+                                         const QString &source) {
+        const auto hit = cache->constFind(source);
+        if (hit != cache->constEnd())
+            return hit.value();
+        double aspect = 0;
+        const QSize size = m_mediaBridge->cachedImageSize(source);
+        if (size.width() > 0 && size.height() > 0)
+            aspect = double(size.width()) / size.height();
+        if (cache->size() > 4096)
+            cache->clear();
+        cache->insert(source, aspect);
+        return aspect;
     });
     m_timeline->setInlineImageResolver(
         [this](const QString &mxc) {

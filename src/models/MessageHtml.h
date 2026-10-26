@@ -115,9 +115,20 @@ QString markRoomMention(const QString &safeHtml, const QString &color);
 ///
 /// `resolve` returns empty for uncached media and starts a fetch, so callers
 /// re-read when it arrives; meanwhile the emoji shows its `alt` text.
+///
+/// `aspectOf`, when given, answers the resolved image's width/height ratio (or
+/// 0 when unknown); the inline box then keeps the image's aspect ratio at the
+/// fixed line height, clamped to [kInlineEmojiMinWidth, kInlineEmojiMaxWidth]
+/// so an extreme shape cannot blow up the line. Unknown stays the square.
+inline constexpr int kInlineEmojiHeight = 20;
+inline constexpr int kInlineEmojiMinWidth = 6;
+inline constexpr int kInlineEmojiMaxWidth = 60;
 QString resolveInlineImages(
     const QString &safeHtml,
-    const std::function<QString(const QString &mxcUri)> &resolve);
+    const std::function<QString(const QString &mxcUri)> &resolve,
+    const std::function<double(const QString &source)> &aspectOf = {});
+/// The inline width for an aspect ratio (pure; see resolveInlineImages).
+int inlineEmojiWidth(double aspect);
 
 // Enlarges inline emoji inside already-safe rich text (sanitize() output or
 // the linkified plain body) so they read as pictures.

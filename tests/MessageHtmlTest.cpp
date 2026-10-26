@@ -642,6 +642,32 @@ private Q_SLOTS:
         }
     }
 
+    // PACK-LTN-028 / PACK-PRO-036: the inline box keeps the image's own
+    // proportions at the line height, bounded; unknown stays square.
+    void anInlineEmojiKeepsItsAspectRatioWithinBounds()
+    {
+        QCOMPARE(MessageHtml::inlineEmojiWidth(1.0), 20);
+        QCOMPARE(MessageHtml::inlineEmojiWidth(2.0), 40);
+        QCOMPARE(MessageHtml::inlineEmojiWidth(0.5), 10);
+        QCOMPARE(MessageHtml::inlineEmojiWidth(1000.0), 60);
+        QCOMPARE(MessageHtml::inlineEmojiWidth(0.001), 6);
+        QCOMPARE(MessageHtml::inlineEmojiWidth(0.0), 20);
+        const QString safe = sanitize(QStringLiteral(
+            "<img data-mx-emoticon src=\"mxc://e.org/wide\" alt=\"w\" title=\"w\">"));
+        const auto resolve = [](const QString &mxc) {
+            return QStringLiteral("file:///cache/") + mxc.section(QLatin1Char('/'), -1);
+        };
+        const QString wide = MessageHtml::resolveInlineImages(
+            safe, resolve, [](const QString &) { return 3.0; });
+        QVERIFY2(wide.contains(QStringLiteral("width=\"60\"")), qPrintable(wide));
+        QVERIFY2(wide.contains(QStringLiteral("height=\"20\"")), qPrintable(wide));
+        const QString unknown = MessageHtml::resolveInlineImages(
+            safe, resolve, [](const QString &) { return 0.0; });
+        QVERIFY2(unknown.contains(QStringLiteral("width=\"20\"")), qPrintable(unknown));
+        // Never baked into the sanitized (edit/send) form.
+        QVERIFY(safe.contains(QStringLiteral("width=\"20\"")));
+    }
+
     // resolveInlineImages() is a separate render-only step: sanitize() keeps
     // the mxc, so the edit path never sends a local image:// URL.
     void resolvingAnEmojiNeverChangesWhatAnEditWouldSend()
