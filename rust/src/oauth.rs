@@ -50,7 +50,7 @@ use serde_json::json;
 use url::Url;
 
 use crate::{
-    bridge, build_client, cstr_arg, enqueue, ffi_string, format_matrix_error,
+    bridge, cstr_arg, enqueue, ffi_string, format_matrix_error,
     install_event_handlers, run_async_on,
 };
 
@@ -432,11 +432,13 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_discover", async move {
-                // In-memory client: discovery must not create a store.
-                let client = match build_client(&homeserver, &PathBuf::new()).await {
+                // In-memory client: discovery must not create a store. It
+                // follows this handle's network route (route.rs).
+                let client = match crate::build_memory_client(&homeserver, &route_of).await {
                     Ok(client) => client,
                     Err(err) => {
                         enqueue(
@@ -543,10 +545,11 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
         let state_slot = Arc::clone(&bridge.oauth_state);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_begin", async move {
-                let client = match build_client(&homeserver, &PathBuf::new()).await {
+                let client = match crate::build_memory_client(&homeserver, &route_of).await {
                     Ok(client) => client,
                     Err(err) => {
                         enqueue(&events, json!({
@@ -1014,6 +1017,7 @@ pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
         let refresh_token = unsafe { cstr_arg(refresh_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "revoke_refused_sign_in", async move {
@@ -1021,7 +1025,7 @@ pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
                     REFUSED_SIGN_IN_REVOKE_BUDGET,
                     revoke_refused_sign_in(
                         &homeserver, &flow, client_id, &user_id, device_id,
-                        access_token, refresh_token),
+                        access_token, refresh_token, &route_of),
                 )
                 .await
                 {
@@ -1059,12 +1063,13 @@ pub unsafe extern "C" fn mx_rust_whoami_probe(
         let access_token = unsafe { cstr_arg(access_token) }?;
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "whoami_probe", async move {
                 let (result, device_id) = match tokio::time::timeout(
                     WHOAMI_PROBE_BUDGET,
-                    whoami_probe(&homeserver, &access_token),
+                    whoami_probe(&homeserver, &access_token, &route_of),
                 )
                 .await
                 {
@@ -1088,13 +1093,14 @@ const WHOAMI_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(
 pub(crate) async fn whoami_probe(
     homeserver: &str,
     access_token: &str,
+    route_of: &std::path::Path,
 ) -> (&'static str, Option<String>) {
     if access_token.is_empty() {
         return ("other", None);
     }
     // In memory and without a session: only its resolved URL and HTTP client
-    // are used.
-    let Ok(client) = build_client(homeserver, &PathBuf::new()).await else {
+    // are used. The asking handle's network route applies (route.rs).
+    let Ok(client) = crate::build_memory_client(homeserver, route_of).await else {
         return ("unreachable", None);
     };
     let mut url = client.homeserver();
@@ -1136,6 +1142,7 @@ pub(crate) async fn whoami_probe(
 const REFUSED_SIGN_IN_REVOKE_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// The revocation itself. A fixed category on failure, never server text.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn revoke_refused_sign_in(
     homeserver: &str,
     flow: &str,
@@ -1144,6 +1151,7 @@ pub(crate) async fn revoke_refused_sign_in(
     device_id: String,
     access_token: String,
     refresh_token: String,
+    route_of: &std::path::Path,
 ) -> Result<(), &'static str> {
     if access_token.is_empty() {
         return Err("no_session");
@@ -1156,7 +1164,9 @@ pub(crate) async fn revoke_refused_sign_in(
         refresh_token: if refresh_token.is_empty() { None } else { Some(refresh_token) },
     };
     // In memory: nothing of this session may reach a store on this device.
-    let client = build_client(homeserver, &PathBuf::new()).await.map_err(|_| "unreachable")?;
+    let client = crate::build_memory_client(homeserver, route_of)
+        .await
+        .map_err(|_| "unreachable")?;
     match flow {
         "oauth" => {
             if client_id.is_empty() {
@@ -1998,11 +2008,11 @@ mod token_persistence_tests {
     fn the_adoption_check_names_the_device_or_says_it_cannot_tell() {
         let (homeserver, _) = serve();
         runtime().block_on(async {
-            assert_eq!(super::whoami_probe(&homeserver, "good").await,
+            assert_eq!(super::whoami_probe(&homeserver, "good", std::path::Path::new("")).await,
                        ("device", Some("THEIRDEVICE".to_owned())));
-            assert_eq!(super::whoami_probe(&homeserver, "expired").await,
+            assert_eq!(super::whoami_probe(&homeserver, "expired", std::path::Path::new("")).await,
                        ("unauthorized", None));
-            assert_eq!(super::whoami_probe("http://127.0.0.1:9", "good").await.0,
+            assert_eq!(super::whoami_probe("http://127.0.0.1:9", "good", std::path::Path::new("")).await.0,
                        "unreachable");
         });
     }
@@ -2021,14 +2031,14 @@ mod token_persistence_tests {
             assert_eq!(
                 revoke_refused_sign_in(&homeserver, "oauth", "client".to_owned(),
                                        "@me:example.org", "NEWDEVICE".to_owned(),
-                                       "access-x".to_owned(), "refresh-x".to_owned())
+                                       "access-x".to_owned(), "refresh-x".to_owned(), std::path::Path::new(""))
                     .await,
                 Err("refused"));
             assert_eq!(seen.revocations.load(Ordering::SeqCst), 0);
 
             revoke_refused_sign_in(&homeserver, "sso", String::new(),
                                    "@me:example.org", "NEWDEVICE".to_owned(),
-                                   "access-y".to_owned(), String::new())
+                                   "access-y".to_owned(), String::new(), std::path::Path::new(""))
                 .await
                 .expect("sso logout");
             assert_eq!(seen.logouts.load(Ordering::SeqCst), 1);
@@ -2037,7 +2047,7 @@ mod token_persistence_tests {
             assert_eq!(
                 revoke_refused_sign_in(&homeserver, "oauth", String::new(),
                                        "@me:example.org", "D".to_owned(),
-                                       String::new(), String::new()).await,
+                                       String::new(), String::new(), std::path::Path::new("")).await,
                 Err("no_session"));
         });
     }

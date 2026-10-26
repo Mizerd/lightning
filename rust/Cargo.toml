@@ -46,7 +46,7 @@ futures-util = { version = "0.3", default-features = false }
 # decode compressed responses, which breaks some link previews (CDN/WAF
 # layers treat such requests as non-browser). brotli is not in the vendored
 # offline dependency set.
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream", "gzip", "deflate"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream", "gzip", "deflate", "socks"] }
 url = "2"
 # The local message index. Already in Cargo.lock via matrix-sdk-sqlite.
 rusqlite = { version = "0.37", default-features = false }

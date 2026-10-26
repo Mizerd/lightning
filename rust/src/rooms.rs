@@ -858,12 +858,22 @@ pub(crate) fn fetch_url_preview(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
+    let routed = crate::route::routed(&bridge.store_path);
     bridge.spawn_room_action(async move {
         // Server first, client only if it cannot, so the site does not see the
         // user's IP. Whether a direct fetch is allowed is the caller's decision;
         // `preview_route` tells the UI which path produced the card.
+        //
+        // An account with a network route (route.rs) never takes the client
+        // path: it pins a validated public address and sends no proxy, so it
+        // would reach the site directly from the address the route hides.
         let mut result = match server_preview(&sdk, &parsed).await {
             Some(fields) => Ok(fields),
+            None if routed => Err(PreviewFailure {
+                category: crate::route::BLOCKED_BY_ROUTE,
+                status: None,
+                redirects: 0,
+            }),
             None => preview(parsed.clone()).await,
         };
         // Anything the client path produced took the direct route. Stamped here,

@@ -1152,6 +1152,12 @@ pub(crate) fn connect(
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
+    // Calls are not carried by a network route (route.rs): SFU signalling is
+    // a pinned, proxy-less WebSocket and the media is WebRTC over UDP. A
+    // routed account refuses to join rather than reveal its address.
+    if crate::route::routed(&bridge.store_path) {
+        return Err(crate::route::BLOCKED_BY_ROUTE.to_owned());
+    }
     let device_id = client
         .device_id()
         .ok_or_else(|| "no session".to_owned())?

@@ -128,6 +128,7 @@ mod qrlogin;
 mod profile;
 mod push_verdict;
 mod rooms;
+mod route;
 mod roomaction;
 mod roomexport;
 mod rtc;
@@ -1146,6 +1147,7 @@ impl Drop for RustClient {
         // This handle's media-store key, and only this handle's: a handle
         // being retired must not take its successor's.
         mediastore::forget(self as *const RustClient as usize, &self.store_path);
+        route::forget(self as *const RustClient as usize, &self.store_path);
     }
 }
 
@@ -11855,6 +11857,31 @@ pub unsafe extern "C" fn mx_rust_set_media_store_key(
     })
 }
 
+/// This handle's network route (route.rs), set before sign-in or restore
+/// like the media-store key. Fail closed: input that does not parse is
+/// recorded as `Unavailable`, so the store's client is never built direct.
+/// The JSON may carry a proxy password: it is never logged or echoed.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_network_route(
+    ptr: *mut c_void,
+    route_json: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let json = unsafe { cstr_arg(route_json) }.unwrap_or_default();
+        match route::parse(&json) {
+            Ok(state) => {
+                route::set(ptr as usize, &bridge.store_path, state);
+                Ok(String::new())
+            }
+            Err(code) => {
+                route::set(ptr as usize, &bridge.store_path, Some(route::RouteState::Unavailable));
+                Err(format!("network route not applied: {code}"))
+            }
+        }
+    })
+}
+
 /// Where this handle's media store was opened (`mediastore::active`), for
 /// Settings to say what is really kept this session. See the header for the
 /// four answers. Before a client is built nothing is opened: "memory".
@@ -12024,6 +12051,15 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     build_client_with(HomeserverInput::Discover(homeserver), store_path).await
 }
 
+/// An in-memory client (no store: discovery, the OAuth and SSO bootstraps,
+/// the whoami probe, a refused sign-in's revocation) that follows the network
+/// route of the account whose handle asked for it (route.rs). `route_of` is
+/// that handle's store path; a first sign-in has no route there yet and
+/// builds as `build_client(homeserver, "")` always did.
+pub(crate) async fn build_memory_client(homeserver: &str, route_of: &Path) -> Result<Client, String> {
+    build_client_full(HomeserverInput::Discover(homeserver), Path::new(""), route_of).await
+}
+
 /// The E2EE settings every client is built with (decided 2026-10-13, CLAUDE.md
 /// §9). `AfterDecryptionFailure` makes matrix-sdk download the one missing key
 /// from the trusted backup whenever an event fails to decrypt, in any room and
@@ -12052,6 +12088,16 @@ fn encryption_settings() -> matrix_sdk::encryption::EncryptionSettings {
 async fn build_client_with(
     homeserver: HomeserverInput<'_>,
     store_path: &Path,
+) -> Result<Client, String> {
+    build_client_full(homeserver, store_path, store_path).await
+}
+
+/// `route_of`: the store path whose network route this client follows; the
+/// account's own `store_path` for every stored client.
+async fn build_client_full(
+    homeserver: HomeserverInput<'_>,
+    store_path: &Path,
+    route_of: &Path,
 ) -> Result<Client, String> {
     let encryption_settings = encryption_settings();
     // Threading support puts m.thread events into per-thread event-cache
@@ -12145,6 +12191,15 @@ async fn build_client_with(
                 sender_device_trust_requirement:
                     matrix_sdk_base::crypto::TrustRequirement::CrossSignedOrLegacy,
             });
+    }
+    // The account's network route (route.rs): its own HTTP client, with the
+    // proxy, for every request this client makes. After every other builder
+    // call that touches HTTP settings: `user_agent()` or `proxy()` after
+    // `http_client()` would replace the custom client with a default one.
+    // A route that cannot be used refuses the build, before any store opens;
+    // there is no direct fallback.
+    if let Some(http) = route::client_for(route_of).map_err(str::to_owned)? {
+        builder = builder.http_client(http);
     }
     // The state and crypto stores exactly as `sqlite_store(path, None)`
     // opened them; the event cache and the media store where cachelayout.rs

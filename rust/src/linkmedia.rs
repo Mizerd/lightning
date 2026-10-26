@@ -207,6 +207,11 @@ pub(crate) fn link_media_fetch(
 ) -> Result<(), String> {
     // A signed-in session only, like every other media fetch.
     let _ = require_client(bridge)?;
+    // A direct fetch from the site: never for an account whose traffic has a
+    // network route (route.rs), which this pinned, proxy-less path would leave.
+    if crate::route::routed(&bridge.store_path) {
+        return Err(crate::route::BLOCKED_BY_ROUTE.to_owned());
+    }
     if !valid_link_key(&key) {
         return Err("invalid link media key".to_owned());
     }

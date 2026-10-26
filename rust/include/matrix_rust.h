@@ -1256,6 +1256,16 @@ char *mx_rust_set_keep_media(int enabled);
 char *mx_rust_set_media_store_key(void *client, const unsigned char *key,
                                   unsigned long long key_len,
                                   int admit_encrypted);
+/* This handle's network route (rust/src/route.rs), right after mx_rust_create
+ * (or mx_rust_create_background) and before any sign-in or restore, like the
+ * media store key. `route_json`: {"state":"none"}, {"state":"unavailable"}, or
+ * {"state":"configured","kind":"http"|"socks5","host","port","username"?,
+ * "password"?}. A route applies to every client this handle's store builds;
+ * "unavailable" makes building one fail ("network route unavailable") and
+ * nothing ever goes direct instead. Anything that does not parse is recorded
+ * as "unavailable" and reported as an error. SENSITIVE: the caller scrubs
+ * `route_json`. Returns "" or "error: ...". */
+char *mx_rust_set_network_route(void *client, const char *route_json);
 /* Where this handle's media store was opened, once a sign-in or restore has
  * built its client: "encrypted_admits" (encrypted, encrypted-room media kept
  * too), "encrypted" (encrypted, unencrypted-room media only), "legacy" (the

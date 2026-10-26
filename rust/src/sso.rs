@@ -20,7 +20,6 @@
 //! message (SDK errors can quote the request), never returned across the FFI.
 
 use std::ffi::{c_char, c_void};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use matrix_sdk::ruma::api::client::session::get_login_types::v3::LoginType;
@@ -28,7 +27,7 @@ use serde_json::json;
 use url::Url;
 
 use crate::oauth::sdk_failure_reason;
-use crate::{bridge, build_client, cstr_arg, enqueue, ffi_string, run_async_on};
+use crate::{bridge, cstr_arg, enqueue, ffi_string, run_async_on};
 
 /// Device name shown to the homeserver, as for the other login paths.
 const DEVICE_DISPLAY_NAME: &str = "Lightning";
@@ -64,10 +63,11 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
 
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_providers", async move {
-                let client = match build_client(&homeserver, &PathBuf::new()).await {
+                let client = match crate::build_memory_client(&homeserver, &route_of).await {
                     Ok(client) => client,
                     Err(err) => {
                         enqueue(
@@ -168,10 +168,11 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let route_of = bridge.store_path.clone();
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "sso_begin", async move {
-                let client = match build_client(&homeserver, &PathBuf::new()).await {
+                let client = match crate::build_memory_client(&homeserver, &route_of).await {
                     Ok(client) => client,
                     Err(err) => {
                         enqueue(&events, json!({
