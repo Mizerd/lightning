@@ -112,6 +112,10 @@ public:
     // ownership record moves Host -> Foreground ON THE SAME SERIAL (one store,
     // one owning handle; nothing re-opens it). The caller owns the handle.
     std::optional<LiveSessionTicket> takeForAdoption(const QString &uid);
+    // Whether takeForAdoption(uid) would hand the handle over now. Pure: lets
+    // the switch choose the warm path before it unbinds the foreground, and
+    // take the ticket only once nothing can refuse the switch any more.
+    bool canAdopt(const QString &uid) const;
     // A release that ANSWERED (Free or StoreBusy) whose switch never brought
     // uid to the front (refused on the spot, or the store stayed busy): uid
     // is the pool's again, so its pin can restart it. Without this, uid stayed
@@ -220,6 +224,8 @@ private:
         QDeadlineTimer deadline;        // the store wait, from the sign-out's answer
     };
 
+    // nullptr when uid's host may be adopted, else the reason (a log word).
+    const char *adoptionRefusal(const QString &uid) const;
     void schedule();
     void admit();
     Eligibility eligibility(const QString &uid) const;

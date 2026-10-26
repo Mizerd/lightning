@@ -245,6 +245,8 @@ public:
     void logout() override;
     bool restoreSession() override;
     bool detachSession() override;
+    bool adoptLiveSession(const lightning::accounts::LiveSessionTicket &ticket) override;
+    bool supportsLiveAdoption() const override { return true; }
 
     // OAuth 2.0 / OIDC. Phase A authenticates on a store-less bootstrap handle;
     // phase B opens the account store once the homeserver has named the account
@@ -1015,6 +1017,8 @@ private:
     // Preferred entry point: opens the account's recorded store directory.
     bool ensureRustHandleForIdentity(
         const matrix::app_data::AccountIdentity &identity);
+    // The per-handle settings every fresh (or adopted) handle is given.
+    void applyPerHandleSettings(bool adopted = false);
     bool ensureRustHandleForStorePath(const QString &storePath,
                                       const QString &slug);
     // Hand the new handle its media-store key (MediaStoreKey.h): the saved

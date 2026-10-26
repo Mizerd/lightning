@@ -742,6 +742,7 @@ void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
     QCOMPARE(m_registry->records().size(), 1);
     const quint64 serial = m_registry->records().first().serial;
     const quint64 epochBefore = pool->epochFor(a);
+    QVERIFY(pool->canAdopt(a));
 
     const auto ticket = pool->takeForAdoption(a);
     QVERIFY(ticket.has_value());
@@ -793,6 +794,7 @@ void SessionPoolTest::anAccountThatCannotBeHandedOverStaysWithItsHost()
     pool->admitNowForTest();
     QTRY_VERIFY_WITH_TIMEOUT(handleFor(a), 3000);
     // Still Starting (no login result yet).
+    QVERIFY(!pool->canAdopt(a));
     QVERIFY(!pool->takeForAdoption(a).has_value());
     QVERIFY(pool->holdsStore(a));
     QCOMPARE(pool->liveHostCount(), 1);

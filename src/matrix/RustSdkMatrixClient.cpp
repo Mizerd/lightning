@@ -715,25 +715,7 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 
     m_storePath = storePath;
     m_handleGeneration = m_lifecycle.beginSession();
-    // Receipt privacy defaults to public on a fresh bridge; re-apply the user's
-    // choice on every account switch.
-    if (m_readReceiptPrivacy != 0)
-        takeRustString(mx_rust_set_receipt_privacy(m_rustHandle,
-                                                   m_readReceiptPrivacy));
-    if (m_threadsInLive)
-        takeRustString(mx_rust_timeline_set_threads_in_live(m_rustHandle, 1));
-    if (m_unthreadedReceipts)
-        takeRustString(mx_rust_set_unthreaded_receipts(m_rustHandle, 1));
-    // A fresh handle starts unheld; carry a call or scroll already under way.
-    if (m_indexAllHold != 0)
-        takeRustString(mx_rust_search_index_all_hold(m_rustHandle,
-                                                     m_indexAllHold));
-    // The Rust-side flag defaults off on a fresh handle; a registered media
-    // backend must survive account switches.
-    if (m_callMediaCapable)
-        // The FFI returns an owned char*; discarding it would leak.
-        takeRustString(mx_rust_calls_set_media_capable(
-            m_rustHandle, static_cast<unsigned char>(1)));
+    applyPerHandleSettings();
 
     if (!m_sessionFilePath.isEmpty()) {
         const QByteArray sessionPath = m_sessionFilePath.toUtf8();
@@ -1261,6 +1243,85 @@ bool RustSdkMatrixClient::waitForRustRetirement(int budgetMs)
 // by pollRustEvents() on a timer, so a retiring client has no route to any
 // QObject. Callers about to delete the store must call
 // waitForRustRetirement() first.
+void RustSdkMatrixClient::applyPerHandleSettings(bool adopted)
+{
+    if (!m_rustHandle)
+        return;
+    // Receipt privacy defaults to public on a fresh bridge; re-apply the user's
+    // choice on every account switch. An adopted handle carries the
+    // background profile's values instead (receipts private, index-all held),
+    // so every value is written explicitly there, defaults included.
+    if (m_readReceiptPrivacy != 0 || adopted)
+        takeRustString(mx_rust_set_receipt_privacy(m_rustHandle,
+                                                   m_readReceiptPrivacy));
+    if (m_threadsInLive)
+        takeRustString(mx_rust_timeline_set_threads_in_live(m_rustHandle, 1));
+    if (m_unthreadedReceipts)
+        takeRustString(mx_rust_set_unthreaded_receipts(m_rustHandle, 1));
+    // A fresh handle starts unheld; carry a call or scroll already under way.
+    if (m_indexAllHold != 0 || adopted)
+        takeRustString(mx_rust_search_index_all_hold(m_rustHandle,
+                                                     m_indexAllHold));
+    // The Rust-side flag defaults off on a fresh handle; a registered media
+    // backend must survive account switches.
+    if (m_callMediaCapable)
+        // The FFI returns an owned char*; discarding it would leak.
+        takeRustString(mx_rust_calls_set_media_capable(
+            m_rustHandle, static_cast<unsigned char>(1)));
+}
+
+bool RustSdkMatrixClient::adoptLiveSession(
+    const lightning::accounts::LiveSessionTicket &ticket)
+{
+    if (!ticket.valid())
+        return false;
+    // Whatever this client still held is retired first; a handle and its
+    // queue are never shared across sessions.
+    releaseRustHandle();
+    m_freshLoginIdentity = {};
+    m_freshBrowserRecord = {};
+    m_loginSentBareUsername = false;
+    m_restoredOffline = false;
+    // The ticket's identity is the account record's (canonical), so the
+    // token owner for a retirement below, and the login_ok handler, read it.
+    m_homeserver = ticket.homeserver;
+    m_userId = ticket.userId;
+    m_deviceId = ticket.deviceId;
+    m_rustHandle = ticket.handle;
+    m_storePath = ticket.storePath;
+    // The pool already moved the record to Foreground on this serial: the
+    // store keeps one owning handle and is never claimed or opened again.
+    m_storeOwnershipSerial = ticket.storeSerial;
+    m_persistedAccessDigest = ticket.persistedDigest;
+    // A new generation: every callback stamped by the previous foreground
+    // handle is stale from here (CLAUDE.md §9).
+    m_handleGeneration = m_lifecycle.beginSession();
+    applyMediaStoreKey(ticket.slug);
+    ensurePollTimer();
+
+    const QString refusal = takeRustString(mx_rust_bg_promote(m_rustHandle));
+    if (!refusal.isEmpty()) {
+        qCWarning(lcRust) << "adoption refused by the handle; falling back to a"
+                             " cold restore" << "acct=" << ticket.slug;
+        // Retired through the normal path: m_userId/m_deviceId are set, so
+        // its final tokens are handed back to the keyring before the cold
+        // restore reads them.
+        releaseRustHandle();
+        m_loggedIn = false;
+        m_userId.clear();
+        m_deviceId.clear();
+        return false;
+    }
+    // Refused while the handle was Background; a foreground handle takes them.
+    applyPerHandleSettings(/*adopted=*/true);
+    qCInfo(lcRust) << "adopted a live background session" << "acct=" << ticket.slug;
+    setState(Connecting);
+    // The promotion enqueued a token-free login_ok: the ordinary path reports
+    // loginSucceeded(), and startSync() then starts a foreground sync loop on
+    // the same Client.
+    return true;
+}
+
 void RustSdkMatrixClient::releaseRustHandle()
 {
     m_pollTimer.stop();

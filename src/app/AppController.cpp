@@ -8288,11 +8288,20 @@ void AppController::switchToAccount(const QString &userId)
     // in front and usable; today's switch below follows once it is free.
     if (m_sessionPool && beginLiveAccountSwitch(target))
         return;
+    // Warm account adoption (master prompt Part 4 §4): the target runs as a
+    // background host that can hand its live session over. The foreground is
+    // unbound below exactly as for a cold switch; the keyring is not read (the
+    // host's custody is settled, so the session it runs IS the saved sign-in)
+    // and the handle is adopted instead of a store being restored.
+    const bool adopting = std::exchange(m_adoptTarget, QString{}) == target
+        && m_sessionPool && m_client->supportsLiveAdoption()
+        && m_sessionPool->canAdopt(target);
     // LIGHTNING_SWITCH_TRACE: every stamp below is a no-op unless it is set.
     namespace trace = lightning::switchtrace;
     if (trace::enabled())
-        trace::begin(m_settings->activeAccountUserId(), target, trace::Path::Cold);
-    const SignInState signIn = [&] {
+        trace::begin(m_settings->activeAccountUserId(), target,
+                     adopting ? trace::Path::Adopt : trace::Path::Cold);
+    const SignInState signIn = adopting ? SignInState::Usable : [&] {
         const trace::StepScope traceS1(trace::Step::S1);
         return signInStateFor(target);
     }();
@@ -8395,7 +8404,20 @@ void AppController::switchToAccount(const QString &userId)
     // Hidden images are per account and cached too.
     if (m_mediaVisibility)
         m_mediaVisibility->reloadForAccount();
-    if (!m_client->restoreSession()) {
+    bool adopted = false;
+    if (adopting) {
+        // Taken only now, once nothing can refuse the switch: the same turn
+        // that checked eligibility, so the host cannot have changed.
+        if (auto ticket = m_sessionPool->takeForAdoption(target)) {
+            noteLiveAccountsStep(QStringLiteral("switch:adopt"), target);
+            adopted = m_client->adoptLiveSession(*ticket);
+            // Refused by the handle: the client retired it (tokens handed
+            // back) and the cold restore below waits for that close.
+            if (!adopted)
+                noteLiveAccountsStep(QStringLiteral("switch:adopt-fallback"), target);
+        }
+    }
+    if (!adopted && !m_client->restoreSession()) {
         qCWarning(lcApp) << "account switch restore failed"
                          << "slug=" << matrix::app_data::safeUserSlug(target);
         failAccountSwitch(tr("Could not activate the selected account."));
@@ -9277,6 +9299,14 @@ bool AppController::beginLiveAccountSwitch(const QString &target)
             tr("That account is being removed from this device."));
         endLiveSwitchWithoutSession();
         return true;
+    }
+    // A running host whose session can be handed over as it is: no release,
+    // no store close, no keyring read. switchToAccount() takes it once the
+    // foreground is unbound (warm account adoption, Part 4 §4).
+    if (m_client->supportsLiveAdoption() && m_sessionPool->canAdopt(target)) {
+        noteLiveAccountsStep(QStringLiteral("switch:warm"), target);
+        m_adoptTarget = target;
+        return false;
     }
     // A host, or a keyring write of its sign-in still running: freed first,
     // so today's switch never reads the keyring under that write (§18 round

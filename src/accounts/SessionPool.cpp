@@ -1371,9 +1371,9 @@ void SessionPool::cancelRelease(quint64 ticket)
     schedule();
 }
 
-std::optional<LiveSessionTicket> SessionPool::takeForAdoption(const QString &uid)
+const char *SessionPool::adoptionRefusal(const QString &uid) const
 {
-    BackgroundSessionHost *host = m_hosts.value(uid);
+    const BackgroundSessionHost *host = m_hosts.value(uid);
     const char *refusal = nullptr;
     if (uid.isEmpty() || uid == m_foreground || !host)
         refusal = "not-live";
@@ -1389,11 +1389,23 @@ std::optional<LiveSessionTicket> SessionPool::takeForAdoption(const QString &uid
     else if (signInWriteBusy(uid) || !m_books.value(uid).pendingLiveDigests.isEmpty()
              || m_books.value(uid).writePaused)
         refusal = "custody-unsettled";
-    if (refusal) {
+    return refusal;
+}
+
+bool SessionPool::canAdopt(const QString &uid) const
+{
+    return adoptionRefusal(uid) == nullptr;
+}
+
+std::optional<LiveSessionTicket> SessionPool::takeForAdoption(const QString &uid)
+{
+    if (const char *refusal = adoptionRefusal(uid)) {
+        const BackgroundSessionHost *refused = m_hosts.value(uid);
         qCInfo(lcSessionPool) << "adoption refused" << "reason=" << refusal
-                              << "acct=" << (host ? host->identity().slug : QString());
+                              << "acct=" << (refused ? refused->identity().slug : QString());
         return std::nullopt;
     }
+    BackgroundSessionHost *host = m_hosts.value(uid);
 
     // §9 generation isolation: every callback the host's epoch stamped is
     // stale from here (stillCurrent() fails), and the pool never restarts

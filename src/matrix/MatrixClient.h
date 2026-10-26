@@ -1,5 +1,6 @@
 #pragma once
 
+#include "accounts/LiveSessionTicket.h"
 #include "matrix/CallSignal.h"
 #include "matrix/RtcSession.h"
 #include "matrix/RoomInfo.h"
@@ -44,6 +45,22 @@ public:
     // account's store, tokens or metadata. restoreSession() then activates the
     // account the settings select. Returns false when unsupported.
     virtual bool detachSession() { return false; }
+    // Warm account adoption (live accounts, Labs; master prompt Part 4 §4):
+    // take over a session a background host was running, without opening its
+    // store or reading the keyring again. On true, the client owns the
+    // ticket's handle and reports loginSucceeded() asynchronously, exactly as
+    // after restoreSession(). On false the client has retired the handle
+    // through its own normal release (tokens handed back), and the caller
+    // falls back to restoreSession(). Backends without live accounts refuse.
+    virtual bool adoptLiveSession(const lightning::accounts::LiveSessionTicket &ticket)
+    {
+        Q_UNUSED(ticket);
+        return false;
+    }
+    // Whether adoptLiveSession() can take a background handle at all. The
+    // switch only chooses the warm path when this is true, so a backend that
+    // cannot adopt never has a live handle handed to it.
+    virtual bool supportsLiveAdoption() const { return false; }
 
     // --- OAuth 2.0 / OIDC browser sign-in -----------------------------------
     // Only RustSdkMatrixClient implements these; other backends report that

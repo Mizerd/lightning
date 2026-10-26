@@ -353,6 +353,22 @@ public:
     // Read-receipt avatar hooks: serve avatar bytes through the real
     // MediaBridge -> MediaImageProvider path without the demo scene, and
     // hydrate one member the way the Rust room_members merge does.
+    // Warm account adoption, scripted for app-level tests: when enabled, the
+    // mock claims the capability and "adopts" by remembering the ticket's
+    // handle and activating the account as restoreSession() would. It never
+    // touches the handle (the scripted bridge owns it).
+    void setLiveAdoptionForTest(bool on) { m_liveAdoptionForTest = on; }
+    bool supportsLiveAdoption() const override { return m_liveAdoptionForTest; }
+    bool adoptLiveSession(const lightning::accounts::LiveSessionTicket &ticket) override
+    {
+        if (!m_liveAdoptionForTest || !ticket.valid())
+            return false;
+        m_adoptedHandleForTest = ticket.handle;
+        m_adoptedUserForTest = ticket.userId;
+        return restoreSession();
+    }
+    void *adoptedHandleForTest() const { return m_adoptedHandleForTest; }
+    QString adoptedUserForTest() const { return m_adoptedUserForTest; }
     void setSupportsMediaBridgeForTest(bool on)
     { m_mediaBridgeSupportedForTest = on; }
     void setAvatarBytesForTest(const QString &mxc, const QByteArray &bytes,
@@ -361,6 +377,9 @@ public:
     void setRoomMemberForTest(const QString &roomId, const MemberInfo &member);
 
 private:
+    bool m_liveAdoptionForTest = false;
+    void *m_adoptedHandleForTest = nullptr;
+    QString m_adoptedUserForTest;
     void seedMockData();
     void seedScreenshotDemoData();     // development-only rich demo scene
     bool m_screenshotDemoMode = false;

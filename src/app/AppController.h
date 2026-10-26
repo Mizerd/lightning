@@ -1719,6 +1719,9 @@ private:
     // The newest account chosen while a switch was running (see
     // switchToAccount); empty when none is waiting.
     QString m_queuedSwitchTarget;
+    // Set by beginLiveAccountSwitch() for the switch it lets through when the
+    // target's background session can be adopted warm; consumed at once.
+    QString m_adoptTarget;
     // Bumped whenever a queued switch is retired, so one already handed to
     // the event loop does not run either.
     quint64 m_queuedSwitchEpoch = 0;
