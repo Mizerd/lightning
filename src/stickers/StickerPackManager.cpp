@@ -1668,6 +1668,43 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
     startBatch(QStringLiteral("emoji"), QString(), items, skipped);
 }
 
+// -- Sharing -------------------------------------------------------------------
+
+QString StickerPackManager::shareLink(const QString &packId) const
+{
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0)
+        return {};
+    const stickers::Pack &pack = m_packs->packs().at(row);
+    if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
+        return {};
+    // matrix.to percent-encodes the id; a via hint from the id's own server
+    // lets a non-member's client find the room.
+    const QString server = pack.roomId.section(QLatin1Char(':'), 1);
+    QString link = QStringLiteral("https://matrix.to/#/")
+        + QString::fromUtf8(QUrl::toPercentEncoding(pack.roomId));
+    if (!server.isEmpty())
+        link += QStringLiteral("?via=")
+            + QString::fromUtf8(QUrl::toPercentEncoding(server));
+    return link;
+}
+
+QString StickerPackManager::shareText(const QString &packId) const
+{
+    const QString link = shareLink(packId);
+    if (link.isEmpty())
+        return {};
+    const stickers::Pack &pack = m_packs->packs().at(m_packs->indexOfPack(packId));
+    const QString name = pack.displayName.isEmpty() ? tr("A pack") : pack.displayName;
+    QString text = tr("%1: an emoji and sticker pack. Open the room, then turn "
+                      "the pack on in Settings > Emoji and sticker packs.")
+                       .arg(name)
+        + QLatin1Char('\n') + link;
+    if (!pack.stateKey.isEmpty())
+        text += QLatin1Char('\n') + tr("Pack key: %1").arg(pack.stateKey);
+    return text;
+}
+
 // -- Two editors on one pack ---------------------------------------------------
 
 QVariantMap StickerPackManager::packImageMap(const QString &packId) const

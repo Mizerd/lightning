@@ -774,6 +774,24 @@ Dialog {
                 onClicked: root.stickers.retryFailedUploads()
             }
             AppButton {
+                objectName: "stickerPackShareButton"
+                visible: root.stickers && root.packId !== "user"
+                         && root.stickers.shareLink(root.packId).length > 0
+                text: root.shareCopied ? qsTr("Copied") : qsTr("Copy link")
+                kind: "ghost"
+                size: "sm"
+                Accessible.description: qsTr("Copies the pack's room link and "
+                                             + "name to share with someone")
+                onClicked: {
+                    shareRelay.text = root.stickers.shareText(root.packId)
+                    shareRelay.selectAll()
+                    shareRelay.copy()
+                    shareRelay.text = ""
+                    root.shareCopied = true
+                    shareCopiedTimer.restart()
+                }
+            }
+            AppButton {
                 objectName: "stickerPackExportButton"
                 text: qsTr("Export…")
                 kind: "ghost"
@@ -841,6 +859,20 @@ Dialog {
                 root.base = root.stickers.packImageMap(root.packId)
             root.ownEditPending = false
         }
+    }
+
+    property bool shareCopied: false
+    Timer {
+        id: shareCopiedTimer
+        interval: 1500
+        onTriggered: root.shareCopied = false
+    }
+    // Hidden TextEdit clipboard route, as CodeBlock and MessageDelegate do.
+    TextEdit {
+        id: shareRelay
+        visible: false
+        width: 0
+        height: 0
     }
 
     readonly property bool busy: root.stickers ? root.stickers.editing : false

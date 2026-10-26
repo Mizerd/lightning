@@ -1743,6 +1743,31 @@ private Q_SLOTS:
         QCOMPARE(diff.value(QStringLiteral("changed")).toStringList(), QStringList{ "cat" });
     }
 
+    void aRoomPackSharesAStandardRoomLinkAndItsKeyAndNothingPrivate()
+    {
+        // PACK-LIVE-020 (text half), PACK-PRO-058: an ordinary matrix.to room
+        // link any client opens, the pack's name and exact key; nothing for
+        // the personal pack.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap roomPack = pack(QStringLiteral("S"), QStringLiteral("room"),
+                                    QStringLiteral("Animals"), {});
+        roomPack.insert(QStringLiteral("roomId"), QStringLiteral("!abc:example.org"));
+        roomPack.insert(QStringLiteral("stateKey"), QStringLiteral("animals_v1"));
+        manager.applySnapshotForTest(kRoom, false,
+            { roomPack, pack(QStringLiteral("user"), QStringLiteral("user"),
+                             QStringLiteral("Mine"), {}) });
+        QCOMPARE(manager.shareLink(QStringLiteral("S")),
+                 QStringLiteral("https://matrix.to/#/%21abc%3Aexample.org?via=example.org"));
+        const QString text = manager.shareText(QStringLiteral("S"));
+        QVERIFY(text.contains(QStringLiteral("Animals")));
+        QVERIFY(text.contains(QStringLiteral("animals_v1")));
+        QVERIFY(text.contains(manager.shareLink(QStringLiteral("S"))));
+        QVERIFY(!text.contains(QStringLiteral("mxc://")));
+        QVERIFY(manager.shareText(QStringLiteral("user")).isEmpty());
+    }
+
     void shortcodeErrorsSayWhy()
     {
         FakeClient client;

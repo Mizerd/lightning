@@ -212,6 +212,17 @@ public:
     bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);
+    // -- Sharing ---------------------------------------------------------------
+    // Text to share a room or Space pack: its name, where it lives and a
+    // standard matrix.to room link (Matrix has no pack link; any client can
+    // open the room, and Lightning lists that room's packs to turn on). The
+    // exact pack key is named for people using other clients. "" for the
+    // personal pack, which has no room to share. No token, path or private
+    // data ever goes in (PACK-LIVE-020, PACK-PRO-058).
+    Q_INVOKABLE QString shareText(const QString &packId) const;
+    // The matrix.to link alone (room id, percent-encoded), or "".
+    Q_INVOKABLE QString shareLink(const QString &packId) const;
+
     // -- Two editors on one pack ---------------------------------------------
     // The pack's images as {key: "url\u001fbody"}, the editor's base when it
     // opens; comparePack() then says what changed since, from another device
