@@ -5553,6 +5553,18 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(shape(), QStringLiteral("30/1080"), 8000);
         gint before = 0;
         g_object_get(enc, "target-bitrate", &before, nullptr);
+        // One counter for the whole run, so a failure after the change can be
+        // told from a harness that never counted: frames must flow BEFORE it.
+        std::atomic<int> frames{0};
+        const gulong probe = gst_pad_add_probe(
+            pad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &frames, nullptr);
+        QTRY_VERIFY2_WITH_TIMEOUT(frames.load() >= 5,
+                                  "no frames before the change", 5000);
 
         engine.setShareQuality(720, 15, 0);
         QVERIFY(engine.applyShareQualityLive(cid));
@@ -5562,15 +5574,14 @@ private slots:
         QVERIFY2(after < before, "the encoder bitrate did not follow the "
                                  "smaller picture and lower rate");
         // Still delivering after the change.
-        std::atomic<int> frames{0};
-        const gulong probe = gst_pad_add_probe(
-            pad, GST_PAD_PROBE_TYPE_BUFFER,
-            [](GstPad *, GstPadProbeInfo *, gpointer data) {
-                static_cast<std::atomic<int> *>(data)->fetch_add(1);
-                return GST_PAD_PROBE_OK;
-            },
-            &frames, nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(frames.load() >= 3, 5000);
+        const int atChange = frames.load();
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            frames.load() >= atChange + 3,
+            qPrintable(QStringLiteral("frames stopped flowing after the "
+                                      "live change (%1 at the change, %2 "
+                                      "later)").arg(atChange)
+                           .arg(frames.load())),
+            6000);
         gst_pad_remove_probe(pad, probe);
 
         QVERIFY(!engine.applyShareQualityLive(QStringLiteral("no-such-cid")));
