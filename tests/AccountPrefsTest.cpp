@@ -11,6 +11,7 @@
 #include <QtTest/QtTest>
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -136,6 +137,28 @@ private Q_SLOTS:
         QCOMPARE(c.mediaPreviews(), QStringLiteral("on"));
         QVERIFY(!c.collapsesMedia(QStringLiteral("public"), false, false));
         QVERIFY(c.inviteAvatarsAllowed());
+    }
+
+    // Every message row asks the controller (fail-closed, join-rule policy)
+    // and no row re-implements the old "encrypted or DM" test; each timeline
+    // host hands its delegates the room's join rule.
+    void everyMessageRowAsksTheControllerWithTheJoinRule()
+    {
+        auto read = [](const char *name) {
+            QFile f(QStringLiteral(QML_DIR "/") + QLatin1String(name));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        };
+        const QString row = read("MessageDelegate.qml");
+        QVERIFY(!row.isEmpty());
+        const int at = row.indexOf(QStringLiteral("readonly property bool accountCollapsesMedia:"));
+        QVERIFY(at > 0);
+        const QString body = row.mid(at, 700);
+        QVERIFY(body.contains(QStringLiteral("prefs.collapsesMedia(root.roomJoinRule")));
+        QVERIFY(body.contains(QStringLiteral("prefs.mediaPreviewKnown")));
+        QVERIFY2(!body.contains(QStringLiteral("root.roomEncrypted || root.isDirectRoom")),
+                 "the old encrypted-or-DM meaning is back in the row");
+        for (const char *host : { "TimelinePane.qml", "ContextView.qml", "ThreadPanel.qml" })
+            QVERIFY2(read(host).contains(QStringLiteral("property string roomJoinRule")), host);
     }
 
     void theNonPublicMarkerIsReadKeptAndWrittenOnlyWhenChosen()

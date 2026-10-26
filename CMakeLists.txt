@@ -4461,6 +4461,8 @@ if(BUILD_TESTING)
         PREFIX "/qt/qml/MatrixClient"
         FILES data/emoji-catalog.tsv)
     target_include_directories(account-prefs-test PRIVATE src)
+    target_compile_definitions(account-prefs-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(account-prefs-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME account-prefs COMMAND account-prefs-test)
