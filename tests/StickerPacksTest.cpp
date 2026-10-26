@@ -1784,6 +1784,25 @@ private Q_SLOTS:
         QCOMPARE(QGuiApplication::clipboard()->text(), text);
     }
 
+    void aRoomV12PackLinkCarriesOurServerAsVia()
+    {
+        // Live run 2026-10-26: a room v12 id (`!<hash>`, no server part) gave
+        // a link with no via at all, which a non-member's client cannot use.
+        FakeClient client;
+        client.userId = QStringLiteral("@me:home.example");
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QVariantMap roomPack = pack(QStringLiteral("S"), QStringLiteral("room"),
+                                    QStringLiteral("Animals"), {});
+        roomPack.insert(QStringLiteral("roomId"),
+                        QStringLiteral("!Dp2CT8NYWhiEC8KsuPWW-HiDaK63465GNcjQmW6ATXw"));
+        roomPack.insert(QStringLiteral("stateKey"), QStringLiteral("animals"));
+        manager.applySnapshotForTest(kRoom, false, { roomPack });
+        QCOMPARE(manager.shareLink(QStringLiteral("S")),
+                 QStringLiteral("https://matrix.to/#/%21Dp2CT8NYWhiEC8KsuPWW-HiDaK63465GNcjQmW6ATXw"
+                                "?via=home.example"));
+    }
+
     void aPrivateImageIsUploadedOnlyAfterConfirmationAndNeverToAnotherAccount()
     {
         // PACK-PRO-041 / PACK-LTN-032 / PACK-UX-015/016: the manager fetches

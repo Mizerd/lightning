@@ -1788,9 +1788,13 @@ QString StickerPackManager::shareLink(const QString &packId) const
     const stickers::Pack &pack = m_packs->packs().at(row);
     if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
         return {};
-    // matrix.to percent-encodes the id; a via hint from the id's own server
-    // lets a non-member's client find the room.
-    const QString server = pack.roomId.section(QLatin1Char(':'), 1);
+    // matrix.to percent-encodes the id; a via hint lets a non-member's client
+    // find the room. The id's own server when it names one; a room v12 id
+    // names none (`!<hash>`), so our own server, which is in the room (live
+    // run 2026-10-26: the link went out with no via at all).
+    QString server = pack.roomId.section(QLatin1Char(':'), 1);
+    if (server.isEmpty() && m_client)
+        server = m_client->currentUserId().section(QLatin1Char(':'), 1);
     QString link = QStringLiteral("https://matrix.to/#/")
         + QString::fromUtf8(QUrl::toPercentEncoding(pack.roomId));
     if (!server.isEmpty())
