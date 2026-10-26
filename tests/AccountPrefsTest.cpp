@@ -503,20 +503,121 @@ private Q_SLOTS:
         EmojiCatalog catalog(&settings);
         FakePrefsClient client;
         AccountPrefsController c;
+        c.setRecentsRetryBaseMsForTest(40);   // retries at 40, then 80 ms
         c.setEmojiCatalog(&catalog);
         c.setClient(&client);
         Q_EMIT client.accountPrefRead(QStringLiteral("m.recent_emoji"), true,
             { { "recent_emoji", QVariantList{} } });
         catalog.recordUse(QStringLiteral("🎉"));
         QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 1, 5000);
-        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), false, QString());
+        QCOMPARE(c.recentsWriteAttempts(), 1);
+
+        // Three failures in a row: two retries are scheduled, the third
+        // failure schedules nothing (the cap), and it is never claimed synced.
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"),
+                                             false, QString());
+            QVERIFY(c.recentsWriteFailed());
+            if (attempt < 3) {
+                QVERIFY2(c.recentsRetryScheduled(),
+                         qPrintable(QStringLiteral("no retry after failure %1")
+                                        .arg(attempt)));
+                QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), attempt + 1, 2000);
+                QCOMPARE(c.recentsWriteAttempts(), attempt + 1);
+            }
+        }
+        QCOMPARE(client.writes.size(), 3);
+        QVERIFY2(!c.recentsRetryScheduled(),
+                 "a fourth attempt is scheduled after the third failure");
+        QCOMPARE(c.recentsWriteAttempts(), 3);
+        // Past the longest delay the cap could have produced (3 x 40 ms).
+        QTest::qWait(400);
+        QCOMPARE(client.writes.size(), 3);
         QVERIFY(c.recentsWriteFailed());
-        QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 2, 8000);
+
+        // A later use starts a new burst, and its success clears the failure.
+        catalog.recordUse(QStringLiteral("👍"));
+        QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 4, 5000);
+        QCOMPARE(c.recentsWriteAttempts(), 1);
         Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), true, QString());
         QVERIFY(!c.recentsWriteFailed());
-        QTest::qWait(500);
-        QCOMPARE(client.writes.size(), 2);
+        QVERIFY(!c.recentsRetryScheduled());
         settings.clearRecentEmoji();
+    }
+
+    // Review S2: the invite-policy switch must reflect the SERVER. A read that
+    // fails is unknown ("offline"), never "absent" (an empty store before the
+    // first sync used to read as allowed while the account blocked).
+    void aFailedInvitePolicyReadIsUnknownNotAllowed()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        Q_EMIT client.invitePolicySupportReceived(true, true, false);
+        Q_EMIT client.accountPrefReadFailed(QStringLiteral("m.invite_permission_config"),
+                                            QStringLiteral("timeout"));
+        Q_EMIT client.accountPrefRead(
+            QStringLiteral("org.matrix.msc4380.invite_permission_config"), false, {});
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("offline"));
+        c.setInvitesBlocked(true);
+        c.setInvitesBlocked(false);
+        QVERIFY2(client.writes.isEmpty(), "a write was composed from an unknown policy");
+
+        // The server's answer: the account blocks, with a field we do not own.
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), true,
+            { { "default_action", "block" }, { "future", "keep" } });
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("ready"));
+        QVERIFY(c.invitesBlocked());
+        c.setInvitesBlocked(false);
+        QCOMPARE(client.writes.size(), 1);
+        QVERIFY(!client.writes.at(0).second.contains("default_action"));
+        QCOMPARE(client.writes.at(0).second.value("future").toString(),
+                 QStringLiteral("keep"));
+    }
+
+    // Review S2: after a confirmed write, a read that was already in flight
+    // (the old value) must not snap the switch back; the next toggle is
+    // composed from the confirmed content.
+    void aConfirmedInviteWriteIsHeldAgainstAStaleRead()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        Q_EMIT client.invitePolicySupportReceived(true, true, false);
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), false, {});
+        Q_EMIT client.accountPrefRead(
+            QStringLiteral("org.matrix.msc4380.invite_permission_config"), false, {});
+        QCOMPARE(c.invitePolicyState(), QStringLiteral("ready"));
+        c.setInvitesBlocked(true);
+        QCOMPARE(client.writes.size(), 1);
+        client.reads.clear();
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.invite_permission_config"),
+                                         true, QString());
+        QVERIFY(!c.invitePolicyPending());
+        QVERIFY2(c.invitesBlocked(), "a confirmed block is not shown at once");
+        QVERIFY(client.reads.contains(QStringLiteral("m.invite_permission_config")));
+
+        // The stale read lands: the switch stays, and the server is asked again.
+        client.reads.clear();
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), false, {});
+        QVERIFY2(c.invitesBlocked(), "a stale read snapped the switch back");
+        QCOMPARE(client.reads, QStringList{ QStringLiteral("m.invite_permission_config") });
+
+        // The next toggle is built from the confirmed content.
+        client.writes.clear();
+        c.setInvitesBlocked(false);
+        QCOMPARE(client.writes.size(), 1);
+        QVERIFY(!client.writes.at(0).second.contains("default_action"));
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.invite_permission_config"),
+                                         true, QString());
+        QVERIFY(!c.invitesBlocked());
+
+        // An agreeing read releases the hold; a later change from elsewhere
+        // is then adopted.
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), true, {});
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.invite_permission_config"), true,
+            { { "default_action", "block" } });
+        QVERIFY(c.invitesBlocked());
     }
 };
 
