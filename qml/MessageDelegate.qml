@@ -6951,24 +6951,22 @@ Item {
                 border.color: AppTheme.border
                 border.width: 1
                 visible: videoBox.showPlaceholder
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: AppTheme.spacing8
-                    Icon {
-                        name: "videocam"
-                        size: 28
-                        color: AppTheme.textMuted
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-                    Label {
-                        text: model.mediaFilename || model.body || qsTr("Video")
-                        textFormat: Text.PlainText
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                        elide: Label.ElideMiddle
-                        Layout.maximumWidth: videoBox.dispW - 48
-                        Layout.alignment: Qt.AlignHCenter
-                    }
+                // The name sits low, clear of the centred play circle (and
+                // the resume chip under it) and above the duration chip. It
+                // and a centred type icon used to share the play circle's
+                // pixels: live, the filename ran through the button.
+                Label {
+                    objectName: "videoPlaceholderName"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 30
+                    width: Math.min(implicitWidth, videoBox.dispW - 48)
+                    horizontalAlignment: Text.AlignHCenter
+                    text: model.mediaFilename || model.body || qsTr("Video")
+                    textFormat: Text.PlainText
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    elide: Label.ElideMiddle
                 }
             }
             Skeleton {

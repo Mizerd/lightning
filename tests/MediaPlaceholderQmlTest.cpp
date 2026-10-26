@@ -529,6 +529,46 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
+    // Live 2026-10-26: the placeholder's filename (and a type icon) were
+    // centred on the same pixels as the play circle, so the name ran through
+    // the button. The name must sit clear of the circle.
+    void thePlaceholderNameDoesNotRunThroughThePlayButton()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaDurationMs"), 90000);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("F3-no-thumbnail-8MB.mp4"));
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral("F3-no-thumbnail-8MB.mp4"));
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        auto *name = video->findChild<QQuickItem *>(
+            QStringLiteral("videoPlaceholderName"));
+        auto *glyph = video->findChild<QQuickItem *>(
+            QStringLiteral("videoCoverGlyph"));
+        QVERIFY(name != nullptr && name->isVisible());
+        QVERIFY(glyph != nullptr);
+        QQuickItem *circle = glyph->parentItem();
+        const QRectF n(name->mapToItem(video, QPointF(0, 0)),
+                       QSizeF(name->width(), name->height()));
+        const QRectF c(circle->mapToItem(video, QPointF(0, 0)),
+                       QSizeF(circle->width(), circle->height()));
+        QVERIFY2(!n.intersects(c),
+                 qPrintable(QStringLiteral("name %1,%2 %3x%4 overlaps the play "
+                                           "circle %5,%6 %7x%8")
+                     .arg(n.x()).arg(n.y()).arg(n.width()).arg(n.height())
+                     .arg(c.x()).arg(c.y()).arg(c.width()).arg(c.height())));
+        QVERIFY(n.bottom() <= video->height());
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // A portrait video never renders as a narrow strip, and every player
     // control stays reachable at the minimum card width.
     void portraitVideoControlsRemainReachable()
