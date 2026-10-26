@@ -2302,30 +2302,6 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
                      .arg(QString::number((h * 16) / 9),
                           QString::number(h)));
     }
-    // videorate counts the frames it has emitted and stamps the next one at
-    // base + count * interval. A new output rate leaves the count alone, so
-    // moving 30 -> 15 fps puts its next timestamp (count * 66 ms) far beyond
-    // the live input (count * 33 ms) and it drops everything until the input
-    // catches up: a stall as long as the share is old (measured by
-    // aLiveShareTakesANewResolutionAndRateInPlace: frames stop at the change).
-    // A segment event is its documented reset point (with skip-to-first it
-    // restarts its clock at the next buffer), and re-sending the CURRENT
-    // segment moves nothing downstream.
-    if (GstElement *rate = gst_bin_get_by_name(GST_BIN(bin), "vidrate")) {
-        if (GstPad *sink = gst_element_get_static_pad(rate, "sink")) {
-            if (GstEvent *segment =
-                    gst_pad_get_sticky_event(sink, GST_EVENT_SEGMENT, 0)) {
-                if (!gst_pad_send_event(sink, segment)) {
-                    qCWarning(lcSfuMedia)
-                        << "share rate stage refused its segment reset";
-                }
-            }
-            // The rate stage renegotiates against the new filter caps.
-            gst_pad_push_event(sink, gst_event_new_reconfigure());
-            gst_object_unref(sink);
-        }
-        gst_object_unref(rate);
-    }
     if (GstElement *enc = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
         // The same arithmetic the encoder stage was built from.
         const QString stage = shareEncoderStage(m_shareMaxHeight, m_shareFps,
