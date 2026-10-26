@@ -8022,11 +8022,12 @@ pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_migrate_user_pack(
     ptr: *mut c_void,
+    start_new: bool,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        stickers::migrate_user_pack(bridge, op_id).map(|_| String::new())
+        stickers::migrate_user_pack(bridge, op_id, start_new).map(|_| String::new())
     })
 }
 

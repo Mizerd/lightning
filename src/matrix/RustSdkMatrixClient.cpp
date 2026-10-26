@@ -4652,14 +4652,14 @@ void RustSdkMatrixClient::sendSticker(const QString &roomId,
     }
 }
 
-void RustSdkMatrixClient::migrateUserStickerPack(quint64 opId)
+void RustSdkMatrixClient::migrateUserStickerPack(quint64 opId, bool startNew)
 {
     if (!m_loggedIn || !m_rustHandle) {
         Q_EMIT stickerPackMigrated(opId, false, QStringLiteral("rejected"), {});
         return;
     }
     const QString result =
-        takeRustString(mx_rust_stickers_migrate_user_pack(m_rustHandle, opId));
+        takeRustString(mx_rust_stickers_migrate_user_pack(m_rustHandle, startNew, opId));
     if (!result.isEmpty())
         Q_EMIT stickerPackMigrated(opId, false, QStringLiteral("rejected"), {});
 }

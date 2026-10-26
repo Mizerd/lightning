@@ -1131,7 +1131,10 @@ char *mx_rust_stickers_fetch_packs(void *client,
  * Answers {"type":"sticker_pack_migration","op_id","ok","category",
  * "room_id","created","duplicates","packs","invalid","subscribed"}.
  */
-char *mx_rust_stickers_migrate_user_pack(void *client, unsigned long long op_id);
+/* `start_new`: the user chose to start a new pack room after being told the
+ * old one is no longer joined ("home_unavailable"). */
+char *mx_rust_stickers_migrate_user_pack(void *client, bool start_new,
+                                         unsigned long long op_id);
 char *mx_rust_stickers_create_room_pack(void *client,
                                         const char *room_id,
                                         const char *state_key,

@@ -206,7 +206,9 @@ public:
     // Runs it (creates the private "My emoji and stickers" room the first
     // time, writes the packs, subscribes). Reports on migrationFinished. The
     // older pack is left as it is.
-    Q_INVOKABLE void migrateUserPack();
+    // `startNew` only after a home_unavailable answer, when the user chose to
+    // start a new pack room rather than rejoin the old one.
+    Q_INVOKABLE void migrateUserPack(bool startNew = false);
     bool migrating() const { return m_migrateOp != 0; }
     // Pack-wide usage of a STABLE pack ("emoticon" | "sticker" | "both").
     Q_INVOKABLE void setPackUsage(const QString &packId, const QString &usage);

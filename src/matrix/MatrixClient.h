@@ -652,7 +652,12 @@ public:
     // Copy the legacy personal pack into standard packs in the account's
     // private pack-home room and subscribe to them. Reports on
     // stickerPackMigrated.
-    virtual void migrateUserStickerPack(quint64 opId) { Q_UNUSED(opId); }
+    // `startNew`: create a new pack room even though the recorded one is no
+    // longer joined (only after the user chose it; see home_unavailable).
+    virtual void migrateUserStickerPack(quint64 opId, bool startNew)
+    {
+        Q_UNUSED(opId); Q_UNUSED(startNew);
+    }
     // Create a new, empty stable room pack (m.room.image_pack) under
     // `stateKey`. Reports on stickerPackEditFinished (shortcode = state key).
     virtual void createStickerRoomPack(const QString &roomId,

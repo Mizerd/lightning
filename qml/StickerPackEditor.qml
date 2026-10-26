@@ -97,6 +97,9 @@ Dialog {
     property bool confirmingDelete: false
     /// Move to standard packs takes two clicks; the second shows the plan.
     property bool confirmingMigrate: false
+    /// The last move answered that the pack room was left: offer to start a
+    /// new one (an explicit choice, never automatic).
+    property bool homeUnavailable: false
 
     // Export / import outcomes, in the same notice line as an edit's.
     Connections {
@@ -133,6 +136,7 @@ Dialog {
         target: root.stickers
         function onMigrationFinished(ok, category, detail) {
             root.noticeIsError = !ok
+            root.homeUnavailable = !ok && category === "home_unavailable"
             if (ok)
                 root.notice = qsTr("Copied into %n standard pack(s) and turned "
                                    + "on everywhere. Your older pack is still "
@@ -145,6 +149,10 @@ Dialog {
             else if (category === "forbidden")
                 root.notice = qsTr("Your server did not allow creating the "
                                    + "room. Your older pack still works.")
+            else if (category === "home_unavailable")
+                root.notice = qsTr("You left the room that held your "
+                                   + "standard packs. Rejoin it to keep "
+                                   + "using it, or start a new pack room.")
             else if (category === "no_images")
                 root.notice = qsTr("There is nothing to copy yet.")
             else
@@ -325,6 +333,18 @@ Dialog {
                         } else {
                             root.confirmingMigrate = true
                         }
+                    }
+                }
+                AppButton {
+                    objectName: "stickerPackStartNewHomeButton"
+                    visible: root.homeUnavailable && !root.confirmingMigrate
+                    text: qsTr("Start a new pack room")
+                    kind: "ghost"
+                    size: "sm"
+                    enabled: !root.busy && root.stickers && !root.stickers.migrating
+                    onClicked: {
+                        root.homeUnavailable = false
+                        root.stickers.migrateUserPack(true)
                     }
                 }
                 AppButton {

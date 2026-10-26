@@ -721,7 +721,7 @@ QVariantMap StickerPackManager::userPackMigrationPreview() const
     };
 }
 
-void StickerPackManager::migrateUserPack()
+void StickerPackManager::migrateUserPack(bool startNew)
 {
     if (!m_client || !available() || m_migrateOp != 0 || m_editOp != 0
         || m_transfer.active)
@@ -729,7 +729,7 @@ void StickerPackManager::migrateUserPack()
     if (m_packs->indexOfPack(QStringLiteral("user")) < 0)
         return;
     m_migrateOp = m_nextOpId++;
-    m_client->migrateUserStickerPack(m_migrateOp);
+    m_client->migrateUserStickerPack(m_migrateOp, startNew);
     emitStateChanged();
 }
 

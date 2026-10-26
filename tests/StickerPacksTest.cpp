@@ -122,10 +122,12 @@ public:
     }
     int migrateCalls = 0;
     quint64 lastMigrateOp = 0;
-    void migrateUserStickerPack(quint64 opId) override
+    bool lastMigrateStartNew = false;
+    void migrateUserStickerPack(quint64 opId, bool startNew) override
     {
         ++migrateCalls;
         lastMigrateOp = opId;
+        lastMigrateStartNew = startNew;
     }
     int createCalls = 0;
     QString createRoom, createKey, createName, createUsage;
@@ -1528,8 +1530,12 @@ private Q_SLOTS:
                                           { { QStringLiteral("packs"), 2 } });
         QCOMPARE(done.count(), 1);
         QVERIFY(!manager.migrating());
+        QVERIFY(!client.lastMigrateStartNew);
         // Part-way still re-reads, so the packs that did land show up.
         QCOMPARE(client.fetchCalls, fetches + 1);
+        // The explicit "start a new pack room" choice reaches the backend.
+        manager.migrateUserPack(true);
+        QVERIFY(client.lastMigrateStartNew);
     }
 
     void shortcodeErrorsSayWhy()

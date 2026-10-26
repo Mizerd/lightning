@@ -2916,13 +2916,21 @@ pub(crate) enum HomeDecision {
     Refuse(String),
 }
 
-pub(crate) fn plan_pack_home(journal: &PackRead, journal_joined: bool, marked: &[String]) -> HomeDecision {
+/// `start_new` is the user's explicit "start a new pack room" after being
+/// told the old one is gone (`home_unavailable`): only then may a journal
+/// naming a left room lead to a new room. A failed read still refuses.
+pub(crate) fn plan_pack_home(
+    journal: &PackRead,
+    journal_joined: bool,
+    marked: &[String],
+    start_new: bool,
+) -> HomeDecision {
     match journal {
         PackRead::Failed(category) => HomeDecision::Refuse(category.clone()),
         PackRead::Found(_) if journal_joined => HomeDecision::UseJournal,
         _ => match marked.first() {
             Some(room) => HomeDecision::UseMarked(room.clone()),
-            None if *journal == PackRead::Absent => HomeDecision::Create,
+            None if *journal == PackRead::Absent || start_new => HomeDecision::Create,
             None => HomeDecision::Refuse("home_unavailable".to_owned()),
         },
     }
@@ -2933,7 +2941,10 @@ pub(crate) fn plan_pack_home(journal: &PackRead, journal_joined: bool, marked: &
 /// the marker (a create whose response was lost, or another device's); else
 /// create one, writing the journal right after. Returns (room id, created,
 /// duplicate count).
-async fn ensure_pack_home(client: &matrix_sdk::Client) -> Result<(String, bool, usize), String> {
+async fn ensure_pack_home(
+    client: &matrix_sdk::Client,
+    start_new: bool,
+) -> Result<(String, bool, usize), String> {
     use matrix_sdk::ruma::api::client::room::create_room;
     use matrix_sdk::ruma::api::client::room::Visibility;
 
@@ -2955,7 +2966,7 @@ async fn ensure_pack_home(client: &matrix_sdk::Client) -> Result<(String, bool, 
     let journal_joined = journal_room
         .as_deref()
         .is_some_and(|id| joined_room(client, id).is_ok());
-    match plan_pack_home(&journal, journal_joined, &marked) {
+    match plan_pack_home(&journal, journal_joined, &marked, start_new) {
         HomeDecision::UseJournal => {
             return Ok((journal_room.unwrap_or_default(), false, duplicates));
         }
@@ -3007,7 +3018,11 @@ async fn ensure_pack_home(client: &matrix_sdk::Client) -> Result<(String, bool, 
 ///
 /// Answers `sticker_pack_migration { op_id, lifecycle, ok, category,
 /// room_id, created, duplicates, packs, invalid, subscribed }`.
-pub(crate) fn migrate_user_pack(bridge: &RustClient, op_id: u64) -> Result<(), String> {
+pub(crate) fn migrate_user_pack(
+    bridge: &RustClient,
+    op_id: u64,
+    start_new: bool,
+) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
@@ -3044,7 +3059,7 @@ pub(crate) fn migrate_user_pack(bridge: &RustClient, op_id: u64) -> Result<(), S
             if plan.packs.is_empty() {
                 return Err("no_images".to_owned());
             }
-            let (room_id, created, duplicates) = ensure_pack_home(&client).await?;
+            let (room_id, created, duplicates) = ensure_pack_home(&client, start_new).await?;
             report["room_id"] = json!(room_id);
             report["created"] = json!(created);
             report["duplicates"] = json!(duplicates);
@@ -4482,18 +4497,24 @@ mod tests {
         // Review S1: an unreadable journal read as "none", so a timeout could
         // create a second home room.
         let marked = vec!["!home:e".to_owned()];
-        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &[]),
+        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &[], false),
                    HomeDecision::Refuse("network".into()));
-        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &marked),
+        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &marked, false),
                    HomeDecision::Refuse("network".into()));
-        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), true, &marked),
+        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), true, &marked, false),
                    HomeDecision::UseJournal);
-        assert_eq!(plan_pack_home(&PackRead::Absent, false, &marked),
+        assert_eq!(plan_pack_home(&PackRead::Absent, false, &marked, false),
                    HomeDecision::UseMarked("!home:e".into()));
-        assert_eq!(plan_pack_home(&PackRead::Absent, false, &[]), HomeDecision::Create);
+        assert_eq!(plan_pack_home(&PackRead::Absent, false, &[], false), HomeDecision::Create);
         // The journal names a room the account left: no silent second room.
-        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), false, &[]),
+        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), false, &[], false),
                    HomeDecision::Refuse("home_unavailable".into()));
+        // ...unless the user, told so, chose to start a new pack room. A
+        // failed read still refuses even then.
+        assert_eq!(plan_pack_home(&PackRead::Found(json!({ "room_id": "!j:e" })), false, &[], true),
+                   HomeDecision::Create);
+        assert_eq!(plan_pack_home(&PackRead::Failed("network".into()), false, &[], true),
+                   HomeDecision::Refuse("network".into()));
     }
 
     // ---- remembering a server "not found" -------------------------------
