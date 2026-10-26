@@ -507,10 +507,10 @@ private Q_SLOTS:
             { { "recent_emoji", QVariantList{} } });
         catalog.recordUse(QStringLiteral("🎉"));
         QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 1, 5000);
-        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), false);
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), false, QString());
         QVERIFY(c.recentsWriteFailed());
         QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 2, 8000);
-        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), true);
+        Q_EMIT client.accountPrefWritten(QStringLiteral("m.recent_emoji"), true, QString());
         QVERIFY(!c.recentsWriteFailed());
         QTest::qWait(500);
         QCOMPARE(client.writes.size(), 2);
