@@ -646,8 +646,8 @@ public:
     // user. Always false in the Lightning preset.
     Q_INVOKABLE bool presetSuppliesValue(const QString &property) const;
     // Settings sync and the layout preset: what syncs is the LIGHTNING
-    // configuration of the synced presentation keys (messageLayout,
-    // messageSpacing), never a value the selected preset supplied, so picking
+    // configuration of the presentation keys (messageLayout,
+    // messageSpacing, threadPlacement), never a value the selected preset supplied, so picking
     // Nheko compact on one device cannot restyle another device's ordinary
     // layout. Invalid QVariant for any other name.
     QVariant lightningPresentationValue(const QString &property) const;

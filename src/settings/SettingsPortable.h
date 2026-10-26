@@ -22,6 +22,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+class SettingsManager;
+
 namespace settingsport {
 
 enum class Kind { Bool, Int, String, StringList };
@@ -65,6 +67,18 @@ Checked check(const Field &field, const QVariant &raw);
 // that fails on the way in is returned in `rejected` and not written.
 QVariantMap readProperties(const QObject *object, int flag);
 QStringList writeProperties(QObject *object, const QVariantMap &values);
+
+// The same for a SettingsManager, with the layout preset kept LOCAL: the
+// presentation keys a preset can supply (messageLayout, messageSpacing,
+// threadPlacement) are read and written as the stored LIGHTNING configuration,
+// never as the values the selected preset answers. layoutPreset itself travels
+// as an ordinary field. Settings sync, export, the import preview and the
+// import (and its rollback) all go through these, so a file exported or a
+// value synced under Nheko compact restores the Lightning layout plus the
+// preset choice, and never lands as a preset override.
+QStringList presentationKeys();
+QVariantMap readSettings(const SettingsManager *settings, int flag);
+QStringList writeSettings(SettingsManager *settings, const QVariantMap &values);
 
 // ---- settings file ---------------------------------------------------------
 

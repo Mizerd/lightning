@@ -1,5 +1,7 @@
 #include "settings/SettingsPortable.h"
 
+#include "app/SettingsManager.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -210,6 +212,50 @@ QStringList writeProperties(QObject *object, const QVariantMap &values)
             || !object->setProperty(f->name.toUtf8().constData(), check(*f, it.value()).value))
             failed.append(it.key());
     }
+    return failed;
+}
+
+QStringList presentationKeys()
+{
+    return { QStringLiteral("messageLayout"), QStringLiteral("messageSpacing"),
+             QStringLiteral("threadPlacement") };
+}
+
+QVariantMap readSettings(const SettingsManager *settings, int flag)
+{
+    QVariantMap out = readProperties(settings, flag);
+    if (!settings)
+        return out;
+    for (const QString &name : presentationKeys()) {
+        if (!out.contains(name))
+            continue;   // not in this flag's set
+        const Field *f = find(name);
+        const QVariant lightning = settings->lightningPresentationValue(name);
+        const Checked c = f ? check(*f, lightning) : Checked{};
+        if (c.ok)
+            out.insert(name, c.value);
+    }
+    return out;
+}
+
+QStringList writeSettings(SettingsManager *settings, const QVariantMap &values)
+{
+    if (!settings)
+        return values.keys();
+    QVariantMap rest = values;
+    QStringList failed;
+    for (const QString &name : presentationKeys()) {
+        const auto it = rest.constFind(name);
+        if (it == rest.constEnd())
+            continue;
+        const Field *f = find(name);
+        if (!f || !check(*f, it.value()).ok
+            || !settings->setLightningPresentationValue(
+                   name, check(*f, it.value()).value))
+            failed.append(name);
+        rest.remove(name);
+    }
+    failed += writeProperties(settings, rest);
     return failed;
 }
 

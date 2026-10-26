@@ -687,6 +687,59 @@ private Q_SLOTS:
         QCOMPARE(detectLocalChanges(local, again, 500).pending.value("textScale"), 99LL);
     }
 
+    // A file exported (or a value synced) under Nheko compact must carry the
+    // stored LIGHTNING layout plus the preset choice -- not the values the
+    // preset answers -- so importing it restores the same split and does not
+    // turn the preset's own values into "customized" overrides. Before
+    // readSettings, export read the getters and carried Small avatars as the
+    // message layout.
+    void exportUnderAPresetCarriesTheLightningLayoutAndThePreset()
+    {
+        QSettings().clear();
+        QVariantMap exported;
+        {
+            SettingsManager settings;
+            settings.setMessageLayout(1);
+            settings.setMessageSpacing(SettingsManager::kSpacingRoomy);
+            settings.setThreadPlacement(SettingsManager::kThreadPlacementSide);
+            settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+            QCOMPARE(settings.messageLayout(),
+                     SettingsManager::kMessageLayoutSmallAvatars);
+            QVERIFY(!settings.layoutPresetCustomized());
+            exported = readSettings(&settings, Export);
+        }
+        QCOMPARE(exported.value(QStringLiteral("layoutPreset")).toInt(), 1);
+        QCOMPARE(exported.value(QStringLiteral("messageLayout")).toInt(), 1);
+        QCOMPARE(exported.value(QStringLiteral("messageSpacing")).toInt(),
+                 int(SettingsManager::kSpacingRoomy));
+        QCOMPARE(exported.value(QStringLiteral("threadPlacement")).toInt(),
+                 int(SettingsManager::kThreadPlacementSide));
+        // The plain property read is what used to be exported.
+        {
+            SettingsManager settings;
+            QCOMPARE(readProperties(&settings, Export)
+                         .value(QStringLiteral("messageLayout")).toInt(),
+                     int(SettingsManager::kMessageLayoutSmallAvatars));
+        }
+
+        // Import into a fresh profile, keys in any order.
+        QSettings().clear();
+        SettingsManager fresh;
+        QVERIFY(writeSettings(&fresh, exported).isEmpty());
+        QCOMPARE(fresh.layoutPreset(), 1);
+        QVERIFY2(!fresh.layoutPresetCustomized(),
+                 "an imported Lightning layout must not become a preset override");
+        QCOMPARE(fresh.messageLayout(),
+                 SettingsManager::kMessageLayoutSmallAvatars);
+        fresh.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
+        QCOMPARE(fresh.messageLayout(), 1);
+        QCOMPARE(fresh.messageSpacing(), SettingsManager::kSpacingRoomy);
+        QCOMPARE(fresh.threadPlacement(), SettingsManager::kThreadPlacementSide);
+
+        // And outside a preset the helpers are the ordinary properties.
+        QCOMPARE(readSettings(&fresh, Export), readProperties(&fresh, Export));
+    }
+
     void theStateSurvivesItsOwnJson()
     {
         State st;

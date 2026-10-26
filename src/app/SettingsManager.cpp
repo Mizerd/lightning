@@ -1951,6 +1951,19 @@ QVariant SettingsManager::lightningPresentationValue(
         return (stored < kSpacingCompact || stored > kSpacingRoomy)
             ? kSpacingCozy : stored;
     }
+    if (property == QLatin1String("threadPlacement")) {
+        // The Lightning placement: its stored choice, else derived from the
+        // thread style exactly as threadPlacement() does outside a preset.
+        const QVariant stored =
+            appearanceValueUnannounced(kThreadPlacement, QVariant());
+        bool ok = false;
+        const int value = stored.isValid() ? stored.toInt(&ok) : -1;
+        if (ok && (value == kThreadPlacementSide
+                   || value == kThreadPlacementMain))
+            return value;
+        return threadStyle() == kThreadStyleInline ? kThreadPlacementMain
+                                                   : kThreadPlacementSide;
+    }
     return {};
 }
 
@@ -1965,6 +1978,10 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         }
         if (property == QLatin1String("messageSpacing")) {
             setMessageSpacing(value.toInt());
+            return true;
+        }
+        if (property == QLatin1String("threadPlacement")) {
+            setThreadPlacement(value.toInt());
             return true;
         }
         return false;
@@ -1983,6 +2000,12 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         if (mode < kSpacingCompact || mode > kSpacingRoomy)
             mode = kSpacingCozy;
         setAppearanceValueUnannounced(kMessageSpacing, mode);
+        return true;
+    }
+    if (property == QLatin1String("threadPlacement")) {
+        const int placement = value.toInt() == kThreadPlacementMain
+            ? kThreadPlacementMain : kThreadPlacementSide;
+        setAppearanceValueUnannounced(kThreadPlacement, placement);
         return true;
     }
     return false;

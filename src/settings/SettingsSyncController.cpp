@@ -300,18 +300,9 @@ void SettingsSyncController::persistState()
 
 QVariantMap SettingsSyncController::localView() const
 {
-    QVariantMap local = readProperties(m_settings.data(), Sync);
     // The layout preset is a local profile: what syncs is the Lightning
     // configuration, never a value the selected preset supplies.
-    if (m_settings) {
-        for (const QString &name : { QStringLiteral("messageLayout"),
-                                     QStringLiteral("messageSpacing") }) {
-            if (local.contains(name))
-                local.insert(name,
-                             m_settings->lightningPresentationValue(name));
-        }
-    }
-    return local;
+    return readSettings(m_settings.data(), Sync);
 }
 
 // ---- sync ------------------------------------------------------------------
@@ -497,15 +488,7 @@ void SettingsSyncController::applyMerge(const MergeResult &r, const ParsedBlob &
         m_applying = true;
         // Presentation keys land in the Lightning configuration, never in the
         // selected layout preset's profile (see localView).
-        QVariantMap values = r.applyLocal;
-        for (const QString &name : { QStringLiteral("messageLayout"),
-                                     QStringLiteral("messageSpacing") }) {
-            const auto it = values.constFind(name);
-            if (it != values.constEnd() && m_settings
-                && m_settings->setLightningPresentationValue(name, it.value()))
-                values.remove(name);
-        }
-        const QStringList failed = writeProperties(m_settings.data(), values);
+        const QStringList failed = writeSettings(m_settings.data(), r.applyLocal);
         m_applying = false;
         if (!failed.isEmpty())
             qCWarning(lcSettingsSync) << "settings sync could not apply" << failed.size() << "value(s)";
@@ -700,7 +683,7 @@ QString SettingsSyncController::exportSettings(const QUrl &file)
         return tr("Choose a file to save to.");
 
     Document doc;
-    doc.settings = readProperties(m_settings.data(), Export);
+    doc.settings = readSettings(m_settings.data(), Export);
     doc.app = QCoreApplication::applicationVersion();
     if (m_shortcuts) {
         for (int row = 0; row < m_shortcuts->rowCount() && doc.shortcuts.size() < kMaxShortcuts; ++row) {
@@ -767,7 +750,7 @@ QVariantMap SettingsSyncController::previewImport(const QUrl &file)
         parsed.rejected.insert(QStringLiteral("theme"), QStringLiteral("needs_custom_theme"));
     }
 
-    const QVariantMap current = readProperties(m_settings.data(), Export);
+    const QVariantMap current = readSettings(m_settings.data(), Export);
     QVariantList changes;
     for (const Change &c : diff(current, parsed.doc.settings)) {
         QVariantMap row;
@@ -843,7 +826,7 @@ QVariantMap SettingsSyncController::applyImport()
 
     // Everything in `parsed` has already passed check(). Applied in one go; a
     // value the setter then refuses puts every earlier one back.
-    const QVariantMap before = readProperties(m_settings.data(), Export);
+    const QVariantMap before = readSettings(m_settings.data(), Export);
 
     int themesAdded = 0;
     QStringList addedIds;
@@ -875,9 +858,9 @@ QVariantMap SettingsSyncController::applyImport()
     const int changedCount = int(diff(before, parsed.doc.settings).size());
 
     m_applying = true;
-    const QStringList failed = writeProperties(m_settings.data(), parsed.doc.settings);
+    const QStringList failed = writeSettings(m_settings.data(), parsed.doc.settings);
     if (!failed.isEmpty()) {
-        writeProperties(m_settings.data(), before);
+        writeSettings(m_settings.data(), before);
         for (const QString &id : addedIds)
             m_themes->deleteTheme(id);
         m_applying = false;
