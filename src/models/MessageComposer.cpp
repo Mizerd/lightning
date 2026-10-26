@@ -912,8 +912,7 @@ QString MessageComposer::convertUnicodeShortcodesForSend(const QString &text) co
         out += text.mid(last, start - last);
         const QString code = m.captured(1);
         QString emoji;
-        const bool shadowedByCustomPack =
-            m_emoticonResolver && !m_emoticonResolver(code).isEmpty();
+        const bool shadowedByCustomPack = customShortcodeExists(code);
         if (!shadowedByCustomPack && !insideCode(text, start))
             emoji = m_unicodeShortcodeResolver(code);
         if (!emoji.isEmpty()) {
@@ -1313,7 +1312,7 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
     // A custom pack shortcode of the same name wins; this flag only auto-
     // converts Unicode aliases and must not shadow the existing
     // `:shortcode:`-stays-literal-until-send custom behaviour.
-    if (m_emoticonResolver && !m_emoticonResolver(code).isEmpty())
+    if (customShortcodeExists(code))
         return {};
     const QString emoji = m_unicodeShortcodeResolver(code);
     if (emoji.isEmpty())
@@ -1435,6 +1434,35 @@ bool MessageComposer::bindEmoticonAt(int start, const QVariantMap &entry)
     return true;
 }
 
+bool MessageComposer::customShortcodeExists(const QString &code) const
+{
+    // A custom image named `code` keeps the Unicode alias from replacing the
+    // text: chosen (a selection), resolvable (unique), or merely present in
+    // more than one pack (ambiguous, so it stays literal rather than turning
+    // into a Unicode glyph nobody chose). Live run 2026-10-26: a chosen
+    // `:wave:` from a pack went out as U+1F44B because the ambiguity check
+    // had made the unique resolver answer "".
+    const QString text = QLatin1Char(':') + code + QLatin1Char(':');
+    for (const EmoticonRef &ref : m_emoticonRefs) {
+        if (ref.displayText == text)
+            return true;
+    }
+    if (m_emoticonResolver && !m_emoticonResolver(code).isEmpty())
+        return true;
+    if (m_emoticonSearch) {
+        for (const QVariant &row : m_emoticonSearch(code, kMaxEmojiCompletions)) {
+            const QVariantMap map = row.toMap();
+            if (map.value(QStringLiteral("kind")).toString() == QLatin1String("unicode"))
+                continue;
+            const QString key = map.value(QStringLiteral("key"),
+                                          map.value(QStringLiteral("shortcode"))).toString();
+            if (key == code)
+                return true;
+        }
+    }
+    return false;
+}
+
 QVariantList MessageComposer::selectedEmoticons() const
 {
     QVariantList out;
@@ -1524,7 +1552,7 @@ int MessageComposer::maybeAutoConvertShortcodeBeforeCursor(int cursorPos)
     // A custom pack shortcode of the same name wins; this flag only auto-
     // converts Unicode aliases and must not shadow the existing
     // `:shortcode:`-stays-literal-until-send custom behaviour.
-    if (m_emoticonResolver && !m_emoticonResolver(code).isEmpty())
+    if (customShortcodeExists(code))
         return -1;
     const QString emoji = m_unicodeShortcodeResolver(code);
     if (emoji.isEmpty())

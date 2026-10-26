@@ -514,6 +514,7 @@ private:
     static QList<EmoticonRef> shiftEmoticonRefs(const QList<EmoticonRef> &refs,
                                                 const QString &oldText,
                                                 const QString &newText);
+    bool customShortcodeExists(const QString &code) const;
     // ":shortcode:" -> {url, body} for the live selections.
     QVariantMap selectedEmoticonMap() const;
     void applyOutgoingEmojiWith(QString &body, QVariantMap &bodySpec,

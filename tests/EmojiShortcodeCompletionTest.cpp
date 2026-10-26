@@ -418,6 +418,36 @@ private Q_SLOTS:
                  QStringLiteral("mxc://x/2"));
     }
 
+    void aChosenOrAmbiguousCustomNameIsNeverTurnedIntoAUnicodeGlyph()
+    {
+        // Live run 2026-10-26: a pack image named `wave` chosen from the popup
+        // was sent as U+1F44B, because the Unicode pass asked only the
+        // (now unique-only) resolver whether a custom image owned the name.
+        m_composer->setEmoticonSearch([](const QString &prefix, int) {
+            QVariantList out;
+            if (QStringLiteral("thumbsup").startsWith(prefix))
+                out.append(QVariantMap{ { QStringLiteral("key"), QStringLiteral("thumbsup") },
+                                        { QStringLiteral("shortcode"), QStringLiteral("thumbsup") },
+                                        { QStringLiteral("url"), QStringLiteral("mxc://x/9") } });
+            return out;
+        });
+        // Two packs own it: the unique resolver answers nothing.
+        m_composer->setEmoticonResolver([](const QString &) { return QString(); });
+        m_composer->setText(QStringLiteral("typed :thumbsup:"));
+        m_composer->send();
+        QCOMPARE(m_client->sentBodies.last(), QStringLiteral("typed :thumbsup:"));
+
+        m_composer->setText(QStringLiteral("chosen :thumbs"));
+        m_composer->acceptEmoticonCompletionAt(
+            14, row(QStringLiteral("thumbsup"), QStringLiteral("mxc://x/9"), QString()));
+        m_composer->send();
+        QCOMPARE(m_client->sentBodies.last(), QStringLiteral("chosen :thumbsup:"));
+        QCOMPARE(m_client->sentSpecs.last().value(QStringLiteral("emoticons")).toMap()
+                     .value(QStringLiteral(":thumbsup:")).toMap()
+                     .value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://x/9"));
+    }
+
     void anAmbiguousTypedShortcodeStaysLiteral()
     {
         // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);
