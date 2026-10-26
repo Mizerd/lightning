@@ -1007,6 +1007,21 @@ private Q_SLOTS:
         manager.setRoomPackEnabled(QStringLiteral("S"), true);
         QCOMPARE(client.roomsSetNs, QStringLiteral("stable"));
 
+        // A sticker never goes into an emoji-only pack (it would vanish from
+        // the sticker picker): the next writable sticker-capable pack, or a
+        // new one, takes it.
+        QVariantMap emojiOnly = stable;
+        emojiOnly.insert(QStringLiteral("id"), QStringLiteral("E"));
+        emojiOnly.insert(QStringLiteral("stateKey"), QStringLiteral("animals"));
+        emojiOnly.insert(QStringLiteral("packSticker"), false);
+        manager.applySnapshotForTest(kRoom, true, { emojiOnly });
+        manager.saveStickerToRoom(kRoom, kMxcA, QStringLiteral("A cat"),
+                                  QStringLiteral("image/png"), 1, 1, 1);
+        QCOMPARE(client.roomPackNs, QStringLiteral("stable"));
+        QCOMPARE(client.roomPackStateKey, QStringLiteral("stickers"));
+        Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
+                                             QStringLiteral("x"), QString());
+
         // A fresh key never collides with a key the room already uses.
         QVariantMap taken = stable;
         taken.insert(QStringLiteral("id"), QStringLiteral("T"));

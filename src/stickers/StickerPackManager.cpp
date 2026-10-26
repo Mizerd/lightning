@@ -49,6 +49,8 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     pack.available = map.value(QStringLiteral("available"), true).toBool();
     pack.unavailable = map.value(QStringLiteral("unavailable")).toString();
     pack.fromSpace = map.value(QStringLiteral("fromSpace")).toBool();
+    pack.packEmoticon = map.value(QStringLiteral("packEmoticon"), true).toBool();
+    pack.packSticker = map.value(QStringLiteral("packSticker"), true).toBool();
     const QVariantList images =
         map.value(QStringLiteral("images")).toList();
     pack.images.reserve(images.size());
@@ -630,8 +632,10 @@ StickerPackManager::roomSaveTarget(const QString &roomId) const
 {
     RoomPackTarget legacy;
     for (const stickers::Pack &pack : m_packs->packs()) {
+        // A sticker goes only where it would be a sticker: an emoji-only pack
+        // would hide it from the sticker picker (live run 2026-10-26).
         if (pack.source != QLatin1String("room") || pack.roomId != roomId
-            || !pack.available || !pack.canManage)
+            || !pack.available || !pack.canManage || !pack.packSticker)
             continue;
         if (pack.ns == QLatin1String("stable"))
             return { pack.stateKey.isNull() ? QStringLiteral("") : pack.stateKey,

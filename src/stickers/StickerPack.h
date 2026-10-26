@@ -67,6 +67,9 @@ struct Pack
     QString unavailable;
     // Reached through the active room's canonical space ancestry.
     bool fromSpace = false;
+    // The pack's own usage: where an image ADDED to it would be usable.
+    bool packEmoticon = true;
+    bool packSticker = true;
     QString displayName;
     // "" unless the pack declared an mxc avatar (non-mxc ones were dropped).
     QString avatarUrl;

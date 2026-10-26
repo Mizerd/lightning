@@ -357,6 +357,10 @@ pub(crate) struct Pack {
     /// Reached through the active room's canonical space ancestry (usable in
     /// that room because it sits in the space), not subscribed.
     pub from_space: bool,
+    /// What the PACK is for (its pack-level usage; legacy per-image overrides
+    /// aside): where a new image added to it would be usable.
+    pub pack_emoticon: bool,
+    pub pack_sticker: bool,
     pub display_name: String,
     pub avatar_url: String,
     pub attribution: String,
@@ -388,6 +392,8 @@ impl Pack {
             "available": self.available,
             "unavailable": self.unavailable,
             "from_space": self.from_space,
+            "pack_emoticon": self.pack_emoticon,
+            "pack_sticker": self.pack_sticker,
             "display_name": self.display_name,
             "avatar_url": self.avatar_url,
             "attribution": self.attribution,
@@ -559,6 +565,14 @@ pub(crate) fn parse_pack_content_ns(
         available: true,
         unavailable: String::new(),
         from_space: false,
+        pack_emoticon: match namespace {
+            Namespace::Stable => stable_usage.0,
+            Namespace::Legacy => resolve_usage(&BTreeSet::new(), &pack_usage).0,
+        },
+        pack_sticker: match namespace {
+            Namespace::Stable => stable_usage.1,
+            Namespace::Legacy => resolve_usage(&BTreeSet::new(), &pack_usage).1,
+        },
         display_name,
         avatar_url,
         attribution,
@@ -1192,6 +1206,8 @@ fn unavailable_pack(
         available: false,
         unavailable: if reason == "unknown_room" { "not_joined".to_owned() } else { reason.to_owned() },
         from_space: false,
+        pack_emoticon: false,
+        pack_sticker: false,
         display_name: one_line(name, MAX_PACK_NAME_CHARS),
         avatar_url: String::new(),
         attribution: String::new(),
@@ -3966,6 +3982,16 @@ mod tests {
             "images": { "a": { "url": "mxc://e/1", "usage": ["sticker"] } } }));
         assert_eq!((legacy.images[0].is_emoticon, legacy.images[0].is_sticker),
                    (false, true));
+    }
+
+    #[test]
+    fn the_pack_level_usage_says_where_a_new_image_would_be_usable() {
+        let emo = parse_stable(json!({ "pack": { "usage": ["emoticon"] }, "images": {} }));
+        assert_eq!((emo.pack_emoticon, emo.pack_sticker), (true, false));
+        let open = parse_stable(json!({ "images": {} }));
+        assert_eq!((open.pack_emoticon, open.pack_sticker), (true, true));
+        let legacy = parse(json!({ "pack": { "usage": ["sticker"] }, "images": {} }));
+        assert_eq!((legacy.pack_emoticon, legacy.pack_sticker), (false, true));
     }
 
     #[test]

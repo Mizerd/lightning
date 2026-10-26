@@ -12550,6 +12550,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                          pack.value(QStringLiteral("unavailable")).toString());
             entry.insert(QStringLiteral("fromSpace"),
                          pack.value(QStringLiteral("from_space")).toBool());
+            entry.insert(QStringLiteral("packEmoticon"),
+                         pack.value(QStringLiteral("pack_emoticon")).toBool(true));
+            entry.insert(QStringLiteral("packSticker"),
+                         pack.value(QStringLiteral("pack_sticker")).toBool(true));
             QVariantList images;
             const QJsonArray rawImages =
                 pack.value(QStringLiteral("images")).toArray();
