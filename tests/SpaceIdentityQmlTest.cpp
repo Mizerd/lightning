@@ -294,6 +294,23 @@ private slots:
                  QStringLiteral("A newer topic"));
     }
 
+    // Live report against 0.10.2: the section nav filled the whole dialog
+    // and no page (General, Members, Permissions...) was visible. The body
+    // must get the width the nav does not use.
+    void theSectionBodyGetsTheWidthBesideTheNav()
+    {
+        openFor(QString::fromLatin1(kParentId));
+        auto *nav = item("spaceSettingsNav");
+        auto *body = item("spaceSettingsBodyScroll");
+        QVERIFY(nav && body);
+        QTRY_VERIFY(body->width() > 0);
+        QVERIFY2(nav->width() <= 201.0,
+                 qPrintable(QStringLiteral("nav is %1 px wide").arg(nav->width())));
+        QVERIFY2(body->width() >= 300.0,
+                 qPrintable(QStringLiteral("body is %1 px wide").arg(body->width())));
+        closeDialog();
+    }
+
     // The same fact for the picture: a Space's avatar is read from the model
     // every time the model says it changed, not once when the dialog opened.
     void aRemoteAvatarChangeReachesTheOpenDialog()

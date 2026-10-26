@@ -319,9 +319,15 @@ AppDialog {
             Layout.fillHeight: true
             spacing: AppTheme.spacing16
 
-            // Section nav
+            // Section nav. A nested layout fills its row by default, and the
+            // body below reports no implicit width, so without this the nav
+            // took the whole dialog and every section's page had none
+            // (reported against 0.10.2: "Permissions not showing in spaces").
             ColumnLayout {
+                objectName: "spaceSettingsNav"
+                Layout.fillWidth: false
                 Layout.preferredWidth: 200
+                Layout.maximumWidth: 200
                 Layout.fillHeight: true
                 Layout.topMargin: AppTheme.spacing12
                 spacing: 2
