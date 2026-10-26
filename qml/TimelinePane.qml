@@ -222,6 +222,12 @@ Rectangle {
     // have not joined fails with nothing to retry (break-it B037). Read from
     // the room list's record of the room, or from the roster's own
     // membership; either one missing means "not an invite", today's view.
+    // The open room is an invitation whose picture the account does not
+    // allow yet (MSC4278 invite_avatars, fail-closed): every avatar of it
+    // drawn here, the header included, shows the letter tile instead.
+    readonly property bool inviteAvatarWithheld:
+        root.invitePreview
+        && !(app.accountPrefs && app.accountPrefs.inviteAvatarsAllowed)
     readonly property bool invitePreview:
         app.currentRoomId !== ""
         && (root.currentRoom.membership === "invited"
@@ -1276,7 +1282,8 @@ Rectangle {
                     size: 34
                     squareRadius: 9
                     name: root.currentRoom.name || app.currentRoomId
-                    mxc: root.currentRoom.avatarUrl || ""
+                    mxc: root.inviteAvatarWithheld
+                         ? "" : (root.currentRoom.avatarUrl || "")
                     colorKey: root.currentRoom.identityColorKey
                               || app.currentRoomId
                     // People/DMs are circles; rooms and Spaces are rounded
@@ -6398,7 +6405,8 @@ Rectangle {
                         size: 64
                         squareRadius: AppTheme.radiusLg
                         name: root.currentRoom.name || app.currentRoomId
-                        mxc: root.currentRoom.avatarUrl || ""
+                        mxc: root.inviteAvatarWithheld
+                             ? "" : (root.currentRoom.avatarUrl || "")
                         colorKey: root.currentRoom.identityColorKey
                                   || app.currentRoomId
                         circle: root.currentRoom.isDirect === true

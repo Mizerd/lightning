@@ -123,6 +123,12 @@ private Q_SLOTS:
         QVERIFY(at > 0);
         const QString block = src.mid(at, 1500);
         QVERIFY(block.contains(QStringLiteral("app.accountPrefs.inviteAvatarsAllowed")));
+        // The room header of the open invitation used to load the picture
+        // anyway (live, 2026-10-26): both header avatars take the same gate.
+        QVERIFY(src.contains(QStringLiteral("readonly property bool inviteAvatarWithheld:")));
+        const int header = src.indexOf(QStringLiteral("objectName: \"roomHeaderAvatar\""));
+        QVERIFY(header > 0);
+        QVERIFY(src.mid(header, 400).contains(QStringLiteral("mxc: root.inviteAvatarWithheld")));
         delete card;
     }
 };
