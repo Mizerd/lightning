@@ -2522,6 +2522,10 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // not, and consumers of `count` should not re-read for it.
     if (callnessChanged)
         refreshLatestCallEvent();
+    // A quoted target that decrypted late, was edited or was redacted: the
+    // replies that read their quote from this row follow it.
+    if (!event.eventId.isEmpty())
+        refreshQuotesOfRepliesTo({event.eventId});
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
@@ -2897,7 +2901,12 @@ void TimelineModel::refreshQuotesOfRepliesTo(const QSet<QString> &inserted)
         const TimelineEvent &e = m_events.at(row);
         if (e.replyToEventId.isEmpty() || !inserted.contains(e.replyToEventId))
             continue;
-        if (!loadedReplyTarget(e))
+        // Only a quote that is read from the target row (none of its own
+        // details): a reply that embedded them keeps them. The target may
+        // have just been redacted, so it need not be loadable any more: the
+        // role then reads empty and the stale preview must go.
+        if (!e.replyToPreview.isEmpty() || !e.replyToSender.isEmpty()
+            || !e.replyToSenderId.isEmpty() || !e.replyToKind.isEmpty())
             continue;
         Q_EMIT dataChanged(index(row), index(row), roles);
     }

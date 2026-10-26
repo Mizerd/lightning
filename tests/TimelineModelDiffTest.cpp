@@ -162,6 +162,7 @@ private Q_SLOTS:
 
     void voiceReplyPreviewsKeepCopyTextAsTheFileName();
     void aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget();
+    void aQuoteFollowsItsTargetWhenTheTargetChanges();
     void realCountExcludesVirtualRows();
     // MSC4274 galleries and the reply target's kind.
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
@@ -2108,6 +2109,58 @@ void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget
     Q_EMIT m_client->timelineReset(kRoom);
     QCOMPARE(role(own.eventId, TimelineModel::ReplyToPreviewRole).toString(),
              QStringLiteral("embedded wins"));
+}
+
+// A quoted target that decrypts late or is edited must update the replies that
+// read their quote from its row, and a reply with embedded details is left be.
+void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
+{
+    auto target = makeEvent(QStringLiteral("$t"), QStringLiteral("first text"));
+    auto reply = makeEvent(QStringLiteral("$r"), QStringLiteral("answer"));
+    reply.replyToEventId = target.eventId;
+    auto own = makeEvent(QStringLiteral("$o"), QStringLiteral("x"));
+    own.replyToEventId = target.eventId;
+    own.replyToPreview = QStringLiteral("embedded");
+    m_client->mirror = { target, reply, own };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto rowOf = [&](const QString &id) {
+        for (int i = 0; i < m_model->rowCount(); ++i) {
+            if (m_model->eventIdAt(i) == id)
+                return i;
+        }
+        return -1;
+    };
+    const auto preview = [&](const QString &id) {
+        return m_model->data(m_model->index(rowOf(id)),
+                             TimelineModel::ReplyToPreviewRole).toString();
+    };
+    QCOMPARE(preview(reply.eventId), QStringLiteral("first text"));
+
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    auto edited = target;
+    edited.body = QStringLiteral("edited text");
+    m_client->mirror = { edited, reply, own };
+    Q_EMIT m_client->eventChangedAt(kRoom, rowOf(target.eventId), edited);
+    QCOMPARE(preview(reply.eventId), QStringLiteral("edited text"));
+    bool replyReread = false, ownReread = false;
+    for (const auto &args : changed) {
+        const int row = args.at(0).value<QModelIndex>().row();
+        const auto roles = args.at(2).value<QList<int>>();
+        if (!roles.contains(TimelineModel::ReplyToPreviewRole))
+            continue;
+        replyReread |= m_model->eventIdAt(row) == reply.eventId;
+        ownReread |= m_model->eventIdAt(row) == own.eventId;
+    }
+    QVERIFY2(replyReread, "the quote was not re-read when its target changed");
+    QVERIFY2(!ownReread, "a reply with embedded details was re-read");
+    QCOMPARE(preview(own.eventId), QStringLiteral("embedded"));
+
+    // Redacted: the stale text must go.
+    auto gone = edited;
+    gone.redacted = true;
+    m_client->mirror = { gone, reply, own };
+    Q_EMIT m_client->eventChangedAt(kRoom, rowOf(target.eventId), gone);
+    QVERIFY(preview(reply.eventId).isEmpty());
 }
 
 void TimelineModelDiffTest::voiceReplyPreviewsKeepCopyTextAsTheFileName()
