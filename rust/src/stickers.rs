@@ -1980,6 +1980,83 @@ pub(crate) fn send_sticker(
 /// Uploads, then reuses `add_to_user_pack_inner`, so dedupe, collision
 /// handling and the cap are shared with the save path. The MIME is sniffed
 /// from the bytes with the shared sniffer, so SVG is refused.
+/// An image's pixel size read from its header alone (PNG, GIF, WebP, JPEG),
+/// or (0, 0). Never decodes: `info.w`/`info.h` are advisory, but a client
+/// that lacks them (Cinny) draws every sticker square, so a 2:1 image came out
+/// stretched (live run 2026-10-26). Out-of-range or truncated headers give
+/// (0, 0) and the fields are left out.
+pub(crate) fn header_dimensions(data: &[u8]) -> (u64, u64) {
+    let be16 = |i: usize| -> Option<u64> {
+        Some(u64::from(u16::from_be_bytes([*data.get(i)?, *data.get(i + 1)?])))
+    };
+    let le16 = |i: usize| -> Option<u64> {
+        Some(u64::from(u16::from_le_bytes([*data.get(i)?, *data.get(i + 1)?])))
+    };
+    let le24 = |i: usize| -> Option<u64> {
+        Some(u64::from(*data.get(i)?)
+            | u64::from(*data.get(i + 1)?) << 8
+            | u64::from(*data.get(i + 2)?) << 16)
+    };
+    let found: Option<(u64, u64)> = (|| {
+        if data.starts_with(b"\x89PNG\r\n\x1a\n") && data.get(12..16)? == b"IHDR" {
+            let w = u32::from_be_bytes(data.get(16..20)?.try_into().ok()?);
+            let h = u32::from_be_bytes(data.get(20..24)?.try_into().ok()?);
+            return Some((u64::from(w), u64::from(h)));
+        }
+        if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+            return Some((le16(6)?, le16(8)?));
+        }
+        if data.starts_with(b"RIFF") && data.get(8..12)? == b"WEBP" {
+            return match data.get(12..16)? {
+                b"VP8 " => Some((le16(26)? & 0x3fff, le16(28)? & 0x3fff)),
+                b"VP8L" => {
+                    let b = data.get(21..25)?;
+                    let w = 1 + (u64::from(b[0]) | (u64::from(b[1]) & 0x3f) << 8);
+                    let h = 1 + (u64::from(b[1]) >> 6
+                        | u64::from(b[2]) << 2
+                        | (u64::from(b[3]) & 0x0f) << 10);
+                    Some((w, h))
+                }
+                b"VP8X" => Some((le24(24)? + 1, le24(27)? + 1)),
+                _ => None,
+            };
+        }
+        if data.starts_with(&[0xff, 0xd8]) {
+            let mut i = 2usize;
+            // Bounded walk over marker segments to the first frame header.
+            for _ in 0..512 {
+                while *data.get(i)? != 0xff {
+                    i += 1;
+                }
+                while *data.get(i)? == 0xff {
+                    i += 1;
+                }
+                let marker = *data.get(i)?;
+                i += 1;
+                match marker {
+                    0xd8 | 0x01 | 0xd0..=0xd7 => continue,
+                    0xd9 | 0xda => return None,
+                    0xc0..=0xcf if marker != 0xc4 && marker != 0xc8 && marker != 0xcc => {
+                        return Some((be16(i + 5)?, be16(i + 3)?));
+                    }
+                    _ => {
+                        let len = usize::try_from(be16(i)?).ok()?;
+                        if len < 2 {
+                            return None;
+                        }
+                        i += len;
+                    }
+                }
+            }
+        }
+        None
+    })();
+    match found {
+        Some((w, h)) if (1..=65_535).contains(&w) && (1..=65_535).contains(&h) => (w, h),
+        _ => (0, 0),
+    }
+}
+
 pub(crate) fn upload_to_user_pack(
     bridge: &RustClient,
     op_id: u64,
@@ -2015,17 +2092,17 @@ pub(crate) fn upload_to_user_pack(
                 .parse()
                 .map_err(|_| "unsupported_image".to_owned())?;
             let size = data.len() as u64;
+            // From the header only: no decoder on this path.
+            let (width, height) = header_dimensions(&data);
             let upload = client
                 .media()
                 .upload(&mime, data, None)
                 .await
                 .map_err(|_| "upload_failed".to_owned())?;
             let url = upload.content_uri.to_string();
-            // Dimensions stay 0: `info` is advisory, and decoding here just to fill it
-            // would add an image decoder to this path.
             add_to_user_pack_inner(
-                &client, requested, url, body, mime_str.to_owned(), 0, 0, size,
-                &usage,
+                &client, requested, url, body, mime_str.to_owned(), width, height,
+                size, &usage,
             )
             .await
         }
@@ -2269,8 +2346,8 @@ pub(crate) fn upload_to_room_pack(
     bridge.spawn_room_action(async move {
         let mut uploaded = String::new();
         let outcome = async {
-            let (url, mime, size) = match reuse {
-                Some(url) => (url, String::new(), 0u64),
+            let (url, mime, size, width, height) = match reuse {
+                Some(url) => (url, String::new(), 0u64, 0u64, 0u64),
                 None => {
                     let data = tokio::fs::read(&local_path)
                         .await
@@ -2280,18 +2357,19 @@ pub(crate) fn upload_to_room_pack(
                     let mime: mime::Mime =
                         mime_str.parse().map_err(|_| "unsupported_image".to_owned())?;
                     let size = data.len() as u64;
+                    let (width, height) = header_dimensions(&data);
                     let upload = client
                         .media()
                         .upload(&mime, data, None)
                         .await
                         .map_err(|_| "upload_failed".to_owned())?;
-                    (upload.content_uri.to_string(), mime_str.to_owned(), size)
+                    (upload.content_uri.to_string(), mime_str.to_owned(), size, width, height)
                 }
             };
             uploaded = url.clone();
             add_to_room_pack_inner(
-                &client, &room_id, &state_key, requested, url, body, mime, 0, 0, size,
-                namespace,
+                &client, &room_id, &state_key, requested, url, body, mime, width, height,
+                size, namespace,
             )
             .await
         }
@@ -4693,6 +4771,45 @@ mod tests {
         assert_eq!(pokes_for(space.as_str()), 1, "{queued:?}");
         assert_eq!(pokes_for(room.as_str()), 2, "{queued:?}");
         assert_eq!(queued.len(), 3, "the topic change must not poke: {queued:?}");
+    }
+
+    #[test]
+    fn upload_dimensions_come_from_the_header_alone() {
+        // PNG 256x128 (the live run's wide image), IHDR only.
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend_from_slice(&256u32.to_be_bytes());
+        png.extend_from_slice(&128u32.to_be_bytes());
+        assert_eq!(header_dimensions(&png), (256, 128));
+        // GIF 40x20.
+        let gif = [b"GIF89a".as_slice(), &[40, 0, 20, 0]].concat();
+        assert_eq!(header_dimensions(&gif), (40, 20));
+        // WebP VP8X canvas 300x150 (stored minus one, 24-bit LE).
+        let mut webp = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+        webp.extend_from_slice(&[0; 8]);
+        webp.extend_from_slice(&[43, 1, 0, 149, 0, 0]);
+        assert_eq!(header_dimensions(&webp), (300, 150));
+        // WebP VP8L 3x2: width-1 = 2 in 14 bits, height-1 = 1 in the next 14.
+        let mut vp8l = b"RIFF\0\0\0\0WEBPVP8L".to_vec();
+        vp8l.extend_from_slice(&[0, 0, 0, 0, 0x2f]);
+        vp8l.extend_from_slice(&[2, 0x40, 0, 0]);
+        assert_eq!(header_dimensions(&vp8l), (3, 2));
+        // JPEG: an APP0 segment, then SOF0 640x480.
+        let jpeg = [
+            &[0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0][..],
+            &[0xff, 0xc0, 0, 17, 8, 0x01, 0xe0, 0x02, 0x80, 3][..],
+        ]
+        .concat();
+        assert_eq!(header_dimensions(&jpeg), (640, 480));
+        // Truncated, zero, absurd or unknown: left out, never guessed.
+        assert_eq!(header_dimensions(&png[..20]), (0, 0));
+        assert_eq!(header_dimensions(b"<svg"), (0, 0));
+        let mut zero = png.clone();
+        zero[16..20].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(header_dimensions(&zero), (0, 0));
+        let mut huge = png.clone();
+        huge[16..20].copy_from_slice(&100_000u32.to_be_bytes());
+        assert_eq!(header_dimensions(&huge), (0, 0));
+        assert_eq!(header_dimensions(&[0xff, 0xd8, 0xff]), (0, 0));
     }
 
     // ---- remembering a server "not found" -------------------------------
