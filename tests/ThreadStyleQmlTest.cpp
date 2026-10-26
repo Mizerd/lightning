@@ -388,6 +388,29 @@ ApplicationWindow {
 
     // The Thread panel style with Main view chosen opens there too: placement
     // and room history policy are independent.
+    // The room's Threads list is part of the thread surface too: it must open
+    // (beside the room, whatever the placement), and a thread opened from it
+    // follows the placement. A first version of the Main view change split the
+    // surface condition and the list never showed (found in the GUI pass).
+    void theThreadsListOpensBesideTheRoomInEveryPlacement()
+    {
+        openDevRoom();
+        QVERIFY(m_controller->settings()->setProperty("threadPlacement", 1));
+        m_controller->thread()->openList(QString::fromLatin1(kDevRoom));
+        QTRY_VERIFY(m_controller->thread()->listOpen());
+        QQuickItem *panel = item("threadPanel");
+        QQuickItem *roomColumn = item("roomColumn");
+        QVERIFY(panel && roomColumn);
+        QTRY_VERIFY2(panel->isVisible(), "the Threads list must show");
+        QVERIFY2(roomColumn->isVisible(),
+                 "the Threads list stays beside the room in Main view");
+        // A thread opened from the list takes the main column.
+        m_controller->thread()->openThread(QString::fromLatin1(kDevRoom),
+                                           threadRoot());
+        QTRY_VERIFY(m_controller->thread()->active());
+        QTRY_VERIFY(!roomColumn->isVisible());
+    }
+
     void panelStyleCanOpenThreadsInTheMainView()
     {
         openDevRoom();

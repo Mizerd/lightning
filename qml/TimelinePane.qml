@@ -293,13 +293,14 @@ Rectangle {
     // The thread side surface is open when a thread panel or the room's Threads
     // list is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
+                                              || app.thread.listOpen
     // Settings > Threads open in: Main view. The same ThreadPanel instance and
     // the same thread session; only the layout changes (the room column stays
     // alive underneath, keeping its scroll position, and reports itself not
-    // visible, so the room is not read while the thread covers it).
+    // visible, so the room is not read while the thread covers it). A focused
+    // thread only: the room's Threads list stays beside the room.
     readonly property bool threadInMainView:
-        threadSurfaceOpen && app.settings.threadPlacement === 1
-                                              || app.thread.listOpen
+        app.thread.active && app.settings.threadPlacement === 1
     /// A live MatrixRTC call in this room owns the column. One condition, read
     /// by the stage's Loader and by everything the stage replaces, so the two
     /// cannot disagree and split the column between them.
