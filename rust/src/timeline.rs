@@ -9475,7 +9475,8 @@ mod reply_fallback_tests {
 #[cfg(test)]
 mod thread_utd_tests {
     use super::{
-        cleartext_thread_root, event_item_to_json, lightning_event_filter, TimelineRegistry,
+        cleartext_thread_root, event_item_to_json, is_thread_reply_fallback, lightning_event_filter,
+        TimelineRegistry,
     };
     use matrix_sdk::ruma::api::client::sync::sync_events::v5;
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
