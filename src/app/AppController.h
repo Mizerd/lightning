@@ -1524,6 +1524,7 @@ private:
     void endRevokedSession(const QString &userId);
     void setLocalRustResetRequired(bool required);
     void setAccountSwitching(bool switching);
+    void clearQueuedAccountSwitch(const char *reason);
     // Failure path of switchToAccount: falls back to the previous account
     // once; if that is impossible, lands on the login screen.
     void failAccountSwitch(const QString &message);
@@ -1718,6 +1719,9 @@ private:
     // The newest account chosen while a switch was running (see
     // switchToAccount); empty when none is waiting.
     QString m_queuedSwitchTarget;
+    // Bumped whenever a queued switch is retired, so one already handed to
+    // the event loop does not run either.
+    quint64 m_queuedSwitchEpoch = 0;
     bool m_keyringUnavailable = false;
     // True only inside endRevokedSession()'s detach, so onLoggedOut keeps the
     // account's record, stores and active-account setting, as for a switch.

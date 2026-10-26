@@ -13,6 +13,7 @@
 #include "calls/SfuCallController.h"
 #include "matrix/MockMatrixClient.h"
 #include "media/MediaPlaybackController.h"
+#include "models/PaginationController.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
 #include "spaces/RailLayoutStore.h"
@@ -440,6 +441,59 @@ private Q_SLOTS:
         QCOMPARE(app.auth()->currentUserId(), kAlice);
     }
 
+    // A click queued behind a running switch must not outlive a change to
+    // the account list: starting add-account (or signing out, or removing
+    // the queued account) retires it, or it would switch away from where the
+    // user now is once the running switch completes.
+    void aQueuedSwitchIsDroppedWhenAddAccountStarts()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+
+        app.switchToAccount(kBob);
+        QVERIFY(app.accountSwitching());
+        app.switchToAccount(kAlice); // queued
+        app.showLogin();             // add-account begins
+        QTRY_VERIFY(!app.accountSwitching());
+        QTest::qWait(300);
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kBob);
+        QCOMPARE(app.settings()->activeAccountUserId(), kBob);
+    }
+
+    void removingTheQueuedAccountDropsTheQueuedSwitch()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+
+        app.switchToAccount(kBob);
+        QVERIFY(app.accountSwitching());
+        app.switchToAccount(kAlice);  // queued
+        app.removeAccount(kAlice);    // refused mid-switch, but retires it
+        QTRY_VERIFY(!app.accountSwitching());
+        QTest::qWait(300);
+        QCOMPARE(app.auth()->currentUserId(), kBob);
+        QVERIFY(app.settings()->hasSavedAccount(kAlice));
+    }
+
     // After A -> B the accounts list must re-notify, or the switcher keeps
     // stale isActive flags and clicking A hits the "already active" guard.
     // Drives A -> B -> A -> B -> A through the QML rows' decision inputs.
@@ -698,6 +752,39 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         QCOMPARE(app.auth()->currentUserId(),
                  QStringLiteral("@bob:two.example"));
+    }
+
+    // Saved room positions and selections are keyed by room id alone, and
+    // test accounts share rooms. Add-account emits no loggedOut, so the new
+    // account inherited the previous one's saved selection and anchor for
+    // any shared room until clearCrossAccountCaches() dropped them.
+    void addingAnAccountForgetsThePreviousAccountsSavedNavigation()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QString shared = QStringLiteral("!shared:mock.local");
+        app.pagination()->saveSelection(shared, QStringLiteral("$alice-pick"));
+        app.pagination()->saveScrollAnchor(shared,
+                                           QStringLiteral("$alice-anchor"),
+                                           12.0, false);
+        QVERIFY(app.pagination()->hasHistoricalScrollAnchor(shared));
+
+        app.showLogin();
+        app.auth()->login(kHsTwo, QStringLiteral("bob"),
+                          QStringLiteral("pw"));
+        QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
+        QCOMPARE(app.auth()->currentUserId(),
+                 QStringLiteral("@bob:two.example"));
+        QCOMPARE(app.pagination()->savedSelection(shared), QString());
+        QVERIFY(!app.pagination()->hasHistoricalScrollAnchor(shared));
     }
 
     void removingBackgroundAccountKeepsActiveSession()

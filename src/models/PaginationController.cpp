@@ -409,6 +409,12 @@ QString PaginationController::savedSelection(const QString &roomId) const
     return m_savedSelections.value(roomId);
 }
 
+void PaginationController::forgetSavedNavigation()
+{
+    m_scrollAnchors.clear();
+    m_savedSelections.clear();
+}
+
 bool PaginationController::hasHistoricalReturn(const QString &roomId,
                                                int mode) const
 {

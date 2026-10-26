@@ -227,6 +227,11 @@ public:
     Q_INVOKABLE void saveSelection(const QString &roomId,
                                    const QString &eventId);
     Q_INVOKABLE QString savedSelection(const QString &roomId) const;
+    // Forget every saved scroll anchor and selection. Both are keyed by room
+    // id alone, and two accounts can share a room: the account change that
+    // emits no loggedOut (add-account) must call this, or the next account
+    // restores the previous one's position and selection.
+    void forgetSavedNavigation();
     // True when restoreScrollAnchor() will put the reader in history rather
     // than at the live edge, so the pane can keep its presentation gate
     // closed until that restore has landed.

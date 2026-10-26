@@ -5156,6 +5156,7 @@ void AppController::showLogin()
     // to return if it fails or the user goes back.
     if (m_client->isLoggedIn())
         m_addAccountReturnTo = m_settings->activeAccountUserId();
+    clearQueuedAccountSwitch("add-account");
     // Leave a live call while its client is still attached: the retraction
     // cannot be sent once the client is released, which happens before
     // onLoginSucceeded() runs.
@@ -7624,6 +7625,7 @@ void AppController::onLoggedOut()
         // endRevokedSession() shows the login screen once the detach returns.
         return;
     }
+    clearQueuedAccountSwitch("sign-out");
     // A genuine sign-out (including removal of the active account). The
     // starred-GIF store of the account that was active must not survive, like
     // the Rust crypto store. m_lastSessionUserId is read before it is cleared
@@ -7788,8 +7790,26 @@ void AppController::setAccountSwitching(bool switching)
     // re-applies every guard (already active, sign-out pending, unknown).
     if (!switching && !m_queuedSwitchTarget.isEmpty()) {
         const QString next = std::exchange(m_queuedSwitchTarget, QString{});
-        QTimer::singleShot(0, this, [this, next] { switchToAccount(next); });
+        // A sign-out, removal or add-account between now and the next turn
+        // retires it (clearQueuedAccountSwitch bumps the epoch).
+        const quint64 epoch = m_queuedSwitchEpoch;
+        QTimer::singleShot(0, this, [this, next, epoch] {
+            if (epoch == m_queuedSwitchEpoch)
+                switchToAccount(next);
+        });
     }
+}
+
+void AppController::clearQueuedAccountSwitch(const char *reason)
+{
+    // A click queued behind a running switch was intent for the session list
+    // as it was; a sign-out, a removal or a new account changes that list,
+    // and the stale click would switch away from where the user now is.
+    ++m_queuedSwitchEpoch;
+    if (m_queuedSwitchTarget.isEmpty())
+        return;
+    qCInfo(lcApp) << "queued account switch dropped reason=" << reason;
+    m_queuedSwitchTarget.clear();
 }
 
 void AppController::resetSessionNotificationState()
@@ -7826,6 +7846,10 @@ void AppController::clearCrossAccountCaches()
     // previous account's file tags and cover art are forgotten with it.
     m_voicePlayback->clearSession();
     m_playback->stopAll();
+    // Saved room positions and selections are keyed by room id alone; an
+    // add-account emits no loggedOut, so they are dropped here too.
+    if (m_pagination)
+        m_pagination->forgetSavedNavigation();
     // The previous account's video positions go with it; after stopAll(),
     // which makes a playing card remember its position synchronously.
     m_playback->forgetResumePositions();
@@ -8559,6 +8583,10 @@ bool AppController::removeAccountLocalStateFiles(
 void AppController::removeAccount(const QString &userId)
 {
     const QString target = userId.trimmed();
+    // Removing the account a queued click names retires that click, even
+    // when the removal itself is refused below (it may be retried later).
+    if (!target.isEmpty() && target == m_queuedSwitchTarget)
+        clearQueuedAccountSwitch("removed-target");
     if (target.isEmpty() || m_accountSwitching)
         return;
     // Arming a removal now would attach it to a sign-out already waiting, or
