@@ -870,7 +870,9 @@ Item {
               anchors: ["customThemeRow"] },
             { label: qsTr("Chat background and depth"),
               anchors: ["chatBackgroundSettingsSection"] },
-            { label: qsTr("Layout"), anchors: ["roomNavigationLayoutCards"] },
+            { label: qsTr("Layout"),
+              anchors: ["layoutPresetHeading", "layoutPresetControl",
+                        "roomNavigationLayoutCards"] },
             { label: qsTr("Text and fonts"), anchors: ["textScaleSlider"] },
             { label: qsTr("Spaces rail and room list"),
               anchors: ["showSpacesRailCheck"] },
@@ -3434,7 +3436,13 @@ Item {
                         // layout, spacing, where threads open): switching back
                         // to Lightning restores them exactly, and fonts, text
                         // size, colours and privacy are never part of it.
-                        SettingsGroupLabel { text: qsTr("Layout preset") }
+                        SettingsGroupLabel {
+                            // The "Layout" outline entry lands here: the
+                            // preset is the first thing of that group (it
+                            // used to land on the navigation cards below it).
+                            objectName: "layoutPresetHeading"
+                            text: qsTr("Layout preset")
+                        }
                         SegmentedControl {
                             storm: true
                             objectName: "layoutPresetControl"

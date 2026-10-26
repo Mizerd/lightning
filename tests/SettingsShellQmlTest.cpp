@@ -2009,6 +2009,33 @@ private slots:
         QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
     }
 
+    // The "Layout" entry landed on the navigation cards, below the Layout
+    // preset that opens the group (wave 2 report). It names the preset's
+    // heading first, and that heading sits above the preset control.
+    void theLayoutEntryLandsOnTheLayoutPreset()
+    {
+        openSection(QStringLiteral("appearance"));
+        const QVariantList entries =
+            callScreen("outlineEntries", QStringLiteral("appearance")).toList();
+        QStringList first;
+        for (const QVariant &e : entries) {
+            const QVariantMap m = e.toMap();
+            if (m.value(QStringLiteral("label")).toString() == QStringLiteral("Layout"))
+                first = m.value(QStringLiteral("anchors")).toStringList();
+        }
+        QVERIFY(!first.isEmpty());
+        QCOMPARE(first.first(), QStringLiteral("layoutPresetHeading"));
+        auto *heading = item("layoutPresetHeading");
+        auto *preset = item("layoutPresetControl");
+        auto *cards = item("roomNavigationLayoutCards");
+        QVERIFY(heading && preset && cards);
+        auto *content = item("settingsContentFlick")->property("contentItem")
+                            .value<QQuickItem *>();
+        const qreal h = heading->mapToItem(content, QPointF(0, 0)).y();
+        QVERIFY(h < preset->mapToItem(content, QPointF(0, 0)).y());
+        QVERIFY(h < cards->mapToItem(content, QPointF(0, 0)).y());
+    }
+
     // Part 6, 3.3: the sub-section labels are navigation, one step larger than
     // the hint text they used to share, and their rows grow with the text.
     void subSectionLabelsUseTheirOwnLargerToken()
