@@ -4253,6 +4253,10 @@ private slots:
         const QVariantMap group = store->colorGroups().first().toMap();
         QCOMPARE(group.value(QStringLiteral("name")).toString(), QStringLiteral("Links"));
         QCOMPARE(group.value(QStringLiteral("color")).toString(), startColour.toUpper());
+        // Leaving selection mode returns to the editor's opening level
+        // (Simple), where the element list is not shown; open Elements.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "setLevel", Q_ARG(QVariant, 2)));
+        QCoreApplication::processEvents();
         auto *badge = item("themeRoleGroup_accent");
         QVERIFY(badge);
         QTRY_VERIFY(badge->property("visible").toBool());
