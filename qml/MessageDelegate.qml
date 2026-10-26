@@ -228,6 +228,14 @@ Item {
     // A date divider that introduces nothing visible is suppressed. The model
     // answers this. `=== false` so a model without the role keeps every
     // divider.
+    // Fixed-vocabulary kind of this row, read by the scroll recorder when it
+    // names the reader's anchor row (TimelinePane captureViewAnchor()). No
+    // content, ids or names: one of event/state/divider/read-marker/start.
+    readonly property string rowKind:
+        isVirtualRow ? (model.eventType === 7 ? "divider"
+                        : model.eventType === 8 ? "read-marker" : "start")
+        : isStateActivity ? "state" : "event"
+
     readonly property bool dividerSuppressed:
         isVirtualRow && model.eventType === 7
         && model.dividerIntroducesVisibleContent === false

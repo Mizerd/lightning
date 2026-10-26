@@ -114,12 +114,26 @@ quint8 writerIndex(const QString &writer)
     }
     return 0;
 }
+// The anchor row kinds MessageDelegate.rowKind can name. Index 0 is "-":
+// no anchor, or a word outside this list (never echoed into the log).
+constexpr const char *kAnchorKinds[] = {
+    "-", "event", "state", "divider", "read-marker", "start",
+};
+quint8 anchorKindIndex(const QString &kind)
+{
+    for (quint8 i = 1; i < std::size(kAnchorKinds); ++i) {
+        if (kind == QLatin1String(kAnchorKinds[i]))
+            return i;
+    }
+    return 0;
+}
 } // namespace
 
 void TimelineScrollController::recordScroll(
     const QString &writer, double oldY, double newY, double minY, double maxY,
     double viewportHeight, double contentHeight, int count, int windowSkip,
-    int flags, const QString &anchorId, double anchorOffset)
+    int flags, const QString &anchorId, double anchorOffset,
+    const QString &anchorKind, int anchorFromOldest)
 {
     if (!m_recorderEnabled)
         return;
@@ -154,6 +168,8 @@ void TimelineScrollController::recordScroll(
     r.windowSkip = windowSkip;
     r.anchor = alias;
     r.anchorOffset = float(anchorOffset);
+    r.anchorKind = alias >= 0 ? anchorKindIndex(anchorKind) : 0;
+    r.anchorFromOldest = alias >= 0 ? qMax(-1, anchorFromOldest) : -1;
     m_ringHead = (m_ringHead + 1) % kRecorderCapacity;
     m_ringSize = qMin(m_ringSize + 1, kRecorderCapacity);
 }
@@ -186,14 +202,17 @@ bool TimelineScrollController::reportScrollIncident(const QString &code,
         const ScrollRecord &r = m_ring.at(idx);
         lines << QStringLiteral(
                      "  #%1 t=%2 w=%3 y=%4->%5 bounds=%6..%7 vh=%8 ch=%9 "
-                     "rows=%10 skip=%11 flags=%12 anchor=%13@%14")
+                     "rows=%10 skip=%11 flags=%12 anchor=%13@%14 "
+                     "kind=%15 fromOldest=%16")
                      .arg(r.seq).arg(r.ms)
                      .arg(QLatin1String(kScrollWriters[r.writer]))
                      .arg(r.oldY, 0, 'f', 1).arg(r.newY, 0, 'f', 1)
                      .arg(r.minY, 0, 'f', 1).arg(r.maxY, 0, 'f', 1)
                      .arg(r.viewport, 0, 'f', 0).arg(r.content, 0, 'f', 0)
                      .arg(r.count).arg(r.windowSkip).arg(r.flags)
-                     .arg(r.anchor).arg(r.anchorOffset, 0, 'f', 1);
+                     .arg(r.anchor).arg(r.anchorOffset, 0, 'f', 1)
+                     .arg(QLatin1String(kAnchorKinds[r.anchorKind]))
+                     .arg(r.anchorFromOldest);
     }
     m_lastDump = lines.join(QLatin1Char('\n'));
     qInfo().noquote() << m_lastDump;

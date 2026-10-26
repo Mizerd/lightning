@@ -103,7 +103,9 @@ public:
                                   double viewportHeight, double contentHeight,
                                   int count, int windowSkip, int flags,
                                   const QString &anchorId,
-                                  double anchorOffset);
+                                  double anchorOffset,
+                                  const QString &anchorKind = QString(),
+                                  int anchorFromOldest = -1);
     // Dumps the last `records` records (bounded by the ring) under the
     // incident `code` (a fixed vocabulary: oldest-bound, newest-bound,
     // missing-anchor, stale-generation, ...). At most one dump per
@@ -239,6 +241,11 @@ private:
         float oldY = 0, newY = 0, minY = 0, maxY = 0, viewport = 0,
               content = 0, anchorOffset = 0;
         qint32 count = 0, windowSkip = 0, anchor = -1;
+        // Index into kAnchorKinds; 0 is "-" (none or unknown).
+        quint8 anchorKind = 0;
+        // Rows between the anchor and the oldest loaded row (0 = the anchor
+        // IS the oldest row); -1 unknown.
+        qint32 anchorFromOldest = -1;
     };
     bool m_recorderEnabled = false;
     QVector<ScrollRecord> m_ring;

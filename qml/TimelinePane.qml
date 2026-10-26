@@ -3114,6 +3114,13 @@ Rectangle {
                 // (building one sweeps delegate creation and media requests
                 // across every row it passes).
                 property int viewAnchorRow: -1
+                // The anchor row's kind (MessageDelegate.rowKind), for the
+                // scroll recorder only: an idle restore that rides the oldest
+                // edge page after page (live 2026-10-26, `w=anchor-restore`,
+                // +2190 px per page, `scroll incident code=oldest-bound`)
+                // cannot be told apart from a correct hold without knowing
+                // whether the anchor was a message or a virtual row.
+                property string viewAnchorKind: ""
                 property real viewAnchorContentHeight: 0
                 // Diagnostic only: originY also moves when the height estimate
                 // is revised, so recording it beside the row index lets a trace
@@ -3170,6 +3177,8 @@ Rectangle {
                     viewAnchorLastY = anchorPosition
                     viewAnchorCount = count
                     viewAnchorRow = row
+                    viewAnchorKind = it && it.rowKind !== undefined
+                                     ? it.rowKind : ""
                     viewAnchorContentHeight = contentHeight
                     if (scrollTrace)
                         viewAnchorOriginY = originY
@@ -5984,7 +5993,10 @@ Rectangle {
                     app.timelineScroll.recordScroll(
                         writer, oldY, contentY, minY, maxY, height,
                         contentHeight, count, rowWindowSkip, flags,
-                        viewAnchorId, viewAnchorOffset)
+                        viewAnchorId, viewAnchorOffset,
+                        viewAnchorId !== "" ? viewAnchorKind : "",
+                        viewAnchorId !== "" && viewAnchorRow >= 0
+                            ? count - 1 - viewAnchorRow : -1)
                     // The anomaly the user reported: the view snapping to the
                     // oldest loaded edge from more than a screen away, by a
                     // writer that is neither the reader's input nor an

@@ -690,6 +690,52 @@ private Q_SLOTS:
     // The incident recorder (master prompt Part 3 §4): off unless opted in,
     // a fixed ring, writer reasons from a fixed vocabulary, session-local
     // anchor aliases instead of event ids, and a rate-limited dump.
+    // An incident dump names the anchor row's kind and how far it sits from
+    // the oldest loaded row, from a fixed vocabulary: the oldest-edge ride
+    // seen live (`w=anchor-restore`, a page height per write) is a correct
+    // hold if the anchor is a message and the defect if it is a virtual row
+    // at the oldest edge, and the dump could not tell those apart.
+    void anIncidentDumpNamesTheAnchorRowKindAndItsDistanceFromTheOldestRow()
+    {
+        TimelineScrollController c;
+        c.setScrollRecorderEnabledForTest(true);
+        // A divider that IS the oldest loaded row.
+        c.recordScroll(QStringLiteral("anchor-restore"), 100, 2290, 0, 2290,
+                       600, 3000, 40, 0, 0, QStringLiteral("$a:example.org"),
+                       -800, QStringLiteral("divider"), 0);
+        // A message three rows newer than the oldest.
+        c.recordScroll(QStringLiteral("anchor-restore"), 2290, 2290, 0, 2290,
+                       600, 3000, 40, 0, 0, QStringLiteral("$b:example.org"),
+                       -10, QStringLiteral("event"), 3);
+        // A word outside the vocabulary is never echoed.
+        c.recordScroll(QStringLiteral("wheel"), 2290, 2200, 0, 2290, 600,
+                       3000, 40, 0, 0, QStringLiteral("$c:example.org"), 0,
+                       QStringLiteral("secret body text"), 7);
+        // No anchor: no kind and no distance, whatever the caller passed.
+        c.recordScroll(QStringLiteral("wheel"), 2200, 2100, 0, 2290, 600,
+                       3000, 40, 0, 0, QString(), 0,
+                       QStringLiteral("event"), 5);
+        // The pre-existing call shape still records, with unknown kind.
+        c.recordScroll(QStringLiteral("wheel"), 2100, 2000, 0, 2290, 600,
+                       3000, 40, 0, 0, QStringLiteral("$d:example.org"), 0);
+        QVERIFY(c.reportScrollIncident(QStringLiteral("oldest-bound"), 5));
+        const QStringList lines =
+            c.lastScrollIncidentDump().split(QLatin1Char('\n'));
+        QCOMPARE(lines.size(), 6);
+        QVERIFY2(lines.at(1).endsWith(QStringLiteral(" kind=divider fromOldest=0")),
+                 qPrintable(lines.at(1)));
+        QVERIFY2(lines.at(2).endsWith(QStringLiteral(" kind=event fromOldest=3")),
+                 qPrintable(lines.at(2)));
+        QVERIFY2(lines.at(3).endsWith(QStringLiteral(" kind=- fromOldest=7")),
+                 qPrintable(lines.at(3)));
+        QVERIFY2(lines.at(4).endsWith(QStringLiteral(" kind=- fromOldest=-1")),
+                 qPrintable(lines.at(4)));
+        QVERIFY2(lines.at(5).endsWith(QStringLiteral(" kind=- fromOldest=-1")),
+                 qPrintable(lines.at(5)));
+        QVERIFY(!c.lastScrollIncidentDump().contains(QStringLiteral("secret")));
+        QVERIFY(!c.lastScrollIncidentDump().contains(QStringLiteral("example.org")));
+    }
+
     void theIncidentRecorderIsOptInBoundedAndCarriesNoIds()
     {
         qunsetenv("LIGHTNING_SCROLL_TRACE");
