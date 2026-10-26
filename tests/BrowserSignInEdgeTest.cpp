@@ -238,7 +238,7 @@ private Q_SLOTS:
         QVERIFY(QDir().mkpath(identity.rustStorePath));
 
         RustSdkMatrixClient client(&settings);
-        QVERIFY(client.ensureOAuthBootstrapHandle());
+        QVERIFY(client.ensureOAuthBootstrapHandle(hs));
         client.m_ssoHomeserver = hs;
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
         client.completeSsoLogin(kai, QStringLiteral("NEWDEVICE"),
