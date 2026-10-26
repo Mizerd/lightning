@@ -27,6 +27,7 @@
 #pragma once
 
 #include "accounts/BackgroundSessionHost.h"
+#include "accounts/LiveSessionTicket.h"
 #include "models/AccountActivityModel.h"
 
 #include <QDeadlineTimer>
@@ -40,6 +41,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 class AccountManager;
 class NotificationManager;
@@ -97,6 +99,19 @@ public:
     enum class ReleaseResult : quint8 { Free, StoreBusy, Cancelled };
     quint64 releaseForForeground(const QString &uid, std::function<void(ReleaseResult)> done);
     void cancelRelease(quint64 ticket);
+    // Warm account adoption (master prompt Part 4 §4): hand uid's RUNNING
+    // host's live handle to the foreground instead of retiring it. Only when
+    // the handover cannot lose or race anything: the host is Running with its
+    // initial sync done, not being removed or retired, its store not marked
+    // busy, and no keyring write of its sign-in or live token write pending
+    // (custody settled, so the keyring holds the pair the handle holds).
+    // Otherwise std::nullopt and nothing changed: the caller takes the cold
+    // releaseForForeground() path. On success, synchronously and with no I/O:
+    // the epoch moves (every late callback of that host is stale), uid is held
+    // back from restarting, the host and its book are gone, and the store's
+    // ownership record moves Host -> Foreground ON THE SAME SERIAL (one store,
+    // one owning handle; nothing re-opens it). The caller owns the handle.
+    std::optional<LiveSessionTicket> takeForAdoption(const QString &uid);
     // A release that ANSWERED (Free or StoreBusy) whose switch never brought
     // uid to the front (refused on the spot, or the store stayed busy): uid
     // is the pool's again, so its pin can restart it. Without this, uid stayed

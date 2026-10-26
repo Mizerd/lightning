@@ -1371,6 +1371,68 @@ void SessionPool::cancelRelease(quint64 ticket)
     schedule();
 }
 
+std::optional<LiveSessionTicket> SessionPool::takeForAdoption(const QString &uid)
+{
+    BackgroundSessionHost *host = m_hosts.value(uid);
+    const char *refusal = nullptr;
+    if (uid.isEmpty() || uid == m_foreground || !host)
+        refusal = "not-live";
+    else if (host->phase() != BackgroundSessionHost::Phase::Running)
+        refusal = "not-running";
+    else if (!host->initialSyncDone())
+        refusal = "not-synced";
+    else if (host->quiet() || m_removals.contains(uid) || m_deferred.contains(uid)
+             || m_stopping.contains(uid))
+        refusal = "retiring";
+    else if (m_storeBusy.contains(uid))
+        refusal = "store-busy";
+    else if (signInWriteBusy(uid) || !m_books.value(uid).pendingLiveDigests.isEmpty()
+             || m_books.value(uid).writePaused)
+        refusal = "custody-unsettled";
+    if (refusal) {
+        qCInfo(lcSessionPool) << "adoption refused" << "reason=" << refusal
+                              << "acct=" << (host ? host->identity().slug : QString());
+        return std::nullopt;
+    }
+
+    // §9 generation isolation: every callback the host's epoch stamped is
+    // stale from here (stillCurrent() fails), and the pool never restarts
+    // the account behind the switch.
+    ++m_epochs[uid];
+    m_releasedForForeground.insert(uid);
+    m_needsRestart.remove(uid);
+
+    const BackgroundSessionHost::Identity identity = host->identity();
+    LiveSessionTicket ticket;
+    ticket.userId = identity.userId;
+    ticket.deviceId = identity.deviceId;
+    ticket.homeserver = identity.homeserver;
+    ticket.storePath = identity.storePath;
+    ticket.slug = identity.slug;
+    ticket.oauth = identity.oauth;
+    ticket.storeSerial = host->storeSerial();
+    ticket.handle = host->takeHandle();
+    m_drainer->removeHost(host);
+    m_hosts.remove(uid);
+    host->deleteLater();
+    m_scheduler->releaseCatchUp(uid);
+    m_scheduler->noteStartFinished(identity.homeserver, uid);
+    Book book = m_books.take(uid);
+    if (book.writeRetry) {
+        book.writeRetry->stop();
+        book.writeRetry->deleteLater();
+    }
+    ticket.persistedDigest = book.persistedDigest;
+    // One store, one owning handle: the record that already names this open
+    // now names the foreground. Nothing claims or opens the store again.
+    m_registry->promote(ticket.storeSerial, StoreOwnershipRegistry::Role::Foreground);
+    resizeRetirementThreads();
+    Q_EMIT liveHostCountChanged(liveHostCount());
+    qCInfo(lcSessionPool) << "adoption: live handle handed to the foreground"
+                          << "acct=" << identity.slug;
+    return ticket;
+}
+
 void SessionPool::abandonRelease(const QString &uid)
 {
     if (uid.isEmpty() || uid == m_foreground)

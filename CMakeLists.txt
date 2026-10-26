@@ -527,6 +527,7 @@ set(APP_SOURCES
     # unless Labs is on (contract §1).
     src/accounts/RustBridgeApi.h
     src/accounts/SessionPool.h
+    src/accounts/LiveSessionTicket.h
     src/accounts/SessionPool.cpp
     src/accounts/BackgroundSessionHost.h
     src/accounts/BackgroundSessionHost.cpp

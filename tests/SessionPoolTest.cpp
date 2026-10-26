@@ -111,6 +111,8 @@ private Q_SLOTS:
     void aTransientFailureBacksOffUntilTheForegroundReachesTheServer();
     void accountsThatMustNotRunNeverStart();
     void releaseRetiresHandsBackThenFreesTheStore();
+    void aRunningHostIsHandedOverForAdoptionWithoutRetiringIt();
+    void anAccountThatCannotBeHandedOverStaysWithItsHost();
     void aStartingHostIsRetiredOnlyAfterItsLoginResult();
     void anUnconfirmedCloseKeepsTheStoreBusy();
     void anUnconfirmedCloseThatLooksIdleIsNotHandedToTheForeground();
@@ -718,6 +720,84 @@ void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
+    pool->shutdownAsync([] {});
+}
+
+// Warm account adoption (master prompt Part 4 §4): a RUNNING host's live
+// handle goes to the foreground as it is. Nothing is retired, destroyed,
+// handed back or re-opened; the store record moves Host -> Foreground on the
+// SAME serial; the epoch moves so every late host callback is stale; and the
+// account is not restarted in the background behind the switch.
+void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
+{
+    const QString a = uidOf(1);
+    saveAccount(a, QStringLiteral("a-token"));
+    m_settings->setKeepRunningFor(a, true);
+    auto pool = makePool();
+    startPool(*pool);
+    pool->noteForegroundInitialSyncDone();
+    pool->admitNowForTest();
+    bringToRunning(*pool, a);
+    FakeHandle *h = handleFor(a);
+    QCOMPARE(m_registry->records().size(), 1);
+    const quint64 serial = m_registry->records().first().serial;
+    const quint64 epochBefore = pool->epochFor(a);
+
+    const auto ticket = pool->takeForAdoption(a);
+    QVERIFY(ticket.has_value());
+    QVERIFY(ticket->valid());
+    QCOMPARE(ticket->handle, static_cast<void *>(h));
+    QCOMPARE(ticket->userId, a);
+    QCOMPARE(ticket->storePath, storePathOf(a));
+    QCOMPARE(ticket->storeSerial, serial);
+    // Not retired: no teardown, no handback, no destroy on that handle.
+    QCoreApplication::processEvents();
+    QVERIFY2(!h->log.contains(QStringLiteral("shutdownTasks"))
+                 && !h->log.contains(QStringLiteral("destroyAndReport"))
+                 && !h->log.contains(QStringLiteral("finalSessionTokens")),
+             qPrintable(h->log.join(QLatin1Char(','))));
+    // One store, one owner, same record, now the foreground's.
+    QCOMPARE(m_registry->records().size(), 1);
+    QCOMPARE(m_registry->records().first().serial, serial);
+    QCOMPARE(m_registry->records().first().role,
+             lightning::accounts::StoreOwnershipRegistry::Role::Foreground);
+    QCOMPARE(m_registry->records().first().state,
+             lightning::accounts::StoreOwnershipRegistry::State::Live);
+    QVERIFY(!pool->holdsStore(a));
+    QCOMPARE(pool->liveHostCount(), 0);
+    QVERIFY(pool->epochFor(a) > epochBefore);
+    // Draining no longer reaches it, and nothing restarts it.
+    const int pollsBefore = m_fake->calls(QStringLiteral("bgPoll"));
+    drain(*pool);
+    QCOMPARE(m_fake->calls(QStringLiteral("bgPoll")), pollsBefore);
+    m_now += 10000;
+    pool->admitNowForTest();
+    QCoreApplication::processEvents();
+    QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
+    // A second take has nothing to hand over.
+    QVERIFY(!pool->takeForAdoption(a).has_value());
+    pool->shutdownAsync([] {});
+}
+
+// Anything that could lose or race the handover keeps the host, untouched,
+// and leaves the switch to the cold release path.
+void SessionPoolTest::anAccountThatCannotBeHandedOverStaysWithItsHost()
+{
+    const QString a = uidOf(1);
+    saveAccount(a);
+    m_settings->setKeepRunningFor(a, true);
+    m_fake->setHoldStarting(true);
+    auto pool = makePool();
+    startPool(*pool);
+    pool->noteForegroundInitialSyncDone();
+    pool->admitNowForTest();
+    QTRY_VERIFY_WITH_TIMEOUT(handleFor(a), 3000);
+    // Still Starting (no login result yet).
+    QVERIFY(!pool->takeForAdoption(a).has_value());
+    QVERIFY(pool->holdsStore(a));
+    QCOMPARE(pool->liveHostCount(), 1);
+    // Not live at all.
+    QVERIFY(!pool->takeForAdoption(uidOf(2)).has_value());
     pool->shutdownAsync([] {});
 }
 
