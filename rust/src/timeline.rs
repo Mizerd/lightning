@@ -4373,6 +4373,11 @@ fn fetch_missing_reply_details<'a, I>(
         let TimelineItemKind::Event(event) = item.kind() else { continue };
         let TimelineItemContent::MsgLike(msg_like) = event.content() else { continue };
         let Some(reply) = &msg_like.in_reply_to else { continue };
+        // A thread reply's fallback quote is never shown (see
+        // event_item_to_json), so its target is not worth a request.
+        if event.original_json().is_some_and(is_thread_reply_fallback) {
+            continue;
+        }
         // Only unresolved ones. `Pending` is in flight, and `Error` must not be
         // retried in a loop (e.g. a redacted or invisible target).
         if !matches!(reply.event, TimelineDetails::Unavailable) {
@@ -4824,7 +4829,19 @@ fn event_item_to_json(
                     .collect();
                 out["reactions"] = reactions.into();
             }
-            if let Some(reply) = &msg_like.in_reply_to {
+            // A thread reply carries `m.in_reply_to` with `is_falling_back`
+            // only for clients without threads; it is not a quote the sender
+            // chose. matrix-sdk-ui drops it in a thread-focused timeline but
+            // keeps it in a live timeline that shows threaded events (the
+            // Inline style), where it rendered as a quote card on every
+            // reply. An explicit in-thread reply (is_falling_back false or
+            // absent) still quotes. A local echo has no original JSON and keeps
+            // the SDK's answer until the remote event replaces it.
+            let reply_is_thread_fallback =
+                event.original_json().is_some_and(is_thread_reply_fallback);
+            if let Some(reply) =
+                msg_like.in_reply_to.as_ref().filter(|_| !reply_is_thread_fallback)
+            {
                 out["reply_to_event_id"] = reply.event_id.to_string().into();
                 if let TimelineDetails::Ready(embedded) = &reply.event {
                     // ReplyToSenderRole is a display name: resolve it like every other sender
@@ -6901,6 +6918,19 @@ fn cleartext_thread_root(
     }
     let root = relation.get("event_id")?.as_str()?;
     matrix_sdk::ruma::EventId::parse(root).ok().map(|id| id.to_string())
+}
+
+/// Whether an event's `m.relates_to` is an `m.thread` relation whose
+/// `m.in_reply_to` is only the MSC3440 fallback (`is_falling_back: true`) for
+/// clients without threads. Relations stay in cleartext in an encrypted event,
+/// so the original JSON answers for both.
+fn is_thread_reply_fallback(raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>) -> bool {
+    let Some(content) = raw.get_field::<serde_json::Value>("content").ok().flatten() else {
+        return false;
+    };
+    let Some(relation) = content.get("m.relates_to") else { return false };
+    relation.get("rel_type").and_then(|v| v.as_str()) == Some("m.thread")
+        && relation.get("is_falling_back").and_then(|v| v.as_bool()) == Some(true)
 }
 
 /// The `m.thread` root a (decrypted or plain) event's content names.
@@ -9499,6 +9529,33 @@ mod thread_utd_tests {
 
     fn raw(value: Value) -> Raw<AnySyncTimelineEvent> {
         Raw::from_json_string(value.to_string()).unwrap()
+    }
+
+    #[test]
+    fn only_a_falling_back_thread_relation_is_a_fallback_quote() {
+        // The fallback every thread reply carries, plain or encrypted.
+        let mut plain = encrypted(Some(thread_relation(ROOT)));
+        assert!(is_thread_reply_fallback(&raw(plain.clone())));
+        plain["type"] = json!("m.room.message");
+        assert!(is_thread_reply_fallback(&raw(plain)));
+        // An explicit in-thread reply quotes.
+        let explicit = json!({
+            "rel_type": "m.thread",
+            "event_id": ROOT,
+            "is_falling_back": false,
+            "m.in_reply_to": { "event_id": "$chosen:example.org" },
+        });
+        assert!(!is_thread_reply_fallback(&raw(encrypted(Some(explicit)))));
+        let absent = json!({
+            "rel_type": "m.thread",
+            "event_id": ROOT,
+            "m.in_reply_to": { "event_id": "$chosen:example.org" },
+        });
+        assert!(!is_thread_reply_fallback(&raw(encrypted(Some(absent)))));
+        // A rich reply outside threads is a real quote.
+        let reply = json!({ "m.in_reply_to": { "event_id": ROOT } });
+        assert!(!is_thread_reply_fallback(&raw(encrypted(Some(reply)))));
+        assert!(!is_thread_reply_fallback(&raw(encrypted(None))));
     }
 
     #[test]
